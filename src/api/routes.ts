@@ -222,5 +222,52 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
+  // Toggle wallet active status (enable/disable copy trading)
+  router.patch('/wallets/:address/toggle', async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      const { active } = req.body;
+      
+      const wallet = await Storage.toggleWalletActive(address, active);
+      await copyTrader.reloadWallets();
+      
+      res.json({ 
+        success: true, 
+        message: wallet.active ? 'Wallet copy trading enabled' : 'Wallet copy trading disabled',
+        wallet 
+      });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get wallet positions
+  router.get('/wallets/:address/positions', async (req: Request, res: Response) => {
+    const { address } = req.params;
+    try {
+      const api = copyTrader.getPolymarketApi();
+      const positions = await api.getUserPositions(address);
+      res.json({ success: true, positions: positions || [] });
+    } catch (error: any) {
+      console.error(`Failed to load positions for ${address}:`, error.message);
+      res.json({ success: true, positions: [], error: error.message });
+    }
+  });
+
+  // Get wallet-specific trades
+  router.get('/wallets/:address/trades', (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      const limit = parseInt(req.query.limit as string) || 100;
+      const allTrades = performanceTracker.getRecentTrades(limit);
+      const walletTrades = allTrades.filter(t => 
+        t.walletAddress.toLowerCase() === address.toLowerCase()
+      );
+      res.json({ success: true, trades: walletTrades });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   return router;
 }
