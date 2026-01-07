@@ -637,7 +637,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
               <div class="wallet-card" style="background: var(--bg);">
                 <div class="wallet-info">
                   <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
-                    <span style="font-size: 16px; color: var(--text-muted);">Your Wallet Address:</span>
+                    <span style="font-size: 16px; color: var(--text-muted);">Your Trading Wallet:</span>
                     <span id="tradingWalletAddress" style="font-family: 'Monaco', 'Menlo', monospace; font-size: 15px; color: var(--primary); font-weight: 600; word-break: break-all;">
                       Loading...
                     </span>
@@ -1559,8 +1559,20 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
               const walletAddressEl = document.getElementById('tradingWalletAddress');
               
               if (data.success && data.walletAddress) {
-                walletAddressEl.textContent = data.walletAddress;
+                // Display proxy wallet if available (where funds are), otherwise show EOA
+                const displayAddress = data.proxyWalletAddress || data.walletAddress;
+                
+                // Show both addresses if proxy exists
+                if (data.proxyWalletAddress && data.proxyWalletAddress !== data.walletAddress) {
+                  walletAddressEl.innerHTML = '<div style="display: flex; flex-direction: column; gap: 4px;">' +
+                    '<div style="font-weight: 600;">' + displayAddress + '</div>' +
+                    '<div style="font-size: 11px; color: var(--text-muted); font-weight: normal;">EOA: ' + data.walletAddress + '</div>' +
+                    '</div>';
+                } else {
+                  walletAddressEl.textContent = displayAddress;
+                }
                 walletAddressEl.style.color = 'var(--success)';
+                
                 // Load balance
                 await loadUserBalance();
               } else {
