@@ -90,57 +90,71 @@ export class TradeExecutor {
 
       // Place order via CLOB client
       console.log(`\n📤 Placing order via CLOB client...`);
-      const orderResponse = await this.clobClient.createAndPostOrder({
-        tokenID: tokenId,
-        side: side,
-        size: size,
-        price: price,
-        tickSize: tickSize,
-        negRisk: negRisk,
-      });
+      
+      let orderResponse: any;
+      try {
+        orderResponse = await this.clobClient.createAndPostOrder({
+          tokenID: tokenId,
+          side: side,
+          size: size,
+          price: price,
+          tickSize: tickSize,
+          negRisk: negRisk,
+        });
+      } catch (clobError: any) {
+        // CLOB client threw an error - this is expected for failures
+        console.error(`[Execute] CLOB client threw error:`, clobError.message);
+        throw clobError;
+      }
 
       const executionTime = Date.now() - executionStart;
 
-      // Log full response for debugging
-      console.log(`[Execute] CLOB Response:`, JSON.stringify(orderResponse, null, 2));
+      // DEBUG: Log the exact response we got
+      console.log(`[DEBUG] orderResponse type: ${typeof orderResponse}`);
+      console.log(`[DEBUG] orderResponse: ${JSON.stringify(orderResponse)}`);
 
-      // CRITICAL: Validate the response before declaring success
-      // The CLOB client may return a response even when the request failed (e.g., 403 from Cloudflare)
-      const orderId = orderResponse?.orderID || orderResponse?.orderId || orderResponse?.id;
+      // CRITICAL: Check for HTTP error status FIRST (handles both string and number)
       const responseStatus = orderResponse?.status;
-
-      // Check for failure conditions
-      if (!orderId) {
-        // No order ID means the order was NOT placed
-        const errorDetails = JSON.stringify(orderResponse || 'empty response');
-        throw new Error(`Order placement failed: No order ID returned. Response: ${errorDetails}`);
+      if (responseStatus !== undefined && responseStatus !== null) {
+        const numericStatus = typeof responseStatus === 'string' ? parseInt(responseStatus, 10) : responseStatus;
+        if (!isNaN(numericStatus) && numericStatus >= 400) {
+          throw new Error(`Order rejected with HTTP status ${numericStatus}. This usually means Cloudflare blocked the request. Check Builder credentials.`);
+        }
       }
 
-      // Check for error status codes in response (e.g., 403, 400, etc.)
-      if (typeof responseStatus === 'number' && responseStatus >= 400) {
-        throw new Error(`Order placement failed with HTTP status ${responseStatus}`);
-      }
-
-      // Check for error field in response
+      // Check for error field
       if (orderResponse?.error) {
         throw new Error(`Order placement failed: ${orderResponse.error}`);
       }
 
-      // Check for Cloudflare block indicators
-      if (typeof orderResponse === 'string' && orderResponse.includes('Cloudflare')) {
-        throw new Error('Order placement blocked by Cloudflare. Your server IP may be blocked.');
+      // CRITICAL: Validate the response before declaring success
+      const orderId = orderResponse?.orderID || orderResponse?.orderId || orderResponse?.id;
+      
+      // Strict validation - orderId must be a non-empty, non-"undefined" string
+      const isValidOrderId = orderId !== undefined && 
+                              orderId !== null && 
+                              orderId !== '' && 
+                              String(orderId) !== 'undefined' && 
+                              String(orderId) !== 'null' &&
+                              String(orderId).trim().length > 0;
+
+      if (!isValidOrderId) {
+        const errorDetails = JSON.stringify(orderResponse || 'empty response');
+        console.error(`[DEBUG] VALIDATION FAILED: orderId="${orderId}", type=${typeof orderId}, isValid=${isValidOrderId}`);
+        throw new Error(`Order placement failed: No valid order ID returned. orderId="${orderId}". Response: ${errorDetails}`);
       }
 
+      // If we get here, the order was actually placed successfully
       console.log(`\n✅ [Execute] ORDER PLACED SUCCESSFULLY!`);
       console.log(`${'='.repeat(60)}`);
       console.log(`   Order ID: ${orderId}`);
-      console.log(`   Status: ${responseStatus || 'pending'}`);
+      console.log(`   Status: ${responseStatus || 'accepted'}`);
       console.log(`   Execution Time: ${executionTime}ms`);
       console.log(`${'='.repeat(60)}\n`);
 
       return {
         success: true,
-        orderId: orderId,
+        orderId: String(orderId),
         transactionHash: orderResponse.txHash || orderResponse.transactionHash || orderResponse.hash || null,
         executionTimeMs: executionTime
       };

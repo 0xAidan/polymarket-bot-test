@@ -52,6 +52,12 @@ export class PolymarketClobClient {
       // Without this, requests get blocked by Cloudflare as unauthorized bot traffic
       let builderConfig: BuilderConfig | undefined;
       
+      // DEBUG: Log builder credential presence
+      console.log(`[DEBUG] Checking builder credentials...`);
+      console.log(`[DEBUG] POLYMARKET_BUILDER_API_KEY present: ${!!config.polymarketBuilderApiKey} (length: ${config.polymarketBuilderApiKey?.length || 0})`);
+      console.log(`[DEBUG] POLYMARKET_BUILDER_SECRET present: ${!!config.polymarketBuilderSecret} (length: ${config.polymarketBuilderSecret?.length || 0})`);
+      console.log(`[DEBUG] POLYMARKET_BUILDER_PASSPHRASE present: ${!!config.polymarketBuilderPassphrase} (length: ${config.polymarketBuilderPassphrase?.length || 0})`);
+      
       if (config.polymarketBuilderApiKey && 
           config.polymarketBuilderSecret && 
           config.polymarketBuilderPassphrase) {
@@ -64,10 +70,13 @@ export class PolymarketClobClient {
           }
         });
         console.log('✓ Builder API credentials configured for authenticated trading');
+        console.log(`[DEBUG] BuilderConfig created successfully`);
       } else {
-        console.warn('⚠️  Builder API credentials NOT configured!');
-        console.warn('   Orders will likely be blocked by Cloudflare without Builder authentication.');
-        console.warn('   Set POLYMARKET_BUILDER_API_KEY, POLYMARKET_BUILDER_SECRET, POLYMARKET_BUILDER_PASSPHRASE');
+        console.error('❌ Builder API credentials NOT configured!');
+        console.error('   Orders WILL BE BLOCKED by Cloudflare without Builder authentication.');
+        console.error('   This is the #1 cause of trade execution failures on cloud servers.');
+        console.error('   Set POLYMARKET_BUILDER_API_KEY, POLYMARKET_BUILDER_SECRET, POLYMARKET_BUILDER_PASSPHRASE');
+        console.error('   Get these from: https://polymarket.com/settings?tab=builder');
       }
 
       // Initialize the trading client with ALL 9 parameters including BuilderConfig
@@ -150,26 +159,59 @@ export class PolymarketClobClient {
     try {
       console.log(`[CLOB] Placing order: tokenID=${params.tokenID}, price=${params.price}, size=${params.size}, side=${params.side}`);
       
-      const response = await this.client.createAndPostOrder(
-        {
-          tokenID: params.tokenID,
-          price: params.price,
-          size: params.size,
-          side: params.side,
-        },
-        {
-          tickSize: tickSize! as any, // TickSize type from CLOB client
-          negRisk: negRisk!,
-        },
-        OrderType.GTC // Good-Til-Cancelled
-      );
+      // DEBUG: Log builder config status
+      console.log(`[DEBUG] Builder credentials configured: key=${!!config.polymarketBuilderApiKey}, secret=${!!config.polymarketBuilderSecret}, passphrase=${!!config.polymarketBuilderPassphrase}`);
+      
+      let response: any;
+      try {
+        response = await this.client.createAndPostOrder(
+          {
+            tokenID: params.tokenID,
+            price: params.price,
+            size: params.size,
+            side: params.side,
+          },
+          {
+            tickSize: tickSize! as any, // TickSize type from CLOB client
+            negRisk: negRisk!,
+          },
+          OrderType.GTC // Good-Til-Cancelled
+        );
+      } catch (innerError: any) {
+        // CLOB client threw an error - this is the expected behavior for failures
+        console.error(`[CLOB] Client threw error:`, innerError.message);
+        throw innerError;
+      }
 
-      // Log full response for debugging
-      console.log(`[CLOB] Order response received:`, JSON.stringify(response, null, 2));
+      // DEBUG: Log the EXACT response for diagnosis
+      console.log(`[DEBUG] CLOB response type: ${typeof response}`);
+      console.log(`[DEBUG] CLOB response isNull: ${response === null}`);
+      console.log(`[DEBUG] CLOB response isUndefined: ${response === undefined}`);
+      if (response && typeof response === 'object') {
+        console.log(`[DEBUG] CLOB response keys: ${Object.keys(response).join(', ')}`);
+        console.log(`[DEBUG] CLOB response.orderID: ${response.orderID} (type: ${typeof response.orderID})`);
+        console.log(`[DEBUG] CLOB response.status: ${response.status} (type: ${typeof response.status})`);
+        console.log(`[DEBUG] CLOB response.error: ${response.error}`);
+      }
+      console.log(`[DEBUG] Full CLOB response: ${JSON.stringify(response)}`);
+
+      // CRITICAL: Check for HTTP error status FIRST (handles both string and number)
+      const statusCode = response?.status;
+      if (statusCode !== undefined && statusCode !== null) {
+        const numericStatus = typeof statusCode === 'string' ? parseInt(statusCode, 10) : statusCode;
+        if (!isNaN(numericStatus) && numericStatus >= 400) {
+          throw new Error(`CLOB API returned HTTP error ${numericStatus} - request was rejected`);
+        }
+      }
 
       // Check if response is empty or null
       if (!response) {
-        throw new Error('CLOB client returned empty/null response');
+        throw new Error('CLOB client returned empty/null response - order was NOT placed');
+      }
+
+      // Check if response is an empty object
+      if (typeof response === 'object' && Object.keys(response).length === 0) {
+        throw new Error('CLOB client returned empty object - order likely failed silently');
       }
 
       // Check if response contains error indicators
@@ -182,20 +224,26 @@ export class PolymarketClobClient {
         if (response.includes('Cloudflare') || response.includes('blocked')) {
           throw new Error('Request blocked by Cloudflare - server IP may be blocked');
         }
-        // Try to parse as JSON error
-        try {
-          const parsed = JSON.parse(response);
-          if (parsed.error) {
-            throw new Error(`CLOB API error: ${parsed.error}`);
-          }
-        } catch {
-          // Not JSON, might be an error page
-          if (response.includes('<!DOCTYPE') || response.includes('<html')) {
-            throw new Error('Received HTML error page instead of JSON response - API may be blocked');
-          }
+        if (response.includes('<!DOCTYPE') || response.includes('<html')) {
+          throw new Error('Received HTML error page instead of JSON response - API may be blocked');
         }
       }
 
+      // CRITICAL: Validate that we got an actual valid order ID
+      const orderId = response?.orderID || response?.orderId || response?.id;
+      const isValidOrderId = orderId !== undefined && 
+                              orderId !== null && 
+                              orderId !== '' && 
+                              String(orderId) !== 'undefined' && 
+                              String(orderId) !== 'null' &&
+                              String(orderId).length > 0;
+      
+      if (!isValidOrderId) {
+        console.error(`[DEBUG] VALIDATION FAILED: orderId="${orderId}", type=${typeof orderId}`);
+        throw new Error(`CLOB response missing valid orderID. Got orderId="${orderId}". Full response: ${JSON.stringify(response)}`);
+      }
+
+      console.log(`[CLOB] Order placed successfully: orderID=${orderId}`);
       return response;
     } catch (error: any) {
       // Extract meaningful error message from various error formats
