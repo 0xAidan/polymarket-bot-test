@@ -662,6 +662,34 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             </div>
           </div>
 
+          <div class="section" style="margin-bottom: 24px;">
+            <h2>⚙️ Copy Trade Configuration</h2>
+            <div class="wallet-card" style="background: var(--bg); max-width: 600px;">
+              <div class="wallet-info" style="width: 100%;">
+                <div style="margin-bottom: 16px;">
+                  <div style="font-size: 14px; color: var(--text-muted); margin-bottom: 8px;">Trade Size (per copy trade)</div>
+                  <div style="display: flex; gap: 12px; align-items: start;">
+                    <input 
+                      type="text" 
+                      id="tradeSizeInput" 
+                      placeholder="10" 
+                      style="flex: 1; min-width: 150px;"
+                    />
+                    <button onclick="saveTradeSize()" class="btn-primary">Save</button>
+                  </div>
+                  <div id="tradeSizeError" class="input-error">Invalid trade size</div>
+                  <div style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">
+                    The bot will copy the position and trading activity from tracked wallets, but use this fixed trade size for all copy trades.
+                  </div>
+                </div>
+                <div style="padding: 12px; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 8px; font-size: 13px; color: var(--text-muted);">
+                  <strong style="color: var(--primary); display: block; margin-bottom: 4px;">💡 How this works:</strong>
+                  <p style="margin: 0;">When a tracked wallet makes a trade, the bot will execute the same trade direction (BUY/SELL) and outcome (YES/NO), but will use your configured trade size instead of copying their exact trade size.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="metrics-grid" id="metricsGrid">
             <div class="metric-card success">
               <h3>Success Rate</h3>
@@ -1581,6 +1609,77 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             }
           }
 
+          // Load trade size configuration
+          async function loadTradeSize() {
+            try {
+              const res = await fetch('/api/config/trade-size');
+              const data = await res.json();
+              if (data.success) {
+                const input = document.getElementById('tradeSizeInput');
+                if (input) {
+                  input.value = data.tradeSize || '10';
+                }
+              }
+            } catch (error) {
+              console.error('Failed to load trade size:', error);
+            }
+          }
+
+          // Save trade size configuration
+          async function saveTradeSize() {
+            const input = document.getElementById('tradeSizeInput');
+            const errorDiv = document.getElementById('tradeSizeError');
+            const tradeSize = input.value.trim();
+            
+            // Clear previous errors
+            input.classList.remove('error');
+            errorDiv.classList.remove('show');
+            
+            if (!tradeSize) {
+              input.classList.add('error');
+              errorDiv.textContent = 'Trade size is required';
+              errorDiv.classList.add('show');
+              return;
+            }
+
+            const sizeNum = parseFloat(tradeSize);
+            if (isNaN(sizeNum) || sizeNum <= 0) {
+              input.classList.add('error');
+              errorDiv.textContent = 'Trade size must be a positive number';
+              errorDiv.classList.add('show');
+              return;
+            }
+
+            try {
+              const res = await fetch('/api/config/trade-size', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tradeSize })
+              });
+              
+              const data = await res.json();
+              if (data.success) {
+                // Show success feedback
+                errorDiv.textContent = '✓ Trade size saved!';
+                errorDiv.style.color = 'var(--success)';
+                errorDiv.classList.add('show');
+                setTimeout(() => {
+                  errorDiv.classList.remove('show');
+                  errorDiv.style.color = '';
+                }, 2000);
+              } else {
+                input.classList.add('error');
+                errorDiv.textContent = data.error || 'Failed to save trade size';
+                errorDiv.classList.add('show');
+              }
+            } catch (error) {
+              input.classList.add('error');
+              errorDiv.textContent = 'Failed to save trade size';
+              errorDiv.classList.add('show');
+              console.error('Failed to save trade size:', error);
+            }
+          }
+
           // Auto-refresh function
           function refreshAll() {
             loadStatus();
@@ -1589,6 +1688,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             loadWallets();
             loadTrades();
             loadIssues();
+            loadTradeSize();
             // Balance will be loaded as part of loadWalletConfig and loadWallets
           }
 
@@ -1606,6 +1706,16 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                 addWallet();
               }
             });
+
+            // Trade size input - allow Enter key to save
+            const tradeSizeInput = document.getElementById('tradeSizeInput');
+            if (tradeSizeInput) {
+              tradeSizeInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                  saveTradeSize();
+                }
+              });
+            }
 
             // Initialize chart
             initChart();

@@ -269,5 +269,43 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
+  // Get trade size configuration
+  router.get('/config/trade-size', async (req: Request, res: Response) => {
+    try {
+      const tradeSize = await Storage.getTradeSize();
+      res.json({ success: true, tradeSize });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Set trade size configuration
+  router.post('/config/trade-size', async (req: Request, res: Response) => {
+    try {
+      const { tradeSize } = req.body;
+      
+      if (!tradeSize || typeof tradeSize !== 'string') {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Trade size is required' 
+        });
+      }
+
+      // Validate that it's a valid number
+      const sizeNum = parseFloat(tradeSize);
+      if (isNaN(sizeNum) || sizeNum <= 0) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Trade size must be a positive number' 
+        });
+      }
+
+      await Storage.setTradeSize(tradeSize);
+      res.json({ success: true, message: 'Trade size updated', tradeSize });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   return router;
 }

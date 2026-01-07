@@ -4,6 +4,7 @@ import { TrackedWallet } from './types.js';
 import { config } from './config.js';
 
 const WALLETS_FILE = path.join(config.dataDir, 'tracked_wallets.json');
+const CONFIG_FILE = path.join(config.dataDir, 'bot_config.json');
 
 /**
  * Storage manager for tracked wallets
@@ -111,5 +112,53 @@ export class Storage {
     wallet.active = active !== undefined ? active : !wallet.active;
     await this.saveTrackedWallets(wallets);
     return wallet;
+  }
+
+  /**
+   * Load bot configuration
+   */
+  static async loadConfig(): Promise<any> {
+    try {
+      await this.ensureDataDir();
+      const data = await fs.readFile(CONFIG_FILE, 'utf-8');
+      return JSON.parse(data);
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        // File doesn't exist yet, return default config
+        return { tradeSize: '10' }; // Default trade size
+      }
+      console.error('Failed to load bot config:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Save bot configuration
+   */
+  static async saveConfig(configData: any): Promise<void> {
+    try {
+      await this.ensureDataDir();
+      await fs.writeFile(CONFIG_FILE, JSON.stringify(configData, null, 2));
+    } catch (error) {
+      console.error('Failed to save bot config:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get configured trade size
+   */
+  static async getTradeSize(): Promise<string> {
+    const config = await this.loadConfig();
+    return config.tradeSize || '10';
+  }
+
+  /**
+   * Set configured trade size
+   */
+  static async setTradeSize(size: string): Promise<void> {
+    const config = await this.loadConfig();
+    config.tradeSize = size;
+    await this.saveConfig(config);
   }
 }

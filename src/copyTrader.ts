@@ -128,11 +128,14 @@ export class CopyTrader {
     const executionStart = Date.now();
 
     try {
+      // Get configured trade size instead of using the detected trade amount
+      const configuredTradeSize = await Storage.getTradeSize();
+      
       // Convert detected trade to trade order
       const order: TradeOrder = {
         marketId: trade.marketId,
         outcome: trade.outcome,
-        amount: trade.amount,
+        amount: configuredTradeSize, // Use configured trade size instead of detected amount
         price: trade.price,
         side: trade.side // Use the side detected from the tracked wallet's trade
       };
