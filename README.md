@@ -38,6 +38,91 @@ cp .env.example .env
 npm run dev
 ```
 
+## Running on Separate Computers
+
+If you want to share this bot with a colleague and both run it with your own wallets on separate computers:
+
+1. **Share the repository** - Send them the repo link or a copy of the code
+2. **Each person sets up independently:**
+   - Clone the repository on their computer
+   - Copy `ENV_EXAMPLE.txt` to `.env`
+   - Fill in their own `PRIVATE_KEY` and configuration in `.env`
+   - Run `npm install` and `npm run dev`
+
+**That's it!** Each person runs on their own computer with their own wallet. There's no conflict because:
+- Each person uses their own `.env` file with their own `PRIVATE_KEY`
+- Each person runs on their own computer (no port conflicts)
+- Each person has their own data directory
+
+## Running 24/7 (Cloud Deployment)
+
+If you want the bot to run continuously without keeping your computer on, you can deploy it to a cloud service. Here are three simple options:
+
+### Option 1: Railway (Recommended - Easiest)
+
+1. **Sign up at [railway.app](https://railway.app)** (free tier available)
+2. **Create a new project** → "Deploy from GitHub repo"
+3. **Connect your GitHub repository**
+4. **Add environment variables** in Railway dashboard:
+   - `PRIVATE_KEY` - Your wallet private key
+   - `POLYGON_RPC_URL` - Your Polygon RPC endpoint
+   - `PORT` - Railway will set this automatically
+   - Add any other variables from `ENV_EXAMPLE.txt`
+5. **Deploy** - Railway will automatically build and deploy using the Dockerfile
+
+**Note**: Railway provides a free tier that's perfect for this bot. They handle all the infrastructure for you.
+
+### Option 2: Render
+
+1. **Sign up at [render.com](https://render.com)** (free tier available)
+2. **Create a new "Web Service"**
+3. **Connect your GitHub repository**
+4. **Configure the service:**
+   - Build Command: `npm install && npm run build`
+   - Start Command: `npm start`
+   - Environment: `Node`
+5. **Add environment variables** in Render dashboard (same as Railway)
+6. **Deploy**
+
+**Note**: Render's free tier puts services to sleep after 15 minutes of inactivity. For a trading bot that needs to run 24/7, you'll need a paid plan (~$7/month).
+
+### Option 3: VPS (DigitalOcean, Linode, AWS EC2, etc.)
+
+1. **Create a VPS instance** (smallest size is fine, ~$5/month)
+2. **Connect via SSH**
+3. **Install Node.js 18+**:
+   ```bash
+   curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+   sudo apt-get install -y nodejs
+   ```
+4. **Clone your repository**:
+   ```bash
+   git clone <your-repo-url>
+   cd polymarket-bot-test
+   ```
+5. **Set up environment variables**:
+   ```bash
+   cp ENV_EXAMPLE.txt .env
+   nano .env  # Edit with your credentials
+   ```
+6. **Install and run with PM2** (keeps it running 24/7):
+   ```bash
+   npm install
+   npm run build
+   sudo npm install -g pm2
+   pm2 start dist/index.js --name polymarket-bot
+   pm2 save
+   pm2 startup  # Follow instructions to auto-start on reboot
+   ```
+
+### Which Option Should I Choose?
+
+- **Railway**: Best for beginners - everything is automated
+- **Render**: Good if you want free tier (but remember it sleeps on free plan)
+- **VPS**: Most control, but requires some Linux knowledge
+
+All three options will run your bot 24/7! Choose the one that feels easiest for you.
+
 ## Configuration
 
 The bot requires:
