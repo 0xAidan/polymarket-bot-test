@@ -18,9 +18,13 @@ A bot that automatically copies trades from wallets you choose to track on Polym
    cd ~/Desktop
    ```
 
-3. **Download the code** (replace `<repository-url>` with your actual GitHub repo URL):
+3. **Download the code**:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/0xAidan/polymarket-bot-test.git
+   ```
+   
+   Then go into the folder:
+   ```bash
    cd polymarket-bot-test
    ```
 
