@@ -1,151 +1,108 @@
-# Polymarket Copytrade Bot
+# Polymarket Copytrade Bot - Quickstart Guide
 
-A bot that automatically copies trades from wallets you choose to track on Polymarket.
+A bot that automatically copies trades from wallets you track on Polymarket.
 
-## What This Bot Does
+## What It Does
 
 1. You add wallet addresses to track
 2. The bot watches those wallets for trades
 3. When they make a trade, the bot automatically makes the same trade for you
-4. You can see everything happening in a web dashboard
+4. You can see everything in a web dashboard
 
-## Step 1: Get Your Code Ready (On Your Mac)
+## Quick Start (Run on Your Computer)
 
-1. **Open Terminal** (Press `Command + Space`, type "Terminal", press Enter)
+### 1. Install Dependencies
 
-2. **Go to where you want the bot** (for example, your Desktop):
-   ```bash
-   cd ~/Desktop
-   ```
-   
-   **Note:** If you see a message about "zsh" or "bash", that's normal - just ignore it and continue.
+```bash
+npm install
+```
 
-3. **Download the code**:
-   ```bash
-   git clone https://github.com/0xAidan/polymarket-bot-test.git
-   ```
-   
-   Then go into the folder:
-   ```bash
-   cd polymarket-bot-test
-   ```
+### 2. Set Up Your Wallet
 
-4. **Install the tools the bot needs**:
-   ```bash
-   npm install
-   ```
+Run the setup command:
 
-## Step 2: Set Up Your Wallet
+```bash
+npm run setup
+```
 
-1. **Run the setup command**:
-   ```bash
-   npm run setup
-   ```
+This will ask you for:
+- **Private Key**: Your wallet's private key (from MetaMask or your wallet)
+- **Builder API Key**: Get this from [Polymarket Settings → Builder tab](https://polymarket.com/settings?tab=builder)
+- **Builder Secret**: Also from Polymarket Settings → Builder tab
+- **Builder Passphrase**: Also from Polymarket Settings → Builder tab
 
-2. **When it asks for your private key**:
-   - Go to your crypto wallet (like MetaMask)
-   - Find your private key in the wallet settings
-   - Copy and paste it when the bot asks
-   - Press Enter
+**Note**: The Builder API credentials are **required** - without them, your trades will be blocked by Cloudflare.
 
-3. **For the other questions** (API key, RPC URL):
-   - Just press Enter to skip them (they're optional)
+### 3. Run the Bot
 
-**Done!** The bot now knows your wallet.
+```bash
+npm run dev
+```
 
-## Step 3: Test It Locally (Optional - Just to Make Sure It Works)
+The bot will start and you'll see:
+- A web dashboard at `http://localhost:3001`
+- Status information in the terminal
+- Any errors or warnings
 
-1. **Start the bot**:
-   ```bash
-   npm run dev
-   ```
+### 4. Use the Dashboard
 
-2. **Open your web browser** and go to: `http://localhost:3000`
+1. Open `http://localhost:3001` in your browser
+2. Add wallet addresses you want to track
+3. The bot will automatically start copying their trades
 
-3. **You should see a dashboard**. This means it's working!
+## Environment Variables
 
-4. **Press `Control + C` in Terminal to stop the bot** (you'll deploy it to Railway next so it runs 24/7)
+If you prefer to set up manually, create a `.env` file in the project root:
 
-## Step 4: Deploy to Railway (So It Runs 24/7)
+```env
+# Required: Your wallet private key
+PRIVATE_KEY=your_private_key_here
 
-### Part A: Create Railway Account
+# Required: Polymarket Builder API credentials (get from https://polymarket.com/settings?tab=builder)
+POLYMARKET_BUILDER_API_KEY=your_builder_api_key_here
+POLYMARKET_BUILDER_SECRET=your_builder_secret_here
+POLYMARKET_BUILDER_PASSPHRASE=your_builder_passphrase_here
 
-1. **Go to [railway.app](https://railway.app)** in your web browser
-2. **Click "Start a New Project"** or "Sign Up"
-3. **Sign up with your GitHub account** (easiest way)
-4. **Railway will ask for access to your GitHub** - click "Authorize"
+# Optional: Polygon RPC URL (defaults to https://polygon-rpc.com)
+POLYGON_RPC_URL=https://polygon-rpc.com
 
-### Part B: Connect Your Code
+# Optional: Server port (defaults to 3001)
+PORT=3001
+```
 
-1. **In Railway, click "New Project"**
-2. **Click "Deploy from GitHub repo"**
-3. **Find your `polymarket-bot-test` repository** in the list
-4. **Click on it** to connect it
-
-### Part C: Add Your Wallet Information
-
-1. **In Railway, click on your project**
-2. **Click the "Variables" tab** (or "Environment" tab)
-3. **Click "New Variable"** and add these one by one:
-
-   **Variable 1:**
-   - Name: `PRIVATE_KEY`
-   - Value: (paste your wallet private key here - the same one you used in Step 2)
-   - Click "Add"
-
-   **Variable 2:**
-   - Name: `POLYGON_RPC_URL`
-   - Value: `https://polygon-rpc.com`
-   - Click "Add"
-
-   **That's it!** Railway will automatically add the `PORT` variable for you.
-
-### Part D: Deploy
-
-1. **Railway will automatically start building and deploying** your bot
-2. **Wait a few minutes** - you'll see it building in the Railway dashboard
-3. **When it says "Deployed"** - you're done! Your bot is now running 24/7
-
-## Step 5: Use Your Bot
-
-1. **In Railway, click on your project**
-2. **Click the "Settings" tab**
-3. **Find "Generate Domain"** and click it
-4. **Copy the URL** it gives you (looks like `https://your-bot-name.up.railway.app`)
-5. **Open that URL in your web browser**
-6. **You'll see the dashboard** where you can:
-   - Add wallet addresses to track
-   - See all the trades being copied
-   - Check performance stats
-
-## Adding Wallets to Track
-
-1. **Open your bot's dashboard** (the Railway URL from Step 5)
-2. **Find the "Add Wallet" section**
-3. **Paste a wallet address** you want to copy trades from
-4. **Click "Add"**
-5. **The bot will start copying their trades automatically!**
+See `ENV_EXAMPLE.txt` for all available options.
 
 ## Important Notes
 
-⚠️ **NEVER share your private key with anyone!**
-⚠️ **Start with small amounts to test!**
-⚠️ **This bot uses real money - be careful!**
+⚠️ **NEVER share your private key with anyone!**  
+⚠️ **Start with small amounts to test!**  
+⚠️ **This bot uses real money - be careful!**  
+⚠️ **Builder API credentials are REQUIRED** - trades will fail without them
 
 ## Troubleshooting
 
 **Bot won't start?**
-- Make sure you added the `PRIVATE_KEY` variable in Railway
-- Check Railway's logs (click "Deployments" → click the latest one → "View Logs")
+- Make sure you've run `npm run setup` or created a `.env` file with `PRIVATE_KEY`
+- Check that you have Builder API credentials configured
+- Look at the terminal output for error messages
+
+**Trades are failing?**
+- Most common issue: Missing Builder API credentials
+- Check that your `PRIVATE_KEY` is correct (no extra spaces)
+- Verify your wallet has enough funds
 
 **Can't see the dashboard?**
-- Make sure Railway finished deploying (check the "Deployments" tab)
-- Try the "Generate Domain" button again in Settings
+- Make sure the bot is running (`npm run dev`)
+- Check the port number in the terminal (default is 3001)
+- Try `http://localhost:3001` in your browser
 
-**Need help?**
-- Check Railway's logs for error messages
-- Make sure your private key is correct (no extra spaces)
+## Commands
+
+- `npm run setup` - Set up your wallet and API credentials
+- `npm run dev` - Run the bot in development mode (auto-restarts on changes)
+- `npm run build` - Build the bot for production
+- `npm start` - Run the built bot (after `npm run build`)
 
 ## That's It!
 
-Your bot is now running 24/7 on Railway. It will automatically copy trades from any wallets you add to track. You can check on it anytime by visiting your Railway dashboard URL.
+Your bot is now running locally. Add wallet addresses through the dashboard and it will automatically copy their trades.
