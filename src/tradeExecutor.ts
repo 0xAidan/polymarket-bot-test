@@ -90,6 +90,11 @@ export class TradeExecutor {
 
       // Place order via CLOB client
       console.log(`\n📤 Placing order via CLOB client...`);
+      
+      // #region agent log
+      console.log(`[DEBUG:A] Before clobClient call: tokenId=${tokenId}, side=${side}, size=${size}, price=${price}`);
+      // #endregion
+      
       const orderResponse = await this.clobClient.createAndPostOrder({
         tokenID: tokenId,
         side: side,
@@ -101,6 +106,10 @@ export class TradeExecutor {
 
       const executionTime = Date.now() - executionStart;
 
+      // #region agent log
+      console.log(`[DEBUG:A] After clobClient call: type=${typeof orderResponse}, isNull=${orderResponse===null}, isUndefined=${orderResponse===undefined}, keys=${orderResponse?Object.keys(orderResponse).join(','):''}, orderID=${orderResponse?.orderID}, orderId=${orderResponse?.orderId}, id=${orderResponse?.id}, error=${orderResponse?.error}`);
+      // #endregion
+
       // Log full response for debugging
       console.log(`[Execute] CLOB Response:`, JSON.stringify(orderResponse, null, 2));
 
@@ -108,12 +117,24 @@ export class TradeExecutor {
       // The CLOB client may return a response even when the request failed (e.g., 403 from Cloudflare)
       const orderId = orderResponse?.orderID || orderResponse?.orderId || orderResponse?.id;
       const responseStatus = orderResponse?.status;
+      
+      // #region agent log
+      console.log(`[DEBUG:A] Validation: orderId=${orderId}, orderIdType=${typeof orderId}, orderIdTruthy=${!!orderId}, responseStatus=${responseStatus}`);
+      console.log(`[DEBUG:A] Full orderResponse: ${JSON.stringify(orderResponse)}`);
+      // #endregion
 
-      // Check for failure conditions
-      if (!orderId) {
-        // No order ID means the order was NOT placed
+      // Check for failure conditions - STRICT validation
+      // orderId must be a non-empty string that looks like a valid ID
+      const isValidOrderId = typeof orderId === 'string' && 
+                              orderId.length > 0 && 
+                              orderId !== 'undefined' && 
+                              orderId !== 'null';
+      
+      if (!isValidOrderId) {
+        // No valid order ID means the order was NOT placed
         const errorDetails = JSON.stringify(orderResponse || 'empty response');
-        throw new Error(`Order placement failed: No order ID returned. Response: ${errorDetails}`);
+        console.error(`[DEBUG:A] VALIDATION FAILED: orderId="${orderId}", isValid=${isValidOrderId}`);
+        throw new Error(`Order placement failed: No valid order ID returned. orderId="${orderId}", Response: ${errorDetails}`);
       }
 
       // Check for error status codes in response (e.g., 403, 400, etc.)

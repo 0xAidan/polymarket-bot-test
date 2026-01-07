@@ -48,6 +48,10 @@ export class PolymarketClobClient {
       // For EOA wallets, funder is the wallet address itself
       const funderAddress = this.signer.address;
 
+      // #region agent log
+      console.log(`[DEBUG:B,D] Builder creds check: hasKey=${!!config.polymarketBuilderApiKey}, hasSecret=${!!config.polymarketBuilderSecret}, hasPassphrase=${!!config.polymarketBuilderPassphrase}, keyLen=${config.polymarketBuilderApiKey?.length||0}, secretLen=${config.polymarketBuilderSecret?.length||0}`);
+      // #endregion
+
       // Create BuilderConfig with Builder API credentials (REQUIRED for authenticated trading)
       // Without this, requests get blocked by Cloudflare as unauthorized bot traffic
       let builderConfig: BuilderConfig | undefined;
@@ -64,10 +68,16 @@ export class PolymarketClobClient {
           }
         });
         console.log('✓ Builder API credentials configured for authenticated trading');
+        // #region agent log
+        console.log(`[DEBUG:C] BuilderConfig created: type=${typeof builderConfig}`);
+        // #endregion
       } else {
         console.warn('⚠️  Builder API credentials NOT configured!');
         console.warn('   Orders will likely be blocked by Cloudflare without Builder authentication.');
         console.warn('   Set POLYMARKET_BUILDER_API_KEY, POLYMARKET_BUILDER_SECRET, POLYMARKET_BUILDER_PASSPHRASE');
+        // #region agent log
+        console.log(`[DEBUG:B,D] NO BuilderConfig - missing credentials!`);
+        // #endregion
       }
 
       // Initialize the trading client with ALL 9 parameters including BuilderConfig
@@ -150,31 +160,62 @@ export class PolymarketClobClient {
     try {
       console.log(`[CLOB] Placing order: tokenID=${params.tokenID}, price=${params.price}, size=${params.size}, side=${params.side}`);
       
-      const response = await this.client.createAndPostOrder(
-        {
-          tokenID: params.tokenID,
-          price: params.price,
-          size: params.size,
-          side: params.side,
-        },
-        {
-          tickSize: tickSize! as any, // TickSize type from CLOB client
-          negRisk: negRisk!,
-        },
-        OrderType.GTC // Good-Til-Cancelled
-      );
+      // #region agent log
+      console.log(`[DEBUG:A] Before createAndPostOrder: tokenID=${params.tokenID}, price=${params.price}, size=${params.size}, side=${params.side}, tickSize=${tickSize}, negRisk=${negRisk}`);
+      // #endregion
+      
+      let response: any;
+      try {
+        response = await this.client.createAndPostOrder(
+          {
+            tokenID: params.tokenID,
+            price: params.price,
+            size: params.size,
+            side: params.side,
+          },
+          {
+            tickSize: tickSize! as any, // TickSize type from CLOB client
+            negRisk: negRisk!,
+          },
+          OrderType.GTC // Good-Til-Cancelled
+        );
+      } catch (clobError: any) {
+        // #region agent log
+        console.log(`[DEBUG:A] CLOB client THREW error: name=${clobError?.name}, message=${clobError?.message}, status=${clobError?.response?.status}`);
+        // #endregion
+        throw clobError;
+      }
+      
+      // #region agent log
+      console.log(`[DEBUG:A] CLOB response (no throw): type=${typeof response}, isNull=${response===null}, isUndefined=${response===undefined}, keys=${response?Object.keys(response).join(','):''}, orderID=${response?.orderID}, orderId=${response?.orderId}, id=${response?.id}, error=${response?.error}, status=${response?.status}`);
+      // #endregion
 
       // Log full response for debugging
       console.log(`[CLOB] Order response received:`, JSON.stringify(response, null, 2));
 
       // Check if response is empty or null
       if (!response) {
+        console.error(`[DEBUG:A] CLOB returned falsy response: ${response}`);
         throw new Error('CLOB client returned empty/null response');
+      }
+
+      // Check if response is an empty object (common silent failure mode)
+      if (typeof response === 'object' && Object.keys(response).length === 0) {
+        console.error(`[DEBUG:A] CLOB returned empty object`);
+        throw new Error('CLOB client returned empty object - order likely failed silently');
       }
 
       // Check if response contains error indicators
       if (response.error) {
         throw new Error(`CLOB API error: ${response.error}`);
+      }
+
+      // Validate that we got an actual order ID back
+      const orderId = response?.orderID || response?.orderId || response?.id;
+      const isValidOrderId = typeof orderId === 'string' && orderId.length > 0 && orderId !== 'undefined' && orderId !== 'null';
+      if (!isValidOrderId) {
+        console.error(`[DEBUG:A] CLOB response missing valid orderID: ${JSON.stringify(response)}`);
+        throw new Error(`CLOB response missing valid orderID. Got: ${orderId}. Full response: ${JSON.stringify(response)}`);
       }
 
       // Check for Cloudflare block (response might be HTML string)
@@ -198,6 +239,10 @@ export class PolymarketClobClient {
 
       return response;
     } catch (error: any) {
+      // #region agent log
+      console.log(`[DEBUG:A] Outer catch: name=${error?.name}, message=${error?.message}, hasResponse=${!!error?.response}, status=${error?.response?.status}`);
+      // #endregion
+      
       // Extract meaningful error message from various error formats
       let errorMessage = 'Unknown CLOB error';
       
