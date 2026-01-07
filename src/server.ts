@@ -448,6 +448,166 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             font-size: 12px;
           }
 
+          /* Modal styles */
+          .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.75);
+            z-index: 10000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            overflow-y: auto;
+          }
+
+          .modal.show {
+            display: flex;
+          }
+
+          .modal-content {
+            background: var(--surface);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            max-width: 1200px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            position: relative;
+            animation: modalSlideIn 0.3s ease-out;
+          }
+
+          @keyframes modalSlideIn {
+            from {
+              opacity: 0;
+              transform: translateY(-20px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+
+          .modal-header {
+            padding: 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            background: var(--surface);
+            z-index: 10;
+          }
+
+          .modal-header h2 {
+            margin: 0;
+            font-size: 22px;
+            color: var(--text);
+          }
+
+          .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 28px;
+            cursor: pointer;
+            padding: 0;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            transition: all 0.2s;
+          }
+
+          .modal-close:hover {
+            background: var(--bg);
+            color: var(--text);
+          }
+
+          .modal-body {
+            padding: 24px;
+          }
+
+          .wallet-status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+          }
+
+          .wallet-status-badge.active {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+          }
+
+          .wallet-status-badge.inactive {
+            background: rgba(148, 163, 184, 0.2);
+            color: var(--text-muted);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+          }
+
+          .wallet-card.wallet-inactive {
+            opacity: 0.7;
+          }
+
+          .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 48px;
+            height: 24px;
+          }
+
+          .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+          }
+
+          .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--surface-light);
+            transition: 0.3s;
+            border-radius: 24px;
+          }
+
+          .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+          }
+
+          .toggle-switch input:checked + .toggle-slider {
+            background-color: var(--success);
+          }
+
+          .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(24px);
+          }
+
           @media (max-width: 768px) {
             body { padding: 16px; }
             .metrics-grid { grid-template-columns: 1fr; }
@@ -568,6 +728,21 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             <h2>⚠️ System Issues</h2>
             <div id="issuesContainer">
               <div class="loading">Loading issues...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Wallet Details Modal -->
+        <div id="walletDetailsModal" class="modal">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h2 id="walletDetailsTitle">Wallet Details</h2>
+              <button class="modal-close" onclick="closeWalletDetailsModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+              <div id="walletDetailsContent">
+                <div class="loading">Loading wallet details...</div>
+              </div>
             </div>
           </div>
         </div>
@@ -869,9 +1044,14 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                         }
                         
                         return \`
-                          <div class="wallet-card">
-                            <div class="wallet-info">
-                              <div class="wallet-address">\${w.address}</div>
+                          <div class="wallet-card \${w.active ? '' : 'wallet-inactive'}" style="border-left: 4px solid \${w.active ? 'var(--success)' : 'var(--text-muted)'};">
+                            <div class="wallet-info" style="flex: 1; cursor: pointer;" onclick="openWalletDetails('\${w.address}')">
+                              <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                                <div class="wallet-address">\${w.address}</div>
+                                <span class="wallet-status-badge \${w.active ? 'active' : 'inactive'}">
+                                  \${w.active ? '✓ Active' : '○ Inactive'}
+                                </span>
+                              </div>
                               <div class="wallet-stats">
                                 \${balanceHtml}
                                 \${changeHtml}
@@ -893,7 +1073,13 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                                 </div>
                               </div>
                             </div>
-                            <button onclick="removeWallet('\${w.address}')" class="btn-danger">Remove</button>
+                            <div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-end;">
+                              <label class="toggle-switch" style="margin-bottom: 8px;" onclick="event.stopPropagation();">
+                                <input type="checkbox" \${w.active ? 'checked' : ''} onchange="toggleWalletActive('\${w.address}', this.checked)" />
+                                <span class="toggle-slider"></span>
+                              </label>
+                              <button onclick="event.stopPropagation(); removeWallet('\${w.address}')" class="btn-danger" style="font-size: 12px; padding: 8px 16px;">Remove</button>
+                            </div>
                           </div>
                         \`;
                       }
@@ -930,28 +1116,50 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                       }
                       
                       return \`
-                        <div class="wallet-card">
-                          <div class="wallet-info">
-                            <div class="wallet-address">\${w.address}</div>
+                        <div class="wallet-card \${w.active ? '' : 'wallet-inactive'}" style="border-left: 4px solid \${w.active ? 'var(--success)' : 'var(--text-muted)'};">
+                          <div class="wallet-info" style="flex: 1; cursor: pointer;" onclick="openWalletDetails('\${w.address}')">
+                            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                              <div class="wallet-address">\${w.address}</div>
+                              <span class="wallet-status-badge \${w.active ? 'active' : 'inactive'}">
+                                \${w.active ? '✓ Active' : '○ Inactive'}
+                              </span>
+                            </div>
                             <div class="wallet-stats">
                               \${balanceHtml}
                               \${changeHtml}
                               <div class="wallet-stat">Added: \${formatDate(w.addedAt)}</div>
                             </div>
                           </div>
-                          <button onclick="removeWallet('\${w.address}')" class="btn-danger">Remove</button>
+                          <div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-end;">
+                            <label class="toggle-switch" style="margin-bottom: 8px;" onclick="event.stopPropagation();">
+                              <input type="checkbox" \${w.active ? 'checked' : ''} onchange="toggleWalletActive('\${w.address}', this.checked)" />
+                              <span class="toggle-slider"></span>
+                            </label>
+                            <button onclick="event.stopPropagation(); removeWallet('\${w.address}')" class="btn-danger" style="font-size: 12px; padding: 8px 16px;">Remove</button>
+                          </div>
                         </div>
                       \`;
                     } catch (e2) {
                       return \`
-                        <div class="wallet-card">
-                          <div class="wallet-info">
-                            <div class="wallet-address">\${w.address}</div>
+                        <div class="wallet-card \${w.active ? '' : 'wallet-inactive'}" style="border-left: 4px solid \${w.active ? 'var(--success)' : 'var(--text-muted)'};">
+                          <div class="wallet-info" style="flex: 1; cursor: pointer;" onclick="openWalletDetails('\${w.address}')">
+                            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                              <div class="wallet-address">\${w.address}</div>
+                              <span class="wallet-status-badge \${w.active ? 'active' : 'inactive'}">
+                                \${w.active ? '✓ Active' : '○ Inactive'}
+                              </span>
+                            </div>
                             <div class="wallet-stats">
                               <div class="wallet-stat">Added: \${formatDate(w.addedAt)}</div>
                             </div>
                           </div>
-                          <button onclick="removeWallet('\${w.address}')" class="btn-danger">Remove</button>
+                          <div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-end;">
+                            <label class="toggle-switch" style="margin-bottom: 8px;" onclick="event.stopPropagation();">
+                              <input type="checkbox" \${w.active ? 'checked' : ''} onchange="toggleWalletActive('\${w.address}', this.checked)" />
+                              <span class="toggle-slider"></span>
+                            </label>
+                            <button onclick="event.stopPropagation(); removeWallet('\${w.address}')" class="btn-danger" style="font-size: 12px; padding: 8px 16px;">Remove</button>
+                          </div>
                         </div>
                       \`;
                     }
@@ -1101,6 +1309,171 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             } catch (error) {
               alert('Failed to remove wallet');
               console.error(error);
+            }
+          }
+
+          // Toggle wallet active status
+          async function toggleWalletActive(address, active) {
+            try {
+              const res = await fetch(\`/api/wallets/\${address}/toggle\`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ active })
+              });
+              const data = await res.json();
+              if (data.success) {
+                await loadWallets();
+                await loadPerformance();
+              } else {
+                alert('Error: ' + data.error);
+                // Revert toggle
+                const wallets = await (await fetch('/api/wallets')).json();
+                if (wallets.success) {
+                  const wallet = wallets.wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
+                  if (wallet) {
+                    document.querySelector(\`input[onchange*="'\${address}'"]\`).checked = wallet.active;
+                  }
+                }
+              }
+            } catch (error) {
+              console.error('Failed to toggle wallet:', error);
+              alert('Failed to toggle wallet status');
+            }
+          }
+
+          // Wallet details modal
+          let walletDetailsChart = null;
+          let currentWalletAddress = null;
+
+          function openWalletDetails(address) {
+            currentWalletAddress = address;
+            document.getElementById('walletDetailsModal').classList.add('show');
+            loadWalletDetails(address);
+          }
+
+          function closeWalletDetailsModal() {
+            document.getElementById('walletDetailsModal').classList.remove('show');
+            if (walletDetailsChart) {
+              walletDetailsChart.destroy();
+              walletDetailsChart = null;
+            }
+            currentWalletAddress = null;
+          }
+
+          // Close modals when clicking outside
+          window.addEventListener('click', (e) => {
+            const walletDetailsModal = document.getElementById('walletDetailsModal');
+            if (e.target === walletDetailsModal) {
+              closeWalletDetailsModal();
+            }
+          });
+
+          async function loadWalletDetails(address) {
+            const content = document.getElementById('walletDetailsContent');
+            content.innerHTML = '<div class="loading">Loading wallet details...</div>';
+
+            try {
+              const [statsRes, tradesRes, balanceRes] = await Promise.all([
+                fetch(\`/api/wallets/\${address}/stats\`),
+                fetch(\`/api/wallets/\${address}/trades?limit=50\`),
+                fetch(\`/api/wallets/\${address}/balance\`)
+              ]);
+
+              const statsData = await statsRes.json();
+              const tradesData = await tradesRes.json();
+              const balanceData = await balanceRes.json();
+
+              const stats = statsData.success ? statsData : null;
+              const trades = tradesData.success ? tradesData.trades : [];
+              const balance = balanceData.success ? balanceData : null;
+
+              const shortAddress = address.substring(0, 6) + '...' + address.substring(address.length - 4);
+
+              let html = \`
+                <div style="display: grid; gap: 24px;">
+                  <div>
+                    <h3 style="margin-bottom: 16px; color: var(--text); font-size: 18px;">Wallet Address</h3>
+                    <div style="padding: 12px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border); font-family: monospace; font-size: 14px; word-break: break-all;">
+                      \${address}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 style="margin-bottom: 16px; color: var(--text); font-size: 18px;">Performance Summary</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+                      <div class="metric-card success" style="padding: 16px;">
+                        <h3 style="font-size: 12px; margin-bottom: 8px;">Trades Copied</h3>
+                        <div style="font-size: 32px; font-weight: 700;">\${stats ? stats.tradesCopied : 0}</div>
+                      </div>
+                      <div class="metric-card success" style="padding: 16px;">
+                        <h3 style="font-size: 12px; margin-bottom: 8px;">Success Rate</h3>
+                        <div style="font-size: 32px; font-weight: 700;">\${stats ? stats.successRate.toFixed(1) : '0'}%</div>
+                      </div>
+                      <div class="metric-card info" style="padding: 16px;">
+                        <h3 style="font-size: 12px; margin-bottom: 8px;">Successful</h3>
+                        <div style="font-size: 32px; font-weight: 700;">\${stats ? stats.successfulCopies : 0}</div>
+                      </div>
+                      <div class="metric-card danger" style="padding: 16px;">
+                        <h3 style="font-size: 12px; margin-bottom: 8px;">Failed</h3>
+                        <div style="font-size: 32px; font-weight: 700;">\${stats ? stats.failedCopies : 0}</div>
+                      </div>
+                      <div class="metric-card warning" style="padding: 16px;">
+                        <h3 style="font-size: 12px; margin-bottom: 8px;">Avg Latency</h3>
+                        <div style="font-size: 32px; font-weight: 700;">\${stats ? stats.averageLatencyMs : 0}ms</div>
+                      </div>
+                      \${balance ? \`
+                        <div class="metric-card info" style="padding: 16px;">
+                          <h3 style="font-size: 12px; margin-bottom: 8px;">Balance</h3>
+                          <div style="font-size: 32px; font-weight: 700;">\${formatBalance(balance.currentBalance)}</div>
+                          <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">USDC</div>
+                        </div>
+                      \` : ''}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 style="margin-bottom: 16px; color: var(--text); font-size: 18px;">Recent Trades</h3>
+                    \${trades.length > 0 ? \`
+                      <div style="overflow-x: auto;">
+                        <table class="table">
+                          <thead>
+                            <tr>
+                              <th>Time</th>
+                              <th>Market</th>
+                              <th>Outcome</th>
+                              <th>Price</th>
+                              <th>Status</th>
+                              <th>Latency</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            \${trades.slice(0, 20).map(t => \`
+                              <tr>
+                                <td>\${formatDate(t.timestamp)}</td>
+                                <td><code style="font-size: 11px;">\${formatAddress(t.marketId)}</code></td>
+                                <td><span class="badge badge-\${t.outcome.toLowerCase()}">\${t.outcome}</span></td>
+                                <td>\${parseFloat(t.price).toFixed(4)}</td>
+                                <td>
+                                  <span class="badge badge-\${t.success ? 'success' : 'danger'}">
+                                    \${t.success ? '✅ Success' : '❌ Failed'}
+                                  </span>
+                                </td>
+                                <td>\${t.executionTimeMs}ms</td>
+                              </tr>
+                            \`).join('')}
+                          </tbody>
+                        </table>
+                      </div>
+                    \` : '<div class="empty-state">No trades from this wallet yet.</div>'}
+                  </div>
+                </div>
+              \`;
+
+              content.innerHTML = html;
+              document.getElementById('walletDetailsTitle').textContent = \`📊 Wallet Details: \${shortAddress}\`;
+            } catch (error) {
+              console.error('Failed to load wallet details:', error);
+              content.innerHTML = '<div class="empty-state">Error loading wallet details</div>';
             }
           }
 
