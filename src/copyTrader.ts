@@ -1,4 +1,5 @@
 import { WalletMonitor } from './walletMonitor.js';
+import { WebSocketMonitor } from './websocketMonitor.js';
 import { TradeExecutor } from './tradeExecutor.js';
 import { PerformanceTracker } from './performanceTracker.js';
 import { BalanceTracker } from './balanceTracker.js';
@@ -11,6 +12,7 @@ import { Storage } from './storage.js';
  */
 export class CopyTrader {
   private monitor: WalletMonitor;
+  private websocketMonitor: WebSocketMonitor;
   private executor: TradeExecutor;
   private performanceTracker: PerformanceTracker;
   private balanceTracker: BalanceTracker;
@@ -19,6 +21,7 @@ export class CopyTrader {
 
   constructor() {
     this.monitor = new WalletMonitor();
+    this.websocketMonitor = new WebSocketMonitor();
     this.executor = new TradeExecutor();
     this.performanceTracker = new PerformanceTracker();
     this.balanceTracker = new BalanceTracker();
@@ -31,6 +34,7 @@ export class CopyTrader {
     try {
       await this.performanceTracker.initialize();
       await this.monitor.initialize();
+      await this.websocketMonitor.initialize();
       await this.executor.authenticate();
       await this.balanceTracker.initialize();
       
@@ -74,7 +78,25 @@ export class CopyTrader {
     console.log('Starting copy trading bot...');
     this.isRunning = true;
 
-    // Start monitoring wallets
+    // Start WebSocket monitoring (primary method - real-time)
+    console.log('📡 Starting WebSocket monitoring (real-time)...');
+    try {
+      await this.websocketMonitor.startMonitoring(async (trade: DetectedTrade) => {
+        await this.handleDetectedTrade(trade);
+      });
+      const wsStatus = this.websocketMonitor.getStatus();
+      if (wsStatus.isConnected) {
+        console.log('✅ WebSocket monitoring active');
+      } else {
+        console.log('⚠️ WebSocket not connected, falling back to polling');
+      }
+    } catch (error: any) {
+      console.error('❌ Failed to start WebSocket monitoring:', error.message);
+      console.log('⚠️ Falling back to polling-based monitoring');
+    }
+
+    // Start polling monitoring (fallback method)
+    console.log('🔄 Starting polling monitoring (fallback)...');
     await this.monitor.startMonitoring(async (trade: DetectedTrade) => {
       await this.handleDetectedTrade(trade);
     });
@@ -103,6 +125,7 @@ export class CopyTrader {
 
     console.log('Stopping copy trading bot...');
     this.isRunning = false;
+    this.websocketMonitor.stopMonitoring();
     this.monitor.stopMonitoring();
     this.balanceTracker.stopTracking();
     console.log('Copy trading bot stopped');
@@ -118,14 +141,17 @@ export class CopyTrader {
       return;
     }
 
-    console.log(`\n=== Detected Trade ===`);
-    console.log(`Wallet: ${trade.walletAddress}`);
-    console.log(`Market: ${trade.marketId}`);
-    console.log(`Outcome: ${trade.outcome}`);
-    console.log(`Amount: ${trade.amount}`);
-    console.log(`Price: ${trade.price}`);
-    console.log(`Side: ${trade.side}`);
-    console.log(`TX: ${trade.transactionHash}`);
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`🔔 TRADE DETECTED`);
+    console.log(`${'='.repeat(60)}`);
+    console.log(`   Wallet: ${trade.walletAddress}`);
+    console.log(`   Market: ${trade.marketId}`);
+    console.log(`   Outcome: ${trade.outcome}`);
+    console.log(`   Amount: ${trade.amount} shares`);
+    console.log(`   Price: ${trade.price}`);
+    console.log(`   Side: ${trade.side}`);
+    console.log(`   TX: ${trade.transactionHash}`);
+    console.log(`${'='.repeat(60)}`);
 
     // Validate trade data before attempting execution
     const priceNum = parseFloat(trade.price || '0');
@@ -182,7 +208,7 @@ export class CopyTrader {
         return;
       }
       
-      console.log(`Using configured trade size: ${configuredTradeSize} shares`);
+      console.log(`[Trade] Using configured trade size: ${configuredTradeSize} shares`);
       
       // Convert detected trade to trade order
       const order: TradeOrder = {
@@ -193,7 +219,13 @@ export class CopyTrader {
         side: trade.side // Use the side detected from the tracked wallet's trade
       };
 
-      console.log(`Attempting to execute: ${order.side} ${order.amount} shares of ${order.marketId} (${order.outcome}) at ${order.price}`);
+      console.log(`\n🚀 [Execute] EXECUTING TRADE:`);
+      console.log(`   Action: ${order.side}`);
+      console.log(`   Amount: ${order.amount} shares`);
+      console.log(`   Market: ${order.marketId}`);
+      console.log(`   Outcome: ${order.outcome}`);
+      console.log(`   Price: ${order.price}`);
+      console.log(`   Time: ${new Date().toISOString()}`);
       
       // Execute the trade
       const result: TradeResult = await this.executor.executeTrade(order);
@@ -216,13 +248,24 @@ export class CopyTrader {
       });
 
       if (result.success) {
-        console.log(`✅ Trade executed successfully!`);
-        console.log(`Order ID: ${result.orderId}`);
-        console.log(`TX: ${result.transactionHash}`);
-        console.log(`⏱️  Execution time: ${executionTime}ms`);
+        console.log(`\n${'='.repeat(60)}`);
+        console.log(`✅ [Execute] TRADE EXECUTED SUCCESSFULLY!`);
+        console.log(`${'='.repeat(60)}`);
+        console.log(`   Order ID: ${result.orderId}`);
+        console.log(`   TX Hash: ${result.transactionHash || 'Pending'}`);
+        console.log(`   Execution Time: ${executionTime}ms`);
+        console.log(`   Market: ${order.marketId}`);
+        console.log(`   Side: ${order.side} ${order.amount} @ ${order.price}`);
+        console.log(`${'='.repeat(60)}\n`);
         this.executedTrades.add(trade.transactionHash);
       } else {
-        console.error(`❌ Trade execution failed: ${result.error}`);
+        console.error(`\n${'='.repeat(60)}`);
+        console.error(`❌ [Execute] TRADE EXECUTION FAILED`);
+        console.error(`${'='.repeat(60)}`);
+        console.error(`   Error: ${result.error}`);
+        console.error(`   Market: ${order.marketId}`);
+        console.error(`   Side: ${order.side} ${order.amount} @ ${order.price}`);
+        console.error(`${'='.repeat(60)}\n`);
         await this.performanceTracker.logIssue(
           'error',
           'trade_execution',
@@ -260,10 +303,15 @@ export class CopyTrader {
   /**
    * Get status of the copy trader
    */
-  getStatus(): { running: boolean; executedTradesCount: number } {
+  getStatus(): { 
+    running: boolean; 
+    executedTradesCount: number;
+    websocketStatus: ReturnType<WebSocketMonitor['getStatus']>;
+  } {
     return {
       running: this.isRunning,
-      executedTradesCount: this.executedTrades.size
+      executedTradesCount: this.executedTrades.size,
+      websocketStatus: this.websocketMonitor.getStatus()
     };
   }
 
@@ -306,6 +354,7 @@ export class CopyTrader {
    */
   async reloadWallets(): Promise<void> {
     if (this.isRunning) {
+      await this.websocketMonitor.reloadWallets();
       await this.monitor.reloadWallets();
       
       // Update balance tracking
@@ -324,6 +373,13 @@ export class CopyTrader {
    */
   getMonitor(): WalletMonitor {
     return this.monitor;
+  }
+
+  /**
+   * Get the WebSocket monitor instance (for direct access if needed)
+   */
+  getWebSocketMonitor(): WebSocketMonitor {
+    return this.websocketMonitor;
   }
 
   /**

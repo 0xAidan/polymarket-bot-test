@@ -56,7 +56,25 @@ export class WalletMonitor {
       await this.checkWalletsForTrades(onTradeDetected);
     }, config.monitoringIntervalMs);
 
-    console.log(`Monitoring ${(await Storage.getActiveWallets()).length} wallets every ${config.monitoringIntervalMs}ms`);
+    const wallets = await Storage.getActiveWallets();
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`[Monitor] 📊 POLLING-BASED MONITORING STARTED`);
+    console.log(`${'='.repeat(60)}`);
+    console.log(`[Monitor] Monitoring interval: ${config.monitoringIntervalMs}ms (${config.monitoringIntervalMs / 1000}s)`);
+    console.log(`[Monitor] Active wallets: ${wallets.length}`);
+    
+    if (wallets.length === 0) {
+      console.warn(`\n[Monitor] ⚠️  WARNING: No wallets are being tracked!`);
+      console.warn(`[Monitor] Add wallets via the web UI or API to start copy trading`);
+      console.warn(`[Monitor] Web UI: http://localhost:${config.port || 3000}\n`);
+    } else {
+      console.log(`[Monitor] Tracked wallet addresses:`);
+      for (const wallet of wallets) {
+        const status = wallet.active ? '✅ ACTIVE' : '⏸️  INACTIVE';
+        console.log(`[Monitor]   • ${wallet.address.substring(0, 10)}...${wallet.address.substring(wallet.address.length - 8)} - ${status}`);
+      }
+      console.log(`${'='.repeat(60)}\n`);
+    }
   }
 
   /**
@@ -189,7 +207,12 @@ export class WalletMonitor {
               console.log(`[Monitor] New position detected for ${eoaAddress.substring(0, 8)}... (proxy: ${monitoringAddress.substring(0, 8)}...): ${currentSize} tokens of ${tokenId.substring(0, 20)}...`);
               const trade = await this.parsePositionToTrade(eoaAddress, currentPos, tokenId, 'BUY', null);
               if (trade) {
-                console.log(`[Monitor] Parsed new position as trade: ${trade.side} ${trade.amount} @ ${trade.price} on ${trade.marketId}`);
+                console.log(`\n🔔 [Monitor] TRADE DETECTED: New position`);
+                console.log(`   Side: ${trade.side}`);
+                console.log(`   Amount: ${trade.amount} shares`);
+                console.log(`   Price: ${trade.price}`);
+                console.log(`   Market: ${trade.marketId}`);
+                console.log(`   Outcome: ${trade.outcome}`);
                 onTradeDetected(trade);
               } else {
                 console.warn(`[Monitor] Failed to parse new position as trade for token ${tokenId}`);
@@ -210,7 +233,13 @@ export class WalletMonitor {
               console.log(`[Monitor] Position change detected for ${eoaAddress.substring(0, 8)}... (proxy: ${monitoringAddress.substring(0, 8)}...): ${side} ${absDiff.toFixed(4)} tokens (${(percentChange * 100).toFixed(2)}% change) of ${tokenId.substring(0, 20)}...`);
               const trade = await this.parsePositionToTrade(eoaAddress, currentPos, tokenId, side, previousPos);
               if (trade) {
-                console.log(`[Monitor] Parsed position change as trade: ${trade.side} ${trade.amount} @ ${trade.price} on ${trade.marketId}`);
+                console.log(`\n🔔 [Monitor] TRADE DETECTED: Position change`);
+                console.log(`   Side: ${trade.side}`);
+                console.log(`   Amount: ${trade.amount} shares`);
+                console.log(`   Price: ${trade.price}`);
+                console.log(`   Market: ${trade.marketId}`);
+                console.log(`   Outcome: ${trade.outcome}`);
+                console.log(`   Size change: ${sizeDiff > 0 ? '+' : ''}${sizeDiff.toFixed(4)} (${(percentChange * 100).toFixed(2)}%)`);
                 onTradeDetected(trade);
               } else {
                 console.warn(`[Monitor] Failed to parse position change as trade for token ${tokenId} (size diff: ${sizeDiff})`);
@@ -230,7 +259,12 @@ export class WalletMonitor {
               const closedPosition = { ...previousPos, quantity: '0', size: '0' };
               const trade = await this.parsePositionToTrade(eoaAddress, closedPosition, tokenId, 'SELL', previousPos);
               if (trade) {
-                console.log(`[Monitor] Parsed position close as trade: ${trade.side} ${trade.amount} @ ${trade.price} on ${trade.marketId}`);
+                console.log(`\n🔔 [Monitor] TRADE DETECTED: Position closed`);
+                console.log(`   Side: ${trade.side}`);
+                console.log(`   Amount: ${trade.amount} shares`);
+                console.log(`   Price: ${trade.price}`);
+                console.log(`   Market: ${trade.marketId}`);
+                console.log(`   Outcome: ${trade.outcome}`);
                 onTradeDetected(trade);
               }
             }
@@ -282,7 +316,13 @@ export class WalletMonitor {
                 
                 if (detectedTrade.marketId && detectedTrade.marketId !== 'unknown' &&
                     priceNum > 0 && priceNum <= 1 && amountNum > 0) {
-                  console.log(`[Monitor] ✓ Detected valid trade from history: ${detectedTrade.side} ${detectedTrade.amount} @ ${detectedTrade.price} on ${detectedTrade.marketId}`);
+                  console.log(`\n🔔 [Monitor] TRADE DETECTED: From trade history`);
+                  console.log(`   Side: ${detectedTrade.side}`);
+                  console.log(`   Amount: ${detectedTrade.amount} shares`);
+                  console.log(`   Price: ${detectedTrade.price}`);
+                  console.log(`   Market: ${detectedTrade.marketId}`);
+                  console.log(`   Outcome: ${detectedTrade.outcome}`);
+                  console.log(`   Time: ${new Date(tradeTime).toISOString()}`);
                   onTradeDetected(detectedTrade);
                 } else {
                   console.warn(`[Monitor] ✗ Skipping invalid trade from history: marketId=${detectedTrade.marketId}, price=${detectedTrade.price}, amount=${detectedTrade.amount}`);

@@ -36,9 +36,52 @@ async function main() {
     try {
       await copyTrader.initialize();
 
+      // Check if there are any tracked wallets
+      const trackedWallets = await Storage.getActiveWallets();
+      const activeWallets = trackedWallets.filter(w => w.active);
+      
+      console.log(`\n${'='.repeat(60)}`);
+      console.log(`📊 BOT STATUS`);
+      console.log(`${'='.repeat(60)}`);
+      
+      if (trackedWallets.length === 0) {
+        console.log('\n⚠️  WARNING: No wallets are being tracked!');
+        console.log('   To start copy trading:');
+        console.log('   1. Open the web dashboard at http://localhost:' + config.port);
+        console.log('   2. Add wallet addresses to track');
+        console.log('   3. The bot will automatically start monitoring them\n');
+      } else {
+        console.log(`\n📋 Tracked Wallets: ${trackedWallets.length} total, ${activeWallets.length} active`);
+        console.log(`${'─'.repeat(60)}`);
+        for (const wallet of trackedWallets) {
+          const status = wallet.active ? '✅ ACTIVE' : '⏸️  INACTIVE';
+          console.log(`   • ${wallet.address.substring(0, 10)}...${wallet.address.substring(wallet.address.length - 8)} - ${status}`);
+        }
+        console.log(`${'='.repeat(60)}\n`);
+      }
+
       // Start the copy trading bot
       console.log('🤖 Starting copy trading bot...');
       await copyTrader.start();
+      
+      // Get status after starting
+      const status = copyTrader.getStatus();
+      const wsStatus = status.websocketStatus;
+      
+      console.log(`\n${'='.repeat(60)}`);
+      console.log(`✅ BOT STARTED SUCCESSFULLY`);
+      console.log(`${'='.repeat(60)}`);
+      console.log(`Monitoring Methods:`);
+      console.log(`   📡 WebSocket: ${wsStatus.isConnected ? '✅ CONNECTED' : '❌ DISCONNECTED'}`);
+      if (wsStatus.isConnected && wsStatus.lastConnectionTime) {
+        const connectionAge = Math.floor((Date.now() - wsStatus.lastConnectionTime.getTime()) / 1000);
+        console.log(`      Last connected: ${connectionAge}s ago`);
+      }
+      console.log(`      Tracked wallets: ${wsStatus.trackedWalletsCount}`);
+      console.log(`   🔄 Polling: ${status.running ? '✅ ACTIVE' : '⏸️  INACTIVE'}`);
+      console.log(`      Fallback mode: ${!wsStatus.isConnected && status.running ? 'Yes (WebSocket unavailable)' : 'No'}`);
+      console.log(`\n💡 Status: ${wsStatus.isConnected ? 'Real-time monitoring active' : 'Polling mode (fallback)'}`);
+      console.log(`${'='.repeat(60)}\n`);
     } catch (error: any) {
       console.error('⚠️  Failed to initialize or start bot:', error.message);
       console.error('⚠️  Bot will not run, but web server is accessible.');

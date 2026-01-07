@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Storage } from '../storage.js';
 import { CopyTrader } from '../copyTrader.js';
+import { config } from '../config.js';
 
 /**
  * API routes for managing the bot
@@ -75,9 +76,85 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
 
   // Get bot status
-  router.get('/status', (req: Request, res: Response) => {
-    const status = copyTrader.getStatus();
-    res.json({ success: true, ...status });
+  router.get('/status', async (req: Request, res: Response) => {
+    try {
+      const status = copyTrader.getStatus();
+      const wallets = await Storage.getActiveWallets();
+      const stats = await performanceTracker.getStats(wallets.length);
+      const recentTrades = performanceTracker.getRecentTrades(1);
+      const issues = performanceTracker.getIssues(false, 100);
+      const unresolvedIssues = issues.filter(i => !i.resolved);
+      
+      // Get last detected/executed trade
+      const lastExecutedTrade = recentTrades.find(t => t.success) || null;
+      const lastDetectedTrade = recentTrades.length > 0 ? recentTrades[0] : null;
+      
+      res.json({ 
+        success: true, 
+        running: status.running,
+        executedTradesCount: status.executedTradesCount,
+        websocket: {
+          connected: status.websocketStatus.isConnected,
+          monitoring: status.websocketStatus.isMonitoring,
+          lastConnectionTime: status.websocketStatus.lastConnectionTime,
+          trackedWalletsCount: status.websocketStatus.trackedWalletsCount
+        },
+        polling: {
+          active: status.running,
+          interval: config.monitoringIntervalMs
+        },
+        monitoringMethods: {
+          primary: status.websocketStatus.isConnected ? 'websocket' : 'polling',
+          websocket: status.websocketStatus.isConnected,
+          polling: status.running
+        },
+        wallets: {
+          active: wallets.filter(w => w.active).length,
+          total: wallets.length,
+          addresses: wallets.map(w => ({
+            address: w.address,
+            active: w.active,
+            addedAt: w.addedAt
+          }))
+        },
+        trades: {
+          total: stats.totalTrades,
+          successful: stats.successfulTrades,
+          failed: stats.failedTrades,
+          successRate: stats.successRate,
+          lastDetected: lastDetectedTrade ? {
+            timestamp: lastDetectedTrade.timestamp,
+            marketId: lastDetectedTrade.marketId,
+            side: stats.lastTradeTime ? 'N/A' : 'N/A',
+            walletAddress: lastDetectedTrade.walletAddress
+          } : null,
+          lastExecuted: lastExecutedTrade ? {
+            timestamp: lastExecutedTrade.timestamp,
+            marketId: lastExecutedTrade.marketId,
+            side: lastExecutedTrade.side || 'N/A',
+            success: lastExecutedTrade.success,
+            orderId: lastExecutedTrade.orderId
+          } : null
+        },
+        performance: {
+          averageLatencyMs: stats.averageLatencyMs,
+          uptimeMs: stats.uptimeMs,
+          tradesLast24h: stats.tradesLast24h,
+          tradesLastHour: stats.tradesLastHour
+        },
+        errors: {
+          total: unresolvedIssues.length,
+          recent: unresolvedIssues.slice(0, 10).map(i => ({
+            severity: i.severity,
+            category: i.category,
+            message: i.message,
+            timestamp: i.timestamp
+          }))
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
   });
 
   // Get performance statistics

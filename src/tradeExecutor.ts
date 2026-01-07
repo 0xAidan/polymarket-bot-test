@@ -45,12 +45,15 @@ export class TradeExecutor {
     const executionStart = Date.now();
 
     try {
-      console.log(`\n🚀 Executing trade:`);
+      console.log(`\n${'='.repeat(60)}`);
+      console.log(`🚀 [Execute] EXECUTING TRADE`);
+      console.log(`${'='.repeat(60)}`);
       console.log(`   Side: ${order.side}`);
       console.log(`   Amount: ${order.amount} shares`);
       console.log(`   Market: ${order.marketId}`);
       console.log(`   Outcome: ${order.outcome}`);
       console.log(`   Price: ${order.price}`);
+      console.log(`   Timestamp: ${new Date().toISOString()}`);
 
       // Get market information to find token ID
       let tokenId: string;
@@ -78,9 +81,10 @@ export class TradeExecutor {
           throw new Error(`Could not determine token ID for ${order.outcome} outcome`);
         }
 
-        console.log(`   Token ID: ${tokenId}`);
-        console.log(`   Tick Size: ${tickSize || 'default'}`);
-        console.log(`   Neg Risk: ${negRisk || false}`);
+      console.log(`   Token ID: ${tokenId}`);
+      console.log(`   Tick Size: ${tickSize || 'default'}`);
+      console.log(`   Neg Risk: ${negRisk || false}`);
+      console.log(`${'='.repeat(60)}`);
       } catch (error: any) {
         console.error(`❌ Failed to get market info: ${error.message}`);
         throw new Error(`Could not fetch market information: ${error.message}`);
@@ -114,9 +118,12 @@ export class TradeExecutor {
 
       const executionTime = Date.now() - executionStart;
 
-      console.log(`✅ Order placed successfully!`);
+      console.log(`\n✅ [Execute] ORDER PLACED SUCCESSFULLY!`);
+      console.log(`${'='.repeat(60)}`);
       console.log(`   Order ID: ${orderResponse.orderID || orderResponse.orderId}`);
       console.log(`   Status: ${orderResponse.status || 'pending'}`);
+      console.log(`   Execution Time: ${executionTime}ms`);
+      console.log(`${'='.repeat(60)}\n`);
 
       return {
         success: true,
@@ -127,7 +134,9 @@ export class TradeExecutor {
 
     } catch (error: any) {
       const executionTime = Date.now() - executionStart;
-      console.error('\n❌ Trade execution failed!');
+      console.error(`\n${'='.repeat(60)}`);
+      console.error('❌ [Execute] TRADE EXECUTION FAILED!');
+      console.error(`${'='.repeat(60)}`);
       console.error(`Error message: ${error.message}`);
       console.error(`Error stack:`, error.stack);
       
