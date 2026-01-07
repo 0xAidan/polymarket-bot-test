@@ -124,20 +124,46 @@ export class WalletMonitor {
         // Get proxy wallet address (Polymarket uses proxy wallets for trading)
         // Positions and trades are associated with the proxy wallet, not the EOA
         let monitoringAddress = eoaAddress;
+        let proxyAddress: string | null = null;
         try {
-          const proxyAddress = await this.api.getProxyWalletAddress(eoaAddress);
+          proxyAddress = await this.api.getProxyWalletAddress(eoaAddress);
           if (proxyAddress) {
             monitoringAddress = proxyAddress.toLowerCase();
             console.log(`[Monitor] Using proxy wallet ${monitoringAddress.substring(0, 8)}... for monitoring (EOA: ${eoaAddress.substring(0, 8)}...)`);
           } else {
-            console.log(`[Monitor] No proxy wallet found, using EOA ${eoaAddress.substring(0, 8)}... directly`);
+            console.log(`[Monitor] No proxy wallet found via API, will try EOA ${eoaAddress.substring(0, 8)}... directly`);
           }
         } catch (proxyError: any) {
-          console.warn(`[Monitor] Failed to get proxy wallet for ${eoaAddress.substring(0, 8)}..., using EOA directly:`, proxyError.message);
+          console.warn(`[Monitor] Failed to get proxy wallet for ${eoaAddress.substring(0, 8)}..., will try EOA directly:`, proxyError.message);
+          proxyAddress = null; // Ensure it's null if lookup failed
         }
         
-        const currentPositions = await this.api.getUserPositions(monitoringAddress);
-        console.log(`[Monitor] Found ${currentPositions.length} current position(s) for ${monitoringAddress.substring(0, 8)}...`);
+        // Try to get positions - if proxy wallet was found, use it; otherwise try EOA
+        let currentPositions: any[] = [];
+        let positionsError: any = null;
+        
+        try {
+          currentPositions = await this.api.getUserPositions(monitoringAddress);
+          console.log(`[Monitor] Found ${currentPositions.length} current position(s) for ${monitoringAddress.substring(0, 8)}...`);
+        } catch (error: any) {
+          positionsError = error;
+          console.warn(`[Monitor] Failed to get positions for ${monitoringAddress.substring(0, 8)}...:`, error.message);
+          
+          // If we tried proxy wallet and it failed, try EOA as fallback
+          if (proxyAddress && monitoringAddress === proxyAddress.toLowerCase()) {
+            console.log(`[Monitor] Trying EOA ${eoaAddress.substring(0, 8)}... as fallback...`);
+            try {
+              currentPositions = await this.api.getUserPositions(eoaAddress);
+              monitoringAddress = eoaAddress; // Switch to EOA if it works
+              console.log(`[Monitor] Found ${currentPositions.length} position(s) using EOA ${eoaAddress.substring(0, 8)}...`);
+            } catch (eoaError: any) {
+              console.error(`[Monitor] Both proxy wallet and EOA failed for ${eoaAddress.substring(0, 8)}...`);
+              throw eoaError;
+            }
+          } else {
+            throw error;
+          }
+        }
         
         // Use monitoringAddress as the key for tracking positions
         const previousPositions = this.monitoredPositions.get(monitoringAddress) || new Map();
@@ -215,8 +241,26 @@ export class WalletMonitor {
         // This helps catch trades that might have been missed by position monitoring
         try {
           console.log(`[Monitor] Fetching trade history for ${monitoringAddress.substring(0, 8)}... (EOA: ${eoaAddress.substring(0, 8)}...)`);
-          const recentTrades = await this.api.getUserTrades(monitoringAddress, 50); // Get more trades
-          console.log(`[Monitor] Found ${recentTrades.length} trade(s) in history for ${monitoringAddress.substring(0, 8)}...`);
+          let recentTrades: any[] = [];
+          try {
+            recentTrades = await this.api.getUserTrades(monitoringAddress, 50); // Get more trades
+            console.log(`[Monitor] Found ${recentTrades.length} trade(s) in history for ${monitoringAddress.substring(0, 8)}...`);
+          } catch (tradesError: any) {
+            // If proxy wallet failed, try EOA as fallback
+            if (proxyAddress && monitoringAddress === proxyAddress.toLowerCase()) {
+              console.log(`[Monitor] Trade history failed for proxy wallet, trying EOA ${eoaAddress.substring(0, 8)}... as fallback...`);
+              try {
+                recentTrades = await this.api.getUserTrades(eoaAddress, 50);
+                console.log(`[Monitor] Found ${recentTrades.length} trade(s) using EOA ${eoaAddress.substring(0, 8)}...`);
+              } catch (eoaTradesError: any) {
+                console.warn(`[Monitor] Both proxy wallet and EOA failed for trade history:`, eoaTradesError.message);
+                recentTrades = [];
+              }
+            } else {
+              console.warn(`[Monitor] Failed to fetch trade history:`, tradesError.message);
+              recentTrades = [];
+            }
+          }
           
           const now = Date.now();
           const oneHourAgo = now - 60 * 60 * 1000; // Check last hour instead of 5 minutes

@@ -127,41 +127,35 @@ export class PolymarketApi {
     }
 
     try {
-      // Try to get proxy wallet from public profile
-      // Polymarket Data API endpoint: GET /public-profile?address={address}
-      console.log(`[API] Attempting to fetch proxy wallet from API for ${address}...`);
-      const response = await this.retryRequest(async () => {
-        return await this.dataApiClient.get('/public-profile', {
-          params: { address: address.toLowerCase() }
+      // Try Dome API to get proxy wallet address
+      // Dome API endpoint: GET https://api.domeapi.io/v1/polymarket/wallet?eoa={eoaAddress}
+      console.log(`[API] Attempting to fetch proxy wallet from Dome API for ${address}...`);
+      const domeResponse = await this.retryRequest(async () => {
+        return await axios.get('https://api.domeapi.io/v1/polymarket/wallet', {
+          params: { eoa: address.toLowerCase() },
+          timeout: 10000
         });
-      }, `getProxyWalletAddress(${address.substring(0, 8)}...)`);
+      }, `getProxyWalletAddress-Dome(${address.substring(0, 8)}...)`);
       
-      console.log(`[API] Proxy wallet API response:`, JSON.stringify(response.data, null, 2));
+      console.log(`[API] Dome API response:`, JSON.stringify(domeResponse.data, null, 2));
       
-      if (response.data?.proxyWallet) {
-        console.log(`[API] ✓ Found proxy wallet: ${response.data.proxyWallet} for EOA: ${address}`);
-        return response.data.proxyWallet;
+      if (domeResponse.data?.proxyWallet || domeResponse.data?.proxy) {
+        const proxyWallet = domeResponse.data.proxyWallet || domeResponse.data.proxy;
+        console.log(`[API] ✓ Found proxy wallet via Dome API: ${proxyWallet} for EOA: ${address}`);
+        return proxyWallet;
       }
       
-      // If no proxy wallet found, the EOA might be used directly
-      console.log(`[API] ⚠️ No proxy wallet found in API response for ${address}, using EOA directly`);
-      return null;
-    } catch (error: any) {
-      // If API doesn't support this endpoint or returns error, try known mapping
-      console.error(`[API] ✗ Failed to fetch proxy wallet from API for ${address}:`, error.message);
-      if (error.response) {
-        console.error(`[API] Response status: ${error.response.status}`);
-        console.error(`[API] Response data:`, JSON.stringify(error.response.data, null, 2));
+      console.log(`[API] ⚠️ No proxy wallet found in Dome API response for ${address}`);
+    } catch (domeError: any) {
+      console.warn(`[API] Dome API failed for ${address}:`, domeError.message);
+      if (domeError.response) {
+        console.warn(`[API] Dome API response status: ${domeError.response.status}`);
       }
-      
-      // Fallback to known mapping if available
-      if (knownProxyWallets[normalizedEoa]) {
-        console.log(`[API] Using fallback known proxy wallet: ${knownProxyWallets[normalizedEoa]}`);
-        return knownProxyWallets[normalizedEoa];
-      }
-      
-      return null;
     }
+    
+    // If no proxy wallet found, the EOA might be used directly (unlikely but possible)
+    console.log(`[API] ⚠️ No proxy wallet found for ${address}, will try using EOA directly`);
+    return null;
   }
 
   /**
@@ -271,13 +265,19 @@ export class PolymarketApi {
   async getUserPositions(userAddress: string): Promise<any[]> {
     return this.retryRequest(async () => {
       try {
-        const response = await this.dataApiClient.get(`/users/${userAddress.toLowerCase()}/positions`);
+        // Polymarket Data API uses: GET /positions?user={proxyWalletAddress}
+        const response = await this.dataApiClient.get('/positions', {
+          params: { user: userAddress.toLowerCase() }
+        });
         return response.data || [];
       } catch (error: any) {
         if (error.response?.status === 404) {
           // User has no positions
+          console.log(`[API] No positions found for ${userAddress.substring(0, 8)}... (404)`);
           return [];
         }
+        // Log error for debugging
+        console.warn(`[API] Error fetching positions for ${userAddress.substring(0, 8)}...:`, error.message);
         // Re-throw to trigger retry logic
         throw error;
       }
@@ -285,20 +285,26 @@ export class PolymarketApi {
   }
 
   /**
-   * Get user's trade history
+   * Get user's trade history from Polymarket Data API
+   * Uses the correct endpoint: GET /trades?user={proxyWalletAddress}
    */
   async getUserTrades(userAddress: string, limit = 50): Promise<any[]> {
     return this.retryRequest(async () => {
       try {
-        const response = await this.dataApiClient.get(
-          `/users/${userAddress.toLowerCase()}/trades`,
-          { params: { limit } }
-        );
+        // Polymarket Data API uses: GET /trades?user={proxyWalletAddress}
+        const response = await this.dataApiClient.get('/trades', {
+          params: { 
+            user: userAddress.toLowerCase(),
+            limit 
+          }
+        });
         return response.data || [];
       } catch (error: any) {
         if (error.response?.status === 404) {
+          console.log(`[API] No trades found for ${userAddress.substring(0, 8)}... (404)`);
           return [];
         }
+        console.warn(`[API] Error fetching trades for ${userAddress.substring(0, 8)}...:`, error.message);
         throw error;
       }
     }, `getUserTrades(${userAddress.substring(0, 8)}...)`);
