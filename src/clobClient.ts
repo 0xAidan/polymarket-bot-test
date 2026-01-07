@@ -134,7 +134,7 @@ export class PolymarketClobClient {
         side: params.side,
       },
       {
-        tickSize: tickSize!,
+        tickSize: tickSize! as any, // TickSize type from CLOB client
         negRisk: negRisk!,
       },
       OrderType.GTC // Good-Til-Cancelled
@@ -173,6 +173,6 @@ export class PolymarketClobClient {
     if (!this.client) {
       throw new Error('CLOB client not initialized');
     }
-    return await this.client.cancel(orderId);
+    return await this.client.cancelOrder(orderId);
   }
 }

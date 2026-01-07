@@ -1,4 +1,4 @@
-import { ethers } from 'ethers';
+import { ethers, providers, utils, Contract } from 'ethers';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { config } from './config.js';
@@ -34,9 +34,9 @@ const BALANCE_HISTORY_FILE = path.join(config.dataDir, 'balance_history.json');
  * Tracks wallet balances over time to calculate 24h changes
  */
 export class BalanceTracker {
-  private provider: ethers.Provider | null = null;
-  private usdcNativeContract: ethers.Contract | null = null;
-  private usdcBridgedContract: ethers.Contract | null = null;
+  private provider: providers.Provider | null = null;
+  private usdcNativeContract: Contract | null = null;
+  private usdcBridgedContract: Contract | null = null;
   private history: Map<string, WalletBalanceHistory> = new Map();
   private pollingInterval: NodeJS.Timeout | null = null;
   private isTracking = false;
@@ -53,7 +53,7 @@ export class BalanceTracker {
       await Storage.ensureDataDir();
       
       // Create provider with better timeout settings
-      this.provider = new ethers.JsonRpcProvider(config.polygonRpcUrl, {
+      this.provider = new providers.JsonRpcProvider(config.polygonRpcUrl, {
         name: 'polygon',
         chainId: 137
       });
@@ -68,13 +68,13 @@ export class BalanceTracker {
       }
       
       // Create USDC contract instances for both native and bridged
-      this.usdcNativeContract = new ethers.Contract(
+      this.usdcNativeContract = new Contract(
         USDC_NATIVE_ADDRESS,
         ERC20_ABI,
         this.provider
       );
       
-      this.usdcBridgedContract = new ethers.Contract(
+      this.usdcBridgedContract = new Contract(
         USDC_BRIDGED_ADDRESS,
         ERC20_ABI,
         this.provider
@@ -174,7 +174,7 @@ export class BalanceTracker {
           new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))
         ]);
         
-        const balanceNumber = parseFloat(ethers.formatUnits(balance, USDC_DECIMALS));
+        const balanceNumber = parseFloat(utils.formatUnits(balance, USDC_DECIMALS));
         this.lastRpcCallTime = Date.now();
         
         if (balanceNumber > 0) {
@@ -227,7 +227,7 @@ export class BalanceTracker {
       // Normalize address to checksummed format for consistent querying
       let normalizedAddress: string;
       try {
-        normalizedAddress = ethers.getAddress(address);
+        normalizedAddress = utils.getAddress(address);
       } catch {
         // If address is invalid, use as-is and let the contract call fail
         normalizedAddress = address;
