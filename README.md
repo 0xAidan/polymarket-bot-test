@@ -17,6 +17,8 @@ A bot that automatically copies trades from wallets you choose to track on Polym
    ```bash
    cd ~/Desktop
    ```
+   
+   **Note:** If you see a message about "zsh" or "bash", that's normal - just ignore it and continue.
 
 3. **Download the code**:
    ```bash
