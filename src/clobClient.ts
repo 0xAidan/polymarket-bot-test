@@ -250,8 +250,19 @@ export class PolymarketClobClient {
         const isCloudflareBlock = innerError.message?.includes('403') || innerError.message?.includes('Cloudflare') || innerError.message?.includes('blocked');
         const responseData = innerError.response?.data;
         const isHtmlResponse = typeof responseData === 'string' && (responseData.includes('<!DOCTYPE') || responseData.includes('Cloudflare'));
+        
+        // DETAILED ERROR LOGGING FOR 400 ERRORS
+        const status = innerError.response?.status;
+        if (status === 400) {
+          console.error(`[CLOB] ===== 400 BAD REQUEST DETAILS =====`);
+          console.error(`[CLOB] Response data:`, JSON.stringify(responseData, null, 2));
+          console.error(`[CLOB] Request params: tokenID=${params.tokenID}, price=${params.price}, size=${params.size}, side=${params.side}`);
+          console.error(`[CLOB] Options: tickSize=${tickSize}, negRisk=${negRisk}`);
+          console.error(`[CLOB] ======================================`);
+        }
+        
         // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder:catch',message:'CLOB client error',data:{errorMsg:innerError.message,errorCode:innerError.code,responseStatus:innerError.response?.status,isCloudflareBlock,isHtmlResponse,errorDuration,stack:innerError.stack?.slice(0,300)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B,C,D'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder:catch',message:'CLOB client error',data:{errorMsg:innerError.message,errorCode:innerError.code,responseStatus:status,responseData:typeof responseData==='object'?responseData:responseData?.slice?.(0,500),isCloudflareBlock,isHtmlResponse,errorDuration,requestParams:{tokenID:params.tokenID,price:params.price,size:params.size,side:params.side,tickSize,negRisk}},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B,C,D'})}).catch(()=>{});
         // #endregion
         throw innerError;
       }
