@@ -20,6 +20,8 @@ export interface DetectedTrade {
   side: 'BUY' | 'SELL'; // Whether the tracked wallet bought or sold
   timestamp: Date;
   transactionHash: string;
+  tokenId?: string;   // Token ID for CLOB client (asset from positions API)
+  negRisk?: boolean;  // Negative risk flag from position data
 }
 
 /**
@@ -31,6 +33,8 @@ export interface TradeOrder {
   amount: string;
   price: string;
   side: 'BUY' | 'SELL';
+  tokenId?: string;   // Token ID for CLOB client
+  negRisk?: boolean;  // Negative risk flag
 }
 
 /**
