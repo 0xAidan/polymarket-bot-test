@@ -7,6 +7,7 @@ import { Storage } from './storage.js';
 
 /**
  * Main copy trading engine that coordinates monitoring and execution
+ * Handles trade detection, execution, and performance tracking
  */
 export class CopyTrader {
   private monitor: WalletMonitor;
