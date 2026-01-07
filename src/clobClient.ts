@@ -49,27 +49,23 @@ export class PolymarketClobClient {
       try {
         apiCreds = await tempClient.createOrDeriveApiKey();
         console.log('✓ Derived User API credentials for L2 authentication');
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:apiCreds',message:'API creds result',data:{hasApiCreds:!!apiCreds,apiCredsType:typeof apiCreds,apiCredsKeys:apiCreds?Object.keys(apiCreds):[],hasApiKey:!!apiCreds?.apiKey,hasApiSecret:!!apiCreds?.apiSecret,hasApiPassphrase:!!apiCreds?.apiPassphrase},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
-        // #endregion
-        console.log(`[DEBUG] API Creds received: ${JSON.stringify({hasApiKey: !!apiCreds?.apiKey, hasApiSecret: !!apiCreds?.apiSecret, hasApiPassphrase: !!apiCreds?.apiPassphrase})}`);
+        // The CLOB client returns credentials with properties: key, secret, passphrase
+        console.log(`[DEBUG] API Creds received: ${JSON.stringify({hasKey: !!(apiCreds as any)?.key, hasSecret: !!(apiCreds as any)?.secret, hasPassphrase: !!(apiCreds as any)?.passphrase})}`);
       } catch (apiKeyError: any) {
         console.error(`❌ CRITICAL: Failed to create/derive API key: ${apiKeyError.message}`);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:apiCreds:error',message:'API creds FAILED',data:{error:apiKeyError.message,code:apiKeyError.code},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F,G'})}).catch(()=>{});
-        // #endregion
         throw new Error(`Cannot trade without L2 API credentials. Error: ${apiKeyError.message}. Make sure your wallet has been used on Polymarket before.`);
       }
       
       // CRITICAL: Validate that we actually got credentials
-      if (!apiCreds || !apiCreds.apiKey || !apiCreds.apiSecret || !apiCreds.apiPassphrase) {
+      // Note: CLOB client returns {key, secret, passphrase} not {apiKey, apiSecret, apiPassphrase}
+      const creds = apiCreds as any;
+      if (!creds || !creds.key || !creds.secret || !creds.passphrase) {
         console.error(`❌ CRITICAL: API credentials are invalid or missing!`);
         console.error(`   apiCreds: ${JSON.stringify(apiCreds)}`);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:apiCreds:invalid',message:'API creds invalid',data:{apiCreds:apiCreds},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
-        // #endregion
         throw new Error('Failed to obtain valid L2 API credentials. The wallet may not be registered on Polymarket.');
       }
+      
+      console.log(`✓ API credentials validated successfully`);
 
       // Determine signature type (0 = EOA, 1 = Magic Link proxy, 2 = Gnosis Safe)
       // NOTE: If your Polymarket account was created via email/Magic Link, use 1
