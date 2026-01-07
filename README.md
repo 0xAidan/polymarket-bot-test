@@ -1,195 +1,145 @@
 # Polymarket Copytrade Bot
 
-A bot that monitors specified wallet addresses and automatically executes the same trades on Polymarket.
+A bot that automatically copies trades from wallets you choose to track on Polymarket.
 
-## Overview
+## What This Bot Does
 
-This bot allows you to:
-1. Add wallet addresses to track
-2. Monitor their trades on Polymarket in real-time
-3. Automatically execute the same trades on your wallet
-4. Manage tracked wallets through a web interface
+1. You add wallet addresses to track
+2. The bot watches those wallets for trades
+3. When they make a trade, the bot automatically makes the same trade for you
+4. You can see everything happening in a web dashboard
 
-## Setup
+## Step 1: Get Your Code Ready (On Your Mac)
 
-### Prerequisites
+1. **Open Terminal** (Press `Command + Space`, type "Terminal", press Enter)
 
-- Node.js 18+ installed
-- A crypto wallet with funds for trading
-- Polymarket API credentials (get from [docs.polymarket.com](https://docs.polymarket.com))
+2. **Go to where you want the bot** (for example, your Desktop):
+   ```bash
+   cd ~/Desktop
+   ```
 
-### Installation
-
-1. **Clone the repository**
+3. **Download the code** (replace `<repository-url>` with your actual GitHub repo URL):
    ```bash
    git clone <repository-url>
    cd polymarket-bot-test
    ```
 
-2. **Install dependencies:**
+4. **Install the tools the bot needs**:
    ```bash
    npm install
    ```
 
-3. **Set up your wallet** (this is the only step you need to do manually):
+## Step 2: Set Up Your Wallet
+
+1. **Run the setup command**:
    ```bash
    npm run setup
    ```
-   
-   This will ask you for:
-   - Your wallet private key (found in your crypto wallet settings)
-   - Optional: API key and RPC URL (you can skip these)
-   
-   **That's it!** The script creates everything for you.
 
-4. **Start the bot:**
+2. **When it asks for your private key**:
+   - Go to your crypto wallet (like MetaMask)
+   - Find your private key in the wallet settings
+   - Copy and paste it when the bot asks
+   - Press Enter
+
+3. **For the other questions** (API key, RPC URL):
+   - Just press Enter to skip them (they're optional)
+
+**Done!** The bot now knows your wallet.
+
+## Step 3: Test It Locally (Optional - Just to Make Sure It Works)
+
+1. **Start the bot**:
    ```bash
    npm run dev
    ```
-   
-   The bot will automatically:
-   - Start monitoring tracked wallets
-   - Begin copying trades as they happen
-   - Launch a web dashboard at `http://localhost:3000` where you can:
-     - Add/remove wallets to track
-     - View performance statistics
-     - Start/stop the bot
-     - See recent trades and issues
 
-**IMPORTANT**: Never commit your `.env` file or private keys to git!
+2. **Open your web browser** and go to: `http://localhost:3000`
 
-## Running on Separate Computers
+3. **You should see a dashboard**. This means it's working!
 
-If you want to share this bot with a colleague and both run it with your own wallets on separate computers:
+4. **Press `Control + C` in Terminal to stop the bot** (you'll deploy it to Railway next so it runs 24/7)
 
-1. **Share the repository** - Send them the repo link
-2. **Each person does these 3 simple steps:**
-   ```bash
-   npm install
-   npm run setup    # Enter your own private key when prompted
-   npm run dev
-   ```
+## Step 4: Deploy to Railway (So It Runs 24/7)
 
-**That's it!** Each person runs on their own computer with their own wallet. No conflicts because everyone has their own `.env` file.
+### Part A: Create Railway Account
 
-## Running 24/7 (Cloud Deployment)
+1. **Go to [railway.app](https://railway.app)** in your web browser
+2. **Click "Start a New Project"** or "Sign Up"
+3. **Sign up with your GitHub account** (easiest way)
+4. **Railway will ask for access to your GitHub** - click "Authorize"
 
-If you want the bot to run continuously without keeping your computer on, you can deploy it to a cloud service. Here are three simple options:
+### Part B: Connect Your Code
 
-### Option 1: Railway (Recommended - Easiest)
+1. **In Railway, click "New Project"**
+2. **Click "Deploy from GitHub repo"**
+3. **Find your `polymarket-bot-test` repository** in the list
+4. **Click on it** to connect it
 
-1. **Sign up at [railway.app](https://railway.app)** (free tier available)
-2. **Create a new project** → "Deploy from GitHub repo"
-3. **Connect your GitHub repository**
-4. **Add environment variables** in Railway dashboard:
-   - `PRIVATE_KEY` - Your wallet private key
-   - `POLYGON_RPC_URL` - Your Polygon RPC endpoint
-   - `PORT` - Railway will set this automatically
-   - Add any other variables from `ENV_EXAMPLE.txt`
-5. **Deploy** - Railway will automatically build and deploy using the Dockerfile
+### Part C: Add Your Wallet Information
 
-**Note**: Railway provides a free tier that's perfect for this bot. They handle all the infrastructure for you.
+1. **In Railway, click on your project**
+2. **Click the "Variables" tab** (or "Environment" tab)
+3. **Click "New Variable"** and add these one by one:
 
-### Option 2: Render
+   **Variable 1:**
+   - Name: `PRIVATE_KEY`
+   - Value: (paste your wallet private key here - the same one you used in Step 2)
+   - Click "Add"
 
-1. **Sign up at [render.com](https://render.com)** (free tier available)
-2. **Create a new "Web Service"**
-3. **Connect your GitHub repository**
-4. **Configure the service:**
-   - Build Command: `npm install && npm run build`
-   - Start Command: `npm start`
-   - Environment: `Node`
-5. **Add environment variables** in Render dashboard (same as Railway)
-6. **Deploy**
+   **Variable 2:**
+   - Name: `POLYGON_RPC_URL`
+   - Value: `https://polygon-rpc.com`
+   - Click "Add"
 
-**Note**: Render's free tier puts services to sleep after 15 minutes of inactivity. For a trading bot that needs to run 24/7, you'll need a paid plan (~$7/month).
+   **That's it!** Railway will automatically add the `PORT` variable for you.
 
-### Option 3: VPS (DigitalOcean, Linode, AWS EC2, etc.)
+### Part D: Deploy
 
-1. **Create a VPS instance** (smallest size is fine, ~$5/month)
-2. **Connect via SSH**
-3. **Install Node.js 18+**:
-   ```bash
-   curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-   sudo apt-get install -y nodejs
-   ```
-4. **Clone your repository**:
-   ```bash
-   git clone <your-repo-url>
-   cd polymarket-bot-test
-   ```
-5. **Set up environment variables**:
-   ```bash
-   cp ENV_EXAMPLE.txt .env
-   nano .env  # Edit with your credentials
-   ```
-6. **Install and run with PM2** (keeps it running 24/7):
-   ```bash
-   npm install
-   npm run build
-   sudo npm install -g pm2
-   pm2 start dist/index.js --name polymarket-bot
-   pm2 save
-   pm2 startup  # Follow instructions to auto-start on reboot
-   ```
+1. **Railway will automatically start building and deploying** your bot
+2. **Wait a few minutes** - you'll see it building in the Railway dashboard
+3. **When it says "Deployed"** - you're done! Your bot is now running 24/7
 
-### Which Option Should I Choose?
+## Step 5: Use Your Bot
 
-- **Railway**: Best for beginners - everything is automated
-- **Render**: Good if you want free tier (but remember it sleeps on free plan)
-- **VPS**: Most control, but requires some Linux knowledge
+1. **In Railway, click on your project**
+2. **Click the "Settings" tab**
+3. **Find "Generate Domain"** and click it
+4. **Copy the URL** it gives you (looks like `https://your-bot-name.up.railway.app`)
+5. **Open that URL in your web browser**
+6. **You'll see the dashboard** where you can:
+   - Add wallet addresses to track
+   - See all the trades being copied
+   - Check performance stats
 
-All three options will run your bot 24/7! Choose the one that feels easiest for you.
+## Adding Wallets to Track
 
-## Configuration
+1. **Open your bot's dashboard** (the Railway URL from Step 5)
+2. **Find the "Add Wallet" section**
+3. **Paste a wallet address** you want to copy trades from
+4. **Click "Add"**
+5. **The bot will start copying their trades automatically!**
 
-The bot requires:
-- **PRIVATE_KEY**: Your wallet's private key (for executing trades and signing orders)
-- **POLYMARKET_API_KEY**: (Optional) API key from Polymarket if required
-- **POLYMARKET_CLOB_API_URL**: CLOB API endpoint (default: https://clob.polymarket.com)
-- **POLYMARKET_DATA_API_URL**: Data API endpoint (default: https://data-api.polymarket.com)
-- **POLYMARKET_GAMMA_API_URL**: Gamma API endpoint (default: https://gamma-api.polymarket.com)
-- **POLYGON_RPC_URL**: Polygon blockchain RPC endpoint
+## Important Notes
 
-Optional:
-- **MONITORING_INTERVAL_MS**: How often to check for new trades (default: 15000ms / 15 seconds)
+⚠️ **NEVER share your private key with anyone!**
+⚠️ **Start with small amounts to test!**
+⚠️ **This bot uses real money - be careful!**
 
-## How It Works
+## Troubleshooting
 
-1. **Auto-Start**: When you run `npm run dev`, the bot automatically starts monitoring and copying trades
-2. **Wallet Monitoring**: The bot polls Polymarket's Data API to monitor position changes from tracked wallets
-3. **Trade Detection**: When a position change is detected, it:
-   - Extracts market ID, outcome (YES/NO), amount, and price
-   - Determines whether it's a BUY or SELL by comparing position sizes
-   - Compares with previous positions to identify new trades
-   - Also checks recent trade history for very recent activity
-4. **Trade Execution**: The bot places the same trade on your wallet via Polymarket CLOB API:
-   - Gets market information to determine token IDs
-   - Constructs and signs the order (matching the buy/sell side)
-   - Submits the order to the CLOB API
-5. **Performance Tracking**: All trades are logged with success rates, latency, and errors
+**Bot won't start?**
+- Make sure you added the `PRIVATE_KEY` variable in Railway
+- Check Railway's logs (click "Deployments" → click the latest one → "View Logs")
 
-## API Integration
+**Can't see the dashboard?**
+- Make sure Railway finished deploying (check the "Deployments" tab)
+- Try the "Generate Domain" button again in Settings
 
-This bot integrates with Polymarket's APIs:
+**Need help?**
+- Check Railway's logs for error messages
+- Make sure your private key is correct (no extra spaces)
 
-- **Data API**: Fetches user positions and trade history to detect trades
-- **CLOB API**: Places orders to execute trades
-- **Gamma API**: Gets market information and token details
+## That's It!
 
-**Note**: The exact API endpoints and authentication methods may vary. If you encounter authentication issues:
-1. Check Polymarket's latest API documentation at [docs.polymarket.com](https://docs.polymarket.com)
-2. Verify the API endpoint URLs are correct
-3. Ensure your wallet has sufficient funds and permissions
-
-The bot uses wallet signature authentication by default, with optional API key support if provided.
-
-## Security Warning
-
-⚠️ **NEVER share your private key or API keys publicly!**
-⚠️ **Test with small amounts first!**
-⚠️ **This bot executes real trades with real money!**
-
-## License
-
-MIT
+Your bot is now running 24/7 on Railway. It will automatically copy trades from any wallets you add to track. You can check on it anytime by visiting your Railway dashboard URL.
