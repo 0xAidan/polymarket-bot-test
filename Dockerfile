@@ -1,5 +1,5 @@
-# Use Node.js 18 LTS as base image
-FROM node:18-alpine
+# Use Node.js 20 LTS as base image (required for @polymarket/clob-client)
+FROM node:20-alpine
 
 # Set working directory
 WORKDIR /app
@@ -8,7 +8,9 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install all dependencies (including dev dependencies for build)
-RUN npm ci
+# Using npm install instead of npm ci because package-lock.json may be out of sync
+# TODO: Regenerate package-lock.json locally with 'npm install' and commit it
+RUN npm install
 
 # Copy source code
 COPY . .
