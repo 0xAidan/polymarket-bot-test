@@ -2,6 +2,17 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// Helper function to ensure URLs have a protocol prefix
+function ensureProtocol(url: string, defaultUrl: string): string {
+  if (!url) return defaultUrl;
+  // If the URL doesn't start with http:// or https://, prepend https://
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    console.warn(`[CONFIG] URL "${url}" is missing protocol, auto-prepending https://`);
+    return `https://${url}`;
+  }
+  return url;
+}
+
 export const config = {
   // Wallet configuration
   privateKey: process.env.PRIVATE_KEY || '',
@@ -9,10 +20,10 @@ export const config = {
 
   // Polymarket API configuration
   polymarketApiKey: process.env.POLYMARKET_API_KEY || '',
-  polymarketApiUrl: process.env.POLYMARKET_API_URL || 'https://api.polymarket.com',
-  polymarketClobApiUrl: process.env.POLYMARKET_CLOB_API_URL || 'https://clob.polymarket.com',
-  polymarketDataApiUrl: process.env.POLYMARKET_DATA_API_URL || 'https://data-api.polymarket.com',
-  polymarketGammaApiUrl: process.env.POLYMARKET_GAMMA_API_URL || 'https://gamma-api.polymarket.com',
+  polymarketApiUrl: ensureProtocol(process.env.POLYMARKET_API_URL || '', 'https://api.polymarket.com'),
+  polymarketClobApiUrl: ensureProtocol(process.env.POLYMARKET_CLOB_API_URL || '', 'https://clob.polymarket.com'),
+  polymarketDataApiUrl: ensureProtocol(process.env.POLYMARKET_DATA_API_URL || '', 'https://data-api.polymarket.com'),
+  polymarketGammaApiUrl: ensureProtocol(process.env.POLYMARKET_GAMMA_API_URL || '', 'https://gamma-api.polymarket.com'),
   
   // Polymarket Builder API credentials (OPTIONAL - only for order attribution)
   // These are NOT required for trading, only for getting credit on Builder Leaderboard
