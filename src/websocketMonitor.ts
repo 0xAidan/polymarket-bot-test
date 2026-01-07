@@ -6,13 +6,26 @@ import { Storage } from './storage.js';
 /**
  * WebSocket-based monitor for real-time Polymarket trade detection
  * Connects to Polymarket's WebSocket API for instant trade notifications
+ * 
+ * ⚠️ IMPORTANT LIMITATION:
+ * The Polymarket WebSocket "User Channel" only works for YOUR OWN authenticated trades,
+ * NOT for monitoring other wallets' trades. This is a Polymarket API limitation.
+ * 
+ * For copy trading purposes, the WebSocket monitor is a SECONDARY method that only
+ * works for detecting your own trades. The PRIMARY method for detecting other wallets'
+ * trades is the polling-based WalletMonitor which uses the Data API.
+ * 
+ * This WebSocket monitor is kept for:
+ * 1. Faster detection of your own trades (for logging/UI purposes)
+ * 2. Potential future use if Polymarket adds public trade streams
  */
 export class WebSocketMonitor {
   private api: PolymarketApi;
   private ws: WebSocket | null = null;
   private isMonitoring = false;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
+  // Reduced reconnect attempts since WebSocket is SECONDARY (polling is primary)
+  private maxReconnectAttempts = 3;
   private reconnectDelay = 5000; // Start with 5 seconds
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private pingInterval: NodeJS.Timeout | null = null;
@@ -107,7 +120,8 @@ export class WebSocketMonitor {
 
     try {
       // Polymarket WebSocket endpoint for CLOB subscriptions
-      const wsUrl = 'wss://ws-subscriptions-clob.polymarket.com/ws';
+      // FIXED: Add trailing slash to WebSocket URL (required by Polymarket API)
+      const wsUrl = 'wss://ws-subscriptions-clob.polymarket.com/ws/';
       console.log(`[WebSocket] Connecting to ${wsUrl}...`);
 
       this.ws = new WebSocket(wsUrl);
