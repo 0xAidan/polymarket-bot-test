@@ -13,6 +13,11 @@ export const config = {
   polymarketClobApiUrl: process.env.POLYMARKET_CLOB_API_URL || 'https://clob.polymarket.com',
   polymarketDataApiUrl: process.env.POLYMARKET_DATA_API_URL || 'https://data-api.polymarket.com',
   polymarketGammaApiUrl: process.env.POLYMARKET_GAMMA_API_URL || 'https://gamma-api.polymarket.com',
+  
+  // Polymarket Builder API credentials (required for trading)
+  polymarketBuilderApiKey: process.env.POLYMARKET_BUILDER_API_KEY || '',
+  polymarketBuilderSecret: process.env.POLYMARKET_BUILDER_SECRET || '',
+  polymarketBuilderPassphrase: process.env.POLYMARKET_BUILDER_PASSPHRASE || '',
 
   // Blockchain configuration
   polygonRpcUrl: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
@@ -36,7 +41,16 @@ export const config = {
       console.error('See README.md for instructions.\n');
       throw new Error('PRIVATE_KEY is required. Run "npm run setup" to configure.');
     }
-    // Note: API key might be optional depending on Polymarket's auth requirements
-    // Will implement wallet signature auth if needed
+    
+    // Builder API credentials are required for trading
+    if (!this.polymarketBuilderApiKey || !this.polymarketBuilderSecret || !this.polymarketBuilderPassphrase) {
+      console.warn('\n⚠️  WARNING: Polymarket Builder API credentials not configured!\n');
+      console.warn('📝 Trading will fail without Builder API credentials.');
+      console.warn('   Add these to your .env file:');
+      console.warn('   POLYMARKET_BUILDER_API_KEY=your_key');
+      console.warn('   POLYMARKET_BUILDER_SECRET=your_secret');
+      console.warn('   POLYMARKET_BUILDER_PASSPHRASE=your_passphrase\n');
+      console.warn('   Get these from: https://polymarket.com/settings?tab=builder\n');
+    }
   }
 };

@@ -89,6 +89,14 @@ async function main() {
     }
   }
 
+  // Ask for Builder API credentials (required for trading)
+  console.log('\n🔐 Polymarket Builder API Credentials (REQUIRED for trading):');
+  console.log('   Get these from: https://polymarket.com/settings?tab=builder\n');
+  
+  const builderApiKey = await question('Builder API Key: ');
+  const builderSecret = await question('Builder API Secret: ');
+  const builderPassphrase = await question('Builder API Passphrase: ');
+
   // Ask for optional API key
   console.log('\n🔑 Optional: Enter Polymarket API key (press Enter to skip):');
   const apiKey = await question('API Key: ');
@@ -99,6 +107,18 @@ async function main() {
 
   // Replace placeholders
   envContent = envContent.replace('PRIVATE_KEY=your_private_key_here', `PRIVATE_KEY=${trimmedKey}`);
+  
+  if (builderApiKey && builderApiKey.trim()) {
+    envContent = envContent.replace('POLYMARKET_BUILDER_API_KEY=your_builder_api_key_here', `POLYMARKET_BUILDER_API_KEY=${builderApiKey.trim()}`);
+  }
+  
+  if (builderSecret && builderSecret.trim()) {
+    envContent = envContent.replace('POLYMARKET_BUILDER_SECRET=your_builder_secret_here', `POLYMARKET_BUILDER_SECRET=${builderSecret.trim()}`);
+  }
+  
+  if (builderPassphrase && builderPassphrase.trim()) {
+    envContent = envContent.replace('POLYMARKET_BUILDER_PASSPHRASE=your_builder_passphrase_here', `POLYMARKET_BUILDER_PASSPHRASE=${builderPassphrase.trim()}`);
+  }
   
   if (apiKey && apiKey.trim()) {
     envContent = envContent.replace('POLYMARKET_API_KEY=your_api_key_here_if_needed', `POLYMARKET_API_KEY=${apiKey.trim()}`);

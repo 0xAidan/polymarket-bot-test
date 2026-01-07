@@ -1,5 +1,6 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { ethers } from 'ethers';
+import crypto from 'crypto';
 import { config } from './config.js';
 import { DetectedTrade } from './types.js';
 
@@ -262,6 +263,50 @@ export class PolymarketApi {
   }
 
   /**
+   * Generate HMAC signature for Builder API authentication
+   */
+  private generateBuilderSignature(
+    timestamp: string,
+    method: string,
+    path: string,
+    body: string = ''
+  ): string {
+    if (!config.polymarketBuilderSecret) {
+      throw new Error('Builder API secret not configured');
+    }
+
+    // Create the message to sign: timestamp + method + path + body
+    const message = timestamp + method.toUpperCase() + path + body;
+    
+    // Create HMAC signature using the secret
+    const signature = crypto
+      .createHmac('sha256', Buffer.from(config.polymarketBuilderSecret, 'base64'))
+      .update(message)
+      .digest('base64');
+
+    return signature;
+  }
+
+  /**
+   * Get Builder API authentication headers
+   */
+  private getBuilderAuthHeaders(method: string, path: string, body: string = ''): Record<string, string> {
+    if (!config.polymarketBuilderApiKey || !config.polymarketBuilderSecret || !config.polymarketBuilderPassphrase) {
+      throw new Error('Builder API credentials not configured. Please set POLYMARKET_BUILDER_API_KEY, POLYMARKET_BUILDER_SECRET, and POLYMARKET_BUILDER_PASSPHRASE in your .env file.');
+    }
+
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const signature = this.generateBuilderSignature(timestamp, method, path, body);
+
+    return {
+      'POLY_BUILDER_API_KEY': config.polymarketBuilderApiKey,
+      'POLY_BUILDER_TIMESTAMP': timestamp,
+      'POLY_BUILDER_PASSPHRASE': config.polymarketBuilderPassphrase,
+      'POLY_BUILDER_SIGNATURE': signature,
+    };
+  }
+
+  /**
    * Place an order via CLOB API
    * Note: Order placement is NOT retried to avoid duplicate orders
    */
@@ -277,8 +322,12 @@ export class PolymarketApi {
     }
 
     try {
-      // CLOB API typically requires signed orders
-      // This is a simplified version - actual implementation may need more fields
+      // Validate Builder API credentials
+      if (!config.polymarketBuilderApiKey || !config.polymarketBuilderSecret || !config.polymarketBuilderPassphrase) {
+        throw new Error('Builder API credentials not configured. Trading requires POLYMARKET_BUILDER_API_KEY, POLYMARKET_BUILDER_SECRET, and POLYMARKET_BUILDER_PASSPHRASE.');
+      }
+
+      // CLOB API order format
       const order = {
         token_id: orderParams.tokenId,
         side: orderParams.side.toLowerCase(),
@@ -291,14 +340,21 @@ export class PolymarketApi {
         throw new Error('Signer not initialized');
       }
 
-      // Sign the order (Polymarket CLOB may require EIP-712 signing)
-      const orderMessage = JSON.stringify(order);
-      const signature = await this.signer.signMessage(orderMessage);
+      // Prepare request body
+      const requestBody = JSON.stringify(order);
+      const path = '/orders';
       
-      const response = await this.clobApiClient.post('/orders', {
-        ...order,
-        signature,
-        maker: await this.signer.getAddress()
+      // Get Builder API authentication headers
+      const authHeaders = this.getBuilderAuthHeaders('POST', path, requestBody);
+      
+      console.log(`Placing order with Builder API authentication...`);
+      
+      // Make the request with Builder API headers
+      const response = await this.clobApiClient.post(path, order, {
+        headers: {
+          ...authHeaders,
+          'Content-Type': 'application/json',
+        }
       });
 
       return response.data;
