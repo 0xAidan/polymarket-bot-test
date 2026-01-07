@@ -185,12 +185,16 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.get('/wallet/balance', async (req: Request, res: Response) => {
     try {
       const walletAddress = copyTrader.getWalletAddress();
+      console.log(`[API] /wallet/balance requested. Wallet address: ${walletAddress || 'NOT SET'}`);
+      
       if (!walletAddress) {
+        console.log('[API] No wallet address configured, returning 0 balance');
         return res.json({ 
           success: true, 
           currentBalance: 0,
           change24h: 0,
-          balance24hAgo: null
+          balance24hAgo: null,
+          walletAddress: null
         });
       }
 
@@ -201,18 +205,22 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         // This will initialize if needed
         await balanceTracker.getBalance(walletAddress);
       } catch (initError: any) {
-        console.error('Balance tracker initialization error:', initError);
+        console.error('[API] Balance tracker initialization error:', initError);
         // Continue anyway - getBalanceWithChange will try to initialize again
       }
       
+      console.log(`[API] Fetching balance for wallet: ${walletAddress}`);
       const balanceData = await balanceTracker.getBalanceWithChange(walletAddress);
+      console.log(`[API] Balance fetched: ${balanceData.currentBalance} USDC`);
       
       res.json({ 
         success: true, 
-        ...balanceData
+        ...balanceData,
+        walletAddress: walletAddress
       });
     } catch (error: any) {
-      console.error('Error fetching wallet balance:', error);
+      console.error('[API] Error fetching wallet balance:', error);
+      console.error('[API] Error stack:', error.stack);
       // Return error but still provide a response so UI can show error state
       res.status(500).json({ 
         success: false, 
@@ -322,6 +330,36 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       res.json({ success: true, message: 'Trade size updated', tradeSize });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Test endpoint to check balance for any address (for debugging)
+  router.get('/test/balance/:address', async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      console.log(`[API] Test balance check for: ${address}`);
+      
+      if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Invalid address format' 
+        });
+      }
+
+      const balanceTracker = copyTrader.getBalanceTracker();
+      const balanceData = await balanceTracker.getBalanceWithChange(address);
+      
+      res.json({ 
+        success: true, 
+        ...balanceData,
+        address: address
+      });
+    } catch (error: any) {
+      console.error('[API] Test balance error:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: error.message || 'Failed to fetch balance'
+      });
     }
   });
 

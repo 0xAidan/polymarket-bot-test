@@ -4,8 +4,11 @@ import path from 'path';
 import { config } from './config.js';
 import { Storage } from './storage.js';
 
-// USDC contract address on Polygon
-const USDC_CONTRACT_ADDRESS = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
+// USDC contract addresses on Polygon
+// Native USDC (new, recommended by Circle)
+const USDC_NATIVE_ADDRESS = '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359';
+// Bridged USDC (old, legacy)
+const USDC_BRIDGED_ADDRESS = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
 // USDC has 6 decimals
 const USDC_DECIMALS = 6;
 
@@ -32,7 +35,8 @@ const BALANCE_HISTORY_FILE = path.join(config.dataDir, 'balance_history.json');
  */
 export class BalanceTracker {
   private provider: ethers.Provider | null = null;
-  private usdcContract: ethers.Contract | null = null;
+  private usdcNativeContract: ethers.Contract | null = null;
+  private usdcBridgedContract: ethers.Contract | null = null;
   private history: Map<string, WalletBalanceHistory> = new Map();
   private pollingInterval: NodeJS.Timeout | null = null;
   private isTracking = false;
@@ -45,16 +49,22 @@ export class BalanceTracker {
       await Storage.ensureDataDir();
       this.provider = new ethers.JsonRpcProvider(config.polygonRpcUrl);
       
-      // Create USDC contract instance
-      this.usdcContract = new ethers.Contract(
-        USDC_CONTRACT_ADDRESS,
+      // Create USDC contract instances for both native and bridged
+      this.usdcNativeContract = new ethers.Contract(
+        USDC_NATIVE_ADDRESS,
+        ERC20_ABI,
+        this.provider
+      );
+      
+      this.usdcBridgedContract = new ethers.Contract(
+        USDC_BRIDGED_ADDRESS,
         ERC20_ABI,
         this.provider
       );
 
       // Load existing history
       await this.loadHistory();
-      console.log('Balance tracker initialized');
+      console.log('Balance tracker initialized with both USDC variants');
     } catch (error: any) {
       console.error('Failed to initialize balance tracker:', error);
       throw error;
@@ -116,21 +126,42 @@ export class BalanceTracker {
 
   /**
    * Get current USDC balance for a wallet
+   * Checks both native and bridged USDC, returns the sum
    * Always fetches fresh from the blockchain
    */
   async getBalance(address: string): Promise<number> {
     // Ensure initialized
-    if (!this.usdcContract || !this.provider) {
+    if (!this.usdcNativeContract || !this.usdcBridgedContract || !this.provider) {
       await this.initialize();
     }
 
     try {
-      // Always fetch fresh balance from blockchain
-      const balance = await this.usdcContract!.balanceOf(address);
-      // Convert from wei to USDC (6 decimals)
-      const balanceNumber = parseFloat(ethers.formatUnits(balance, USDC_DECIMALS));
-      console.log(`Balance fetched for ${address.substring(0, 8)}...: ${balanceNumber} USDC`);
-      return balanceNumber;
+      let totalBalance = 0;
+      let nativeBalanceNumber = 0;
+      let bridgedBalanceNumber = 0;
+      
+      // Check native USDC
+      try {
+        const nativeBalance = await this.usdcNativeContract!.balanceOf(address);
+        nativeBalanceNumber = parseFloat(ethers.formatUnits(nativeBalance, USDC_DECIMALS));
+        totalBalance += nativeBalanceNumber;
+        console.log(`[Balance] Native USDC (${USDC_NATIVE_ADDRESS.substring(0, 10)}...) for ${address}: ${nativeBalanceNumber} USDC`);
+      } catch (error: any) {
+        console.warn(`[Balance] Failed to fetch native USDC balance: ${error.message}`);
+      }
+      
+      // Check bridged USDC
+      try {
+        const bridgedBalance = await this.usdcBridgedContract!.balanceOf(address);
+        bridgedBalanceNumber = parseFloat(ethers.formatUnits(bridgedBalance, USDC_DECIMALS));
+        totalBalance += bridgedBalanceNumber;
+        console.log(`[Balance] Bridged USDC (${USDC_BRIDGED_ADDRESS.substring(0, 10)}...) for ${address}: ${bridgedBalanceNumber} USDC`);
+      } catch (error: any) {
+        console.warn(`[Balance] Failed to fetch bridged USDC balance: ${error.message}`);
+      }
+      
+      console.log(`[Balance] Total USDC balance for ${address}: ${totalBalance} USDC (Native: ${nativeBalanceNumber}, Bridged: ${bridgedBalanceNumber})`);
+      return totalBalance;
     } catch (error: any) {
       console.error(`Failed to get balance for ${address}:`, error.message);
       console.error('Error details:', error);
@@ -191,7 +222,7 @@ export class BalanceTracker {
     balance24hAgo: number | null;
   }> {
     // Ensure initialized before fetching
-    if (!this.usdcContract || !this.provider) {
+    if (!this.usdcNativeContract || !this.usdcBridgedContract || !this.provider) {
       await this.initialize();
     }
 
