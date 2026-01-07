@@ -259,3 +259,11 @@ export class CopyTrader {
   getBalanceTracker(): BalanceTracker {
     return this.balanceTracker;
   }
+
+  /**
+   * Get Polymarket API instance (via monitor)
+   */
+  getPolymarketApi(): import('./polymarketApi.js').PolymarketApi {
+    return this.monitor.getApi();
+  }
+}

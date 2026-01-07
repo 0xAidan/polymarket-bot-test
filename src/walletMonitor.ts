@@ -327,4 +327,11 @@ export class WalletMonitor {
     }
     console.log('Stopped wallet monitoring');
   }
+
+  /**
+   * Get the Polymarket API instance
+   */
+  getApi(): PolymarketApi {
+    return this.api;
+  }
 }
