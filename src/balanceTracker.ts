@@ -40,6 +40,10 @@ export class BalanceTracker {
   private history: Map<string, WalletBalanceHistory> = new Map();
   private pollingInterval: NodeJS.Timeout | null = null;
   private isTracking = false;
+  private balanceCache: Map<string, { balance: number; timestamp: number }> = new Map();
+  private readonly CACHE_TTL_MS = 60000; // Cache balances for 1 minute
+  private lastRpcCallTime = 0;
+  private readonly MIN_RPC_INTERVAL_MS = 1000; // Minimum 1 second between RPC calls
 
   /**
    * Initialize the balance tracker
@@ -139,9 +143,79 @@ export class BalanceTracker {
   }
 
   /**
+   * Retry helper for RPC calls with exponential backoff
+   * Handles rate limit errors gracefully
+   */
+  private async getBalanceWithRetry(
+    callFn: () => Promise<bigint>,
+    label: string,
+    address: string,
+    maxRetries = 2
+  ): Promise<number> {
+    let lastError: any;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        // Add delay between retries (exponential backoff)
+        if (attempt > 0) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000); // Max 10 seconds
+          console.log(`[Balance] Retrying ${label} (attempt ${attempt + 1}/${maxRetries + 1}) after ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        
+        // Rate limit: ensure minimum time between RPC calls
+        const timeSinceLastCall = Date.now() - this.lastRpcCallTime;
+        if (timeSinceLastCall < this.MIN_RPC_INTERVAL_MS) {
+          await new Promise(resolve => setTimeout(resolve, this.MIN_RPC_INTERVAL_MS - timeSinceLastCall));
+        }
+        
+        const balance = await Promise.race([
+          callFn(),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))
+        ]);
+        
+        const balanceNumber = parseFloat(ethers.formatUnits(balance, USDC_DECIMALS));
+        this.lastRpcCallTime = Date.now();
+        
+        if (balanceNumber > 0) {
+          console.log(`[Balance] ✓ ${label} for ${address.substring(0, 10)}...: ${balanceNumber} USDC`);
+        }
+        
+        return balanceNumber;
+      } catch (error: any) {
+        lastError = error;
+        const errorMsg = error.message || String(error);
+        
+        // Check if it's a rate limit error
+        if (errorMsg.includes('rate limit') || 
+            errorMsg.includes('Too many requests') || 
+            errorMsg.includes('rate limit exhausted') ||
+            error?.code === -32090) {
+          // For rate limits, don't retry immediately - wait longer
+          if (attempt < maxRetries) {
+            const delay = 60000; // Wait 1 minute for rate limits
+            console.warn(`[Balance] ⚠️ Rate limit hit for ${label}. Waiting ${delay/1000}s before retry...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          } else {
+            throw new Error(`Rate limit exhausted for ${label}. Please wait before trying again.`);
+          }
+        }
+        
+        // For other errors, retry with exponential backoff
+        if (attempt < maxRetries) {
+          continue;
+        }
+      }
+    }
+    
+    throw lastError || new Error(`Failed to get ${label} balance after ${maxRetries + 1} attempts`);
+  }
+
+  /**
    * Get current USDC balance for a wallet
    * Checks both native and bridged USDC, returns the sum
-   * Always fetches fresh from the blockchain
+   * Uses caching to reduce RPC calls
    */
   async getBalance(address: string): Promise<number> {
     // Ensure initialized
@@ -163,35 +237,63 @@ export class BalanceTracker {
       let nativeBalanceNumber = 0;
       let bridgedBalanceNumber = 0;
       
-      // Check native USDC with timeout
+      // Check cached balance first
+      const cacheKey = normalizedAddress.toLowerCase();
+      const cached = this.balanceCache.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp) < this.CACHE_TTL_MS) {
+        console.log(`[Balance] Using cached balance for ${normalizedAddress.substring(0, 10)}...: ${cached.balance} USDC`);
+        return cached.balance;
+      }
+
+      // Rate limit: ensure minimum time between RPC calls
+      const timeSinceLastCall = Date.now() - this.lastRpcCallTime;
+      if (timeSinceLastCall < this.MIN_RPC_INTERVAL_MS) {
+        await new Promise(resolve => setTimeout(resolve, this.MIN_RPC_INTERVAL_MS - timeSinceLastCall));
+      }
+
+      // Check native USDC with retry logic
       try {
-        const nativeBalance = await Promise.race([
-          this.usdcNativeContract!.balanceOf(normalizedAddress),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))
-        ]) as bigint;
-        nativeBalanceNumber = parseFloat(ethers.formatUnits(nativeBalance, USDC_DECIMALS));
+        nativeBalanceNumber = await this.getBalanceWithRetry(
+          () => this.usdcNativeContract!.balanceOf(normalizedAddress),
+          'Native USDC',
+          normalizedAddress
+        );
         totalBalance += nativeBalanceNumber;
-        if (nativeBalanceNumber > 0) {
-          console.log(`[Balance] ✓ Native USDC for ${normalizedAddress.substring(0, 10)}...: ${nativeBalanceNumber} USDC`);
-        }
       } catch (error: any) {
-        console.warn(`[Balance] ✗ Native USDC failed: ${error.message}`);
+        // If rate limited, use cached value if available
+        if (error.message?.includes('rate limit') || error.message?.includes('Too many requests')) {
+          console.warn(`[Balance] ⚠️ Rate limited for Native USDC. ${cached ? 'Using cached value.' : 'Skipping check.'}`);
+          if (cached) {
+            return cached.balance;
+          }
+        } else {
+          console.warn(`[Balance] ✗ Native USDC failed: ${error.message}`);
+        }
       }
       
-      // Check bridged USDC with timeout
+      // Small delay between contract calls to avoid rate limits
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Check bridged USDC with retry logic
       try {
-        const bridgedBalance = await Promise.race([
-          this.usdcBridgedContract!.balanceOf(normalizedAddress),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))
-        ]) as bigint;
-        bridgedBalanceNumber = parseFloat(ethers.formatUnits(bridgedBalance, USDC_DECIMALS));
+        bridgedBalanceNumber = await this.getBalanceWithRetry(
+          () => this.usdcBridgedContract!.balanceOf(normalizedAddress),
+          'Bridged USDC',
+          normalizedAddress
+        );
         totalBalance += bridgedBalanceNumber;
-        if (bridgedBalanceNumber > 0) {
-          console.log(`[Balance] ✓ Bridged USDC for ${normalizedAddress.substring(0, 10)}...: ${bridgedBalanceNumber} USDC`);
-        }
       } catch (error: any) {
-        console.warn(`[Balance] ✗ Bridged USDC failed: ${error.message}`);
+        // If rate limited, continue with what we have
+        if (error.message?.includes('rate limit') || error.message?.includes('Too many requests')) {
+          console.warn(`[Balance] ⚠️ Rate limited for Bridged USDC. Continuing with partial balance.`);
+        } else {
+          console.warn(`[Balance] ✗ Bridged USDC failed: ${error.message}`);
+        }
       }
+      
+      // Update cache
+      this.balanceCache.set(cacheKey, { balance: totalBalance, timestamp: Date.now() });
+      this.lastRpcCallTime = Date.now();
       
       console.log(`[Balance] Total for ${normalizedAddress}: ${totalBalance} USDC (Native: ${nativeBalanceNumber}, Bridged: ${bridgedBalanceNumber})`);
       
