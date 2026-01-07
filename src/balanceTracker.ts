@@ -34,7 +34,7 @@ const BALANCE_HISTORY_FILE = path.join(config.dataDir, 'balance_history.json');
  * Tracks wallet balances over time to calculate 24h changes
  */
 export class BalanceTracker {
-  private provider: ethers.providers.Provider | null = null;
+  private provider: any | null = null;
   private usdcNativeContract: Contract | null = null;
   private usdcBridgedContract: Contract | null = null;
   private history: Map<string, WalletBalanceHistory> = new Map();
@@ -53,7 +53,7 @@ export class BalanceTracker {
       await Storage.ensureDataDir();
       
       // Create provider with better timeout settings
-      this.provider = new ethers.providers.JsonRpcProvider(config.polygonRpcUrl, {
+      this.provider = new (ethers as any).providers.JsonRpcProvider(config.polygonRpcUrl, {
         name: 'polygon',
         chainId: 137
       });
@@ -174,7 +174,7 @@ export class BalanceTracker {
           new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))
         ]);
         
-        const balanceNumber = parseFloat(ethers.utils.formatUnits(balance, USDC_DECIMALS));
+        const balanceNumber = parseFloat((ethers as any).utils.formatUnits(balance, USDC_DECIMALS));
         this.lastRpcCallTime = Date.now();
         
         if (balanceNumber > 0) {
@@ -227,7 +227,7 @@ export class BalanceTracker {
       // Normalize address to checksummed format for consistent querying
       let normalizedAddress: string;
       try {
-        normalizedAddress = ethers.utils.getAddress(address);
+        normalizedAddress = (ethers as any).utils.getAddress(address);
       } catch {
         // If address is invalid, use as-is and let the contract call fail
         normalizedAddress = address;

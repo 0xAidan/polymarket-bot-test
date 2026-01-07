@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { ethers } from 'ethers';
+import * as ethers from 'ethers';
 import crypto from 'crypto';
 import { config } from './config.js';
 import { DetectedTrade } from './types.js';
@@ -80,7 +80,7 @@ export class PolymarketApi {
       throw new Error('Private key not configured');
     }
 
-    const provider = new ethers.providers.JsonRpcProvider(config.polygonRpcUrl);
+    const provider = new (ethers as any).providers.JsonRpcProvider(config.polygonRpcUrl);
     this.signer = new ethers.Wallet(config.privateKey, provider);
     
     // Store wallet address in config for easy access

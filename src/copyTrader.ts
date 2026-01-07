@@ -5,6 +5,7 @@ import { PerformanceTracker } from './performanceTracker.js';
 import { BalanceTracker } from './balanceTracker.js';
 import { DetectedTrade, TradeOrder, TradeResult } from './types.js';
 import { Storage } from './storage.js';
+import { config } from './config.js';
 
 /**
  * Main copy trading engine that coordinates monitoring and execution
