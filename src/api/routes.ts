@@ -318,15 +318,188 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
   // Get wallet positions (active trades/positions from Polymarket)
   router.get('/wallets/:address/positions', async (req: Request, res: Response) => {
+    const { address } = req.params;
     try {
-      const { address } = req.params;
       const api = copyTrader.getPolymarketApi();
-      const positions = await api.getUserPositions(address);
-      res.json({ success: true, positions });
+      
+      console.log(`[API] Fetching positions for wallet: ${address}`);
+      
+      // Set a timeout for positions fetch (10 seconds max)
+      const positionsPromise = api.getUserPositions(address);
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Positions fetch timeout')), 10000)
+      );
+      
+      const rawPositions = await Promise.race([positionsPromise, timeoutPromise]) as any[];
+      console.log(`[API] Received ${rawPositions?.length || 0} raw positions for ${address}`);
+      
+      if (!rawPositions || rawPositions.length === 0) {
+        return res.json({ 
+          success: true, 
+          positions: [],
+          count: 0
+        });
+      }
+      
+      // Log raw data for debugging
+      console.log(`[API] Sample position structure:`, JSON.stringify(rawPositions[0], null, 2));
+      
+      // Enrich positions with market data and parse correctly
+      const enrichedPositions = [];
+      const maxValue = 10000; // Only show positions < $10,000
+      
+      // Limit processing to first 20 positions to speed up loading
+      const positionsToProcess = rawPositions.slice(0, 20);
+      
+      for (const position of positionsToProcess) {
+        try {
+          // Parse position value - try multiple field names
+          let positionValue = 0;
+          if (typeof position.position_value === 'number') {
+            positionValue = position.position_value;
+          } else if (typeof position.value === 'number') {
+            positionValue = position.value;
+          } else if (typeof position.positionValue === 'number') {
+            positionValue = position.positionValue;
+          } else if (position.usdValue) {
+            positionValue = parseFloat(position.usdValue) || 0;
+          } else if (position.size && position.price) {
+            // Calculate: size * price
+            const size = parseFloat(position.size) || parseFloat(position.quantity) || 0;
+            const price = parseFloat(position.price) || parseFloat(position.avg_price) || 0;
+            positionValue = size * price;
+          }
+          
+          // Filter out positions >= $10,000
+          if (positionValue >= maxValue) {
+            console.log(`[API] Skipping position with value $${positionValue.toFixed(2)} (>= $${maxValue})`);
+            continue;
+          }
+          
+          // Parse quantity/shares
+          let quantity = 0;
+          if (typeof position.quantity === 'number') {
+            quantity = position.quantity;
+          } else if (typeof position.size === 'number') {
+            quantity = position.size;
+          } else if (typeof position.position === 'number') {
+            quantity = position.position;
+          } else if (typeof position.shares === 'number') {
+            quantity = position.shares;
+          } else if (position.quantity) {
+            quantity = parseFloat(position.quantity) || 0;
+          } else if (position.size) {
+            quantity = parseFloat(position.size) || 0;
+          }
+          
+          // Parse price/cost basis
+          let avgPrice = 0;
+          if (typeof position.avg_price === 'number') {
+            avgPrice = position.avg_price;
+          } else if (typeof position.price === 'number') {
+            avgPrice = position.price;
+          } else if (typeof position.cost_basis === 'number') {
+            avgPrice = position.cost_basis;
+          } else if (position.avg_price) {
+            avgPrice = parseFloat(position.avg_price) || 0;
+          } else if (position.price) {
+            avgPrice = parseFloat(position.price) || 0;
+          } else if (quantity > 0 && positionValue > 0) {
+            // Calculate average price from value and quantity
+            avgPrice = positionValue / quantity;
+          }
+          
+          // Get market ID and outcome
+          const marketId = position.market_id || 
+                          position.marketId || 
+                          position.market?.id ||
+                          position.condition_id ||
+                          position.conditionId ||
+                          (position.token_id ? position.token_id.split('-')[0] : null);
+          
+          // Determine outcome from token ID or position data
+          let outcome = 'Unknown';
+          if (position.outcome) {
+            outcome = position.outcome.toUpperCase();
+          } else if (position.token_id) {
+            // Token IDs typically end with -0 (YES) or -1 (NO)
+            if (position.token_id.endsWith('-0') || position.token_id.includes('-0-')) {
+              outcome = 'YES';
+            } else if (position.token_id.endsWith('-1') || position.token_id.includes('-1-')) {
+              outcome = 'NO';
+            }
+          } else if (position.outcomeIndex !== undefined) {
+            outcome = position.outcomeIndex === 0 ? 'YES' : 'NO';
+          }
+          
+          // Fetch market information if we have a market ID (skip for now to speed up loading)
+          // We'll use whatever market info is already in the position data
+          let marketInfo = position.market || position.condition || {};
+          
+          // Only fetch market info if absolutely necessary and we have time
+          // For now, skip external API calls to speed up loading
+          // TODO: Could fetch market info in background or cache it
+          if (false && marketId && (!marketInfo?.question && !marketInfo?.title)) {
+            try {
+              const market = await api.getMarket(marketId);
+              marketInfo = market || marketInfo;
+            } catch (error: any) {
+              console.warn(`[API] Failed to fetch market ${marketId}:`, error.message);
+              // Use what we have
+            }
+          }
+          
+          // Get market title
+          const marketTitle = marketInfo.question || 
+                             marketInfo.title || 
+                             marketInfo.name ||
+                             marketInfo.marketQuestion ||
+                             `Market ${marketId || 'Unknown'}`;
+          
+          // Only include position if it has meaningful data
+          if (quantity > 0 || positionValue > 0) {
+            enrichedPositions.push({
+              ...position,
+              marketId,
+              marketTitle,
+              outcome,
+              quantity,
+              avgPrice,
+              positionValue,
+              market: marketInfo
+            });
+          }
+        } catch (error: any) {
+          console.error(`[API] Error enriching position:`, error.message);
+          // Continue with other positions
+        }
+      }
+      
+      console.log(`[API] Enriched ${enrichedPositions.length} positions (filtered from ${rawPositions.length})`);
+      
+      res.json({ 
+        success: true, 
+        positions: enrichedPositions,
+        count: enrichedPositions.length,
+        totalRawPositions: rawPositions.length
+      });
     } catch (error: any) {
-      // Don't fail completely if positions can't be loaded
-      console.error(`Failed to load positions for ${address}:`, error.message);
-      res.json({ success: true, positions: [], error: error.message });
+      // Log full error for debugging
+      console.error(`[API] Failed to load positions for ${address}:`, {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        statusText: error.response?.statusText
+      });
+      
+      // Return error details to help debug
+      res.json({ 
+        success: false, 
+        positions: [], 
+        error: error.message,
+        details: error.response?.data || null,
+        status: error.response?.status || null
+      });
     }
   });
 

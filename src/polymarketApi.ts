@@ -249,20 +249,85 @@ export class PolymarketApi {
   /**
    * Get user positions from Data API
    * This helps us detect new trades by comparing position changes
+   * Tries multiple endpoints as Polymarket API structure may vary
    */
   async getUserPositions(userAddress: string): Promise<any[]> {
     return this.retryRequest(async () => {
-      try {
-        const response = await this.dataApiClient.get(`/users/${userAddress.toLowerCase()}/positions`);
-        return response.data || [];
-      } catch (error: any) {
-        if (error.response?.status === 404) {
-          // User has no positions
-          return [];
+      const address = userAddress.toLowerCase();
+      
+      // Try multiple possible endpoints
+      const endpoints = [
+        `/users/${address}/positions`,
+        `/users/${address}/positions/active`,
+        `/positions?user=${address}`,
+        `/user/${address}/positions`,
+      ];
+
+      for (const endpoint of endpoints) {
+        try {
+          const fullUrl = `${this.dataApiClient.defaults.baseURL}${endpoint}`;
+          console.log(`[PolymarketAPI] Trying endpoint: ${fullUrl}`);
+          
+          const response = await this.dataApiClient.get(endpoint);
+          let positions = response.data;
+          
+          // Log raw response for debugging (first 500 chars)
+          if (positions) {
+            const responseStr = JSON.stringify(positions).substring(0, 500);
+            console.log(`[PolymarketAPI] Response from ${endpoint}: ${responseStr}...`);
+          }
+          
+          // Handle different response structures
+          if (Array.isArray(positions)) {
+            console.log(`✓ Found positions via ${endpoint}: ${positions.length} positions`);
+            return positions;
+          } else if (positions?.positions && Array.isArray(positions.positions)) {
+            console.log(`✓ Found positions via ${endpoint}: ${positions.positions.length} positions`);
+            return positions.positions;
+          } else if (positions?.data && Array.isArray(positions.data)) {
+            console.log(`✓ Found positions via ${endpoint}: ${positions.data.length} positions`);
+            return positions.data;
+          } else if (positions?.results && Array.isArray(positions.results)) {
+            console.log(`✓ Found positions via ${endpoint}: ${positions.results.length} positions`);
+            return positions.results;
+          } else if (positions && typeof positions === 'object') {
+            // Single position object
+            console.log(`✓ Found position via ${endpoint}`);
+            return [positions];
+          } else if (positions) {
+            // Unknown structure, log it
+            console.log(`⚠ Unexpected response structure from ${endpoint}:`, typeof positions);
+          }
+        } catch (error: any) {
+          // Log detailed error info
+          const status = error.response?.status;
+          const statusText = error.response?.statusText;
+          const errorData = error.response?.data;
+          
+          if (status === 404) {
+            console.log(`✗ Endpoint ${endpoint} returned 404 (not found), trying next...`);
+            continue;
+          } else if (status === 403 || status === 401) {
+            console.log(`✗ Endpoint ${endpoint} returned ${status} (auth required), trying alternatives...`);
+            // Don't give up on auth errors - might work on different endpoint
+            continue;
+          } else {
+            console.log(`✗ Endpoint ${endpoint} failed (${status || 'no status'}): ${error.message}`);
+            if (errorData) {
+              console.log(`  Error details:`, JSON.stringify(errorData).substring(0, 300));
+            }
+          }
+          
+          // Re-throw if all endpoints fail (but don't throw on 404)
+          if (endpoint === endpoints[endpoints.length - 1] && status !== 404) {
+            throw error;
+          }
         }
-        // Re-throw to trigger retry logic
-        throw error;
       }
+      
+      // If all endpoints fail with 404, return empty array
+      console.log(`✗ No positions found for ${address} on any endpoint`);
+      return [];
     }, `getUserPositions(${userAddress.substring(0, 8)}...)`);
   }
 
