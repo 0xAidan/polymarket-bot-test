@@ -173,6 +173,7 @@ export class PolymarketClobClient {
     if (!this.client) {
       throw new Error('CLOB client not initialized');
     }
-    return await this.client.cancelOrder(orderId);
+    // cancelOrder expects an object with orderID property
+    return await this.client.cancelOrder({ orderID: orderId } as any);
   }
 }
