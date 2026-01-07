@@ -259,7 +259,9 @@ export class CopyTrader {
         outcome: trade.outcome,
         amount: configuredTradeSize, // Use configured trade size instead of detected amount
         price: trade.price,
-        side: trade.side // Use the side detected from the tracked wallet's trade
+        side: trade.side, // Use the side detected from the tracked wallet's trade
+        tokenId: trade.tokenId,    // Pass token ID for direct CLOB execution (bypasses Gamma API)
+        negRisk: trade.negRisk,    // Pass negative risk flag
       };
 
       console.log(`\n🚀 [Execute] EXECUTING TRADE:`);

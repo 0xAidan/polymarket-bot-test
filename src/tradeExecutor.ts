@@ -55,40 +55,23 @@ export class TradeExecutor {
       console.log(`   Price: ${order.price}`);
       console.log(`   Timestamp: ${new Date().toISOString()}`);
 
-      // Get market information to find token ID
-      let tokenId: string;
-      let tickSize: string | undefined;
-      let negRisk: boolean | undefined;
+      // Use tokenId directly if provided (bypasses Gamma API entirely)
+      // This is the critical fix - Gamma API doesn't accept conditionId format
+      let tokenId: string | undefined = order.tokenId;
+      let tickSize: string = '0.01';  // Default tick size for most Polymarket markets
+      let negRisk: boolean = order.negRisk ?? false;
 
-      try {
-        const market = await this.api.getMarket(order.marketId);
-        
-        // Extract token ID from clobTokenIds array
-        // clobTokenIds is an array where [0] is YES and [1] is NO
-        const clobTokenIds = market.clobTokenIds || [];
-        
-        if (order.outcome === 'YES') {
-          tokenId = clobTokenIds[0] || market.tokens?.[0]?.tokenId || market.yesTokenId;
-        } else {
-          tokenId = clobTokenIds[1] || market.tokens?.[1]?.tokenId || market.noTokenId;
-        }
-
-        // Get tickSize and negRisk from market
-        tickSize = market.tickSize;
-        negRisk = market.negRisk;
-
-        if (!tokenId) {
-          throw new Error(`Could not determine token ID for ${order.outcome} outcome`);
-        }
+      if (!tokenId) {
+        // Token ID is required - fail if not provided
+        // Previously we tried to call Gamma API here, but it returns 422 errors
+        // because marketId (conditionId) is not the format Gamma API expects
+        throw new Error(`Token ID not provided for market ${order.marketId}. Cannot execute trade without tokenId. This may indicate the trade detection did not extract the asset field properly.`);
+      }
 
       console.log(`   Token ID: ${tokenId}`);
-      console.log(`   Tick Size: ${tickSize || 'default'}`);
-      console.log(`   Neg Risk: ${negRisk || false}`);
-      console.log(`${'='.repeat(60)}`);
-      } catch (error: any) {
-        console.error(`❌ Failed to get market info: ${error.message}`);
-        throw new Error(`Could not fetch market information: ${error.message}`);
-      }
+      console.log(`   Tick Size: ${tickSize}`);
+      console.log(`   Neg Risk: ${negRisk}`);
+      console.log(`${'='.repeat(60)}`)
 
       // Validate price and amount
       const price = parseFloat(order.price);

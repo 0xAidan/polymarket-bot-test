@@ -451,7 +451,9 @@ export class WalletMonitor {
         price: price.toString(),
         side,
         timestamp: new Date(),
-        transactionHash: `pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        transactionHash: `pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        tokenId: tokenId,  // Pass the asset/token ID through for CLOB client
+        negRisk: position.negativeRisk || false,  // Pass negative risk flag
       };
     } catch (error: any) {
       console.error('[Monitor] Failed to parse position to trade:', error);
@@ -539,7 +541,9 @@ export class WalletMonitor {
         price: price.toString(),
         side,
         timestamp: new Date(trade.timestamp || Date.now()),
-        transactionHash: trade.transactionHash || trade.id || `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        transactionHash: trade.transactionHash || trade.id || `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        tokenId: trade.asset,  // Token ID from trade data for CLOB client
+        negRisk: false,  // Default, not available in trade history
       };
     } catch (error: any) {
       console.error('[Monitor] Failed to parse trade data:', error);
