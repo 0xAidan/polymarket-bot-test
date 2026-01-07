@@ -203,10 +203,15 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       }
 
       // Get proxy wallet address (where funds are actually held on Polymarket)
+      console.log(`[API] Fetching proxy wallet address for EOA: ${eoaAddress}...`);
       const proxyWalletAddress = await copyTrader.getProxyWalletAddress();
       const balanceAddress = proxyWalletAddress || eoaAddress; // Use proxy if available, otherwise use EOA
       
-      console.log(`[API] EOA: ${eoaAddress}, Proxy: ${proxyWalletAddress || 'Not found'}, Checking balance for: ${balanceAddress}`);
+      console.log(`[API] ===== Balance Check Info =====`);
+      console.log(`[API] EOA Address: ${eoaAddress}`);
+      console.log(`[API] Proxy Wallet: ${proxyWalletAddress || 'NOT FOUND'}`);
+      console.log(`[API] Will check balance for: ${balanceAddress}`);
+      console.log(`[API] ==============================`);
 
       const balanceTracker = copyTrader.getBalanceTracker();
       

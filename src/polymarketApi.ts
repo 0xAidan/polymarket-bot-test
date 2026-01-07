@@ -114,29 +114,52 @@ export class PolymarketApi {
       return null;
     }
 
+    // Known proxy wallet mapping (fallback if API fails)
+    // EOA: 0x2D43e332aF357CAb0fa1b2692E1e0Fdb0B733010 -> Proxy: 0xD56276b120ad094ba9F429386427F2492233B6d1
+    const knownProxyWallets: Record<string, string> = {
+      '0x2d43e332af357cab0fa1b2692e1e0fdb0b733010': '0xd56276b120ad094ba9f429386427f2492233b6d1'
+    };
+    
+    const normalizedEoa = address.toLowerCase();
+    if (knownProxyWallets[normalizedEoa]) {
+      console.log(`[API] Using known proxy wallet mapping: ${knownProxyWallets[normalizedEoa]} for EOA: ${address}`);
+      return knownProxyWallets[normalizedEoa];
+    }
+
     try {
       // Try to get proxy wallet from public profile
       // Polymarket Data API endpoint: GET /public-profile?address={address}
+      console.log(`[API] Attempting to fetch proxy wallet from API for ${address}...`);
       const response = await this.retryRequest(async () => {
         return await this.dataApiClient.get('/public-profile', {
           params: { address: address.toLowerCase() }
         });
       }, `getProxyWalletAddress(${address.substring(0, 8)}...)`);
       
+      console.log(`[API] Proxy wallet API response:`, JSON.stringify(response.data, null, 2));
+      
       if (response.data?.proxyWallet) {
-        console.log(`[API] Found proxy wallet: ${response.data.proxyWallet} for EOA: ${address}`);
+        console.log(`[API] ✓ Found proxy wallet: ${response.data.proxyWallet} for EOA: ${address}`);
         return response.data.proxyWallet;
       }
       
       // If no proxy wallet found, the EOA might be used directly
-      console.log(`[API] No proxy wallet found for ${address}, using EOA directly`);
+      console.log(`[API] ⚠️ No proxy wallet found in API response for ${address}, using EOA directly`);
       return null;
     } catch (error: any) {
-      // If API doesn't support this endpoint or returns error, return null
-      // This is not critical - we can still check the EOA balance
-      if (error.response?.status !== 404) {
-        console.warn(`[API] Could not fetch proxy wallet for ${address}:`, error.message);
+      // If API doesn't support this endpoint or returns error, try known mapping
+      console.error(`[API] ✗ Failed to fetch proxy wallet from API for ${address}:`, error.message);
+      if (error.response) {
+        console.error(`[API] Response status: ${error.response.status}`);
+        console.error(`[API] Response data:`, JSON.stringify(error.response.data, null, 2));
       }
+      
+      // Fallback to known mapping if available
+      if (knownProxyWallets[normalizedEoa]) {
+        console.log(`[API] Using fallback known proxy wallet: ${knownProxyWallets[normalizedEoa]}`);
+        return knownProxyWallets[normalizedEoa];
+      }
+      
       return null;
     }
   }
