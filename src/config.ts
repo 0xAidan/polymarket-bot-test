@@ -14,7 +14,8 @@ export const config = {
   polymarketDataApiUrl: process.env.POLYMARKET_DATA_API_URL || 'https://data-api.polymarket.com',
   polymarketGammaApiUrl: process.env.POLYMARKET_GAMMA_API_URL || 'https://gamma-api.polymarket.com',
   
-  // Polymarket Builder API credentials (required for trading)
+  // Polymarket Builder API credentials (OPTIONAL - only for order attribution)
+  // These are NOT required for trading, only for getting credit on Builder Leaderboard
   polymarketBuilderApiKey: process.env.POLYMARKET_BUILDER_API_KEY || '',
   polymarketBuilderSecret: process.env.POLYMARKET_BUILDER_SECRET || '',
   polymarketBuilderPassphrase: process.env.POLYMARKET_BUILDER_PASSPHRASE || '',
@@ -42,15 +43,17 @@ export const config = {
       throw new Error('PRIVATE_KEY is required. Run "npm run setup" to configure.');
     }
     
-    // Builder API credentials are required for trading
+    // Builder API credentials are OPTIONAL - only for order attribution
+    // Trading works without them using User API credentials (derived from private key)
     if (!this.polymarketBuilderApiKey || !this.polymarketBuilderSecret || !this.polymarketBuilderPassphrase) {
-      console.warn('\n⚠️  WARNING: Polymarket Builder API credentials not configured!\n');
-      console.warn('📝 Trading will fail without Builder API credentials.');
-      console.warn('   Add these to your .env file:');
-      console.warn('   POLYMARKET_BUILDER_API_KEY=your_key');
-      console.warn('   POLYMARKET_BUILDER_SECRET=your_secret');
-      console.warn('   POLYMARKET_BUILDER_PASSPHRASE=your_passphrase\n');
-      console.warn('   Get these from: https://polymarket.com/settings?tab=builder\n');
+      console.log('\nℹ️  INFO: Polymarket Builder API credentials not configured.\n');
+      console.log('   Trading will work using User API credentials (derived from your private key).');
+      console.log('   Builder API credentials are optional and only used for order attribution.');
+      console.log('   If you want orders attributed to your builder profile, add these to .env:');
+      console.log('   POLYMARKET_BUILDER_API_KEY=your_key');
+      console.log('   POLYMARKET_BUILDER_SECRET=your_secret');
+      console.log('   POLYMARKET_BUILDER_PASSPHRASE=your_passphrase');
+      console.log('   Get these from: https://polymarket.com/settings?tab=builder\n');
     }
   }
 };

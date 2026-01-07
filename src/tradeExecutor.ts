@@ -1,15 +1,19 @@
 import { PolymarketApi } from './polymarketApi.js';
+import { PolymarketClobClient } from './clobClient.js';
 import { TradeOrder, TradeResult } from './types.js';
+import { Side } from '@polymarket/clob-client';
 
 /**
- * Executes trades on Polymarket via CLOB API
+ * Executes trades on Polymarket via CLOB API using the official CLOB client
  */
 export class TradeExecutor {
   private api: PolymarketApi;
+  private clobClient: PolymarketClobClient;
   private isAuthenticated = false;
 
   constructor() {
     this.api = new PolymarketApi();
+    this.clobClient = new PolymarketClobClient();
   }
 
   /**
@@ -18,10 +22,11 @@ export class TradeExecutor {
   async authenticate(): Promise<void> {
     try {
       await this.api.initialize();
+      await this.clobClient.initialize();
       this.isAuthenticated = true;
-      console.log('Trade executor authenticated');
+      console.log('✓ Trade executor authenticated');
     } catch (error: any) {
-      console.error('Authentication failed:', error.message);
+      console.error('❌ Authentication failed:', error.message);
       throw error;
     }
   }
@@ -49,27 +54,36 @@ export class TradeExecutor {
 
       // Get market information to find token ID
       let tokenId: string;
+      let tickSize: string | undefined;
+      let negRisk: boolean | undefined;
+
       try {
         const market = await this.api.getMarket(order.marketId);
         
-        // Extract token ID based on outcome
-        // Polymarket tokens are typically structured as: marketId-outcomeIndex
-        // YES is usually outcome 0, NO is outcome 1
+        // Extract token ID from clobTokenIds array
+        // clobTokenIds is an array where [0] is YES and [1] is NO
+        const clobTokenIds = market.clobTokenIds || [];
+        
         if (order.outcome === 'YES') {
-          tokenId = market.tokens?.[0]?.tokenId || 
-                   market.yesTokenId || 
-                   `${order.marketId}-0` ||
-                   order.marketId;
+          tokenId = clobTokenIds[0] || market.tokens?.[0]?.tokenId || market.yesTokenId;
         } else {
-          tokenId = market.tokens?.[1]?.tokenId || 
-                   market.noTokenId || 
-                   `${order.marketId}-1` ||
-                   order.marketId;
+          tokenId = clobTokenIds[1] || market.tokens?.[1]?.tokenId || market.noTokenId;
         }
+
+        // Get tickSize and negRisk from market
+        tickSize = market.tickSize;
+        negRisk = market.negRisk;
+
+        if (!tokenId) {
+          throw new Error(`Could not determine token ID for ${order.outcome} outcome`);
+        }
+
+        console.log(`   Token ID: ${tokenId}`);
+        console.log(`   Tick Size: ${tickSize || 'default'}`);
+        console.log(`   Neg Risk: ${negRisk || false}`);
       } catch (error: any) {
-        // If we can't get market info, try to construct token ID
-        console.warn('Could not fetch market info, using fallback token ID:', error.message);
-        tokenId = order.outcome === 'YES' ? `${order.marketId}-0` : `${order.marketId}-1`;
+        console.error(`❌ Failed to get market info: ${error.message}`);
+        throw new Error(`Could not fetch market information: ${error.message}`);
       }
 
       // Validate price and amount
@@ -84,20 +98,30 @@ export class TradeExecutor {
         throw new Error(`Invalid amount: ${order.amount}`);
       }
 
-      // Place order via CLOB API
-      const orderResponse = await this.api.placeOrder({
-        tokenId,
-        side: order.side,
-        size: size.toString(),
-        price: price.toString()
+      // Convert side to CLOB client Side enum
+      const side = order.side === 'BUY' ? Side.BUY : Side.SELL;
+
+      // Place order via CLOB client
+      console.log(`\n📤 Placing order via CLOB client...`);
+      const orderResponse = await this.clobClient.createAndPostOrder({
+        tokenID: tokenId,
+        side: side,
+        size: size,
+        price: price,
+        tickSize: tickSize,
+        negRisk: negRisk,
       });
 
       const executionTime = Date.now() - executionStart;
 
+      console.log(`✅ Order placed successfully!`);
+      console.log(`   Order ID: ${orderResponse.orderID || orderResponse.orderId}`);
+      console.log(`   Status: ${orderResponse.status || 'pending'}`);
+
       return {
         success: true,
-        orderId: orderResponse.orderId || orderResponse.id || orderResponse.clobOrderId,
-        transactionHash: orderResponse.txHash || orderResponse.transactionHash || orderResponse.hash,
+        orderId: orderResponse.orderID || orderResponse.orderId || orderResponse.clobOrderId,
+        transactionHash: orderResponse.txHash || orderResponse.transactionHash || orderResponse.hash || null,
         executionTimeMs: executionTime
       };
 
@@ -140,6 +164,6 @@ export class TradeExecutor {
    * Get the wallet address used for executing trades
    */
   getWalletAddress(): string | null {
-    return this.api.getWalletAddress();
+    return this.clobClient.getWalletAddress();
   }
 }
