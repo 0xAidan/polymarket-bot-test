@@ -150,5 +150,19 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
+  // Get wallet configuration (address used for executing trades)
+  router.get('/wallet', (req: Request, res: Response) => {
+    try {
+      const walletAddress = copyTrader.getWalletAddress();
+      res.json({ 
+        success: true, 
+        walletAddress: walletAddress || null,
+        configured: !!walletAddress
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   return router;
 }

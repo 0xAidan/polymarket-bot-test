@@ -48,8 +48,21 @@ export class PolymarketApi {
     const provider = new ethers.JsonRpcProvider(config.polygonRpcUrl);
     this.signer = new ethers.Wallet(config.privateKey, provider);
     
+    // Store wallet address in config for easy access
+    config.userWalletAddress = this.signer.address;
+    
     // Authenticate if required by API
     await this.authenticate();
+  }
+
+  /**
+   * Get the wallet address being used for trades
+   */
+  getWalletAddress(): string | null {
+    if (!this.signer) {
+      return null;
+    }
+    return this.signer.address;
   }
 
   /**

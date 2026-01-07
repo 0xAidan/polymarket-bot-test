@@ -181,4 +181,15 @@ export class CopyTrader {
   getPerformanceTracker(): PerformanceTracker {
     return this.performanceTracker;
   }
+
+  /**
+   * Get the wallet address used for executing trades
+   */
+  getWalletAddress(): string | null {
+    try {
+      return this.executor.getWalletAddress();
+    } catch {
+      return null;
+    }
+  }
 }

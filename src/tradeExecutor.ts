@@ -119,4 +119,11 @@ export class TradeExecutor {
       throw error;
     }
   }
+
+  /**
+   * Get the wallet address used for executing trades
+   */
+  getWalletAddress(): string | null {
+    return this.api.getWalletAddress();
+  }
 }

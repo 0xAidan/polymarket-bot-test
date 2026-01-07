@@ -471,6 +471,27 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             </div>
           </div>
 
+          <div class="section" style="margin-bottom: 24px;">
+            <h2>💼 Trading Wallet Configuration</h2>
+            <div id="walletConfig" style="display: grid; gap: 16px;">
+              <div class="wallet-card" style="background: var(--bg);">
+                <div class="wallet-info">
+                  <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                    <span style="font-size: 16px; color: var(--text-muted);">Your Wallet Address:</span>
+                    <span id="tradingWalletAddress" style="font-family: 'Monaco', 'Menlo', monospace; font-size: 15px; color: var(--primary); font-weight: 600; word-break: break-all;">
+                      Loading...
+                    </span>
+                  </div>
+                  <div style="padding: 16px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; font-size: 13px; color: var(--text-muted);">
+                    <strong style="color: var(--danger); display: block; margin-bottom: 8px;">⚠️ Important:</strong>
+                    <p style="margin: 0;">Trades will be executed using the wallet configured in your <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">.env</code> file via the <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">PRIVATE_KEY</code> variable.</p>
+                    <p style="margin: 8px 0 0 0;">To change the wallet, update <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">PRIVATE_KEY</code> in your <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">.env</code> file and restart the bot.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="metrics-grid" id="metricsGrid">
             <div class="metric-card success">
               <h3>Success Rate</h3>
@@ -1023,9 +1044,32 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             }
           }
 
+          // Load wallet configuration (trading wallet)
+          async function loadWalletConfig() {
+            try {
+              const res = await fetch('/api/wallet');
+              const data = await res.json();
+              const walletAddressEl = document.getElementById('tradingWalletAddress');
+              
+              if (data.success && data.walletAddress) {
+                walletAddressEl.textContent = data.walletAddress;
+                walletAddressEl.style.color = 'var(--success)';
+              } else {
+                walletAddressEl.textContent = 'Not configured';
+                walletAddressEl.style.color = 'var(--danger)';
+              }
+            } catch (error) {
+              console.error('Failed to load wallet config:', error);
+              const walletAddressEl = document.getElementById('tradingWalletAddress');
+              walletAddressEl.textContent = 'Error loading';
+              walletAddressEl.style.color = 'var(--danger)';
+            }
+          }
+
           // Auto-refresh function
           function refreshAll() {
             loadStatus();
+            loadWalletConfig();
             loadPerformance();
             loadWallets();
             loadTrades();
