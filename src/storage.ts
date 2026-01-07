@@ -4,6 +4,7 @@ import { TrackedWallet } from './types.js';
 import { config } from './config.js';
 
 const WALLETS_FILE = path.join(config.dataDir, 'tracked_wallets.json');
+const CONFIG_FILE = path.join(config.dataDir, 'bot_config.json');
 
 /**
  * Storage manager for tracked wallets
@@ -95,5 +96,36 @@ export class Storage {
   static async getActiveWallets(): Promise<TrackedWallet[]> {
     const wallets = await this.loadTrackedWallets();
     return wallets.filter(w => w.active);
+  }
+
+  /**
+   * Load bot configuration
+   */
+  static async loadConfig(): Promise<{ tradeSizeUsd?: number }> {
+    try {
+      await this.ensureDataDir();
+      const data = await fs.readFile(CONFIG_FILE, 'utf-8');
+      return JSON.parse(data);
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        // File doesn't exist yet, return defaults
+        return { tradeSizeUsd: 20 }; // Default $20 per trade
+      }
+      console.error('Failed to load bot config:', error);
+      return { tradeSizeUsd: 20 };
+    }
+  }
+
+  /**
+   * Save bot configuration
+   */
+  static async saveConfig(config: { tradeSizeUsd?: number }): Promise<void> {
+    try {
+      await this.ensureDataDir();
+      await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2));
+    } catch (error) {
+      console.error('Failed to save bot config:', error);
+      throw error;
+    }
   }
 }

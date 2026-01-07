@@ -14,6 +14,17 @@ const RETRY_CONFIG = {
 };
 
 /**
+ * Rate limiting configuration
+ */
+const RATE_LIMIT = {
+  requestsPerSecond: 5, // Conservative limit
+  requestsPerMinute: 100,
+  lastRequestTime: 0,
+  requestCount: 0,
+  windowStart: Date.now()
+};
+
+/**
  * Sleep helper for retries
  */
 function sleep(ms: number): Promise<void> {
@@ -169,6 +180,40 @@ export class PolymarketApi {
   }
 
   /**
+   * Rate limiting helper
+   */
+  private async rateLimit(): Promise<void> {
+    const now = Date.now();
+    
+    // Reset counter if window expired
+    if (now - RATE_LIMIT.windowStart > 60000) {
+      RATE_LIMIT.requestCount = 0;
+      RATE_LIMIT.windowStart = now;
+    }
+    
+    // Check per-minute limit
+    if (RATE_LIMIT.requestCount >= RATE_LIMIT.requestsPerMinute) {
+      const waitTime = 60000 - (now - RATE_LIMIT.windowStart);
+      if (waitTime > 0) {
+        console.warn(`Rate limit: Waiting ${waitTime}ms before next request`);
+        await sleep(waitTime);
+        RATE_LIMIT.requestCount = 0;
+        RATE_LIMIT.windowStart = Date.now();
+      }
+    }
+    
+    // Check per-second limit
+    const timeSinceLastRequest = now - RATE_LIMIT.lastRequestTime;
+    const minInterval = 1000 / RATE_LIMIT.requestsPerSecond;
+    if (timeSinceLastRequest < minInterval) {
+      await sleep(minInterval - timeSinceLastRequest);
+    }
+    
+    RATE_LIMIT.lastRequestTime = Date.now();
+    RATE_LIMIT.requestCount++;
+  }
+
+  /**
    * Retry wrapper for API requests
    */
   private async retryRequest<T>(
@@ -180,6 +225,8 @@ export class PolymarketApi {
     
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
+        // Apply rate limiting
+        await this.rateLimit();
         return await requestFn();
       } catch (error: any) {
         lastError = error;
@@ -264,6 +311,7 @@ export class PolymarketApi {
   /**
    * Place an order via CLOB API
    * Note: Order placement is NOT retried to avoid duplicate orders
+   * Uses rate limiting but no retries for order placement
    */
   async placeOrder(orderParams: {
     tokenId: string;
@@ -276,29 +324,77 @@ export class PolymarketApi {
       await this.initialize();
     }
 
+    // Apply rate limiting
+    await this.rateLimit();
+
     try {
+      if (!this.signer) {
+        throw new Error('Signer not initialized');
+      }
+
+      const makerAddress = await this.signer.getAddress();
+      const nonce = orderParams.nonce || Date.now();
+      
       // CLOB API typically requires signed orders
-      // This is a simplified version - actual implementation may need more fields
+      // Polymarket uses EIP-712 typed data signing for orders
+      // This is a simplified version - may need adjustment based on actual API
       const order = {
         token_id: orderParams.tokenId,
         side: orderParams.side.toLowerCase(),
         size: orderParams.size,
         price: orderParams.price,
-        nonce: orderParams.nonce || Date.now(),
+        nonce: nonce.toString(),
+        maker: makerAddress,
+        expiration: Math.floor(Date.now() / 1000) + 3600, // 1 hour expiration
       };
 
-      if (!this.signer) {
-        throw new Error('Signer not initialized');
-      }
+      // Sign the order
+      // Note: Polymarket CLOB API requires EIP-712 signing, but the exact format
+      // depends on their contract. For now, we use message signing as a fallback.
+      // TODO: Consider using @polymarket/clob-client library for official support
+      // which handles EIP-712 signing correctly
+      let signature: string;
+      try {
+        // Try EIP-712 signing (ethers v6 syntax)
+        // Note: This may need adjustment based on actual Polymarket contract structure
+        // The signTypedData method should be available in ethers v6
+        const domain = {
+          name: 'Polymarket',
+          version: '1',
+          chainId: 137, // Polygon mainnet
+          verifyingContract: '0x0000000000000000000000000000000000000000' // Placeholder - needs actual contract
+        };
 
-      // Sign the order (Polymarket CLOB may require EIP-712 signing)
-      const orderMessage = JSON.stringify(order);
-      const signature = await this.signer.signMessage(orderMessage);
+        const types = {
+          Order: [
+            { name: 'tokenId', type: 'string' },
+            { name: 'side', type: 'string' },
+            { name: 'size', type: 'string' },
+            { name: 'price', type: 'string' },
+            { name: 'nonce', type: 'string' },
+            { name: 'maker', type: 'address' },
+            { name: 'expiration', type: 'uint256' }
+          ]
+        };
+
+        // In ethers v6, signTypedData should be available
+        // If not available, this will fall back to message signing
+        if (typeof (this.signer as any).signTypedData === 'function') {
+          signature = await (this.signer as any).signTypedData(domain, types, order);
+        } else {
+          throw new Error('signTypedData not available, using message signing');
+        }
+      } catch (eip712Error: any) {
+        // Fallback to simple message signing if EIP-712 fails
+        console.warn('EIP-712 signing failed, using message signing:', eip712Error.message);
+        const orderMessage = JSON.stringify(order);
+        signature = await this.signer.signMessage(orderMessage);
+      }
       
       const response = await this.clobApiClient.post('/orders', {
         ...order,
         signature,
-        maker: await this.signer.getAddress()
+        maker: makerAddress
       });
 
       return response.data;

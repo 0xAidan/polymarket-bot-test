@@ -222,5 +222,54 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
+  // Get bot configuration (trade size, etc.)
+  router.get('/config', async (req: Request, res: Response) => {
+    try {
+      const config = await Storage.loadConfig();
+      res.json({ success: true, config });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Update bot configuration
+  router.post('/config', async (req: Request, res: Response) => {
+    try {
+      const { tradeSizeUsd } = req.body;
+      
+      if (tradeSizeUsd !== undefined) {
+        if (typeof tradeSizeUsd !== 'number' || tradeSizeUsd <= 0) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'Trade size must be a positive number' 
+          });
+        }
+      }
+
+      const currentConfig = await Storage.loadConfig();
+      const newConfig = {
+        ...currentConfig,
+        ...(tradeSizeUsd !== undefined && { tradeSizeUsd })
+      };
+
+      await Storage.saveConfig(newConfig);
+      res.json({ success: true, config: newConfig, message: 'Configuration updated' });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get failed trades
+  router.get('/trades/failed', (req: Request, res: Response) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const trades = performanceTracker.getRecentTrades(limit);
+      const failedTrades = trades.filter(t => !t.success);
+      res.json({ success: true, trades: failedTrades });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   return router;
 }

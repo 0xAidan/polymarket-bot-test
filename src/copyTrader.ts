@@ -18,9 +18,9 @@ export class CopyTrader {
 
   constructor() {
     this.monitor = new WalletMonitor();
-    this.executor = new TradeExecutor();
-    this.performanceTracker = new PerformanceTracker();
     this.balanceTracker = new BalanceTracker();
+    this.executor = new TradeExecutor(this.balanceTracker);
+    this.performanceTracker = new PerformanceTracker();
   }
 
   /**
@@ -259,3 +259,4 @@ export class CopyTrader {
   getBalanceTracker(): BalanceTracker {
     return this.balanceTracker;
   }
+}

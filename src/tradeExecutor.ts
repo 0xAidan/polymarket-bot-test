@@ -1,15 +1,19 @@
 import { PolymarketApi } from './polymarketApi.js';
 import { TradeOrder, TradeResult } from './types.js';
+import { BalanceTracker } from './balanceTracker.js';
+import { Storage } from './storage.js';
 
 /**
  * Executes trades on Polymarket via CLOB API
  */
 export class TradeExecutor {
   private api: PolymarketApi;
+  private balanceTracker: BalanceTracker;
   private isAuthenticated = false;
 
-  constructor() {
+  constructor(balanceTracker: BalanceTracker) {
     this.api = new PolymarketApi();
+    this.balanceTracker = balanceTracker;
   }
 
   /**
@@ -40,12 +44,30 @@ export class TradeExecutor {
     const executionStart = Date.now();
 
     try {
-      console.log(`Executing trade: ${order.side} ${order.amount} shares of ${order.marketId} (${order.outcome}) at ${order.price}`);
+      // Get configured trade size
+      const config = await Storage.loadConfig();
+      const tradeSizeUsd = config.tradeSizeUsd || 20; // Default $20
 
-      // Get market information to find token ID
+      // Get market information to find token ID and validate market
       let tokenId: string;
+      let market: any;
       try {
-        const market = await this.api.getMarket(order.marketId);
+        market = await this.api.getMarket(order.marketId);
+        
+        // Validate market exists
+        if (!market || !market.id) {
+          throw new Error(`Market ${order.marketId} not found`);
+        }
+        
+        // Validate market is tradeable
+        if (market.closed || market.resolved || market.paused || market.archived) {
+          throw new Error(`Market ${order.marketId} is not tradeable (closed/resolved/paused/archived)`);
+        }
+        
+        // Validate market has outcomes
+        if (!market.outcomes || market.outcomes.length < 2) {
+          throw new Error(`Market ${order.marketId} does not have valid outcomes`);
+        }
         
         // Extract token ID based on outcome
         // Polymarket tokens are typically structured as: marketId-outcomeIndex
@@ -53,11 +75,13 @@ export class TradeExecutor {
         if (order.outcome === 'YES') {
           tokenId = market.tokens?.[0]?.tokenId || 
                    market.yesTokenId || 
+                   market.outcomes?.[0]?.tokenId ||
                    `${order.marketId}-0` ||
                    order.marketId;
         } else {
           tokenId = market.tokens?.[1]?.tokenId || 
                    market.noTokenId || 
+                   market.outcomes?.[1]?.tokenId ||
                    `${order.marketId}-1` ||
                    order.marketId;
         }
@@ -67,17 +91,38 @@ export class TradeExecutor {
         tokenId = order.outcome === 'YES' ? `${order.marketId}-0` : `${order.marketId}-1`;
       }
 
-      // Validate price and amount
+      // Validate price
       const price = parseFloat(order.price);
-      const size = parseFloat(order.amount);
-
       if (isNaN(price) || price <= 0 || price > 1) {
         throw new Error(`Invalid price: ${order.price}. Price must be between 0 and 1`);
       }
 
-      if (isNaN(size) || size <= 0) {
-        throw new Error(`Invalid amount: ${order.amount}`);
+      // Calculate trade size based on configured USD amount
+      // For BUY: amount = tradeSizeUsd / price
+      // For SELL: we need to check available position, but for now use same calculation
+      const size = order.side === 'BUY' 
+        ? (tradeSizeUsd / price).toFixed(6) 
+        : (tradeSizeUsd / price).toFixed(6);
+
+      const sizeNum = parseFloat(size);
+      if (isNaN(sizeNum) || sizeNum <= 0) {
+        throw new Error(`Invalid calculated amount: ${size}`);
       }
+
+      // Check balance before executing trade
+      const walletAddress = this.getWalletAddress();
+      if (!walletAddress) {
+        throw new Error('Wallet address not available');
+      }
+
+      const balance = await this.balanceTracker.getBalance(walletAddress);
+      const requiredAmount = tradeSizeUsd; // For BUY, we need USDC equal to trade size
+      
+      if (balance < requiredAmount) {
+        throw new Error(`Insufficient balance: Have $${balance.toFixed(2)} USDC, need $${requiredAmount.toFixed(2)} USDC`);
+      }
+
+      console.log(`Executing trade: ${order.side} ${size} shares of ${order.marketId} (${order.outcome}) at ${order.price} ($${tradeSizeUsd} position)`);
 
       // Place order via CLOB API
       const orderResponse = await this.api.placeOrder({

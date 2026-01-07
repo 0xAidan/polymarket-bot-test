@@ -502,6 +502,32 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             </div>
           </div>
 
+          <div class="section" style="margin-bottom: 24px;">
+            <h2>⚙️ Trade Configuration</h2>
+            <div style="display: grid; gap: 16px;">
+              <div class="wallet-card" style="background: var(--bg);">
+                <div class="wallet-info">
+                  <div style="margin-bottom: 16px;">
+                    <label style="display: block; font-size: 14px; color: var(--text-muted); margin-bottom: 8px; font-weight: 600;">
+                      Trade Size (USD per trade)
+                    </label>
+                    <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                      <input type="number" id="tradeSizeInput" min="0.01" step="0.01" style="flex: 1; min-width: 200px; padding: 12px; border: 2px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 16px; font-weight: 600;" placeholder="20.00" />
+                      <button onclick="saveTradeSize()" class="btn-primary">💾 Save Trade Size</button>
+                    </div>
+                    <div style="margin-top: 8px; font-size: 13px; color: var(--text-muted);">
+                      <span id="tradeSizeInfo">Loading current trade size...</span>
+                    </div>
+                  </div>
+                  <div style="padding: 16px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; font-size: 13px; color: var(--text-muted);">
+                    <strong style="color: var(--success); display: block; margin-bottom: 8px;">💡 How trade size works:</strong>
+                    <p style="margin: 0;">Instead of copying the exact position size from tracked wallets, the bot will execute trades with a fixed USD amount you configure. For example, if you set $20, every trade will be executed as a $20 position regardless of what the tracked wallet is doing.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="metrics-grid" id="metricsGrid">
             <div class="metric-card success">
               <h3>Success Rate</h3>
@@ -561,6 +587,13 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             <h2>📋 Recent Trades</h2>
             <div id="tradesContainer">
               <div class="loading">Loading trades...</div>
+            </div>
+          </div>
+
+          <div class="section">
+            <h2>❌ Failed Trades</h2>
+            <div id="failedTradesContainer">
+              <div class="loading">Loading failed trades...</div>
             </div>
           </div>
 
@@ -1017,6 +1050,104 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             }
           }
 
+          // Load failed trades
+          async function loadFailedTrades() {
+            try {
+              const res = await fetch('/api/trades/failed?limit=50');
+              const data = await res.json();
+              const container = document.getElementById('failedTradesContainer');
+              
+              if (data.trades && data.trades.length > 0) {
+                container.innerHTML = \`
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th>Time</th>
+                        <th>Wallet</th>
+                        <th>Market</th>
+                        <th>Outcome</th>
+                        <th>Amount</th>
+                        <th>Error Reason</th>
+                        <th>Latency</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      \${data.trades.map(t => \`
+                        <tr>
+                          <td>\${formatDate(t.timestamp)}</td>
+                          <td><code>\${formatAddress(t.walletAddress)}</code></td>
+                          <td><code>\${formatAddress(t.marketId)}</code></td>
+                          <td><span class="badge badge-\${t.outcome.toLowerCase()}">\${t.outcome}</span></td>
+                          <td>\${t.amount}</td>
+                          <td style="max-width: 400px; word-break: break-word;">
+                            <span style="color: var(--danger); font-size: 13px;">\${t.error || 'Unknown error'}</span>
+                          </td>
+                          <td>\${t.executionTimeMs || 'N/A'}ms</td>
+                        </tr>
+                      \`).join('')}
+                    </tbody>
+                  </table>
+                \`;
+              } else {
+                container.innerHTML = '<div class="empty-state">✅ No failed trades! All trades executed successfully.</div>';
+              }
+            } catch (error) {
+              console.error('Failed to load failed trades:', error);
+              document.getElementById('failedTradesContainer').innerHTML = 
+                '<div class="empty-state">Error loading failed trades</div>';
+            }
+          }
+
+          // Load and save trade size configuration
+          async function loadTradeSizeConfig() {
+            try {
+              const res = await fetch('/api/config');
+              const data = await res.json();
+              if (data.success && data.config) {
+                const tradeSize = data.config.tradeSizeUsd || 20;
+                document.getElementById('tradeSizeInput').value = tradeSize;
+                document.getElementById('tradeSizeInfo').textContent = 
+                  \`Current trade size: $\${tradeSize.toFixed(2)} USD per trade\`;
+              }
+            } catch (error) {
+              console.error('Failed to load trade size config:', error);
+              document.getElementById('tradeSizeInfo').textContent = 'Error loading configuration';
+            }
+          }
+
+          async function saveTradeSize() {
+            const input = document.getElementById('tradeSizeInput');
+            const tradeSize = parseFloat(input.value);
+            
+            if (isNaN(tradeSize) || tradeSize <= 0) {
+              alert('Please enter a valid trade size (must be greater than 0)');
+              return;
+            }
+
+            try {
+              const res = await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tradeSizeUsd: tradeSize })
+              });
+              
+              const data = await res.json();
+              if (data.success) {
+                document.getElementById('tradeSizeInfo').textContent = 
+                  \`✅ Trade size updated to $\${tradeSize.toFixed(2)} USD per trade\`;
+                document.getElementById('tradeSizeInfo').style.color = 'var(--success)';
+                setTimeout(() => {
+                  document.getElementById('tradeSizeInfo').style.color = 'var(--text-muted)';
+                }, 3000);
+              } else {
+                alert('Failed to save trade size: ' + (data.error || 'Unknown error'));
+              }
+            } catch (error) {
+              console.error('Failed to save trade size:', error);
+              alert('Failed to save trade size. Please try again.');
+            }
+          }
+
           // Load issues
           async function loadIssues() {
             try {
@@ -1215,6 +1346,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             loadPerformance();
             loadWallets();
             loadTrades();
+            loadFailedTrades();
             loadIssues();
             // Balance will be loaded as part of loadWalletConfig and loadWallets
           }
@@ -1236,6 +1368,9 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 
             // Initialize chart
             initChart();
+
+            // Load trade size config
+            loadTradeSizeConfig();
 
             // Initial load
             refreshAll();
