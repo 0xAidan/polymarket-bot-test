@@ -1,4 +1,4 @@
-import { ethers, providers } from 'ethers';
+import { ethers, JsonRpcProvider } from 'ethers';
 import { config } from './config.js';
 import { Storage } from './storage.js';
 import { PolymarketApi } from './polymarketApi.js';
@@ -9,7 +9,7 @@ import { DetectedTrade } from './types.js';
  * Uses Polymarket Data API to detect trades and positions
  */
 export class WalletMonitor {
-  private provider: providers.Provider | null = null;
+  private provider: JsonRpcProvider | null = null;
   private api: PolymarketApi;
   private isMonitoring = false;
   private monitoredPositions = new Map<string, Map<string, any>>(); // wallet -> tokenId -> position
@@ -24,7 +24,7 @@ export class WalletMonitor {
    */
   async initialize(): Promise<void> {
     try {
-      this.provider = new providers.JsonRpcProvider(config.polygonRpcUrl);
+      this.provider = new JsonRpcProvider(config.polygonRpcUrl, 137);
       await this.api.initialize();
       console.log('Connected to Polygon network and Polymarket API');
     } catch (error) {

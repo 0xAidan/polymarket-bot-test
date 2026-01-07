@@ -1,4 +1,4 @@
-import { ethers, providers, utils, Contract } from 'ethers';
+import { ethers, Contract, JsonRpcProvider, formatUnits, getAddress } from 'ethers';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { config } from './config.js';
@@ -34,7 +34,7 @@ const BALANCE_HISTORY_FILE = path.join(config.dataDir, 'balance_history.json');
  * Tracks wallet balances over time to calculate 24h changes
  */
 export class BalanceTracker {
-  private provider: providers.Provider | null = null;
+  private provider: JsonRpcProvider | null = null;
   private usdcNativeContract: Contract | null = null;
   private usdcBridgedContract: Contract | null = null;
   private history: Map<string, WalletBalanceHistory> = new Map();
@@ -53,10 +53,7 @@ export class BalanceTracker {
       await Storage.ensureDataDir();
       
       // Create provider with better timeout settings
-      this.provider = new providers.JsonRpcProvider(config.polygonRpcUrl, {
-        name: 'polygon',
-        chainId: 137
-      });
+      this.provider = new JsonRpcProvider(config.polygonRpcUrl, 137);
       
       // Test the provider connection
       try {
@@ -174,7 +171,7 @@ export class BalanceTracker {
           new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))
         ]);
         
-        const balanceNumber = parseFloat(utils.formatUnits(balance, USDC_DECIMALS));
+        const balanceNumber = parseFloat(formatUnits(balance, USDC_DECIMALS));
         this.lastRpcCallTime = Date.now();
         
         if (balanceNumber > 0) {
@@ -227,7 +224,7 @@ export class BalanceTracker {
       // Normalize address to checksummed format for consistent querying
       let normalizedAddress: string;
       try {
-        normalizedAddress = utils.getAddress(address);
+        normalizedAddress = getAddress(address);
       } catch {
         // If address is invalid, use as-is and let the contract call fail
         normalizedAddress = address;
