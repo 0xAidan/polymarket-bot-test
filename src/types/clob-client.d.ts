@@ -1,4 +1,6 @@
 declare module '@polymarket/clob-client' {
+  import { BuilderConfig } from '@polymarket/builder-signing-sdk';
+
   export enum Side {
     BUY = 'BUY',
     SELL = 'SELL'
@@ -32,7 +34,10 @@ declare module '@polymarket/clob-client' {
       signer: any,
       apiCredentials?: ApiCredentials,
       signatureType?: number,
-      funderAddress?: string
+      funderAddress?: string,
+      relayer?: any,
+      useRelayer?: boolean,
+      builderConfig?: BuilderConfig
     );
 
     createOrDeriveApiKey(): Promise<ApiCredentials>;

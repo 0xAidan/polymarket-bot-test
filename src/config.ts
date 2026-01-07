@@ -43,17 +43,19 @@ export const config = {
       throw new Error('PRIVATE_KEY is required. Run "npm run setup" to configure.');
     }
     
-    // Builder API credentials are OPTIONAL - only for order attribution
-    // Trading works without them using User API credentials (derived from private key)
+    // Builder API credentials are REQUIRED for trading from cloud servers
+    // Without Builder authentication, requests will be blocked by Cloudflare
     if (!this.polymarketBuilderApiKey || !this.polymarketBuilderSecret || !this.polymarketBuilderPassphrase) {
-      console.log('\nℹ️  INFO: Polymarket Builder API credentials not configured.\n');
-      console.log('   Trading will work using User API credentials (derived from your private key).');
-      console.log('   Builder API credentials are optional and only used for order attribution.');
-      console.log('   If you want orders attributed to your builder profile, add these to .env:');
-      console.log('   POLYMARKET_BUILDER_API_KEY=your_key');
-      console.log('   POLYMARKET_BUILDER_SECRET=your_secret');
-      console.log('   POLYMARKET_BUILDER_PASSPHRASE=your_passphrase');
-      console.log('   Get these from: https://polymarket.com/settings?tab=builder\n');
+      console.error('\n⚠️  WARNING: Polymarket Builder API credentials not configured!\n');
+      console.error('   Without Builder credentials, order requests WILL BE BLOCKED by Cloudflare.');
+      console.error('   This is the #1 cause of trade execution failures.\n');
+      console.error('   To fix this, add these to your .env file:');
+      console.error('   POLYMARKET_BUILDER_API_KEY=your_key');
+      console.error('   POLYMARKET_BUILDER_SECRET=your_secret');
+      console.error('   POLYMARKET_BUILDER_PASSPHRASE=your_passphrase\n');
+      console.error('   Get these from: https://polymarket.com/settings?tab=builder\n');
+    } else {
+      console.log('✓ Builder API credentials configured');
     }
   }
 };

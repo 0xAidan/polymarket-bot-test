@@ -1,16 +1,21 @@
 # Your wallet private key (NEVER commit this to git!)
 PRIVATE_KEY=your_private_key_here
 
-# Polymarket Builder API credentials (REQUIRED for trading)
+# ============================================================
+# Polymarket Builder API credentials (REQUIRED for trading!)
+# ============================================================
+# Without these, your orders WILL BE BLOCKED by Cloudflare.
 # Get these from: https://polymarket.com/settings?tab=builder
+# 
+# 1. Go to polymarket.com and log in
+# 2. Click your profile -> Settings -> Builder tab
+# 3. Create new API keys
+# 4. Copy the values below
 POLYMARKET_BUILDER_API_KEY=your_builder_api_key_here
 POLYMARKET_BUILDER_SECRET=your_builder_secret_here
 POLYMARKET_BUILDER_PASSPHRASE=your_builder_passphrase_here
 
-# Polymarket API credentials (optional - wallet signature auth used by default)
-POLYMARKET_API_KEY=your_api_key_here_if_needed
-
-# Polymarket API endpoints
+# Polymarket API endpoints (DO NOT CHANGE - use direct URLs, not proxies)
 POLYMARKET_CLOB_API_URL=https://clob.polymarket.com
 POLYMARKET_DATA_API_URL=https://data-api.polymarket.com
 POLYMARKET_GAMMA_API_URL=https://gamma-api.polymarket.com
