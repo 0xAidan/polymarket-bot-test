@@ -124,13 +124,65 @@ export class CopyTrader {
     console.log(`Outcome: ${trade.outcome}`);
     console.log(`Amount: ${trade.amount}`);
     console.log(`Price: ${trade.price}`);
+    console.log(`Side: ${trade.side}`);
     console.log(`TX: ${trade.transactionHash}`);
+
+    // Validate trade data before attempting execution
+    const priceNum = parseFloat(trade.price || '0');
+    const amountNum = parseFloat(trade.amount || '0');
+    
+    if (!trade.marketId || trade.marketId === 'unknown') {
+      console.error(`❌ Invalid marketId (${trade.marketId}), cannot execute trade`);
+      await this.performanceTracker.logIssue(
+        'error',
+        'trade_execution',
+        `Invalid marketId: ${trade.marketId}`,
+        { trade }
+      );
+      return;
+    }
+    
+    if (!trade.price || trade.price === '0' || isNaN(priceNum) || priceNum <= 0 || priceNum > 1) {
+      console.error(`❌ Invalid price (${trade.price}), cannot execute trade`);
+      await this.performanceTracker.logIssue(
+        'error',
+        'trade_execution',
+        `Invalid price: ${trade.price}`,
+        { trade }
+      );
+      return;
+    }
+    
+    if (!trade.side || (trade.side !== 'BUY' && trade.side !== 'SELL')) {
+      console.error(`❌ Invalid side (${trade.side}), cannot execute trade`);
+      await this.performanceTracker.logIssue(
+        'error',
+        'trade_execution',
+        `Invalid side: ${trade.side}`,
+        { trade }
+      );
+      return;
+    }
 
     const executionStart = Date.now();
 
     try {
       // Get configured trade size instead of using the detected trade amount
       const configuredTradeSize = await Storage.getTradeSize();
+      const tradeSizeNum = parseFloat(configuredTradeSize || '0');
+      
+      if (isNaN(tradeSizeNum) || tradeSizeNum <= 0) {
+        console.error(`❌ Invalid configured trade size (${configuredTradeSize}), cannot execute trade`);
+        await this.performanceTracker.logIssue(
+          'error',
+          'trade_execution',
+          `Invalid configured trade size: ${configuredTradeSize}`,
+          { trade }
+        );
+        return;
+      }
+      
+      console.log(`Using configured trade size: ${configuredTradeSize} shares`);
       
       // Convert detected trade to trade order
       const order: TradeOrder = {
@@ -141,6 +193,8 @@ export class CopyTrader {
         side: trade.side // Use the side detected from the tracked wallet's trade
       };
 
+      console.log(`Attempting to execute: ${order.side} ${order.amount} shares of ${order.marketId} (${order.outcome}) at ${order.price}`);
+      
       // Execute the trade
       const result: TradeResult = await this.executor.executeTrade(order);
       const executionTime = Date.now() - executionStart;

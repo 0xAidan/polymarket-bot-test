@@ -117,9 +117,13 @@ export class WalletMonitor {
             // New position detected - this indicates a BUY
             const currentSize = parseFloat(currentPos.quantity || currentPos.size || '0');
             if (currentSize > 0) {
+              console.log(`[Monitor] New position detected for ${wallet.address.substring(0, 8)}...: ${currentSize} tokens of ${tokenId.substring(0, 20)}...`);
               const trade = await this.parsePositionToTrade(wallet.address, currentPos, tokenId, 'BUY', null);
               if (trade) {
+                console.log(`[Monitor] Parsed new position as trade: ${trade.side} ${trade.amount} @ ${trade.price} on ${trade.marketId}`);
                 onTradeDetected(trade);
+              } else {
+                console.warn(`[Monitor] Failed to parse new position as trade for token ${tokenId}`);
               }
             }
           } else {
@@ -129,10 +133,35 @@ export class WalletMonitor {
             const sizeDiff = currentSize - previousSize; // Positive = BUY, Negative = SELL
 
             // If size changed by more than 1% or 0.01 tokens, consider it a trade
-            if (Math.abs(sizeDiff) > 0.01 || (previousSize > 0 && Math.abs(sizeDiff) / previousSize > 0.01)) {
+            const absDiff = Math.abs(sizeDiff);
+            const percentChange = previousSize > 0 ? Math.abs(sizeDiff) / previousSize : 0;
+            
+            if (absDiff > 0.01 || percentChange > 0.01) {
               const side: 'BUY' | 'SELL' = sizeDiff > 0 ? 'BUY' : 'SELL';
+              console.log(`[Monitor] Position change detected for ${wallet.address.substring(0, 8)}...: ${side} ${absDiff.toFixed(4)} tokens (${(percentChange * 100).toFixed(2)}% change) of ${tokenId.substring(0, 20)}...`);
               const trade = await this.parsePositionToTrade(wallet.address, currentPos, tokenId, side, previousPos);
               if (trade) {
+                console.log(`[Monitor] Parsed position change as trade: ${trade.side} ${trade.amount} @ ${trade.price} on ${trade.marketId}`);
+                onTradeDetected(trade);
+              } else {
+                console.warn(`[Monitor] Failed to parse position change as trade for token ${tokenId} (size diff: ${sizeDiff})`);
+              }
+            }
+          }
+        }
+        
+        // Also check for positions that were closed (existed before but not now)
+        for (const [tokenId, previousPos] of previousPositions.entries()) {
+          if (!currentPositionMap.has(tokenId)) {
+            // Position was closed - this indicates a SELL
+            const previousSize = parseFloat(previousPos.quantity || previousPos.size || '0');
+            if (previousSize > 0.01) {
+              console.log(`[Monitor] Position closed for ${wallet.address.substring(0, 8)}...: ${previousSize} tokens of ${tokenId.substring(0, 20)}...`);
+              // Create a synthetic position with zero size to represent the close
+              const closedPosition = { ...previousPos, quantity: '0', size: '0' };
+              const trade = await this.parsePositionToTrade(wallet.address, closedPosition, tokenId, 'SELL', previousPos);
+              if (trade) {
+                console.log(`[Monitor] Parsed position close as trade: ${trade.side} ${trade.amount} @ ${trade.price} on ${trade.marketId}`);
                 onTradeDetected(trade);
               }
             }
@@ -140,17 +169,31 @@ export class WalletMonitor {
         }
 
         // Also check for recent trades directly from trade history
+        // This helps catch trades that might have been missed by position monitoring
         try {
-          const recentTrades = await this.api.getUserTrades(address, 10);
+          const recentTrades = await this.api.getUserTrades(address, 50); // Get more trades
+          const now = Date.now();
+          const oneHourAgo = now - 60 * 60 * 1000; // Check last hour instead of 5 minutes
+          
           for (const trade of recentTrades) {
             const tradeTimestamp = new Date(trade.timestamp || trade.createdAt || trade.time);
-            const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+            const tradeTime = tradeTimestamp.getTime();
 
-            // Only process very recent trades (within last 5 minutes)
-            if (tradeTimestamp.getTime() > fiveMinutesAgo) {
+            // Process trades from the last hour (more lenient window)
+            if (tradeTime > oneHourAgo && tradeTime <= now) {
               const detectedTrade = await this.parseTradeData(wallet.address, trade);
               if (detectedTrade) {
-                onTradeDetected(detectedTrade);
+                // Validate the detected trade before triggering
+                const priceNum = parseFloat(detectedTrade.price || '0');
+                const amountNum = parseFloat(detectedTrade.amount || '0');
+                
+                if (detectedTrade.marketId && detectedTrade.marketId !== 'unknown' &&
+                    priceNum > 0 && priceNum <= 1 && amountNum > 0) {
+                  console.log(`Detected trade from history: ${detectedTrade.side} ${detectedTrade.amount} @ ${detectedTrade.price} on ${detectedTrade.marketId}`);
+                  onTradeDetected(detectedTrade);
+                } else {
+                  console.warn(`Skipping invalid trade from history: marketId=${detectedTrade.marketId}, price=${detectedTrade.price}, amount=${detectedTrade.amount}`);
+                }
               }
             }
           }
@@ -186,12 +229,29 @@ export class WalletMonitor {
     try {
       // Extract market information from position
       const market = position.market || position.condition || {};
-      const marketId = market.id || market.questionId || market.conditionId || tokenId;
+      let marketId = market.id || market.questionId || market.conditionId;
+      
+      // If we don't have a marketId, try to extract it from tokenId
+      // Polymarket token IDs are often in format: conditionId-outcomeIndex
+      if (!marketId && tokenId) {
+        const parts = tokenId.split('-');
+        if (parts.length >= 2) {
+          marketId = parts.slice(0, -1).join('-'); // Everything except last part
+        } else {
+          marketId = tokenId;
+        }
+      }
+      
+      // If still no marketId, we can't proceed
+      if (!marketId || marketId === 'unknown') {
+        console.warn(`Cannot determine marketId from position for token ${tokenId}, skipping trade`);
+        return null;
+      }
       
       // Determine outcome (YES/NO) from token ID
       // Polymarket tokens typically have a suffix indicating outcome
       let outcome: 'YES' | 'NO' = 'YES';
-      if (tokenId.toLowerCase().includes('no') || tokenId.endsWith('1')) {
+      if (tokenId.toLowerCase().includes('no') || tokenId.endsWith('1') || tokenId.endsWith('-1')) {
         outcome = 'NO';
       }
 
@@ -204,7 +264,49 @@ export class WalletMonitor {
         amount = Math.abs(currentSize - previousSize).toString();
       }
       
-      const price = position.avgPrice || position.price || market.currentPrice || '0';
+      // Try multiple sources for price
+      let price = position.avgPrice || position.price || market.currentPrice || market.price;
+      
+      // If price is still missing or invalid, try to get it from the market API
+      if (!price || price === '0' || parseFloat(price) <= 0 || parseFloat(price) > 1) {
+        try {
+          const marketInfo = await this.api.getMarket(marketId);
+          price = marketInfo.currentPrice || marketInfo.price || marketInfo.lastPrice;
+          
+          // If still no price, try to get from order book
+          if (!price || price === '0') {
+            try {
+              // Try to get price from order book (mid price)
+              const orderBook = await this.api.getOrderBook(tokenId);
+              if (orderBook?.bids?.[0] && orderBook?.asks?.[0]) {
+                const bidPrice = parseFloat(orderBook.bids[0].price || '0');
+                const askPrice = parseFloat(orderBook.asks[0].price || '0');
+                if (bidPrice > 0 && askPrice > 0) {
+                  price = ((bidPrice + askPrice) / 2).toString();
+                }
+              }
+            } catch (orderBookError: any) {
+              console.warn(`Could not get order book price for ${tokenId}:`, orderBookError.message);
+            }
+          }
+        } catch (marketError: any) {
+          console.warn(`Could not fetch market price for ${marketId}:`, marketError.message);
+        }
+      }
+      
+      // Validate price before proceeding
+      const priceNum = parseFloat(price || '0');
+      if (!price || price === '0' || isNaN(priceNum) || priceNum <= 0 || priceNum > 1) {
+        console.warn(`Invalid or missing price (${price}) for trade on market ${marketId}, skipping`);
+        return null;
+      }
+      
+      // Validate amount
+      const amountNum = parseFloat(amount || '0');
+      if (!amount || amount === '0' || isNaN(amountNum) || amountNum <= 0) {
+        console.warn(`Invalid or missing amount (${amount}) for trade on market ${marketId}, skipping`);
+        return null;
+      }
 
       return {
         walletAddress: walletAddress.toLowerCase(),
@@ -214,7 +316,7 @@ export class WalletMonitor {
         price: price.toString(),
         side,
         timestamp: new Date(),
-        transactionHash: position.txHash || position.transactionHash || `pos-${Date.now()}`
+        transactionHash: position.txHash || position.transactionHash || `pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       };
     } catch (error: any) {
       console.error('Failed to parse position to trade:', error);
@@ -231,10 +333,27 @@ export class WalletMonitor {
   ): Promise<DetectedTrade | null> {
     try {
       const market = trade.market || trade.condition || {};
-      const marketId = market.id || market.questionId || market.conditionId || trade.tokenId;
+      let marketId = market.id || market.questionId || market.conditionId;
+      
+      // Try to extract marketId from tokenId if not available
+      if (!marketId && trade.tokenId) {
+        const parts = trade.tokenId.split('-');
+        if (parts.length >= 2) {
+          marketId = parts.slice(0, -1).join('-');
+        } else {
+          marketId = trade.tokenId;
+        }
+      }
+      
+      // If still no marketId, we can't proceed
+      if (!marketId || marketId === 'unknown') {
+        console.warn(`Cannot determine marketId from trade data, skipping trade`);
+        return null;
+      }
 
       let outcome: 'YES' | 'NO' = 'YES';
-      if (trade.outcome === 'NO' || trade.outcome === 1 || trade.side === 'NO') {
+      if (trade.outcome === 'NO' || trade.outcome === 1 || trade.side === 'NO' || 
+          (trade.tokenId && (trade.tokenId.toLowerCase().includes('no') || trade.tokenId.endsWith('1') || trade.tokenId.endsWith('-1')))) {
         outcome = 'NO';
       }
 
@@ -256,15 +375,33 @@ export class WalletMonitor {
       }
       // Default to BUY if we can't determine
 
+      // Get price and amount
+      let price = trade.price || trade.avgPrice || trade.fillPrice || market.currentPrice || '0';
+      let amount = trade.size || trade.quantity || trade.amount || '0';
+      
+      // Validate price and amount
+      const priceNum = parseFloat(price || '0');
+      const amountNum = parseFloat(amount || '0');
+      
+      if (!price || price === '0' || isNaN(priceNum) || priceNum <= 0 || priceNum > 1) {
+        console.warn(`Invalid or missing price (${price}) for trade on market ${marketId}, skipping`);
+        return null;
+      }
+      
+      if (!amount || amount === '0' || isNaN(amountNum) || amountNum <= 0) {
+        console.warn(`Invalid or missing amount (${amount}) for trade on market ${marketId}, skipping`);
+        return null;
+      }
+
       return {
         walletAddress: walletAddress.toLowerCase(),
-        marketId: marketId || 'unknown',
+        marketId,
         outcome,
-        amount: trade.size || trade.quantity || trade.amount || '0',
-        price: trade.price || trade.avgPrice || '0',
+        amount: amount.toString(),
+        price: price.toString(),
         side,
         timestamp: new Date(trade.timestamp || trade.createdAt || trade.time || Date.now()),
-        transactionHash: trade.txHash || trade.transactionHash || trade.id || `trade-${Date.now()}`
+        transactionHash: trade.txHash || trade.transactionHash || trade.id || `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       };
     } catch (error: any) {
       console.error('Failed to parse trade data:', error);
