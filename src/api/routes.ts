@@ -125,13 +125,13 @@ export function createRoutes(copyTrader: CopyTrader): Router {
           lastDetected: lastDetectedTrade ? {
             timestamp: lastDetectedTrade.timestamp,
             marketId: lastDetectedTrade.marketId,
-            side: stats.lastTradeTime ? 'N/A' : 'N/A',
+            outcome: lastDetectedTrade.outcome,
             walletAddress: lastDetectedTrade.walletAddress
           } : null,
           lastExecuted: lastExecutedTrade ? {
             timestamp: lastExecutedTrade.timestamp,
             marketId: lastExecutedTrade.marketId,
-            side: lastExecutedTrade.side || 'N/A',
+            outcome: lastExecutedTrade.outcome,
             success: lastExecutedTrade.success,
             orderId: lastExecutedTrade.orderId
           } : null
