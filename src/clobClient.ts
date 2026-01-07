@@ -1,4 +1,5 @@
 import { ClobClient, Side, OrderType } from '@polymarket/clob-client';
+import { BuilderConfig } from '@polymarket/builder-signing-sdk';
 import * as ethers from 'ethers';
 import { config } from './config.js';
 
@@ -13,7 +14,7 @@ export class PolymarketClobClient {
   private isInitialized = false;
 
   /**
-   * Initialize the CLOB client with User API credentials
+   * Initialize the CLOB client with User API credentials and Builder credentials
    */
   async initialize(): Promise<void> {
     if (this.isInitialized && this.client) {
@@ -25,7 +26,9 @@ export class PolymarketClobClient {
     }
 
     try {
-      const HOST = config.polymarketClobApiUrl;
+      // IMPORTANT: Use direct CLOB URL, NOT a proxy
+      // Proxies get blocked by Cloudflare. Direct requests with Builder auth work.
+      const HOST = 'https://clob.polymarket.com';
       const CHAIN_ID = 137; // Polygon mainnet
       
       // Create wallet signer using ethers v5 (required by @polymarket/clob-client)
@@ -45,30 +48,48 @@ export class PolymarketClobClient {
       // For EOA wallets, funder is the wallet address itself
       const funderAddress = this.signer.address;
 
-      // Initialize the trading client with User API credentials
+      // Create BuilderConfig with Builder API credentials (REQUIRED for authenticated trading)
+      // Without this, requests get blocked by Cloudflare as unauthorized bot traffic
+      let builderConfig: BuilderConfig | undefined;
+      
+      if (config.polymarketBuilderApiKey && 
+          config.polymarketBuilderSecret && 
+          config.polymarketBuilderPassphrase) {
+        
+        builderConfig = new BuilderConfig({
+          localBuilderCreds: {
+            key: config.polymarketBuilderApiKey,
+            secret: config.polymarketBuilderSecret,
+            passphrase: config.polymarketBuilderPassphrase,
+          }
+        });
+        console.log('✓ Builder API credentials configured for authenticated trading');
+      } else {
+        console.warn('⚠️  Builder API credentials NOT configured!');
+        console.warn('   Orders will likely be blocked by Cloudflare without Builder authentication.');
+        console.warn('   Set POLYMARKET_BUILDER_API_KEY, POLYMARKET_BUILDER_SECRET, POLYMARKET_BUILDER_PASSPHRASE');
+      }
+
+      // Initialize the trading client with ALL 9 parameters including BuilderConfig
+      // Parameters: host, chainId, signer, apiCreds, signatureType, funderAddress, relayer, useRelayer, builderConfig
       this.client = new ClobClient(
         HOST,
         CHAIN_ID,
         this.signer,
         apiCreds,
         signatureType,
-        funderAddress
+        funderAddress,
+        undefined,      // relayer (not used)
+        false,          // useRelayer
+        builderConfig   // BuilderConfig for authenticated trading
       );
-
-      // Optionally add Builder API credentials for order attribution (optional)
-      // Note: Builder credentials are handled separately and are optional
-      if (config.polymarketBuilderApiKey && 
-          config.polymarketBuilderSecret && 
-          config.polymarketBuilderPassphrase) {
-        console.log('✓ Builder API credentials configured for order attribution');
-      } else {
-        console.log('ℹ️  Builder API credentials not configured (optional - only for attribution)');
-      }
 
       this.isInitialized = true;
       console.log('✓ CLOB client initialized successfully');
+      console.log(`   Host: ${HOST}`);
       console.log(`   Wallet: ${this.signer.address}`);
       console.log(`   Funder: ${funderAddress}`);
+      console.log(`   Builder Auth: ${builderConfig ? 'ENABLED' : 'DISABLED'}`);
     } catch (error: any) {
       console.error('❌ Failed to initialize CLOB client:', error.message);
       if (error.stack) {
