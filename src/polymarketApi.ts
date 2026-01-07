@@ -342,12 +342,16 @@ export class PolymarketApi {
 
       // Prepare request body
       const requestBody = JSON.stringify(order);
-      const path = '/orders';
+      // Try both endpoints - /order (singular) is the correct one based on docs
+      const path = '/order';
       
       // Get Builder API authentication headers
       const authHeaders = this.getBuilderAuthHeaders('POST', path, requestBody);
       
       console.log(`Placing order with Builder API authentication...`);
+      console.log(`Order details:`, JSON.stringify(order, null, 2));
+      console.log(`Using endpoint: ${path}`);
+      console.log(`Builder API Key: ${config.polymarketBuilderApiKey.substring(0, 10)}...`);
       
       // Make the request with Builder API headers
       const response = await this.clobApiClient.post(path, order, {
@@ -357,6 +361,7 @@ export class PolymarketApi {
         }
       });
 
+      console.log(`Order placed successfully! Response:`, JSON.stringify(response.data, null, 2));
       return response.data;
     } catch (error: any) {
       // Provide more detailed error information
@@ -385,10 +390,21 @@ export class PolymarketApi {
         errorMessage = error.message || 'Unknown error';
       }
       
-      console.error(errorMessage);
+      console.error('❌ Order placement failed!');
+      console.error(`Error: ${errorMessage}`);
+      console.error(`Status: ${error.response?.status || 'N/A'}`);
       if (error.response?.data) {
-        console.error('Error details:', error.response.data);
+        console.error('Full error response:', JSON.stringify(error.response.data, null, 2));
       }
+      if (error.response?.headers) {
+        console.error('Response headers:', JSON.stringify(error.response.headers, null, 2));
+      }
+      console.error('Request that failed:', {
+        url: `${this.clobApiClient.defaults.baseURL}/order`,
+        method: 'POST',
+        body: order,
+        headers: authHeaders ? Object.keys(authHeaders) : 'No auth headers'
+      });
       
       // Create a more informative error
       const enhancedError = new Error(errorMessage);

@@ -40,7 +40,12 @@ export class TradeExecutor {
     const executionStart = Date.now();
 
     try {
-      console.log(`Executing trade: ${order.side} ${order.amount} shares of ${order.marketId} (${order.outcome}) at ${order.price}`);
+      console.log(`\n🚀 Executing trade:`);
+      console.log(`   Side: ${order.side}`);
+      console.log(`   Amount: ${order.amount} shares`);
+      console.log(`   Market: ${order.marketId}`);
+      console.log(`   Outcome: ${order.outcome}`);
+      console.log(`   Price: ${order.price}`);
 
       // Get market information to find token ID
       let tokenId: string;
@@ -98,7 +103,18 @@ export class TradeExecutor {
 
     } catch (error: any) {
       const executionTime = Date.now() - executionStart;
-      console.error('Trade execution failed:', error.message);
+      console.error('\n❌ Trade execution failed!');
+      console.error(`Error message: ${error.message}`);
+      console.error(`Error stack:`, error.stack);
+      
+      // Log additional error details if available
+      if (error.response) {
+        console.error(`HTTP Status: ${error.response.status}`);
+        console.error(`Response data:`, JSON.stringify(error.response.data, null, 2));
+      }
+      if (error.originalError) {
+        console.error(`Original error:`, error.originalError.message);
+      }
       
       return {
         success: false,
