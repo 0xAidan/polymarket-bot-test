@@ -51,9 +51,19 @@ export class WalletMonitor {
     await this.initializePositions();
 
     // Start polling for position changes
+    // Run immediately on start, then at intervals
+    console.log(`[Monitor] Running initial trade check...`);
+    await this.checkWalletsForTrades(onTradeDetected);
+    
     this.pollingInterval = setInterval(async () => {
       if (!this.isMonitoring) return;
-      await this.checkWalletsForTrades(onTradeDetected);
+      try {
+        await this.checkWalletsForTrades(onTradeDetected);
+      } catch (error: any) {
+        console.error(`[Monitor] Error in polling cycle:`, error.message);
+        console.error(`[Monitor] Stack:`, error.stack);
+        // Continue polling even if one cycle fails
+      }
     }, config.monitoringIntervalMs);
 
     const wallets = await Storage.getActiveWallets();
@@ -213,7 +223,14 @@ export class WalletMonitor {
                 console.log(`   Price: ${trade.price}`);
                 console.log(`   Market: ${trade.marketId}`);
                 console.log(`   Outcome: ${trade.outcome}`);
-                onTradeDetected(trade);
+                console.log(`[Monitor] 📤 Calling onTradeDetected callback...`);
+                try {
+                  await onTradeDetected(trade);
+                  console.log(`[Monitor] ✅ Callback completed successfully`);
+                } catch (callbackError: any) {
+                  console.error(`[Monitor] ❌ Callback failed:`, callbackError.message);
+                  console.error(`[Monitor]    Stack:`, callbackError.stack);
+                }
               } else {
                 console.warn(`[Monitor] Failed to parse new position as trade for token ${tokenId}`);
               }
@@ -240,7 +257,14 @@ export class WalletMonitor {
                 console.log(`   Market: ${trade.marketId}`);
                 console.log(`   Outcome: ${trade.outcome}`);
                 console.log(`   Size change: ${sizeDiff > 0 ? '+' : ''}${sizeDiff.toFixed(4)} (${(percentChange * 100).toFixed(2)}%)`);
-                onTradeDetected(trade);
+                console.log(`[Monitor] 📤 Calling onTradeDetected callback...`);
+                try {
+                  await onTradeDetected(trade);
+                  console.log(`[Monitor] ✅ Callback completed successfully`);
+                } catch (callbackError: any) {
+                  console.error(`[Monitor] ❌ Callback failed:`, callbackError.message);
+                  console.error(`[Monitor]    Stack:`, callbackError.stack);
+                }
               } else {
                 console.warn(`[Monitor] Failed to parse position change as trade for token ${tokenId} (size diff: ${sizeDiff})`);
               }
@@ -265,7 +289,14 @@ export class WalletMonitor {
                 console.log(`   Price: ${trade.price}`);
                 console.log(`   Market: ${trade.marketId}`);
                 console.log(`   Outcome: ${trade.outcome}`);
-                onTradeDetected(trade);
+                console.log(`[Monitor] 📤 Calling onTradeDetected callback...`);
+                try {
+                  await onTradeDetected(trade);
+                  console.log(`[Monitor] ✅ Callback completed successfully`);
+                } catch (callbackError: any) {
+                  console.error(`[Monitor] ❌ Callback failed:`, callbackError.message);
+                  console.error(`[Monitor]    Stack:`, callbackError.stack);
+                }
               }
             }
           }
@@ -323,7 +354,14 @@ export class WalletMonitor {
                   console.log(`   Market: ${detectedTrade.marketId}`);
                   console.log(`   Outcome: ${detectedTrade.outcome}`);
                   console.log(`   Time: ${new Date(tradeTime).toISOString()}`);
-                  onTradeDetected(detectedTrade);
+                  console.log(`[Monitor] 📤 Calling onTradeDetected callback...`);
+                  try {
+                    await onTradeDetected(detectedTrade);
+                    console.log(`[Monitor] ✅ Callback completed successfully`);
+                  } catch (callbackError: any) {
+                    console.error(`[Monitor] ❌ Callback failed:`, callbackError.message);
+                    console.error(`[Monitor]    Stack:`, callbackError.stack);
+                  }
                 } else {
                   console.warn(`[Monitor] ✗ Skipping invalid trade from history: marketId=${detectedTrade.marketId}, price=${detectedTrade.price}, amount=${detectedTrade.amount}`);
                 }
@@ -395,11 +433,28 @@ export class WalletMonitor {
         return null;
       }
       
-      // Determine outcome (YES/NO) from token ID
-      // Polymarket tokens typically have a suffix indicating outcome
+      // Determine outcome (YES/NO) from token ID or market structure
+      // Polymarket tokens: [0] is YES, [1] is NO in clobTokenIds array
       let outcome: 'YES' | 'NO' = 'YES';
-      if (tokenId.toLowerCase().includes('no') || tokenId.endsWith('1') || tokenId.endsWith('-1')) {
-        outcome = 'NO';
+      
+      // Try to get market info to determine outcome correctly
+      try {
+        const marketInfo = await this.api.getMarket(marketId);
+        if (marketInfo.clobTokenIds && marketInfo.clobTokenIds.length >= 2) {
+          const yesTokenId = marketInfo.clobTokenIds[0];
+          const noTokenId = marketInfo.clobTokenIds[1];
+          if (tokenId === noTokenId || tokenId === marketInfo.noTokenId) {
+            outcome = 'NO';
+          } else if (tokenId === yesTokenId || tokenId === marketInfo.yesTokenId) {
+            outcome = 'YES';
+          }
+        }
+      } catch (marketError: any) {
+        // Fallback to heuristics if market API fails
+        console.warn(`Could not fetch market info for outcome determination:`, marketError.message);
+        if (tokenId.toLowerCase().includes('no') || tokenId.endsWith('1') || tokenId.endsWith('-1')) {
+          outcome = 'NO';
+        }
       }
 
       // Get price and amount
@@ -498,10 +553,36 @@ export class WalletMonitor {
         return null;
       }
 
+      // Determine outcome (YES/NO) from trade data or market structure
       let outcome: 'YES' | 'NO' = 'YES';
-      if (trade.outcome === 'NO' || trade.outcome === 1 || trade.side === 'NO' || 
-          (trade.tokenId && (trade.tokenId.toLowerCase().includes('no') || trade.tokenId.endsWith('1') || trade.tokenId.endsWith('-1')))) {
+      
+      // Check if trade data explicitly specifies outcome
+      if (trade.outcome === 'NO' || trade.outcome === 1 || trade.side === 'NO') {
         outcome = 'NO';
+      } else if (trade.outcome === 'YES' || trade.outcome === 0 || trade.side === 'YES') {
+        outcome = 'YES';
+      } else {
+        // Try to determine from market structure
+        try {
+          const marketInfo = await this.api.getMarket(marketId);
+          if (marketInfo.clobTokenIds && marketInfo.clobTokenIds.length >= 2) {
+            const yesTokenId = marketInfo.clobTokenIds[0];
+            const noTokenId = marketInfo.clobTokenIds[1];
+            if (trade.tokenId) {
+              if (trade.tokenId === noTokenId || trade.tokenId === marketInfo.noTokenId) {
+                outcome = 'NO';
+              } else if (trade.tokenId === yesTokenId || trade.tokenId === marketInfo.yesTokenId) {
+                outcome = 'YES';
+              }
+            }
+          }
+        } catch (marketError: any) {
+          // Fallback to heuristics
+          console.warn(`Could not fetch market info for outcome determination:`, marketError.message);
+          if (trade.tokenId && (trade.tokenId.toLowerCase().includes('no') || trade.tokenId.endsWith('1') || trade.tokenId.endsWith('-1'))) {
+            outcome = 'NO';
+          }
+        }
       }
 
       // Determine side from trade data

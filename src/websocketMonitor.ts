@@ -212,12 +212,17 @@ export class WebSocketMonitor {
     onTradeDetected: (trade: DetectedTrade) => void
   ): Promise<void> {
     try {
+      // DEBUG: Log ALL incoming messages to understand what we're receiving
+      console.log('[WebSocket] 📨 RAW MESSAGE RECEIVED:', JSON.stringify(message, null, 2));
+      
       // Handle different message types
-      if (message.event === 'trade' || message.type === 'trade') {
+      if (message.event === 'trade' || message.type === 'trade' || message.event_type === 'trade') {
         // Trade event received
+        console.log('[WebSocket] 🔍 Detected trade event format');
         await this.processTradeEvent(message, onTradeDetected);
       } else if (message.method === 'subscription' || message.channel === 'trades') {
         // Subscription confirmation or trade data
+        console.log('[WebSocket] 🔍 Detected subscription/trades channel format');
         if (message.params && message.params.data) {
           await this.processTradeEvent(message.params.data, onTradeDetected);
         } else {
@@ -225,17 +230,24 @@ export class WebSocketMonitor {
         }
       } else if (message.id) {
         // Response to a subscription request
+        console.log('[WebSocket] 🔍 Detected response message (id:', message.id, ')');
         if (message.result) {
-          console.log('[WebSocket] ✅ Subscription confirmed:', message.result);
+          console.log('[WebSocket] ✅ Subscription confirmed:', JSON.stringify(message.result, null, 2));
         }
-      } else {
+        if (message.error) {
+          console.error('[WebSocket] ❌ Subscription error:', JSON.stringify(message.error, null, 2));
+        }
+      } else if (message.maker || message.taker || message.token_id || message.asset_id) {
         // Unknown message format - try to parse as trade anyway
-        if (message.maker || message.taker || message.token_id) {
-          await this.processTradeEvent(message, onTradeDetected);
-        }
+        console.log('[WebSocket] 🔍 Detected potential trade data (has maker/taker/token_id)');
+        await this.processTradeEvent(message, onTradeDetected);
+      } else {
+        // Log unhandled message format
+        console.log('[WebSocket] ⚠️ Unhandled message format. Keys:', Object.keys(message));
       }
     } catch (error: any) {
       console.error('[WebSocket] Error handling message:', error.message);
+      console.error('[WebSocket] Error stack:', error.stack);
     }
   }
 
@@ -247,32 +259,48 @@ export class WebSocketMonitor {
     onTradeDetected: (trade: DetectedTrade) => void
   ): Promise<void> {
     try {
-      // Extract trade information
-      const maker = (tradeEvent.maker || '').toLowerCase();
-      const taker = (tradeEvent.taker || '').toLowerCase();
-      const tokenId = tradeEvent.token_id || tradeEvent.tokenId;
-      const size = tradeEvent.size || tradeEvent.quantity || '0';
-      const price = tradeEvent.price || tradeEvent.fill_price || '0';
-      const side = tradeEvent.side || 'buy';
-      const timestamp = tradeEvent.timestamp || tradeEvent.created_at || Date.now();
+      // DEBUG: Log the raw trade event
+      console.log('[WebSocket] 🔍 Processing trade event:', JSON.stringify(tradeEvent, null, 2));
+      
+      // Extract trade information - try multiple field names
+      const maker = (tradeEvent.maker || tradeEvent.maker_address || '').toLowerCase();
+      const taker = (tradeEvent.taker || tradeEvent.taker_address || '').toLowerCase();
+      const tokenId = tradeEvent.token_id || tradeEvent.tokenId || tradeEvent.asset_id;
+      const size = tradeEvent.size || tradeEvent.quantity || tradeEvent.amount || '0';
+      const price = tradeEvent.price || tradeEvent.fill_price || tradeEvent.execution_price || '0';
+      const side = tradeEvent.side || (tradeEvent.event_type === 'trade' ? 'buy' : 'buy');
+      const timestamp = tradeEvent.timestamp || tradeEvent.created_at || tradeEvent.matchtime || Date.now();
+
+      console.log('[WebSocket] 📊 Extracted trade data:');
+      console.log(`   Maker: ${maker || '(none)'}`);
+      console.log(`   Taker: ${taker || '(none)'}`);
+      console.log(`   Token ID: ${tokenId || '(none)'}`);
+      console.log(`   Size: ${size}`);
+      console.log(`   Price: ${price}`);
+      console.log(`   Side: ${side}`);
+      console.log(`   Tracked wallets: ${Array.from(this.trackedWallets).join(', ')}`);
 
       // Determine which wallet made this trade (maker or taker)
       let walletAddress: string | null = null;
       let isFromTrackedWallet = false;
 
       // Check if maker is one of our tracked wallets
-      if (this.trackedWallets.has(maker)) {
+      if (maker && this.trackedWallets.has(maker)) {
         walletAddress = maker;
         isFromTrackedWallet = true;
+        console.log(`[WebSocket] ✓ Maker ${maker.substring(0, 8)}... is tracked`);
       }
       // Check if taker is one of our tracked wallets
-      else if (this.trackedWallets.has(taker)) {
+      else if (taker && this.trackedWallets.has(taker)) {
         walletAddress = taker;
         isFromTrackedWallet = true;
+        console.log(`[WebSocket] ✓ Taker ${taker.substring(0, 8)}... is tracked`);
       }
 
       // If not found in tracked wallets, skip this trade
       if (!isFromTrackedWallet || !walletAddress) {
+        console.log(`[WebSocket] ⏭️  Trade not from tracked wallet. Maker: ${maker || '(none)'}, Taker: ${taker || '(none)'}`);
+        console.log(`[WebSocket]    Tracked wallets: ${Array.from(this.trackedWallets).map(w => w.substring(0, 8) + '...').join(', ')}`);
         return;
       }
 
@@ -320,14 +348,16 @@ export class WebSocketMonitor {
             const market = await this.api.getMarket(tokenId);
             marketId = market.id || market.questionId || market.conditionId || tokenId;
             
-            // Determine outcome from market structure
-            if (market.clobTokenIds && market.clobTokenIds.length >= 2) {
-              const yesTokenId = market.clobTokenIds[0];
-              const noTokenId = market.clobTokenIds[1];
-              if (tokenId === noTokenId || tokenId === market.noTokenId) {
-                outcome = 'NO';
-              }
-            }
+        // Determine outcome from market structure
+        if (market.clobTokenIds && market.clobTokenIds.length >= 2) {
+          const yesTokenId = market.clobTokenIds[0];
+          const noTokenId = market.clobTokenIds[1];
+          if (tokenId === noTokenId || tokenId === market.noTokenId) {
+            outcome = 'NO';
+          } else if (tokenId === yesTokenId || tokenId === market.yesTokenId) {
+            outcome = 'YES';
+          }
+        }
           } catch (marketError: any) {
             console.warn(`[WebSocket] Could not fetch market info for ${tokenId}:`, marketError.message);
             // Use token ID as fallback
@@ -370,9 +400,17 @@ export class WebSocketMonitor {
         };
 
         console.log(`[WebSocket] ✓ Valid trade detected: ${detectedTrade.side} ${detectedTrade.amount} @ ${detectedTrade.price} on ${detectedTrade.marketId} (${detectedTrade.outcome})`);
+        console.log(`[WebSocket] 📤 Calling onTradeDetected callback...`);
+        console.log(`[WebSocket]    Callback will receive:`, JSON.stringify(detectedTrade, null, 2));
         
         // Trigger callback
-        onTradeDetected(detectedTrade);
+        try {
+          await onTradeDetected(detectedTrade);
+          console.log(`[WebSocket] ✅ Callback completed successfully`);
+        } catch (callbackError: any) {
+          console.error(`[WebSocket] ❌ Callback failed:`, callbackError.message);
+          console.error(`[WebSocket]    Stack:`, callbackError.stack);
+        }
 
       } catch (error: any) {
         console.error('[WebSocket] Error processing trade event:', error.message);

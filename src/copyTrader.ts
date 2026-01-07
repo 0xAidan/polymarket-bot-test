@@ -18,6 +18,7 @@ export class CopyTrader {
   private balanceTracker: BalanceTracker;
   private isRunning = false;
   private executedTrades = new Set<string>(); // Track executed trades by tx hash
+  private processedTrades = new Map<string, number>(); // Track processed trades by unique key (wallet-market-outcome-side-timestamp) to prevent duplicates
 
   constructor() {
     this.monitor = new WalletMonitor();
@@ -78,28 +79,33 @@ export class CopyTrader {
     console.log('Starting copy trading bot...');
     this.isRunning = true;
 
-    // Start WebSocket monitoring (primary method - real-time)
-    console.log('📡 Starting WebSocket monitoring (real-time)...');
+    // Start polling monitoring (PRIMARY METHOD - most reliable for monitoring other wallets)
+    // WebSocket API only monitors YOUR OWN trades, not other wallets
+    console.log('🔄 Starting polling monitoring (PRIMARY METHOD)...');
+    await this.monitor.startMonitoring(async (trade: DetectedTrade) => {
+      console.log(`[CopyTrader] 📥 Polling callback triggered with trade:`, JSON.stringify(trade, null, 2));
+      await this.handleDetectedTrade(trade);
+    });
+    console.log('✅ Polling monitoring active');
+
+    // Start WebSocket monitoring (secondary - only works for your own trades)
+    // Note: WebSocket API can only monitor the authenticated user's trades, not other wallets
+    console.log('📡 Starting WebSocket monitoring (secondary - your trades only)...');
     try {
       await this.websocketMonitor.startMonitoring(async (trade: DetectedTrade) => {
+        console.log(`[CopyTrader] 📥 WebSocket callback triggered with trade:`, JSON.stringify(trade, null, 2));
         await this.handleDetectedTrade(trade);
       });
       const wsStatus = this.websocketMonitor.getStatus();
       if (wsStatus.isConnected) {
-        console.log('✅ WebSocket monitoring active');
+        console.log('✅ WebSocket monitoring active (for your own trades only)');
       } else {
-        console.log('⚠️ WebSocket not connected, falling back to polling');
+        console.log('⚠️ WebSocket not connected (this is OK - polling is primary)');
       }
     } catch (error: any) {
       console.error('❌ Failed to start WebSocket monitoring:', error.message);
-      console.log('⚠️ Falling back to polling-based monitoring');
+      console.log('⚠️ Continuing with polling-based monitoring (this is fine)');
     }
-
-    // Start polling monitoring (fallback method)
-    console.log('🔄 Starting polling monitoring (fallback)...');
-    await this.monitor.startMonitoring(async (trade: DetectedTrade) => {
-      await this.handleDetectedTrade(trade);
-    });
 
     // Start balance tracking
     const userWallet = this.getWalletAddress();
@@ -112,7 +118,16 @@ export class CopyTrader {
       await this.balanceTracker.startTracking(allWallets);
     }
 
-    console.log('Copy trading bot is running');
+    console.log('\n' + '='.repeat(60));
+    console.log('✅ COPY TRADING BOT IS RUNNING');
+    console.log('='.repeat(60));
+    console.log(`📊 Monitoring Methods:`);
+    console.log(`   🔄 Polling: ✅ ACTIVE (Primary - checks every ${config.monitoringIntervalMs / 1000}s)`);
+    const wsStatus = this.websocketMonitor.getStatus();
+    console.log(`   📡 WebSocket: ${wsStatus.isConnected ? '✅ CONNECTED' : '⚠️  DISCONNECTED'} (Secondary - your trades only)`);
+    console.log(`\n💡 The bot will automatically detect and copy trades from tracked wallets.`);
+    console.log(`   Check the logs above for trade detection and execution.`);
+    console.log('='.repeat(60) + '\n');
   }
 
   /**
@@ -135,11 +150,38 @@ export class CopyTrader {
    * Handle a detected trade from a tracked wallet
    */
   private async handleDetectedTrade(trade: DetectedTrade): Promise<void> {
-    // Prevent duplicate execution
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`🔔 [CopyTrader] HANDLE_DETECTED_TRADE CALLED`);
+    console.log(`${'='.repeat(60)}`);
+    console.log(`   Trade object:`, JSON.stringify(trade, null, 2));
+    console.log(`${'='.repeat(60)}\n`);
+    
+    // Prevent duplicate execution using transaction hash
     if (this.executedTrades.has(trade.transactionHash)) {
-      console.log(`Trade ${trade.transactionHash} already executed, skipping`);
+      console.log(`[CopyTrader] ⏭️  Trade ${trade.transactionHash} already executed, skipping`);
       return;
     }
+    
+    // Also check for duplicate trades using a composite key (wallet + market + outcome + side + timestamp within 5 min window)
+    // This prevents processing the same trade multiple times if detected from different sources
+    const tradeKey = `${trade.walletAddress}-${trade.marketId}-${trade.outcome}-${trade.side}-${Math.floor(trade.timestamp.getTime() / (5 * 60 * 1000))}`;
+    const lastProcessed = this.processedTrades.get(tradeKey);
+    const now = Date.now();
+    
+    // Clean up old entries (older than 1 hour)
+    for (const [key, timestamp] of this.processedTrades.entries()) {
+      if (now - timestamp > 60 * 60 * 1000) {
+        this.processedTrades.delete(key);
+      }
+    }
+    
+    if (lastProcessed && (now - lastProcessed) < 5 * 60 * 1000) {
+      console.log(`[CopyTrader] ⏭️  Similar trade already processed recently (key: ${tradeKey}), skipping duplicate`);
+      return;
+    }
+    
+    // Mark as processed
+    this.processedTrades.set(tradeKey, now);
 
     console.log(`\n${'='.repeat(60)}`);
     console.log(`🔔 TRADE DETECTED`);
@@ -255,6 +297,7 @@ export class CopyTrader {
         console.log(`   TX Hash: ${result.transactionHash || 'Pending'}`);
         console.log(`   Execution Time: ${executionTime}ms`);
         console.log(`   Market: ${order.marketId}`);
+        console.log(`   Outcome: ${order.outcome}`);
         console.log(`   Side: ${order.side} ${order.amount} @ ${order.price}`);
         console.log(`${'='.repeat(60)}\n`);
         this.executedTrades.add(trade.transactionHash);
