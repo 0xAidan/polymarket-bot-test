@@ -427,6 +427,99 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
+  // Test endpoint to diagnose CLOB API connectivity and Cloudflare blocking
+  router.get('/test/clob-connectivity', async (req: Request, res: Response) => {
+    try {
+      const axios = (await import('axios')).default;
+      const results: any = {
+        timestamp: new Date().toISOString(),
+        tests: []
+      };
+      
+      // Test 1: Simple unauthenticated request to CLOB API (tick-size endpoint)
+      const clobUrl = config.polymarketClobApiUrl || 'https://clob.polymarket.com';
+      try {
+        const tickSizeResponse = await axios.get(`${clobUrl}/tick-size`, { 
+          timeout: 10000,
+          validateStatus: () => true // Don't throw on any status code
+        });
+        results.tests.push({
+          name: 'CLOB tick-size endpoint (unauthenticated)',
+          url: `${clobUrl}/tick-size`,
+          status: tickSizeResponse.status,
+          statusText: tickSizeResponse.statusText,
+          isCloudflareBlock: typeof tickSizeResponse.data === 'string' && tickSizeResponse.data.includes('Cloudflare'),
+          success: tickSizeResponse.status === 200
+        });
+      } catch (e: any) {
+        results.tests.push({
+          name: 'CLOB tick-size endpoint (unauthenticated)',
+          error: e.message,
+          success: false
+        });
+      }
+
+      // Test 2: Check if we can reach the CLOB server endpoint at all
+      try {
+        const serverTimeResponse = await axios.get(`${clobUrl}/time`, { 
+          timeout: 10000,
+          validateStatus: () => true
+        });
+        results.tests.push({
+          name: 'CLOB time endpoint',
+          url: `${clobUrl}/time`,
+          status: serverTimeResponse.status,
+          statusText: serverTimeResponse.statusText,
+          data: serverTimeResponse.status === 200 ? serverTimeResponse.data : 'N/A',
+          isCloudflareBlock: typeof serverTimeResponse.data === 'string' && serverTimeResponse.data.includes('Cloudflare'),
+          success: serverTimeResponse.status === 200
+        });
+      } catch (e: any) {
+        results.tests.push({
+          name: 'CLOB time endpoint',
+          error: e.message,
+          success: false
+        });
+      }
+
+      // Test 3: Check Builder credentials presence
+      results.builderCredentials = {
+        apiKeyPresent: !!config.polymarketBuilderApiKey,
+        apiKeyLength: config.polymarketBuilderApiKey?.length || 0,
+        secretPresent: !!config.polymarketBuilderSecret,
+        secretLength: config.polymarketBuilderSecret?.length || 0,
+        passphrasePresent: !!config.polymarketBuilderPassphrase,
+        passphraseLength: config.polymarketBuilderPassphrase?.length || 0
+      };
+
+      // Test 4: Check signature type configuration
+      results.signatureType = parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '0', 10);
+      results.funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS || 'Not set (using EOA)';
+
+      // Summary
+      const allTestsPassed = results.tests.every((t: any) => t.success);
+      const anyCloudflareBlocks = results.tests.some((t: any) => t.isCloudflareBlock);
+      
+      results.summary = {
+        allTestsPassed,
+        anyCloudflareBlocks,
+        diagnosis: anyCloudflareBlocks 
+          ? 'CLOUDFLARE BLOCKING DETECTED - Your server IP is blocked by Polymarket. Try running locally or using a different server.'
+          : allTestsPassed 
+            ? 'CLOB API is accessible - issue may be with Builder credentials or signature type'
+            : 'CLOB API unreachable - network or configuration issue'
+      };
+
+      res.json({ success: true, ...results });
+    } catch (error: any) {
+      res.status(500).json({ 
+        success: false, 
+        error: error.message,
+        stack: error.stack
+      });
+    }
+  });
+
   // Test endpoint to check balance for any address (for debugging)
   router.get('/test/balance/:address', async (req: Request, res: Response) => {
     try {
