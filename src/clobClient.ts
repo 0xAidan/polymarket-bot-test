@@ -108,6 +108,9 @@ export class PolymarketClobClient {
       console.log(`[DEBUG] POLYMARKET_BUILDER_API_KEY present: ${!!config.polymarketBuilderApiKey} (length: ${config.polymarketBuilderApiKey?.length || 0})`);
       console.log(`[DEBUG] POLYMARKET_BUILDER_SECRET present: ${!!config.polymarketBuilderSecret} (length: ${config.polymarketBuilderSecret?.length || 0})`);
       console.log(`[DEBUG] POLYMARKET_BUILDER_PASSPHRASE present: ${!!config.polymarketBuilderPassphrase} (length: ${config.polymarketBuilderPassphrase?.length || 0})`);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:builderCredCheck',message:'Builder credentials check',data:{hasKey:!!config.polymarketBuilderApiKey,keyLength:config.polymarketBuilderApiKey?.length||0,hasSecret:!!config.polymarketBuilderSecret,secretLength:config.polymarketBuilderSecret?.length||0,hasPassphrase:!!config.polymarketBuilderPassphrase,passphraseLength:config.polymarketBuilderPassphrase?.length||0,signatureType},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B,C'})}).catch(()=>{});
+      // #endregion
       
       if (config.polymarketBuilderApiKey && 
           config.polymarketBuilderSecret && 
@@ -122,6 +125,10 @@ export class PolymarketClobClient {
         });
         console.log('✓ Builder API credentials configured for authenticated trading');
         console.log(`[DEBUG] BuilderConfig created successfully`);
+        // Log partial credentials for debugging (first 8 chars only for security)
+        console.log(`[DEBUG] Builder API Key starts with: ${config.polymarketBuilderApiKey.substring(0, 8)}...`);
+        console.log(`[DEBUG] Builder Secret length: ${config.polymarketBuilderSecret.length} chars`);
+        console.log(`[DEBUG] Builder Passphrase length: ${config.polymarketBuilderPassphrase.length} chars`);
       } else {
         console.error('❌ Builder API credentials NOT configured!');
         console.error('   Orders WILL BE BLOCKED by Cloudflare without Builder authentication.');
@@ -217,6 +224,10 @@ export class PolymarketClobClient {
       // #endregion
       
       let response: any;
+      // #region agent log
+      const orderStartTime = Date.now();
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:preOrder',message:'About to call createAndPostOrder',data:{tokenID:params.tokenID,price:params.price,size:params.size,side:params.side,tickSize,negRisk,clobUrl:config.polymarketClobApiUrl||'default'},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B,C,D'})}).catch(()=>{});
+      // #endregion
       try {
         response = await this.client.createAndPostOrder(
           {
@@ -234,8 +245,24 @@ export class PolymarketClobClient {
       } catch (innerError: any) {
         // CLOB client threw an error - this is the expected behavior for failures
         console.error(`[CLOB] Client threw error:`, innerError.message);
+        const errorDuration = Date.now() - orderStartTime;
+        // Check if this is a Cloudflare block
+        const isCloudflareBlock = innerError.message?.includes('403') || innerError.message?.includes('Cloudflare') || innerError.message?.includes('blocked');
+        const responseData = innerError.response?.data;
+        const isHtmlResponse = typeof responseData === 'string' && (responseData.includes('<!DOCTYPE') || responseData.includes('Cloudflare'));
+        
+        // DETAILED ERROR LOGGING FOR 400 ERRORS
+        const status = innerError.response?.status;
+        if (status === 400) {
+          console.error(`[CLOB] ===== 400 BAD REQUEST DETAILS =====`);
+          console.error(`[CLOB] Response data:`, JSON.stringify(responseData, null, 2));
+          console.error(`[CLOB] Request params: tokenID=${params.tokenID}, price=${params.price}, size=${params.size}, side=${params.side}`);
+          console.error(`[CLOB] Options: tickSize=${tickSize}, negRisk=${negRisk}`);
+          console.error(`[CLOB] ======================================`);
+        }
+        
         // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder:catch',message:'CLOB client error',data:{errorMsg:innerError.message,errorCode:innerError.code,errorInput:innerError.input,stack:innerError.stack?.slice(0,500)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B,C'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder:catch',message:'CLOB client error',data:{errorMsg:innerError.message,errorCode:innerError.code,responseStatus:status,responseData:typeof responseData==='object'?responseData:responseData?.slice?.(0,500),isCloudflareBlock,isHtmlResponse,errorDuration,requestParams:{tokenID:params.tokenID,price:params.price,size:params.size,side:params.side,tickSize,negRisk}},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B,C,D'})}).catch(()=>{});
         // #endregion
         throw innerError;
       }
