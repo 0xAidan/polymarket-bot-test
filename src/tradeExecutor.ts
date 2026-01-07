@@ -101,16 +101,46 @@ export class TradeExecutor {
 
       const executionTime = Date.now() - executionStart;
 
+      // Log full response for debugging
+      console.log(`[Execute] CLOB Response:`, JSON.stringify(orderResponse, null, 2));
+
+      // CRITICAL: Validate the response before declaring success
+      // The CLOB client may return a response even when the request failed (e.g., 403 from Cloudflare)
+      const orderId = orderResponse?.orderID || orderResponse?.orderId || orderResponse?.id;
+      const responseStatus = orderResponse?.status;
+
+      // Check for failure conditions
+      if (!orderId) {
+        // No order ID means the order was NOT placed
+        const errorDetails = JSON.stringify(orderResponse || 'empty response');
+        throw new Error(`Order placement failed: No order ID returned. Response: ${errorDetails}`);
+      }
+
+      // Check for error status codes in response (e.g., 403, 400, etc.)
+      if (typeof responseStatus === 'number' && responseStatus >= 400) {
+        throw new Error(`Order placement failed with HTTP status ${responseStatus}`);
+      }
+
+      // Check for error field in response
+      if (orderResponse?.error) {
+        throw new Error(`Order placement failed: ${orderResponse.error}`);
+      }
+
+      // Check for Cloudflare block indicators
+      if (typeof orderResponse === 'string' && orderResponse.includes('Cloudflare')) {
+        throw new Error('Order placement blocked by Cloudflare. Your server IP may be blocked.');
+      }
+
       console.log(`\n✅ [Execute] ORDER PLACED SUCCESSFULLY!`);
       console.log(`${'='.repeat(60)}`);
-      console.log(`   Order ID: ${orderResponse.orderID || orderResponse.orderId}`);
-      console.log(`   Status: ${orderResponse.status || 'pending'}`);
+      console.log(`   Order ID: ${orderId}`);
+      console.log(`   Status: ${responseStatus || 'pending'}`);
       console.log(`   Execution Time: ${executionTime}ms`);
       console.log(`${'='.repeat(60)}\n`);
 
       return {
         success: true,
-        orderId: orderResponse.orderID || orderResponse.orderId || orderResponse.clobOrderId,
+        orderId: orderId,
         transactionHash: orderResponse.txHash || orderResponse.transactionHash || orderResponse.hash || null,
         executionTimeMs: executionTime
       };

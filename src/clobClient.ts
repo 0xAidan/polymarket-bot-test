@@ -125,22 +125,82 @@ export class PolymarketClobClient {
       }
     }
 
-    // Place the order
-    const response = await this.client.createAndPostOrder(
-      {
-        tokenID: params.tokenID,
-        price: params.price,
-        size: params.size,
-        side: params.side,
-      },
-      {
-        tickSize: tickSize! as any, // TickSize type from CLOB client
-        negRisk: negRisk!,
-      },
-      OrderType.GTC // Good-Til-Cancelled
-    );
+    // Place the order with proper error handling
+    try {
+      console.log(`[CLOB] Placing order: tokenID=${params.tokenID}, price=${params.price}, size=${params.size}, side=${params.side}`);
+      
+      const response = await this.client.createAndPostOrder(
+        {
+          tokenID: params.tokenID,
+          price: params.price,
+          size: params.size,
+          side: params.side,
+        },
+        {
+          tickSize: tickSize! as any, // TickSize type from CLOB client
+          negRisk: negRisk!,
+        },
+        OrderType.GTC // Good-Til-Cancelled
+      );
 
-    return response;
+      // Log full response for debugging
+      console.log(`[CLOB] Order response received:`, JSON.stringify(response, null, 2));
+
+      // Check if response is empty or null
+      if (!response) {
+        throw new Error('CLOB client returned empty/null response');
+      }
+
+      // Check if response contains error indicators
+      if (response.error) {
+        throw new Error(`CLOB API error: ${response.error}`);
+      }
+
+      // Check for Cloudflare block (response might be HTML string)
+      if (typeof response === 'string') {
+        if (response.includes('Cloudflare') || response.includes('blocked')) {
+          throw new Error('Request blocked by Cloudflare - server IP may be blocked');
+        }
+        // Try to parse as JSON error
+        try {
+          const parsed = JSON.parse(response);
+          if (parsed.error) {
+            throw new Error(`CLOB API error: ${parsed.error}`);
+          }
+        } catch {
+          // Not JSON, might be an error page
+          if (response.includes('<!DOCTYPE') || response.includes('<html')) {
+            throw new Error('Received HTML error page instead of JSON response - API may be blocked');
+          }
+        }
+      }
+
+      return response;
+    } catch (error: any) {
+      // Extract meaningful error message from various error formats
+      let errorMessage = 'Unknown CLOB error';
+      
+      if (error.response) {
+        // Axios-style error with response
+        const status = error.response.status;
+        const data = error.response.data;
+        
+        if (status === 403) {
+          errorMessage = `Request blocked (403 Forbidden) - Server IP may be blocked by Cloudflare`;
+        } else if (typeof data === 'string' && data.includes('Cloudflare')) {
+          errorMessage = `Request blocked by Cloudflare (status ${status})`;
+        } else if (data?.error) {
+          errorMessage = `CLOB API error (${status}): ${data.error}`;
+        } else {
+          errorMessage = `CLOB API error (${status}): ${JSON.stringify(data)}`;
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      console.error(`[CLOB] Order failed:`, errorMessage);
+      throw new Error(`Failed to place order: ${errorMessage}`);
+    }
   }
 
   /**
