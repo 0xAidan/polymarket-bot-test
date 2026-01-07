@@ -90,6 +90,9 @@ export class TradeExecutor {
 
       // Place order via CLOB client
       console.log(`\n📤 Placing order via CLOB client...`);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade',message:'About to place order',data:{tokenId,tickSize,negRisk,side:order.side,size,price},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
+      // #endregion
       
       let orderResponse: any;
       try {

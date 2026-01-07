@@ -15,13 +15,33 @@ POLYMARKET_BUILDER_API_KEY=your_builder_api_key_here
 POLYMARKET_BUILDER_SECRET=your_builder_secret_here
 POLYMARKET_BUILDER_PASSPHRASE=your_builder_passphrase_here
 
-# Polymarket API endpoints (DO NOT CHANGE - use direct URLs, not proxies)
+# Polymarket API endpoints
+# IMPORTANT: Use direct URLs with Builder credentials - proxies don't help!
+# Builder credentials (above) authenticate your requests to bypass Cloudflare blocking.
+# DO NOT use a Cloudflare Worker proxy - it won't work because Polymarket's 
+# Cloudflare still blocks requests from Workers. Just use the direct URLs below.
 POLYMARKET_CLOB_API_URL=https://clob.polymarket.com
 POLYMARKET_DATA_API_URL=https://data-api.polymarket.com
 POLYMARKET_GAMMA_API_URL=https://gamma-api.polymarket.com
 
 # Polygon RPC endpoint (use a reliable provider like Alchemy, Infura, or QuickNode)
 POLYGON_RPC_URL=https://polygon-rpc.com
+
+# ============================================================
+# Signature Type - IMPORTANT! Must match how you created your Polymarket account
+# ============================================================
+# 0 = EOA wallet (you connected MetaMask/WalletConnect directly to Polymarket)
+# 1 = Proxy wallet (you signed up via email/Magic Link, or Polymarket created a proxy for you)
+# 2 = Gnosis Safe (you're using a multi-sig wallet)
+#
+# If you're getting 403 errors, try changing this value!
+# Most users who signed up via email should use 1
+POLYMARKET_SIGNATURE_TYPE=0
+
+# Funder Address - Usually leave blank (defaults to your wallet address)
+# Only set this if you're using a proxy wallet (signature type 1)
+# and the funder is different from your EOA wallet
+# POLYMARKET_FUNDER_ADDRESS=0x...
 
 # Server configuration
 PORT=3000

@@ -36,19 +36,54 @@ export class PolymarketClobClient {
       // Create wallet signer using ethers v5 (required by @polymarket/clob-client)
       const provider = new (ethers as any).providers.JsonRpcProvider(config.polygonRpcUrl);
       this.signer = new ethers.Wallet(config.privateKey, provider);
+      
+      console.log(`[DEBUG] Wallet address (EOA): ${this.signer.address}`);
+      console.log(`[DEBUG] About to call createOrDeriveApiKey...`);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:init',message:'CLOB init start',data:{host:HOST,walletAddress:this.signer.address},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F,G'})}).catch(()=>{});
+      // #endregion
 
       // Create temporary client to derive User API credentials
       const tempClient = new ClobClient(HOST, CHAIN_ID, this.signer);
-      const apiCreds = await tempClient.createOrDeriveApiKey();
-
-      console.log('✓ Derived User API credentials for L2 authentication');
+      let apiCreds;
+      try {
+        apiCreds = await tempClient.createOrDeriveApiKey();
+        console.log('✓ Derived User API credentials for L2 authentication');
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:apiCreds',message:'API creds result',data:{hasApiCreds:!!apiCreds,apiCredsType:typeof apiCreds,apiCredsKeys:apiCreds?Object.keys(apiCreds):[],hasApiKey:!!apiCreds?.apiKey,hasApiSecret:!!apiCreds?.apiSecret,hasApiPassphrase:!!apiCreds?.apiPassphrase},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
+        // #endregion
+        console.log(`[DEBUG] API Creds received: ${JSON.stringify({hasApiKey: !!apiCreds?.apiKey, hasApiSecret: !!apiCreds?.apiSecret, hasApiPassphrase: !!apiCreds?.apiPassphrase})}`);
+      } catch (apiKeyError: any) {
+        console.error(`❌ CRITICAL: Failed to create/derive API key: ${apiKeyError.message}`);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:apiCreds:error',message:'API creds FAILED',data:{error:apiKeyError.message,code:apiKeyError.code},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F,G'})}).catch(()=>{});
+        // #endregion
+        throw new Error(`Cannot trade without L2 API credentials. Error: ${apiKeyError.message}. Make sure your wallet has been used on Polymarket before.`);
+      }
+      
+      // CRITICAL: Validate that we actually got credentials
+      if (!apiCreds || !apiCreds.apiKey || !apiCreds.apiSecret || !apiCreds.apiPassphrase) {
+        console.error(`❌ CRITICAL: API credentials are invalid or missing!`);
+        console.error(`   apiCreds: ${JSON.stringify(apiCreds)}`);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:apiCreds:invalid',message:'API creds invalid',data:{apiCreds:apiCreds},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
+        // #endregion
+        throw new Error('Failed to obtain valid L2 API credentials. The wallet may not be registered on Polymarket.');
+      }
 
       // Determine signature type (0 = EOA, 1 = Magic Link proxy, 2 = Gnosis Safe)
-      // For EOA wallets, use 0
-      const signatureType = 0;
+      // NOTE: If your Polymarket account was created via email/Magic Link, use 1
+      // If you connected via MetaMask/WalletConnect directly, use 0
+      // Check your account setup at https://polymarket.com/settings
+      const signatureType = parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '0', 10);
       
-      // For EOA wallets, funder is the wallet address itself
-      const funderAddress = this.signer.address;
+      // Funder address - for EOA (type 0), this is the wallet address
+      // For proxy wallet (type 1), this should be the proxy wallet address
+      const funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS || this.signer.address;
+      
+      console.log(`[DEBUG] Signature Type: ${signatureType} (0=EOA, 1=MagicLink/Proxy, 2=GnosisSafe)`);
+      console.log(`[DEBUG] Funder Address: ${funderAddress}`);
+      console.log(`[DEBUG] Signer Address: ${this.signer.address}`);
 
       // Create BuilderConfig with Builder API credentials (REQUIRED for authenticated trading)
       // Without this, requests get blocked by Cloudflare as unauthorized bot traffic
@@ -163,6 +198,9 @@ export class PolymarketClobClient {
       
       // DEBUG: Log builder config status
       console.log(`[DEBUG] Builder credentials configured: key=${!!config.polymarketBuilderApiKey}, secret=${!!config.polymarketBuilderSecret}, passphrase=${!!config.polymarketBuilderPassphrase}`);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder',message:'Placing order',data:{tokenID:params.tokenID,price:params.price,size:params.size,side:params.side,tickSize,negRisk,clobUrl:config.polymarketClobApiUrl},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
+      // #endregion
       
       let response: any;
       try {
@@ -182,6 +220,9 @@ export class PolymarketClobClient {
       } catch (innerError: any) {
         // CLOB client threw an error - this is the expected behavior for failures
         console.error(`[CLOB] Client threw error:`, innerError.message);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder:catch',message:'CLOB client error',data:{errorMsg:innerError.message,errorCode:innerError.code,errorInput:innerError.input,stack:innerError.stack?.slice(0,500)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B,C'})}).catch(()=>{});
+        // #endregion
         throw innerError;
       }
 
@@ -246,6 +287,9 @@ export class PolymarketClobClient {
       }
 
       console.log(`[CLOB] Order placed successfully: orderID=${orderId}`);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder:success',message:'Order placed successfully',data:{orderId,responseKeys:response?Object.keys(response):[],status:response?.status},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
+      // #endregion
       return response;
     } catch (error: any) {
       // Extract meaningful error message from various error formats
@@ -270,6 +314,9 @@ export class PolymarketClobClient {
       }
 
       console.error(`[CLOB] Order failed:`, errorMessage);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder:finalError',message:'Order failed - final error',data:{errorMessage,hasResponse:!!error.response,responseStatus:error.response?.status},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B,C'})}).catch(()=>{});
+      // #endregion
       throw new Error(`Failed to place order: ${errorMessage}`);
     }
   }
