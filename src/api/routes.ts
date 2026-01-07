@@ -40,7 +40,20 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       }
 
       await Storage.addWallet(address);
-      res.json({ success: true, message: 'Wallet added successfully' });
+      
+      // Reload wallets in the monitor so the new wallet is tracked immediately
+      await copyTrader.reloadWallets();
+      
+      // Return the updated wallet list so the UI can update immediately
+      const wallets = await Storage.loadTrackedWallets();
+      const addedWallet = wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
+      
+      res.json({ 
+        success: true, 
+        message: 'Wallet added successfully',
+        wallet: addedWallet,
+        wallets: wallets
+      });
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
     }
@@ -51,6 +64,10 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     try {
       const { address } = req.params;
       await Storage.removeWallet(address);
+      
+      // Reload wallets in the monitor to remove the wallet from monitoring
+      await copyTrader.reloadWallets();
+      
       res.json({ success: true, message: 'Wallet removed successfully' });
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
@@ -158,6 +175,47 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         success: true, 
         walletAddress: walletAddress || null,
         configured: !!walletAddress
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get user wallet balance with 24h change
+  router.get('/wallet/balance', async (req: Request, res: Response) => {
+    try {
+      const walletAddress = copyTrader.getWalletAddress();
+      if (!walletAddress) {
+        return res.json({ 
+          success: true, 
+          currentBalance: 0,
+          change24h: 0,
+          balance24hAgo: null
+        });
+      }
+
+      const balanceTracker = copyTrader.getBalanceTracker();
+      const balanceData = await balanceTracker.getBalanceWithChange(walletAddress);
+      
+      res.json({ 
+        success: true, 
+        ...balanceData
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get tracked wallet balance with 24h change
+  router.get('/wallets/:address/balance', async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      const balanceTracker = copyTrader.getBalanceTracker();
+      const balanceData = await balanceTracker.getBalanceWithChange(address);
+      
+      res.json({ 
+        success: true, 
+        ...balanceData
       });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });

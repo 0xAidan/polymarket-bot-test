@@ -1,7 +1,9 @@
 import { WalletMonitor } from './walletMonitor.js';
 import { TradeExecutor } from './tradeExecutor.js';
 import { PerformanceTracker } from './performanceTracker.js';
+import { BalanceTracker } from './balanceTracker.js';
 import { DetectedTrade, TradeOrder, TradeResult } from './types.js';
+import { Storage } from './storage.js';
 
 /**
  * Main copy trading engine that coordinates monitoring and execution
@@ -10,6 +12,7 @@ export class CopyTrader {
   private monitor: WalletMonitor;
   private executor: TradeExecutor;
   private performanceTracker: PerformanceTracker;
+  private balanceTracker: BalanceTracker;
   private isRunning = false;
   private executedTrades = new Set<string>(); // Track executed trades by tx hash
 
@@ -17,6 +20,7 @@ export class CopyTrader {
     this.monitor = new WalletMonitor();
     this.executor = new TradeExecutor();
     this.performanceTracker = new PerformanceTracker();
+    this.balanceTracker = new BalanceTracker();
   }
 
   /**
@@ -27,6 +31,24 @@ export class CopyTrader {
       await this.performanceTracker.initialize();
       await this.monitor.initialize();
       await this.executor.authenticate();
+      await this.balanceTracker.initialize();
+      
+      // Record initial balances for all wallets (user + tracked)
+      const userWallet = this.getWalletAddress();
+      const trackedWallets = await Storage.getActiveWallets();
+      const allWallets = userWallet 
+        ? [userWallet, ...trackedWallets.map(w => w.address)]
+        : trackedWallets.map(w => w.address);
+      
+      // Record initial balances
+      for (const address of allWallets) {
+        try {
+          await this.balanceTracker.recordBalance(address);
+        } catch (error: any) {
+          console.warn(`Failed to record initial balance for ${address}:`, error.message);
+        }
+      }
+      
       console.log('Copy trader initialized');
     } catch (error: any) {
       await this.performanceTracker.logIssue(
@@ -56,6 +78,17 @@ export class CopyTrader {
       await this.handleDetectedTrade(trade);
     });
 
+    // Start balance tracking
+    const userWallet = this.getWalletAddress();
+    const trackedWallets = await Storage.getActiveWallets();
+    const allWallets = userWallet 
+      ? [userWallet, ...trackedWallets.map(w => w.address)]
+      : trackedWallets.map(w => w.address);
+    
+    if (allWallets.length > 0) {
+      await this.balanceTracker.startTracking(allWallets);
+    }
+
     console.log('Copy trading bot is running');
   }
 
@@ -70,6 +103,7 @@ export class CopyTrader {
     console.log('Stopping copy trading bot...');
     this.isRunning = false;
     this.monitor.stopMonitoring();
+    this.balanceTracker.stopTracking();
     console.log('Copy trading bot stopped');
   }
 
@@ -192,4 +226,36 @@ export class CopyTrader {
       return null;
     }
   }
-}
+
+  /**
+   * Reload tracked wallets in the monitor
+   * Should be called when wallets are added or removed
+   */
+  async reloadWallets(): Promise<void> {
+    if (this.isRunning) {
+      await this.monitor.reloadWallets();
+      
+      // Update balance tracking
+      const userWallet = this.getWalletAddress();
+      const trackedWallets = await Storage.getActiveWallets();
+      const allWallets = userWallet 
+        ? [userWallet, ...trackedWallets.map(w => w.address)]
+        : trackedWallets.map(w => w.address);
+      
+      await this.balanceTracker.updateTrackedWallets(allWallets);
+    }
+  }
+
+  /**
+   * Get the wallet monitor instance (for direct access if needed)
+   */
+  getMonitor(): WalletMonitor {
+    return this.monitor;
+  }
+
+  /**
+   * Get the balance tracker instance
+   */
+  getBalanceTracker(): BalanceTracker {
+    return this.balanceTracker;
+  }

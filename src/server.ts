@@ -482,7 +482,17 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                       Loading...
                     </span>
                   </div>
-                  <div style="padding: 16px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; font-size: 13px; color: var(--text-muted);">
+                  <div style="display: flex; gap: 24px; margin-top: 16px; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 200px;">
+                      <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 4px;">Current Balance (USDC)</div>
+                      <div id="userBalance" style="font-size: 24px; font-weight: 700; color: var(--text);">Loading...</div>
+                    </div>
+                    <div style="flex: 1; min-width: 200px;">
+                      <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 4px;">24h Change</div>
+                      <div id="userBalanceChange" style="font-size: 24px; font-weight: 700;">Loading...</div>
+                    </div>
+                  </div>
+                  <div style="padding: 16px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; font-size: 13px; color: var(--text-muted); margin-top: 16px;">
                     <strong style="color: var(--info); display: block; margin-bottom: 8px;">💡 How to configure your wallet:</strong>
                     <p style="margin: 0;">This wallet is set up using the <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">PRIVATE_KEY</code> in your <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">.env</code> file.</p>
                     <p style="margin: 8px 0 0 0;"><strong>To set up or change your wallet:</strong> Run <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">npm run setup</code> in your terminal, then restart the bot.</p>
@@ -620,6 +630,18 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
               minimumFractionDigits: 2,
               maximumFractionDigits: 2
             }).format(value);
+          }
+
+          function formatBalance(value) {
+            return new Intl.NumberFormat('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            }).format(value);
+          }
+
+          function formatPercent(value) {
+            const sign = value >= 0 ? '+' : '';
+            return sign + value.toFixed(2) + '%';
           }
 
           // Initialize Chart.js
@@ -805,15 +827,54 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                 container.innerHTML = await Promise.all(
                   data.wallets.map(async (w) => {
                     try {
-                      const statsRes = await fetch(\`/api/wallets/\${w.address}/stats\`);
+                      const [statsRes, balanceRes] = await Promise.all([
+                        fetch(\`/api/wallets/\${w.address}/stats\`),
+                        fetch(\`/api/wallets/\${w.address}/balance\`)
+                      ]);
+                      
                       const statsData = await statsRes.json();
+                      const balanceData = await balanceRes.json();
+                      
                       if (statsData.success) {
                         const stats = statsData;
+                        let balanceHtml = '';
+                        let changeHtml = '';
+                        
+                        if (balanceData.success) {
+                          balanceHtml = \`
+                            <div class="wallet-stat">
+                              <strong>\${formatBalance(balanceData.currentBalance)} USDC</strong>
+                              Current Balance
+                            </div>
+                          \`;
+                          
+                          if (balanceData.balance24hAgo !== null) {
+                            const change = balanceData.change24h;
+                            const changeText = formatPercent(change);
+                            const changeColor = change >= 0 ? 'var(--success)' : 'var(--danger)';
+                            changeHtml = \`
+                              <div class="wallet-stat">
+                                <strong style="color: \${changeColor};">\${changeText}</strong>
+                                24h Change
+                              </div>
+                            \`;
+                          } else {
+                            changeHtml = \`
+                              <div class="wallet-stat">
+                                <strong style="color: var(--text-muted);">No data</strong>
+                                24h Change
+                              </div>
+                            \`;
+                          }
+                        }
+                        
                         return \`
                           <div class="wallet-card">
                             <div class="wallet-info">
                               <div class="wallet-address">\${w.address}</div>
                               <div class="wallet-stats">
+                                \${balanceHtml}
+                                \${changeHtml}
                                 <div class="wallet-stat">
                                   <strong>\${stats.tradesCopied}</strong>
                                   Trades Copied
@@ -839,17 +900,61 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                     } catch (e) {
                       console.error('Failed to load wallet stats:', e);
                     }
-                    return \`
-                      <div class="wallet-card">
-                        <div class="wallet-info">
-                          <div class="wallet-address">\${w.address}</div>
-                          <div class="wallet-stats">
-                            <div class="wallet-stat">Added: \${formatDate(w.addedAt)}</div>
+                    
+                    // Fallback: try to load balance even if stats fail
+                    try {
+                      const balanceRes = await fetch(\`/api/wallets/\${w.address}/balance\`);
+                      const balanceData = await balanceRes.json();
+                      let balanceHtml = '';
+                      let changeHtml = '';
+                      
+                      if (balanceData.success) {
+                        balanceHtml = \`
+                          <div class="wallet-stat">
+                            <strong>\${formatBalance(balanceData.currentBalance)} USDC</strong>
+                            Current Balance
                           </div>
+                        \`;
+                        
+                        if (balanceData.balance24hAgo !== null) {
+                          const change = balanceData.change24h;
+                          const changeText = formatPercent(change);
+                          const changeColor = change >= 0 ? 'var(--success)' : 'var(--danger)';
+                          changeHtml = \`
+                            <div class="wallet-stat">
+                              <strong style="color: \${changeColor};">\${changeText}</strong>
+                              24h Change
+                            </div>
+                          \`;
+                        }
+                      }
+                      
+                      return \`
+                        <div class="wallet-card">
+                          <div class="wallet-info">
+                            <div class="wallet-address">\${w.address}</div>
+                            <div class="wallet-stats">
+                              \${balanceHtml}
+                              \${changeHtml}
+                              <div class="wallet-stat">Added: \${formatDate(w.addedAt)}</div>
+                            </div>
+                          </div>
+                          <button onclick="removeWallet('\${w.address}')" class="btn-danger">Remove</button>
                         </div>
-                        <button onclick="removeWallet('\${w.address}')" class="btn-danger">Remove</button>
-                      </div>
-                    \`;
+                      \`;
+                    } catch (e2) {
+                      return \`
+                        <div class="wallet-card">
+                          <div class="wallet-info">
+                            <div class="wallet-address">\${w.address}</div>
+                            <div class="wallet-stats">
+                              <div class="wallet-stat">Added: \${formatDate(w.addedAt)}</div>
+                            </div>
+                          </div>
+                          <button onclick="removeWallet('\${w.address}')" class="btn-danger">Remove</button>
+                        </div>
+                      \`;
+                    }
                   })
                 ).then(html => html.join(''));
               } else {
@@ -967,8 +1072,9 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                 input.value = '';
                 input.classList.remove('error');
                 document.getElementById('walletInputError').classList.remove('show');
-                loadWallets();
-                loadPerformance();
+                // Force immediate refresh of wallets list
+                await loadWallets();
+                await loadPerformance();
               } else {
                 alert('Error: ' + data.error);
               }
@@ -1054,13 +1160,51 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
               if (data.success && data.walletAddress) {
                 walletAddressEl.textContent = data.walletAddress;
                 walletAddressEl.style.color = 'var(--success)';
+                // Load balance
+                await loadUserBalance();
               } else {
                 walletAddressEl.innerHTML = '<span style="color: var(--danger);">❌ Not configured</span><br><span style="font-size: 12px; color: var(--text-muted);">Run: npm run setup</span>';
+                document.getElementById('userBalance').textContent = 'N/A';
+                document.getElementById('userBalanceChange').textContent = 'N/A';
               }
             } catch (error) {
               console.error('Failed to load wallet config:', error);
               const walletAddressEl = document.getElementById('tradingWalletAddress');
               walletAddressEl.innerHTML = '<span style="color: var(--danger);">❌ Error</span><br><span style="font-size: 12px; color: var(--text-muted);">Run: npm run setup</span>';
+              document.getElementById('userBalance').textContent = 'Error';
+              document.getElementById('userBalanceChange').textContent = 'Error';
+            }
+          }
+
+          // Load user wallet balance
+          async function loadUserBalance() {
+            try {
+              const res = await fetch('/api/wallet/balance');
+              const data = await res.json();
+              
+              if (data.success) {
+                const balanceEl = document.getElementById('userBalance');
+                const changeEl = document.getElementById('userBalanceChange');
+                
+                balanceEl.textContent = formatBalance(data.currentBalance) + ' USDC';
+                
+                if (data.balance24hAgo !== null) {
+                  const change = data.change24h;
+                  const changeText = formatPercent(change);
+                  changeEl.textContent = changeText;
+                  changeEl.style.color = change >= 0 ? 'var(--success)' : 'var(--danger)';
+                } else {
+                  changeEl.textContent = 'No data';
+                  changeEl.style.color = 'var(--text-muted)';
+                }
+              } else {
+                document.getElementById('userBalance').textContent = 'Error';
+                document.getElementById('userBalanceChange').textContent = 'Error';
+              }
+            } catch (error) {
+              console.error('Failed to load user balance:', error);
+              document.getElementById('userBalance').textContent = 'Error';
+              document.getElementById('userBalanceChange').textContent = 'Error';
             }
           }
 
@@ -1072,6 +1216,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             loadWallets();
             loadTrades();
             loadIssues();
+            // Balance will be loaded as part of loadWalletConfig and loadWallets
           }
 
           // Initialize on page load
@@ -1118,11 +1263,25 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
  * Start the server
  */
 export async function startServer(app: express.Application): Promise<void> {
-  return new Promise((resolve) => {
-    app.listen(config.port, () => {
+  return new Promise((resolve, reject) => {
+    const server = app.listen(config.port, () => {
       console.log(`\n🚀 Server running on http://localhost:${config.port}`);
       console.log(`📊 Open your browser to manage wallets and control the bot\n`);
       resolve();
+    });
+
+    server.on('error', (error: any) => {
+      if (error.code === 'EADDRINUSE') {
+        console.error(`\n❌ Port ${config.port} is already in use!\n`);
+        console.error('To fix this, you can:');
+        console.error(`  1. Kill the process using port ${config.port}:`);
+        console.error(`     lsof -ti:${config.port} | xargs kill -9`);
+        console.error(`  2. Or use a different port by setting PORT in your .env file`);
+        console.error(`     Example: PORT=3001 npm run dev\n`);
+        reject(error);
+      } else {
+        reject(error);
+      }
     });
   });
 }
