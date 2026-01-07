@@ -297,6 +297,14 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
           }
 
+          .wallet-card.wallet-inactive {
+            opacity: 0.7;
+          }
+
+          .wallet-card.wallet-inactive:hover {
+            opacity: 0.9;
+          }
+
           .wallet-info {
             display: grid;
             gap: 12px;
@@ -448,6 +456,183 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             font-size: 12px;
           }
 
+          /* Modal styles */
+          .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.75);
+            z-index: 10000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            overflow-y: auto;
+          }
+
+          .modal.show {
+            display: flex;
+          }
+
+          .modal-content {
+            background: var(--surface);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            max-width: 600px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            position: relative;
+            animation: modalSlideIn 0.3s ease-out;
+          }
+
+          .modal-content.large {
+            max-width: 1200px;
+          }
+
+          .modal-content.small {
+            max-width: 450px;
+          }
+
+          @keyframes modalSlideIn {
+            from {
+              opacity: 0;
+              transform: translateY(-20px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+
+          .modal-header {
+            padding: 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            background: var(--surface);
+            z-index: 10;
+          }
+
+          .modal-header h2 {
+            margin: 0;
+            font-size: 22px;
+            color: var(--text);
+          }
+
+          .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 28px;
+            cursor: pointer;
+            padding: 0;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            transition: all 0.2s;
+          }
+
+          .modal-close:hover {
+            background: var(--bg);
+            color: var(--text);
+          }
+
+          .modal-body {
+            padding: 24px;
+          }
+
+          .wallet-status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+          }
+
+          .wallet-status-badge.active {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+          }
+
+          .wallet-status-badge.inactive {
+            background: rgba(148, 163, 184, 0.2);
+            color: var(--text-muted);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+          }
+
+          .wallet-card-clickable {
+            cursor: pointer;
+          }
+
+          .wallet-card-clickable:hover {
+            transform: translateY(-2px);
+          }
+
+          .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 48px;
+            height: 24px;
+          }
+
+          .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+          }
+
+          .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--surface-light);
+            transition: 0.3s;
+            border-radius: 24px;
+          }
+
+          .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+          }
+
+          .toggle-switch input:checked + .toggle-slider {
+            background-color: var(--success);
+          }
+
+          .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(24px);
+          }
+
+          .toggle-switch input:disabled + .toggle-slider {
+            opacity: 0.5;
+            cursor: not-allowed;
+          }
+
           @media (max-width: 768px) {
             body { padding: 16px; }
             .metrics-grid { grid-template-columns: 1fr; }
@@ -455,6 +640,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             .header-content { flex-direction: column; align-items: stretch; }
             .input-group { flex-direction: column; }
             input[type="text"] { min-width: 100%; }
+            .modal-content { max-width: 100%; margin: 10px; }
           }
         </style>
       </head>
@@ -503,28 +689,16 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
           </div>
 
           <div class="section" style="margin-bottom: 24px;">
-            <h2>⚙️ Trade Configuration</h2>
-            <div style="display: grid; gap: 16px;">
-              <div class="wallet-card" style="background: var(--bg);">
-                <div class="wallet-info">
-                  <div style="margin-bottom: 16px;">
-                    <label style="display: block; font-size: 14px; color: var(--text-muted); margin-bottom: 8px; font-weight: 600;">
-                      Trade Size (USD per trade)
-                    </label>
-                    <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-                      <input type="number" id="tradeSizeInput" min="0.01" step="0.01" style="flex: 1; min-width: 200px; padding: 12px; border: 2px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 16px; font-weight: 600;" placeholder="20.00" />
-                      <button onclick="saveTradeSize()" class="btn-primary">💾 Save Trade Size</button>
-                    </div>
-                    <div style="margin-top: 8px; font-size: 13px; color: var(--text-muted);">
-                      <span id="tradeSizeInfo">Loading current trade size...</span>
-                    </div>
-                  </div>
-                  <div style="padding: 16px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; font-size: 13px; color: var(--text-muted);">
-                    <strong style="color: var(--success); display: block; margin-bottom: 8px;">💡 How trade size works:</strong>
-                    <p style="margin: 0;">Instead of copying the exact position size from tracked wallets, the bot will execute trades with a fixed USD amount you configure. For example, if you set $20, every trade will be executed as a $20 position regardless of what the tracked wallet is doing.</p>
-                  </div>
-                </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+              <h2 style="margin: 0;">⚙️ Trade Configuration</h2>
+              <button onclick="openTradeSizeModal()" class="btn-primary">⚙️ Configure Trade Size</button>
+            </div>
+            <div style="margin-top: 16px; padding: 16px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; font-size: 13px; color: var(--text-muted);">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                <strong style="color: var(--info);">Current Trade Size:</strong>
+                <span id="currentTradeSizeDisplay" style="font-weight: 600; color: var(--text);">Loading...</span>
               </div>
+              <p style="margin: 8px 0 0 0; font-size: 12px;">Click "Configure Trade Size" to change the USD amount per trade.</p>
             </div>
           </div>
 
@@ -601,6 +775,50 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             <h2>⚠️ System Issues</h2>
             <div id="issuesContainer">
               <div class="loading">Loading issues...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Trade Size Configuration Modal -->
+        <div id="tradeSizeModal" class="modal">
+          <div class="modal-content small">
+            <div class="modal-header">
+              <h2>⚙️ Configure Trade Size</h2>
+              <button class="modal-close" onclick="closeTradeSizeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+              <div style="margin-bottom: 20px;">
+                <label style="display: block; font-size: 14px; color: var(--text-muted); margin-bottom: 8px; font-weight: 600;">
+                  Trade Size (USD per trade)
+                </label>
+                <input type="number" id="tradeSizeInput" min="0.01" step="0.01" style="width: 100%; padding: 12px; border: 2px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 16px; font-weight: 600;" placeholder="20.00" />
+                <div style="margin-top: 8px; font-size: 13px; color: var(--text-muted);">
+                  <span id="tradeSizeInfo">Loading current trade size...</span>
+                </div>
+              </div>
+              <div style="padding: 16px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; font-size: 13px; color: var(--text-muted); margin-bottom: 20px;">
+                <strong style="color: var(--success); display: block; margin-bottom: 8px;">💡 How trade size works:</strong>
+                <p style="margin: 0;">Instead of copying the exact position size from tracked wallets, the bot will execute trades with a fixed USD amount you configure. For example, if you set $20, every trade will be executed as a $20 position regardless of what the tracked wallet is doing.</p>
+              </div>
+              <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                <button onclick="closeTradeSizeModal()" style="padding: 12px 24px; background: var(--surface-light); color: var(--text); border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">Cancel</button>
+                <button onclick="saveTradeSize()" class="btn-primary">💾 Save Trade Size</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Wallet Details Modal -->
+        <div id="walletDetailsModal" class="modal">
+          <div class="modal-content large">
+            <div class="modal-header">
+              <h2 id="walletDetailsTitle">Wallet Details</h2>
+              <button class="modal-close" onclick="closeWalletDetailsModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+              <div id="walletDetailsContent">
+                <div class="loading">Loading wallet details...</div>
+              </div>
             </div>
           </div>
         </div>
@@ -860,18 +1078,21 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                 container.innerHTML = await Promise.all(
                   data.wallets.map(async (w) => {
                     try {
-                      const [statsRes, balanceRes] = await Promise.all([
+                      const [statsRes, balanceRes, positionsRes] = await Promise.all([
                         fetch(\`/api/wallets/\${w.address}/stats\`),
-                        fetch(\`/api/wallets/\${w.address}/balance\`)
+                        fetch(\`/api/wallets/\${w.address}/balance\`),
+                        fetch(\`/api/wallets/\${w.address}/positions\`)
                       ]);
                       
                       const statsData = await statsRes.json();
                       const balanceData = await balanceRes.json();
+                      const positionsData = await positionsRes.json();
                       
-                      if (statsData.success) {
+                        if (statsData.success) {
                         const stats = statsData;
                         let balanceHtml = '';
                         let changeHtml = '';
+                        let positionsHtml = '';
                         
                         if (balanceData.success) {
                           balanceHtml = \`
@@ -901,10 +1122,85 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                           }
                         }
                         
+                        // Build positions HTML
+                        const positions = positionsData.success ? positionsData.positions : [];
+                        if (positions && positions.length > 0) {
+                          const positionsCount = positions.length;
+                          const totalValue = positions.reduce((sum, p) => {
+                            const value = parseFloat(p.position_value || p.value || p.size || '0');
+                            return sum + (isNaN(value) ? 0 : value);
+                          }, 0);
+                          
+                          positionsHtml = \`
+                            <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+                              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                                <strong style="color: var(--text); font-size: 14px;">Active Positions</strong>
+                                <span style="background: var(--primary); color: white; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">\${positionsCount}</span>
+                              </div>
+                              <div style="display: grid; gap: 8px;">
+                                \${positions.slice(0, 3).map(p => {
+                                  const market = p.market || p.condition || {};
+                                  const marketTitle = market.question || market.title || market.name || 'Unknown Market';
+                                  const outcome = p.outcome || (p.token_id && p.token_id.endsWith('-0') ? 'YES' : 'NO') || 'Unknown';
+                                  const quantity = parseFloat(p.quantity || p.size || p.position || '0');
+                                  const avgPrice = parseFloat(p.avg_price || p.price || p.cost_basis || '0');
+                                  const value = parseFloat(p.position_value || p.value || (quantity * avgPrice).toString() || '0');
+                                  
+                                  return \`
+                                    <div style="padding: 10px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border); font-size: 12px;">
+                                      <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 6px;">
+                                        <div style="flex: 1; min-width: 0;">
+                                          <div style="font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px;" title="\${marketTitle}">
+                                            \${marketTitle.length > 40 ? marketTitle.substring(0, 40) + '...' : marketTitle}
+                                          </div>
+                                          <div style="display: flex; gap: 8px; align-items: center;">
+                                            <span class="badge badge-\${outcome.toLowerCase()}">\${outcome}</span>
+                                            <span style="color: var(--text-muted);">Qty: \${quantity.toFixed(2)}</span>
+                                          </div>
+                                        </div>
+                                        <div style="text-align: right; margin-left: 12px;">
+                                          <div style="font-weight: 600; color: var(--text);">$\${value.toFixed(2)}</div>
+                                          <div style="font-size: 11px; color: var(--text-muted);">@ \${avgPrice.toFixed(4)}</div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  \`;
+                                }).join('')}
+                                \${positions.length > 3 ? \`
+                                  <div style="padding: 8px; text-align: center; color: var(--text-muted); font-size: 12px;">
+                                    + \${positions.length - 3} more position\${positions.length - 3 > 1 ? 's' : ''}
+                                  </div>
+                                \` : ''}
+                              </div>
+                              \${totalValue > 0 ? \`
+                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+                                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="color: var(--text-muted); font-size: 12px;">Total Position Value:</span>
+                                    <strong style="color: var(--text); font-size: 14px;">$\${totalValue.toFixed(2)}</strong>
+                                  </div>
+                                </div>
+                              \` : ''}
+                            </div>
+                          \`;
+                        } else {
+                          positionsHtml = \`
+                            <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+                              <div style="color: var(--text-muted); font-size: 12px; text-align: center; padding: 8px;">
+                                No active positions
+                              </div>
+                            </div>
+                          \`;
+                        }
+                        
                         return \`
-                          <div class="wallet-card">
-                            <div class="wallet-info">
-                              <div class="wallet-address">\${w.address}</div>
+                          <div class="wallet-card \${w.active ? '' : 'wallet-inactive'}" style="border-left: 4px solid \${w.active ? 'var(--success)' : 'var(--text-muted)'};">
+                            <div class="wallet-info" style="flex: 1; cursor: pointer;" onclick="openWalletDetails('\${w.address}')">
+                              <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                                <div class="wallet-address">\${w.address}</div>
+                                <span class="wallet-status-badge \${w.active ? 'active' : 'inactive'}">
+                                  \${w.active ? '✓ Active' : '○ Inactive'}
+                                </span>
+                              </div>
                               <div class="wallet-stats">
                                 \${balanceHtml}
                                 \${changeHtml}
@@ -925,8 +1221,15 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                                   Last Activity
                                 </div>
                               </div>
+                              \${positionsHtml}
                             </div>
-                            <button onclick="removeWallet('\${w.address}')" class="btn-danger">Remove</button>
+                            <div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-end;">
+                              <label class="toggle-switch" style="margin-bottom: 8px;" onclick="event.stopPropagation();">
+                                <input type="checkbox" \${w.active ? 'checked' : ''} onchange="toggleWalletActive('\${w.address}', this.checked)" />
+                                <span class="toggle-slider"></span>
+                              </label>
+                              <button onclick="event.stopPropagation(); removeWallet('\${w.address}')" class="btn-danger" style="font-size: 12px; padding: 8px 16px;">Remove</button>
+                            </div>
                           </div>
                         \`;
                       }
@@ -936,10 +1239,39 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                     
                     // Fallback: try to load balance even if stats fail
                     try {
-                      const balanceRes = await fetch(\`/api/wallets/\${w.address}/balance\`);
+                      const [balanceRes, positionsRes] = await Promise.all([
+                        fetch(\`/api/wallets/\${w.address}/balance\`),
+                        fetch(\`/api/wallets/\${w.address}/positions\`)
+                      ]);
                       const balanceData = await balanceRes.json();
+                      const positionsData = await positionsRes.json();
                       let balanceHtml = '';
                       let changeHtml = '';
+                      
+                      let positionsHtml = '';
+                      const positions = positionsData.success ? positionsData.positions : [];
+                      if (positions && positions.length > 0) {
+                        const positionsCount = positions.length;
+                        positionsHtml = \`
+                          <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                              <strong style="color: var(--text); font-size: 14px;">Active Positions</strong>
+                              <span style="background: var(--primary); color: white; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">\${positionsCount}</span>
+                            </div>
+                            <div style="color: var(--text-muted); font-size: 12px; text-align: center; padding: 8px;">
+                              \${positionsCount} active position\${positionsCount > 1 ? 's' : ''}
+                            </div>
+                          </div>
+                        \`;
+                      } else {
+                        positionsHtml = \`
+                          <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+                            <div style="color: var(--text-muted); font-size: 12px; text-align: center; padding: 8px;">
+                              No active positions
+                            </div>
+                          </div>
+                        \`;
+                      }
                       
                       if (balanceData.success) {
                         balanceHtml = \`
@@ -963,28 +1295,51 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                       }
                       
                       return \`
-                        <div class="wallet-card">
-                          <div class="wallet-info">
-                            <div class="wallet-address">\${w.address}</div>
+                        <div class="wallet-card \${w.active ? '' : 'wallet-inactive'}" style="border-left: 4px solid \${w.active ? 'var(--success)' : 'var(--text-muted)'};">
+                          <div class="wallet-info" style="flex: 1; cursor: pointer;" onclick="openWalletDetails('\${w.address}')">
+                            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                              <div class="wallet-address">\${w.address}</div>
+                              <span class="wallet-status-badge \${w.active ? 'active' : 'inactive'}">
+                                \${w.active ? '✓ Active' : '○ Inactive'}
+                              </span>
+                            </div>
                             <div class="wallet-stats">
                               \${balanceHtml}
                               \${changeHtml}
                               <div class="wallet-stat">Added: \${formatDate(w.addedAt)}</div>
                             </div>
+                            \${positionsHtml}
                           </div>
-                          <button onclick="removeWallet('\${w.address}')" class="btn-danger">Remove</button>
+                          <div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-end;">
+                            <label class="toggle-switch" style="margin-bottom: 8px;" onclick="event.stopPropagation();">
+                              <input type="checkbox" \${w.active ? 'checked' : ''} onchange="toggleWalletActive('\${w.address}', this.checked)" />
+                              <span class="toggle-slider"></span>
+                            </label>
+                            <button onclick="event.stopPropagation(); removeWallet('\${w.address}')" class="btn-danger" style="font-size: 12px; padding: 8px 16px;">Remove</button>
+                          </div>
                         </div>
                       \`;
                     } catch (e2) {
                       return \`
-                        <div class="wallet-card">
-                          <div class="wallet-info">
-                            <div class="wallet-address">\${w.address}</div>
+                        <div class="wallet-card \${w.active ? '' : 'wallet-inactive'}" style="border-left: 4px solid \${w.active ? 'var(--success)' : 'var(--text-muted)'};">
+                          <div class="wallet-info" style="flex: 1; cursor: pointer;" onclick="openWalletDetails('\${w.address}')">
+                            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                              <div class="wallet-address">\${w.address}</div>
+                              <span class="wallet-status-badge \${w.active ? 'active' : 'inactive'}">
+                                \${w.active ? '✓ Active' : '○ Inactive'}
+                              </span>
+                            </div>
                             <div class="wallet-stats">
                               <div class="wallet-stat">Added: \${formatDate(w.addedAt)}</div>
                             </div>
                           </div>
-                          <button onclick="removeWallet('\${w.address}')" class="btn-danger">Remove</button>
+                          <div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-end;">
+                            <label class="toggle-switch" style="margin-bottom: 8px;" onclick="event.stopPropagation();">
+                              <input type="checkbox" \${w.active ? 'checked' : ''} onchange="toggleWalletActive('\${w.address}', this.checked)" />
+                              <span class="toggle-slider"></span>
+                            </label>
+                            <button onclick="event.stopPropagation(); removeWallet('\${w.address}')" class="btn-danger" style="font-size: 12px; padding: 8px 16px;">Remove</button>
+                          </div>
                         </div>
                       \`;
                     }
@@ -1098,6 +1453,28 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             }
           }
 
+          // Modal functions
+          function openTradeSizeModal() {
+            document.getElementById('tradeSizeModal').classList.add('show');
+            loadTradeSizeConfig();
+          }
+
+          function closeTradeSizeModal() {
+            document.getElementById('tradeSizeModal').classList.remove('show');
+          }
+
+          // Close modals when clicking outside
+          window.addEventListener('click', (e) => {
+            const tradeSizeModal = document.getElementById('tradeSizeModal');
+            const walletDetailsModal = document.getElementById('walletDetailsModal');
+            if (e.target === tradeSizeModal) {
+              closeTradeSizeModal();
+            }
+            if (e.target === walletDetailsModal) {
+              closeWalletDetailsModal();
+            }
+          });
+
           // Load and save trade size configuration
           async function loadTradeSizeConfig() {
             try {
@@ -1105,13 +1482,21 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
               const data = await res.json();
               if (data.success && data.config) {
                 const tradeSize = data.config.tradeSizeUsd || 20;
-                document.getElementById('tradeSizeInput').value = tradeSize;
-                document.getElementById('tradeSizeInfo').textContent = 
-                  \`Current trade size: $\${tradeSize.toFixed(2)} USD per trade\`;
+                const input = document.getElementById('tradeSizeInput');
+                if (input) input.value = tradeSize;
+                const infoEl = document.getElementById('tradeSizeInfo');
+                if (infoEl) {
+                  infoEl.textContent = \`Current trade size: $\${tradeSize.toFixed(2)} USD per trade\`;
+                }
+                const displayEl = document.getElementById('currentTradeSizeDisplay');
+                if (displayEl) {
+                  displayEl.textContent = \`$\${tradeSize.toFixed(2)} USD\`;
+                }
               }
             } catch (error) {
               console.error('Failed to load trade size config:', error);
-              document.getElementById('tradeSizeInfo').textContent = 'Error loading configuration';
+              const infoEl = document.getElementById('tradeSizeInfo');
+              if (infoEl) infoEl.textContent = 'Error loading configuration';
             }
           }
 
@@ -1133,18 +1518,260 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
               
               const data = await res.json();
               if (data.success) {
-                document.getElementById('tradeSizeInfo').textContent = 
-                  \`✅ Trade size updated to $\${tradeSize.toFixed(2)} USD per trade\`;
-                document.getElementById('tradeSizeInfo').style.color = 'var(--success)';
+                const infoEl = document.getElementById('tradeSizeInfo');
+                if (infoEl) {
+                  infoEl.textContent = \`✅ Trade size updated to $\${tradeSize.toFixed(2)} USD per trade\`;
+                  infoEl.style.color = 'var(--success)';
+                  setTimeout(() => {
+                    infoEl.style.color = 'var(--text-muted)';
+                  }, 3000);
+                }
+                const displayEl = document.getElementById('currentTradeSizeDisplay');
+                if (displayEl) {
+                  displayEl.textContent = \`$\${tradeSize.toFixed(2)} USD\`;
+                }
                 setTimeout(() => {
-                  document.getElementById('tradeSizeInfo').style.color = 'var(--text-muted)';
-                }, 3000);
+                  closeTradeSizeModal();
+                }, 1500);
               } else {
                 alert('Failed to save trade size: ' + (data.error || 'Unknown error'));
               }
             } catch (error) {
               console.error('Failed to save trade size:', error);
               alert('Failed to save trade size. Please try again.');
+            }
+          }
+
+          // Toggle wallet active status
+          async function toggleWalletActive(address, active) {
+            try {
+              const res = await fetch(\`/api/wallets/\${address}/toggle\`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ active })
+              });
+              const data = await res.json();
+              if (data.success) {
+                await loadWallets();
+                await loadPerformance();
+              } else {
+                alert('Error: ' + data.error);
+                // Revert toggle
+                const wallets = await (await fetch('/api/wallets')).json();
+                if (wallets.success) {
+                  const wallet = wallets.wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
+                  if (wallet) {
+                    document.querySelector(\`input[onchange*="'\${address}'"]\`).checked = wallet.active;
+                  }
+                }
+              }
+            } catch (error) {
+              console.error('Failed to toggle wallet:', error);
+              alert('Failed to toggle wallet status');
+            }
+          }
+
+          // Wallet details modal
+          let walletDetailsChart = null;
+          let currentWalletAddress = null;
+
+          function openWalletDetails(address) {
+            currentWalletAddress = address;
+            document.getElementById('walletDetailsModal').classList.add('show');
+            loadWalletDetails(address);
+          }
+
+          function closeWalletDetailsModal() {
+            document.getElementById('walletDetailsModal').classList.remove('show');
+            if (walletDetailsChart) {
+              walletDetailsChart.destroy();
+              walletDetailsChart = null;
+            }
+            currentWalletAddress = null;
+          }
+
+          async function loadWalletDetails(address) {
+            const content = document.getElementById('walletDetailsContent');
+            content.innerHTML = '<div class="loading">Loading wallet details...</div>';
+
+            try {
+              const [statsRes, tradesRes, balanceRes] = await Promise.all([
+                fetch(\`/api/wallets/\${address}/stats\`),
+                fetch(\`/api/wallets/\${address}/trades?limit=50\`),
+                fetch(\`/api/wallets/\${address}/balance\`)
+              ]);
+
+              const statsData = await statsRes.json();
+              const tradesData = await tradesRes.json();
+              const balanceData = await balanceRes.json();
+
+              const stats = statsData.success ? statsData : null;
+              const trades = tradesData.success ? tradesData.trades : [];
+              const balance = balanceData.success ? balanceData : null;
+
+              // Format wallet address
+              const shortAddress = address.substring(0, 6) + '...' + address.substring(address.length - 4);
+
+              // Build content HTML
+              let html = \`
+                <div style="display: grid; gap: 24px;">
+                  <div>
+                    <h3 style="margin-bottom: 16px; color: var(--text); font-size: 18px;">Wallet Address</h3>
+                    <div style="padding: 12px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border); font-family: monospace; font-size: 14px; word-break: break-all;">
+                      \${address}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 style="margin-bottom: 16px; color: var(--text); font-size: 18px;">Performance Summary</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+                      <div class="metric-card success" style="padding: 16px;">
+                        <h3 style="font-size: 12px; margin-bottom: 8px;">Trades Copied</h3>
+                        <div style="font-size: 32px; font-weight: 700;">\${stats ? stats.tradesCopied : 0}</div>
+                      </div>
+                      <div class="metric-card success" style="padding: 16px;">
+                        <h3 style="font-size: 12px; margin-bottom: 8px;">Success Rate</h3>
+                        <div style="font-size: 32px; font-weight: 700;">\${stats ? stats.successRate.toFixed(1) : '0'}%</div>
+                      </div>
+                      <div class="metric-card info" style="padding: 16px;">
+                        <h3 style="font-size: 12px; margin-bottom: 8px;">Successful</h3>
+                        <div style="font-size: 32px; font-weight: 700;">\${stats ? stats.successfulCopies : 0}</div>
+                      </div>
+                      <div class="metric-card danger" style="padding: 16px;">
+                        <h3 style="font-size: 12px; margin-bottom: 8px;">Failed</h3>
+                        <div style="font-size: 32px; font-weight: 700;">\${stats ? stats.failedCopies : 0}</div>
+                      </div>
+                      <div class="metric-card warning" style="padding: 16px;">
+                        <h3 style="font-size: 12px; margin-bottom: 8px;">Avg Latency</h3>
+                        <div style="font-size: 32px; font-weight: 700;">\${stats ? stats.averageLatencyMs : 0}ms</div>
+                      </div>
+                      \${balance ? \`
+                        <div class="metric-card info" style="padding: 16px;">
+                          <h3 style="font-size: 12px; margin-bottom: 8px;">Balance</h3>
+                          <div style="font-size: 32px; font-weight: 700;">\${formatBalance(balance.currentBalance)}</div>
+                          <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">USDC</div>
+                        </div>
+                      \` : ''}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 style="margin-bottom: 16px; color: var(--text); font-size: 18px;">Performance Over Time</h3>
+                    <div class="chart-container" style="height: 300px;">
+                      <canvas id="walletDetailsChart"></canvas>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 style="margin-bottom: 16px; color: var(--text); font-size: 18px;">Recent Trades</h3>
+                    \${trades.length > 0 ? \`
+                      <div style="overflow-x: auto;">
+                        <table class="table">
+                          <thead>
+                            <tr>
+                              <th>Time</th>
+                              <th>Market</th>
+                              <th>Outcome</th>
+                              <th>Price</th>
+                              <th>Status</th>
+                              <th>Latency</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            \${trades.slice(0, 20).map(t => \`
+                              <tr>
+                                <td>\${formatDate(t.timestamp)}</td>
+                                <td><code style="font-size: 11px;">\${formatAddress(t.marketId)}</code></td>
+                                <td><span class="badge badge-\${t.outcome.toLowerCase()}">\${t.outcome}</span></td>
+                                <td>\${parseFloat(t.price).toFixed(4)}</td>
+                                <td>
+                                  <span class="badge badge-\${t.success ? 'success' : 'danger'}">
+                                    \${t.success ? '✅ Success' : '❌ Failed'}
+                                  </span>
+                                </td>
+                                <td>\${t.executionTimeMs}ms</td>
+                              </tr>
+                            \`).join('')}
+                          </tbody>
+                        </table>
+                      </div>
+                    \` : '<div class="empty-state">No trades from this wallet yet.</div>'}
+                  </div>
+                </div>
+              \`;
+
+              content.innerHTML = html;
+
+              // Update title
+              document.getElementById('walletDetailsTitle').textContent = \`📊 Wallet Details: \${shortAddress}\`;
+
+              // Load chart data
+              await loadWalletDetailsChart(address);
+            } catch (error) {
+              console.error('Failed to load wallet details:', error);
+              content.innerHTML = '<div class="empty-state">Error loading wallet details</div>';
+            }
+          }
+
+          async function loadWalletDetailsChart(address) {
+            try {
+              const res = await fetch(\`/api/wallets/\${address}/performance/data?initialBalance=1000\`);
+              const data = await res.json();
+              
+              if (data.success && data.dataPoints && data.dataPoints.length > 0) {
+                const ctx = document.getElementById('walletDetailsChart');
+                if (!ctx) return;
+
+                if (walletDetailsChart) {
+                  walletDetailsChart.destroy();
+                }
+
+                const chartData = data.dataPoints.map(dp => ({
+                  x: new Date(dp.timestamp),
+                  y: dp.balance,
+                  tradeDetails: dp.tradeDetails
+                }));
+
+                walletDetailsChart = new Chart(ctx, {
+                  type: 'line',
+                  data: {
+                    datasets: [{
+                      label: 'Simulated Balance',
+                      data: chartData,
+                      borderColor: '#6366f1',
+                      backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                      borderWidth: 2,
+                      fill: true,
+                      tension: 0.4,
+                      pointRadius: 0,
+                      pointHoverRadius: 6
+                    }]
+                  },
+                  options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: { display: false }
+                    },
+                    scales: {
+                      x: {
+                        type: 'time',
+                        grid: { color: 'rgba(148, 163, 184, 0.1)' },
+                        ticks: { color: '#94a3b8' }
+                      },
+                      y: {
+                        grid: { color: 'rgba(148, 163, 184, 0.1)' },
+                        ticks: { 
+                          color: '#94a3b8',
+                          callback: function(value) { return formatCurrency(value); }
+                        }
+                      }
+                    }
+                  }
+                });
+              }
+            } catch (error) {
+              console.error('Failed to load wallet chart data:', error);
             }
           }
 

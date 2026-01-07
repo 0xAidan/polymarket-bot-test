@@ -99,6 +99,22 @@ export class Storage {
   }
 
   /**
+   * Toggle wallet active status (enable/disable copy trading)
+   */
+  static async toggleWalletActive(address: string, active?: boolean): Promise<TrackedWallet> {
+    const wallets = await this.loadTrackedWallets();
+    const wallet = wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
+    
+    if (!wallet) {
+      throw new Error('Wallet not found');
+    }
+
+    wallet.active = active !== undefined ? active : !wallet.active;
+    await this.saveTrackedWallets(wallets);
+    return wallet;
+  }
+
+  /**
    * Load bot configuration
    */
   static async loadConfig(): Promise<{ tradeSizeUsd?: number }> {

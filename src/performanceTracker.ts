@@ -224,6 +224,87 @@ export class PerformanceTracker {
   }
 
   /**
+   * Get wallet-specific trades
+   */
+  getWalletTrades(address: string, limit = 100): TradeMetrics[] {
+    const walletTrades = this.metrics.filter(m => 
+      m.walletAddress.toLowerCase() === address.toLowerCase()
+    );
+    return walletTrades.slice(-limit).reverse();
+  }
+
+  /**
+   * Get wallet-specific performance data for charting
+   */
+  getWalletPerformanceData(address: string, initialBalance = 1000): PerformanceDataPoint[] {
+    const walletTrades = this.metrics.filter(m => 
+      m.walletAddress.toLowerCase() === address.toLowerCase()
+    );
+
+    if (walletTrades.length === 0) {
+      return [{
+        timestamp: new Date(),
+        balance: initialBalance,
+        totalTrades: 0,
+        successfulTrades: 0,
+        cumulativeVolume: 0
+      }];
+    }
+
+    // Sort trades by timestamp
+    const sortedTrades = [...walletTrades].sort((a, b) => 
+      a.timestamp.getTime() - b.timestamp.getTime()
+    );
+
+    const dataPoints: PerformanceDataPoint[] = [];
+    let currentBalance = initialBalance;
+    let cumulativeVolume = 0;
+
+    // Add starting point (use first trade timestamp or current time)
+    const startTime = sortedTrades[0]?.timestamp || new Date();
+    dataPoints.push({
+      timestamp: startTime,
+      balance: currentBalance,
+      totalTrades: 0,
+      successfulTrades: 0,
+      cumulativeVolume: 0
+    });
+
+    // Process each trade
+    let successfulCount = 0;
+    for (const trade of sortedTrades) {
+      cumulativeVolume += parseFloat(trade.amount) || 0;
+      
+      // Simulate balance change for successful trades
+      if (trade.success) {
+        const amount = parseFloat(trade.amount) || 0;
+        const price = parseFloat(trade.price) || 0;
+        const estimatedPnL = amount * price * 0.02; // 2% estimated gain/loss
+        currentBalance += estimatedPnL;
+        successfulCount++;
+      }
+
+      dataPoints.push({
+        timestamp: trade.timestamp,
+        balance: Math.max(0, currentBalance),
+        totalTrades: dataPoints.length,
+        successfulTrades: successfulCount,
+        cumulativeVolume,
+        tradeId: trade.id,
+        tradeDetails: {
+          marketId: trade.marketId,
+          outcome: trade.outcome,
+          amount: trade.amount,
+          price: trade.price,
+          success: trade.success
+        }
+      });
+    }
+
+    return dataPoints;
+  }
+
+  /**
    * Get all issues (for display)
    */
   getIssues(resolved = false, limit = 50): SystemIssue[] {

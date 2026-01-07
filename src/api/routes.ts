@@ -271,5 +271,64 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
+  // Toggle wallet active status (enable/disable copy trading)
+  router.patch('/wallets/:address/toggle', async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      const { active } = req.body; // Optional: explicitly set active status
+      
+      const wallet = await Storage.toggleWalletActive(address, active);
+      
+      // Reload wallets in the monitor to reflect the change
+      await copyTrader.reloadWallets();
+      
+      res.json({ 
+        success: true, 
+        message: wallet.active ? 'Wallet copy trading enabled' : 'Wallet copy trading disabled',
+        wallet 
+      });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get wallet-specific trades
+  router.get('/wallets/:address/trades', (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      const limit = parseInt(req.query.limit as string) || 100;
+      const trades = performanceTracker.getWalletTrades(address, limit);
+      res.json({ success: true, trades });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get wallet-specific performance data for charting
+  router.get('/wallets/:address/performance/data', (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      const initialBalance = parseFloat(req.query.initialBalance as string) || 1000;
+      const dataPoints = performanceTracker.getWalletPerformanceData(address, initialBalance);
+      res.json({ success: true, dataPoints });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get wallet positions (active trades/positions from Polymarket)
+  router.get('/wallets/:address/positions', async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      const api = copyTrader.getPolymarketApi();
+      const positions = await api.getUserPositions(address);
+      res.json({ success: true, positions });
+    } catch (error: any) {
+      // Don't fail completely if positions can't be loaded
+      console.error(`Failed to load positions for ${address}:`, error.message);
+      res.json({ success: true, positions: [], error: error.message });
+    }
+  });
+
   return router;
 }
