@@ -26,10 +26,12 @@ export class PolymarketClobClient {
     }
 
     try {
-      // IMPORTANT: Use direct CLOB URL, NOT a proxy
-      // Proxies get blocked by Cloudflare. Direct requests with Builder auth work.
-      const HOST = 'https://clob.polymarket.com';
+      // Use configured CLOB URL - can be set to a Cloudflare Worker proxy if needed
+      // Set POLYMARKET_CLOB_API_URL env var to your worker URL to bypass IP blocking
+      const HOST = config.polymarketClobApiUrl || 'https://clob.polymarket.com';
       const CHAIN_ID = 137; // Polygon mainnet
+      
+      console.log(`[DEBUG] CLOB Host: ${HOST}`);
       
       // Create wallet signer using ethers v5 (required by @polymarket/clob-client)
       const provider = new (ethers as any).providers.JsonRpcProvider(config.polygonRpcUrl);
