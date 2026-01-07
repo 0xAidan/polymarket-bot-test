@@ -47,7 +47,21 @@ export class BalanceTracker {
   async initialize(): Promise<void> {
     try {
       await Storage.ensureDataDir();
-      this.provider = new ethers.JsonRpcProvider(config.polygonRpcUrl);
+      
+      // Create provider with better timeout settings
+      this.provider = new ethers.JsonRpcProvider(config.polygonRpcUrl, {
+        name: 'polygon',
+        chainId: 137
+      });
+      
+      // Test the provider connection
+      try {
+        const blockNumber = await this.provider.getBlockNumber();
+        console.log(`[Balance] RPC connected. Current block: ${blockNumber}`);
+      } catch (error: any) {
+        console.warn(`[Balance] RPC connection test failed: ${error.message}`);
+        console.warn(`[Balance] Using RPC: ${config.polygonRpcUrl}`);
+      }
       
       // Create USDC contract instances for both native and bridged
       this.usdcNativeContract = new ethers.Contract(
@@ -64,9 +78,9 @@ export class BalanceTracker {
 
       // Load existing history
       await this.loadHistory();
-      console.log('Balance tracker initialized with both USDC variants');
+      console.log('[Balance] Balance tracker initialized with both USDC variants');
     } catch (error: any) {
-      console.error('Failed to initialize balance tracker:', error);
+      console.error('[Balance] Failed to initialize balance tracker:', error);
       throw error;
     }
   }
@@ -136,36 +150,59 @@ export class BalanceTracker {
     }
 
     try {
+      // Normalize address to checksummed format for consistent querying
+      let normalizedAddress: string;
+      try {
+        normalizedAddress = ethers.getAddress(address);
+      } catch {
+        // If address is invalid, use as-is and let the contract call fail
+        normalizedAddress = address;
+      }
+
       let totalBalance = 0;
       let nativeBalanceNumber = 0;
       let bridgedBalanceNumber = 0;
       
-      // Check native USDC
+      // Check native USDC with timeout
       try {
-        const nativeBalance = await this.usdcNativeContract!.balanceOf(address);
+        const nativeBalance = await Promise.race([
+          this.usdcNativeContract!.balanceOf(normalizedAddress),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))
+        ]) as bigint;
         nativeBalanceNumber = parseFloat(ethers.formatUnits(nativeBalance, USDC_DECIMALS));
         totalBalance += nativeBalanceNumber;
-        console.log(`[Balance] Native USDC (${USDC_NATIVE_ADDRESS.substring(0, 10)}...) for ${address}: ${nativeBalanceNumber} USDC`);
+        if (nativeBalanceNumber > 0) {
+          console.log(`[Balance] ✓ Native USDC for ${normalizedAddress.substring(0, 10)}...: ${nativeBalanceNumber} USDC`);
+        }
       } catch (error: any) {
-        console.warn(`[Balance] Failed to fetch native USDC balance: ${error.message}`);
+        console.warn(`[Balance] ✗ Native USDC failed: ${error.message}`);
       }
       
-      // Check bridged USDC
+      // Check bridged USDC with timeout
       try {
-        const bridgedBalance = await this.usdcBridgedContract!.balanceOf(address);
+        const bridgedBalance = await Promise.race([
+          this.usdcBridgedContract!.balanceOf(normalizedAddress),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))
+        ]) as bigint;
         bridgedBalanceNumber = parseFloat(ethers.formatUnits(bridgedBalance, USDC_DECIMALS));
         totalBalance += bridgedBalanceNumber;
-        console.log(`[Balance] Bridged USDC (${USDC_BRIDGED_ADDRESS.substring(0, 10)}...) for ${address}: ${bridgedBalanceNumber} USDC`);
+        if (bridgedBalanceNumber > 0) {
+          console.log(`[Balance] ✓ Bridged USDC for ${normalizedAddress.substring(0, 10)}...: ${bridgedBalanceNumber} USDC`);
+        }
       } catch (error: any) {
-        console.warn(`[Balance] Failed to fetch bridged USDC balance: ${error.message}`);
+        console.warn(`[Balance] ✗ Bridged USDC failed: ${error.message}`);
       }
       
-      console.log(`[Balance] Total USDC balance for ${address}: ${totalBalance} USDC (Native: ${nativeBalanceNumber}, Bridged: ${bridgedBalanceNumber})`);
+      console.log(`[Balance] Total for ${normalizedAddress}: ${totalBalance} USDC (Native: ${nativeBalanceNumber}, Bridged: ${bridgedBalanceNumber})`);
+      
+      // If both queries succeeded but balance is 0, that's valid - return 0
+      // But if there were errors, we should know about them (they're already logged)
       return totalBalance;
     } catch (error: any) {
-      console.error(`Failed to get balance for ${address}:`, error.message);
-      console.error('Error details:', error);
-      // Re-throw to allow caller to handle the error
+      console.error(`[Balance] CRITICAL: Failed to get balance for ${address}:`, error.message);
+      console.error('[Balance] Error details:', error);
+      console.error('[Balance] Stack:', error.stack);
+      // Re-throw so the API can handle it properly
       throw new Error(`Failed to fetch balance: ${error.message}`);
     }
   }

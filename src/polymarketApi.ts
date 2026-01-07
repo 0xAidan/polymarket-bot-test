@@ -399,11 +399,10 @@ export class PolymarketApi {
       if (error.response?.headers) {
         console.error('Response headers:', JSON.stringify(error.response.headers, null, 2));
       }
+      // Note: order and authHeaders may be out of scope here, so we log what we can
       console.error('Request that failed:', {
         url: `${this.clobApiClient.defaults.baseURL}/order`,
-        method: 'POST',
-        body: order,
-        headers: authHeaders ? Object.keys(authHeaders) : 'No auth headers'
+        method: 'POST'
       });
       
       // Create a more informative error
