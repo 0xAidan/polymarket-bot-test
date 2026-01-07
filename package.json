@@ -1,0 +1,39 @@
+{
+  "name": "polymarket-copytrade-bot",
+  "version": "1.0.0",
+  "description": "Bot to copy trades from tracked wallets on Polymarket",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "eslint src --ext .ts"
+  },
+  "keywords": [
+    "polymarket",
+    "copytrading",
+    "trading-bot",
+    "crypto"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ethers": "^6.9.0",
+    "express": "^4.18.2",
+    "dotenv": "^16.3.1",
+    "axios": "^1.6.2",
+    "ws": "^8.14.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.5",
+    "@types/ws": "^8.5.10",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}
