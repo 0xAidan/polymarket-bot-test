@@ -286,6 +286,21 @@ export class CopyTrader {
   }
 
   /**
+   * Get the proxy wallet address (where funds are actually held on Polymarket)
+   */
+  async getProxyWalletAddress(): Promise<string | null> {
+    try {
+      const eoaAddress = this.getWalletAddress();
+      if (!eoaAddress) {
+        return null;
+      }
+      return await this.monitor.getApi().getProxyWalletAddress(eoaAddress);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Reload tracked wallets in the monitor
    * Should be called when wallets are added or removed
    */

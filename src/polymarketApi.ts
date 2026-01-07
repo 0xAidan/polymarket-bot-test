@@ -101,6 +101,47 @@ export class PolymarketApi {
   }
 
   /**
+   * Get the proxy wallet address from Polymarket
+   * Polymarket uses proxy wallets for trading, which is where funds are actually held
+   */
+  async getProxyWalletAddress(eoaAddress?: string): Promise<string | null> {
+    if (!this.signer) {
+      await this.initialize();
+    }
+
+    const address = eoaAddress || this.signer?.address;
+    if (!address) {
+      return null;
+    }
+
+    try {
+      // Try to get proxy wallet from public profile
+      // Polymarket Data API endpoint: GET /public-profile?address={address}
+      const response = await this.retryRequest(async () => {
+        return await this.dataApiClient.get('/public-profile', {
+          params: { address: address.toLowerCase() }
+        });
+      }, `getProxyWalletAddress(${address.substring(0, 8)}...)`);
+      
+      if (response.data?.proxyWallet) {
+        console.log(`[API] Found proxy wallet: ${response.data.proxyWallet} for EOA: ${address}`);
+        return response.data.proxyWallet;
+      }
+      
+      // If no proxy wallet found, the EOA might be used directly
+      console.log(`[API] No proxy wallet found for ${address}, using EOA directly`);
+      return null;
+    } catch (error: any) {
+      // If API doesn't support this endpoint or returns error, return null
+      // This is not critical - we can still check the EOA balance
+      if (error.response?.status !== 404) {
+        console.warn(`[API] Could not fetch proxy wallet for ${address}:`, error.message);
+      }
+      return null;
+    }
+  }
+
+  /**
    * Authenticate with Polymarket API
    * Polymarket may use wallet signature authentication
    */

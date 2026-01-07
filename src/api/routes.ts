@@ -168,13 +168,16 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
 
   // Get wallet configuration (address used for executing trades)
-  router.get('/wallet', (req: Request, res: Response) => {
+  router.get('/wallet', async (req: Request, res: Response) => {
     try {
-      const walletAddress = copyTrader.getWalletAddress();
+      const eoaAddress = copyTrader.getWalletAddress();
+      const proxyWalletAddress = eoaAddress ? await copyTrader.getProxyWalletAddress() : null;
+      
       res.json({ 
         success: true, 
-        walletAddress: walletAddress || null,
-        configured: !!walletAddress
+        walletAddress: eoaAddress || null,
+        proxyWalletAddress: proxyWalletAddress,
+        configured: !!eoaAddress
       });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
@@ -184,39 +187,48 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // Get user wallet balance with 24h change
   router.get('/wallet/balance', async (req: Request, res: Response) => {
     try {
-      const walletAddress = copyTrader.getWalletAddress();
-      console.log(`[API] /wallet/balance requested. Wallet address: ${walletAddress || 'NOT SET'}`);
+      const eoaAddress = copyTrader.getWalletAddress();
+      console.log(`[API] /wallet/balance requested. EOA address: ${eoaAddress || 'NOT SET'}`);
       
-      if (!walletAddress) {
+      if (!eoaAddress) {
         console.log('[API] No wallet address configured, returning 0 balance');
         return res.json({ 
           success: true, 
           currentBalance: 0,
           change24h: 0,
           balance24hAgo: null,
-          walletAddress: null
+          walletAddress: null,
+          proxyWalletAddress: null
         });
       }
+
+      // Get proxy wallet address (where funds are actually held on Polymarket)
+      const proxyWalletAddress = await copyTrader.getProxyWalletAddress();
+      const balanceAddress = proxyWalletAddress || eoaAddress; // Use proxy if available, otherwise use EOA
+      
+      console.log(`[API] EOA: ${eoaAddress}, Proxy: ${proxyWalletAddress || 'Not found'}, Checking balance for: ${balanceAddress}`);
 
       const balanceTracker = copyTrader.getBalanceTracker();
       
       // Ensure balance tracker is initialized
       try {
         // This will initialize if needed
-        await balanceTracker.getBalance(walletAddress);
+        await balanceTracker.getBalance(balanceAddress);
       } catch (initError: any) {
         console.error('[API] Balance tracker initialization error:', initError);
         // Continue anyway - getBalanceWithChange will try to initialize again
       }
       
-      console.log(`[API] Fetching balance for wallet: ${walletAddress}`);
-      const balanceData = await balanceTracker.getBalanceWithChange(walletAddress);
+      console.log(`[API] Fetching balance for wallet: ${balanceAddress}`);
+      const balanceData = await balanceTracker.getBalanceWithChange(balanceAddress);
       console.log(`[API] Balance fetched: ${balanceData.currentBalance} USDC`);
       
       res.json({ 
         success: true, 
         ...balanceData,
-        walletAddress: walletAddress
+        walletAddress: eoaAddress, // Return EOA for display
+        proxyWalletAddress: proxyWalletAddress, // Return proxy for reference
+        balanceCheckedFor: balanceAddress // Show which address we checked
       });
     } catch (error: any) {
       console.error('[API] Error fetching wallet balance:', error);
