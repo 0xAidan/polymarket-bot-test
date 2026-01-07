@@ -67,7 +67,21 @@ export class WalletMonitor {
     
     for (const wallet of wallets) {
       try {
-        const positions = await this.api.getUserPositions(wallet.address);
+        const eoaAddress = wallet.address.toLowerCase();
+        
+        // Get proxy wallet address (Polymarket uses proxy wallets for trading)
+        let monitoringAddress = eoaAddress;
+        try {
+          const proxyAddress = await this.api.getProxyWalletAddress(eoaAddress);
+          if (proxyAddress) {
+            monitoringAddress = proxyAddress.toLowerCase();
+            console.log(`Initializing positions for proxy wallet ${monitoringAddress.substring(0, 8)}... (EOA: ${eoaAddress.substring(0, 8)}...)`);
+          }
+        } catch (proxyError: any) {
+          console.warn(`Failed to get proxy wallet for ${eoaAddress.substring(0, 8)}..., using EOA directly:`, proxyError.message);
+        }
+        
+        const positions = await this.api.getUserPositions(monitoringAddress);
         const positionMap = new Map<string, any>();
         
         for (const position of positions) {
@@ -78,8 +92,9 @@ export class WalletMonitor {
           }
         }
         
-        this.monitoredPositions.set(wallet.address.toLowerCase(), positionMap);
-        console.log(`Initialized ${positionMap.size} positions for ${wallet.address.substring(0, 8)}...`);
+        // Use monitoringAddress as key since that's where positions are tracked
+        this.monitoredPositions.set(monitoringAddress, positionMap);
+        console.log(`Initialized ${positionMap.size} positions for ${eoaAddress.substring(0, 8)}... (monitored via ${monitoringAddress.substring(0, 8)}...)`);
       } catch (error: any) {
         console.warn(`Failed to initialize positions for ${wallet.address}:`, error.message);
       }
@@ -93,12 +108,40 @@ export class WalletMonitor {
     onTradeDetected: (trade: DetectedTrade) => void
   ): Promise<void> {
     const wallets = await Storage.getActiveWallets();
+    
+    if (wallets.length === 0) {
+      // No wallets to monitor, skip this check
+      return;
+    }
+
+    console.log(`[Monitor] Checking ${wallets.length} wallet(s) for trades...`);
 
     for (const wallet of wallets) {
       try {
-        const address = wallet.address.toLowerCase();
-        const currentPositions = await this.api.getUserPositions(address);
-        const previousPositions = this.monitoredPositions.get(address) || new Map();
+        const eoaAddress = wallet.address.toLowerCase();
+        console.log(`[Monitor] Checking wallet ${eoaAddress.substring(0, 8)}... for positions and trades`);
+        
+        // Get proxy wallet address (Polymarket uses proxy wallets for trading)
+        // Positions and trades are associated with the proxy wallet, not the EOA
+        let monitoringAddress = eoaAddress;
+        try {
+          const proxyAddress = await this.api.getProxyWalletAddress(eoaAddress);
+          if (proxyAddress) {
+            monitoringAddress = proxyAddress.toLowerCase();
+            console.log(`[Monitor] Using proxy wallet ${monitoringAddress.substring(0, 8)}... for monitoring (EOA: ${eoaAddress.substring(0, 8)}...)`);
+          } else {
+            console.log(`[Monitor] No proxy wallet found, using EOA ${eoaAddress.substring(0, 8)}... directly`);
+          }
+        } catch (proxyError: any) {
+          console.warn(`[Monitor] Failed to get proxy wallet for ${eoaAddress.substring(0, 8)}..., using EOA directly:`, proxyError.message);
+        }
+        
+        const currentPositions = await this.api.getUserPositions(monitoringAddress);
+        console.log(`[Monitor] Found ${currentPositions.length} current position(s) for ${monitoringAddress.substring(0, 8)}...`);
+        
+        // Use monitoringAddress as the key for tracking positions
+        const previousPositions = this.monitoredPositions.get(monitoringAddress) || new Map();
+        console.log(`[Monitor] Tracking ${previousPositions.size} previous position(s) for ${monitoringAddress.substring(0, 8)}...`);
 
         // Create map of current positions
         const currentPositionMap = new Map<string, any>();
@@ -117,8 +160,8 @@ export class WalletMonitor {
             // New position detected - this indicates a BUY
             const currentSize = parseFloat(currentPos.quantity || currentPos.size || '0');
             if (currentSize > 0) {
-              console.log(`[Monitor] New position detected for ${wallet.address.substring(0, 8)}...: ${currentSize} tokens of ${tokenId.substring(0, 20)}...`);
-              const trade = await this.parsePositionToTrade(wallet.address, currentPos, tokenId, 'BUY', null);
+              console.log(`[Monitor] New position detected for ${eoaAddress.substring(0, 8)}... (proxy: ${monitoringAddress.substring(0, 8)}...): ${currentSize} tokens of ${tokenId.substring(0, 20)}...`);
+              const trade = await this.parsePositionToTrade(eoaAddress, currentPos, tokenId, 'BUY', null);
               if (trade) {
                 console.log(`[Monitor] Parsed new position as trade: ${trade.side} ${trade.amount} @ ${trade.price} on ${trade.marketId}`);
                 onTradeDetected(trade);
@@ -138,8 +181,8 @@ export class WalletMonitor {
             
             if (absDiff > 0.01 || percentChange > 0.01) {
               const side: 'BUY' | 'SELL' = sizeDiff > 0 ? 'BUY' : 'SELL';
-              console.log(`[Monitor] Position change detected for ${wallet.address.substring(0, 8)}...: ${side} ${absDiff.toFixed(4)} tokens (${(percentChange * 100).toFixed(2)}% change) of ${tokenId.substring(0, 20)}...`);
-              const trade = await this.parsePositionToTrade(wallet.address, currentPos, tokenId, side, previousPos);
+              console.log(`[Monitor] Position change detected for ${eoaAddress.substring(0, 8)}... (proxy: ${monitoringAddress.substring(0, 8)}...): ${side} ${absDiff.toFixed(4)} tokens (${(percentChange * 100).toFixed(2)}% change) of ${tokenId.substring(0, 20)}...`);
+              const trade = await this.parsePositionToTrade(eoaAddress, currentPos, tokenId, side, previousPos);
               if (trade) {
                 console.log(`[Monitor] Parsed position change as trade: ${trade.side} ${trade.amount} @ ${trade.price} on ${trade.marketId}`);
                 onTradeDetected(trade);
@@ -156,10 +199,10 @@ export class WalletMonitor {
             // Position was closed - this indicates a SELL
             const previousSize = parseFloat(previousPos.quantity || previousPos.size || '0');
             if (previousSize > 0.01) {
-              console.log(`[Monitor] Position closed for ${wallet.address.substring(0, 8)}...: ${previousSize} tokens of ${tokenId.substring(0, 20)}...`);
+              console.log(`[Monitor] Position closed for ${eoaAddress.substring(0, 8)}... (proxy: ${monitoringAddress.substring(0, 8)}...): ${previousSize} tokens of ${tokenId.substring(0, 20)}...`);
               // Create a synthetic position with zero size to represent the close
               const closedPosition = { ...previousPos, quantity: '0', size: '0' };
-              const trade = await this.parsePositionToTrade(wallet.address, closedPosition, tokenId, 'SELL', previousPos);
+              const trade = await this.parsePositionToTrade(eoaAddress, closedPosition, tokenId, 'SELL', previousPos);
               if (trade) {
                 console.log(`[Monitor] Parsed position close as trade: ${trade.side} ${trade.amount} @ ${trade.price} on ${trade.marketId}`);
                 onTradeDetected(trade);
@@ -171,17 +214,23 @@ export class WalletMonitor {
         // Also check for recent trades directly from trade history
         // This helps catch trades that might have been missed by position monitoring
         try {
-          const recentTrades = await this.api.getUserTrades(address, 50); // Get more trades
+          console.log(`[Monitor] Fetching trade history for ${monitoringAddress.substring(0, 8)}... (EOA: ${eoaAddress.substring(0, 8)}...)`);
+          const recentTrades = await this.api.getUserTrades(monitoringAddress, 50); // Get more trades
+          console.log(`[Monitor] Found ${recentTrades.length} trade(s) in history for ${monitoringAddress.substring(0, 8)}...`);
+          
           const now = Date.now();
           const oneHourAgo = now - 60 * 60 * 1000; // Check last hour instead of 5 minutes
           
+          let recentTradeCount = 0;
           for (const trade of recentTrades) {
             const tradeTimestamp = new Date(trade.timestamp || trade.createdAt || trade.time);
             const tradeTime = tradeTimestamp.getTime();
 
             // Process trades from the last hour (more lenient window)
             if (tradeTime > oneHourAgo && tradeTime <= now) {
-              const detectedTrade = await this.parseTradeData(wallet.address, trade);
+              recentTradeCount++;
+              console.log(`[Monitor] Processing recent trade from ${new Date(tradeTime).toISOString()}:`, JSON.stringify(trade, null, 2));
+              const detectedTrade = await this.parseTradeData(eoaAddress, trade);
               if (detectedTrade) {
                 // Validate the detected trade before triggering
                 const priceNum = parseFloat(detectedTrade.price || '0');
@@ -189,31 +238,45 @@ export class WalletMonitor {
                 
                 if (detectedTrade.marketId && detectedTrade.marketId !== 'unknown' &&
                     priceNum > 0 && priceNum <= 1 && amountNum > 0) {
-                  console.log(`Detected trade from history: ${detectedTrade.side} ${detectedTrade.amount} @ ${detectedTrade.price} on ${detectedTrade.marketId}`);
+                  console.log(`[Monitor] ✓ Detected valid trade from history: ${detectedTrade.side} ${detectedTrade.amount} @ ${detectedTrade.price} on ${detectedTrade.marketId}`);
                   onTradeDetected(detectedTrade);
                 } else {
-                  console.warn(`Skipping invalid trade from history: marketId=${detectedTrade.marketId}, price=${detectedTrade.price}, amount=${detectedTrade.amount}`);
+                  console.warn(`[Monitor] ✗ Skipping invalid trade from history: marketId=${detectedTrade.marketId}, price=${detectedTrade.price}, amount=${detectedTrade.amount}`);
                 }
+              } else {
+                console.warn(`[Monitor] ✗ Failed to parse trade data for ${eoaAddress.substring(0, 8)}...`);
               }
             }
           }
+          console.log(`[Monitor] Processed ${recentTradeCount} recent trade(s) (within last hour) for ${monitoringAddress.substring(0, 8)}...`);
         } catch (error: any) {
           // Trade history might not be available, continue with position monitoring
           // Only log as warning if it's not a 404 (which is expected for wallets with no trades)
           if (error.response?.status !== 404) {
-            console.warn(`Trade history not available for ${address.substring(0, 8)}...:`, error.message);
+            console.warn(`[Monitor] ⚠️ Trade history not available for ${monitoringAddress.substring(0, 8)}...:`, error.message);
+            if (error.response) {
+              console.warn(`[Monitor] Response status: ${error.response.status}, data:`, JSON.stringify(error.response.data, null, 2));
+            }
+          } else {
+            console.log(`[Monitor] No trade history found for ${monitoringAddress.substring(0, 8)}... (404 - expected if wallet has no trades)`);
           }
         }
 
-        // Update stored positions
-        this.monitoredPositions.set(address, currentPositionMap);
+        // Update stored positions (use monitoringAddress as key since that's where positions are tracked)
+        this.monitoredPositions.set(monitoringAddress, currentPositionMap);
+        console.log(`[Monitor] ✓ Completed check for ${eoaAddress.substring(0, 8)}... (monitored via ${monitoringAddress.substring(0, 8)}...)`);
       } catch (error: any) {
         // Log error but continue monitoring other wallets
         const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
-        console.error(`Error monitoring wallet ${wallet.address.substring(0, 8)}...:`, errorMsg);
+        console.error(`[Monitor] ✗ Error monitoring wallet ${wallet.address.substring(0, 8)}...:`, errorMsg);
+        if (error.stack) {
+          console.error(`[Monitor] Stack trace:`, error.stack);
+        }
         // Don't throw - continue with other wallets
       }
     }
+    
+    console.log(`[Monitor] ✓ Completed trade check cycle for all wallets`);
   }
 
   /**
@@ -422,10 +485,22 @@ export class WalletMonitor {
     
     // Initialize positions for any new wallets that aren't in monitoredPositions
     for (const wallet of wallets) {
-      const address = wallet.address.toLowerCase();
-      if (!this.monitoredPositions.has(address)) {
+      const eoaAddress = wallet.address.toLowerCase();
+      
+      // Get proxy wallet address for monitoring
+      let monitoringAddress = eoaAddress;
+      try {
+        const proxyAddress = await this.api.getProxyWalletAddress(eoaAddress);
+        if (proxyAddress) {
+          monitoringAddress = proxyAddress.toLowerCase();
+        }
+      } catch (proxyError: any) {
+        // Use EOA if proxy lookup fails
+      }
+      
+      if (!this.monitoredPositions.has(monitoringAddress)) {
         try {
-          const positions = await this.api.getUserPositions(wallet.address);
+          const positions = await this.api.getUserPositions(monitoringAddress);
           const positionMap = new Map<string, any>();
           
           for (const position of positions) {
@@ -435,8 +510,8 @@ export class WalletMonitor {
             }
           }
           
-          this.monitoredPositions.set(address, positionMap);
-          console.log(`Initialized ${positionMap.size} positions for newly added wallet ${wallet.address.substring(0, 8)}...`);
+          this.monitoredPositions.set(monitoringAddress, positionMap);
+          console.log(`Initialized ${positionMap.size} positions for newly added wallet ${eoaAddress.substring(0, 8)}... (monitored via ${monitoringAddress.substring(0, 8)}...)`);
         } catch (error: any) {
           console.warn(`Failed to initialize positions for new wallet ${wallet.address}:`, error.message);
         }
