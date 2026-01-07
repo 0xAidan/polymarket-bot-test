@@ -107,7 +107,7 @@ export class WebSocketMonitor {
 
     try {
       // Polymarket WebSocket endpoint for CLOB subscriptions
-      const wsUrl = 'wss://ws-subscriptions-clob.polymarket.com';
+      const wsUrl = 'wss://ws-subscriptions-clob.polymarket.com/ws';
       console.log(`[WebSocket] Connecting to ${wsUrl}...`);
 
       this.ws = new WebSocket(wsUrl);
@@ -185,24 +185,22 @@ export class WebSocketMonitor {
     }
 
     // Subscribe to trade events for each tracked wallet
-    // Polymarket WebSocket uses JSON-RPC style subscriptions
-    for (const walletAddress of this.trackedWallets) {
-      try {
-        // Subscribe to user trades
-        // Format: { "method": "subscribe", "params": { "channel": "trades", "user": "0x..." } }
-        const subscribeMessage = {
-          method: 'subscribe',
-          params: {
-            channel: 'trades',
-            user: walletAddress
-          }
-        };
+    // Polymarket WebSocket API format
+    try {
+      // Subscribe to user channel for all tracked wallets
+      // Format: { "type": "user", "markets": [...], "auth": {...} }
+      const subscribeMessage = {
+        type: 'user',
+        markets: ['*'] // Subscribe to all markets for these users
+      };
 
-        this.ws.send(JSON.stringify(subscribeMessage));
-        console.log(`[WebSocket] 📡 Subscribed to trades for ${walletAddress.substring(0, 8)}...`);
-      } catch (error: any) {
-        console.error(`[WebSocket] Error subscribing to ${walletAddress}:`, error.message);
+      this.ws.send(JSON.stringify(subscribeMessage));
+      console.log(`[WebSocket] 📡 Subscribed to user trades for ${this.trackedWallets.size} wallet(s)`);
+      for (const walletAddress of this.trackedWallets) {
+        console.log(`[WebSocket]   - ${walletAddress.substring(0, 8)}...`);
       }
+    } catch (error: any) {
+      console.error(`[WebSocket] Error subscribing to trades:`, error.message);
     }
   }
 
