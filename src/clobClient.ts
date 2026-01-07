@@ -1,5 +1,5 @@
 import { ClobClient, Side, OrderType } from '@polymarket/clob-client';
-import { ethers, JsonRpcProvider, Wallet } from 'ethers';
+import { ethers } from 'ethers';
 import { config } from './config.js';
 
 /**
@@ -9,7 +9,7 @@ import { config } from './config.js';
  */
 export class PolymarketClobClient {
   private client: ClobClient | null = null;
-  private signer: Wallet | null = null;
+  private signer: ethers.Wallet | null = null;
   private isInitialized = false;
 
   /**
@@ -28,9 +28,9 @@ export class PolymarketClobClient {
       const HOST = config.polymarketClobApiUrl;
       const CHAIN_ID = 137; // Polygon mainnet
       
-      // Create wallet signer using ethers v6
-      const provider = new JsonRpcProvider(config.polygonRpcUrl, 137);
-      this.signer = new Wallet(config.privateKey, provider);
+      // Create wallet signer using ethers v5 (required by @polymarket/clob-client)
+      const provider = new ethers.providers.JsonRpcProvider(config.polygonRpcUrl);
+      this.signer = new ethers.Wallet(config.privateKey, provider);
 
       // Create temporary client to derive User API credentials
       const tempClient = new ClobClient(HOST, CHAIN_ID, this.signer);
