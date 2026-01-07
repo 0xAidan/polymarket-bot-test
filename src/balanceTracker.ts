@@ -116,20 +116,26 @@ export class BalanceTracker {
 
   /**
    * Get current USDC balance for a wallet
+   * Always fetches fresh from the blockchain
    */
   async getBalance(address: string): Promise<number> {
+    // Ensure initialized
     if (!this.usdcContract || !this.provider) {
       await this.initialize();
     }
 
     try {
+      // Always fetch fresh balance from blockchain
       const balance = await this.usdcContract!.balanceOf(address);
       // Convert from wei to USDC (6 decimals)
       const balanceNumber = parseFloat(ethers.formatUnits(balance, USDC_DECIMALS));
+      console.log(`Balance fetched for ${address.substring(0, 8)}...: ${balanceNumber} USDC`);
       return balanceNumber;
     } catch (error: any) {
       console.error(`Failed to get balance for ${address}:`, error.message);
-      return 0;
+      console.error('Error details:', error);
+      // Re-throw to allow caller to handle the error
+      throw new Error(`Failed to fetch balance: ${error.message}`);
     }
   }
 
@@ -137,51 +143,63 @@ export class BalanceTracker {
    * Record a balance snapshot for a wallet
    */
   async recordBalance(address: string): Promise<void> {
-    const balance = await this.getBalance(address);
-    const addressLower = address.toLowerCase();
-    
-    if (!this.history.has(addressLower)) {
-      this.history.set(addressLower, {
-        address: address,
-        snapshots: []
+    try {
+      const balance = await this.getBalance(address);
+      const addressLower = address.toLowerCase();
+      
+      if (!this.history.has(addressLower)) {
+        this.history.set(addressLower, {
+          address: address,
+          snapshots: []
+        });
+      }
+
+      const walletHistory = this.history.get(addressLower)!;
+      const now = new Date();
+
+      // Add new snapshot
+      walletHistory.snapshots.push({
+        timestamp: now,
+        balance: balance
       });
+
+      // Keep only last 48 hours of history (to ensure we have 24h data)
+      const cutoffTime = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+      walletHistory.snapshots = walletHistory.snapshots.filter(
+        s => s.timestamp >= cutoffTime
+      );
+
+      // Sort by timestamp
+      walletHistory.snapshots.sort((a, b) => 
+        a.timestamp.getTime() - b.timestamp.getTime()
+      );
+
+      await this.saveHistory();
+    } catch (error: any) {
+      // Log error but don't throw - we don't want to break tracking for other wallets
+      console.error(`Failed to record balance for ${address}:`, error.message);
     }
-
-    const walletHistory = this.history.get(addressLower)!;
-    const now = new Date();
-
-    // Add new snapshot
-    walletHistory.snapshots.push({
-      timestamp: now,
-      balance: balance
-    });
-
-    // Keep only last 48 hours of history (to ensure we have 24h data)
-    const cutoffTime = new Date(now.getTime() - 48 * 60 * 60 * 1000);
-    walletHistory.snapshots = walletHistory.snapshots.filter(
-      s => s.timestamp >= cutoffTime
-    );
-
-    // Sort by timestamp
-    walletHistory.snapshots.sort((a, b) => 
-      a.timestamp.getTime() - b.timestamp.getTime()
-    );
-
-    await this.saveHistory();
   }
 
   /**
    * Get current balance and 24h change for a wallet
+   * Always fetches fresh balance from blockchain
    */
   async getBalanceWithChange(address: string): Promise<{
     currentBalance: number;
     change24h: number; // Percentage change
     balance24hAgo: number | null;
   }> {
+    // Ensure initialized before fetching
+    if (!this.usdcContract || !this.provider) {
+      await this.initialize();
+    }
+
+    // Always fetch fresh balance from blockchain
     const currentBalance = await this.getBalance(address);
     const addressLower = address.toLowerCase();
 
-    // Find balance 24 hours ago
+    // Find balance 24 hours ago from history
     const now = new Date();
     const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
@@ -202,7 +220,7 @@ export class BalanceTracker {
         }
       }
 
-      if (closestSnapshot) {
+      if (closestSnapshot && minDiff < 25 * 60 * 60 * 1000) { // Only use if within 25 hours
         balance24hAgo = closestSnapshot.balance;
         if (balance24hAgo > 0) {
           change24h = ((currentBalance - balance24hAgo) / balance24hAgo) * 100;

@@ -1583,29 +1583,43 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
               const res = await fetch('/api/wallet/balance');
               const data = await res.json();
               
+              const balanceEl = document.getElementById('userBalance');
+              const changeEl = document.getElementById('userBalanceChange');
+              
               if (data.success) {
-                const balanceEl = document.getElementById('userBalance');
-                const changeEl = document.getElementById('userBalanceChange');
-                
                 balanceEl.textContent = formatBalance(data.currentBalance) + ' USDC';
+                balanceEl.style.color = 'var(--text)';
                 
-                if (data.balance24hAgo !== null) {
+                if (data.balance24hAgo !== null && data.balance24hAgo !== undefined) {
                   const change = data.change24h;
                   const changeText = formatPercent(change);
                   changeEl.textContent = changeText;
                   changeEl.style.color = change >= 0 ? 'var(--success)' : 'var(--danger)';
                 } else {
-                  changeEl.textContent = 'No data';
+                  changeEl.textContent = 'No history';
                   changeEl.style.color = 'var(--text-muted)';
                 }
               } else {
-                document.getElementById('userBalance').textContent = 'Error';
-                document.getElementById('userBalanceChange').textContent = 'Error';
+                // Show error but still display balance if available
+                if (data.currentBalance !== undefined) {
+                  balanceEl.textContent = formatBalance(data.currentBalance) + ' USDC';
+                  balanceEl.style.color = 'var(--warning)';
+                } else {
+                  balanceEl.textContent = 'Error loading';
+                  balanceEl.style.color = 'var(--danger)';
+                }
+                changeEl.textContent = data.error || 'Error';
+                changeEl.style.color = 'var(--danger)';
+                console.error('Balance API error:', data.error);
               }
             } catch (error) {
               console.error('Failed to load user balance:', error);
-              document.getElementById('userBalance').textContent = 'Error';
-              document.getElementById('userBalanceChange').textContent = 'Error';
+              const balanceEl = document.getElementById('userBalance');
+              const changeEl = document.getElementById('userBalanceChange');
+              balanceEl.textContent = 'Connection error';
+              balanceEl.style.color = 'var(--danger)';
+              changeEl.textContent = 'Retry...';
+              changeEl.style.color = 'var(--text-muted)';
             }
           }
 
