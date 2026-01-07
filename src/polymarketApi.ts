@@ -103,6 +103,9 @@ export class PolymarketApi {
   /**
    * Get the proxy wallet address from Polymarket
    * Polymarket uses proxy wallets for trading, which is where funds are actually held
+   * 
+   * FIXED: Extract proxy wallet from positions API response instead of unreliable Dome API
+   * The positions API returns proxyWallet field in each position object.
    */
   async getProxyWalletAddress(eoaAddress?: string): Promise<string | null> {
     if (!this.signer) {
@@ -115,7 +118,6 @@ export class PolymarketApi {
     }
 
     // Known proxy wallet mapping (fallback if API fails)
-    // EOA: 0x2D43e332aF357CAb0fa1b2692E1e0Fdb0B733010 -> Proxy: 0xD56276b120ad094ba9F429386427F2492233B6d1
     const knownProxyWallets: Record<string, string> = {
       '0x2d43e332af357cab0fa1b2692e1e0fdb0b733010': '0xd56276b120ad094ba9f429386427f2492233b6d1'
     };
@@ -126,10 +128,26 @@ export class PolymarketApi {
       return knownProxyWallets[normalizedEoa];
     }
 
+    // PRIMARY METHOD: Extract proxy wallet from positions API response
+    // The positions API returns proxyWallet field in each position
     try {
-      // Try Dome API to get proxy wallet address
-      // Dome API endpoint: GET https://api.domeapi.io/v1/polymarket/wallet?eoa={eoaAddress}
-      console.log(`[API] Attempting to fetch proxy wallet from Dome API for ${address}...`);
+      console.log(`[API] Attempting to extract proxy wallet from positions for ${address.substring(0, 8)}...`);
+      const positions = await this.getUserPositions(address);
+      
+      if (positions && positions.length > 0 && positions[0].proxyWallet) {
+        const proxyWallet = positions[0].proxyWallet;
+        console.log(`[API] ✓ Found proxy wallet from positions: ${proxyWallet} for EOA: ${address.substring(0, 8)}...`);
+        return proxyWallet;
+      }
+      
+      console.log(`[API] No positions or no proxyWallet field found for ${address.substring(0, 8)}...`);
+    } catch (positionsError: any) {
+      console.warn(`[API] Failed to get positions for proxy wallet lookup:`, positionsError.message);
+    }
+
+    // FALLBACK: Try Dome API (but it often fails with 403)
+    try {
+      console.log(`[API] Fallback: Attempting Dome API for ${address.substring(0, 8)}...`);
       const domeResponse = await this.retryRequest(async () => {
         return await axios.get('https://api.domeapi.io/v1/polymarket/wallet', {
           params: { eoa: address.toLowerCase() },
@@ -137,24 +155,19 @@ export class PolymarketApi {
         });
       }, `getProxyWalletAddress-Dome(${address.substring(0, 8)}...)`);
       
-      console.log(`[API] Dome API response:`, JSON.stringify(domeResponse.data, null, 2));
-      
       if (domeResponse.data?.proxyWallet || domeResponse.data?.proxy) {
         const proxyWallet = domeResponse.data.proxyWallet || domeResponse.data.proxy;
-        console.log(`[API] ✓ Found proxy wallet via Dome API: ${proxyWallet} for EOA: ${address}`);
+        console.log(`[API] ✓ Found proxy wallet via Dome API: ${proxyWallet} for EOA: ${address.substring(0, 8)}...`);
         return proxyWallet;
       }
-      
-      console.log(`[API] ⚠️ No proxy wallet found in Dome API response for ${address}`);
     } catch (domeError: any) {
-      console.warn(`[API] Dome API failed for ${address}:`, domeError.message);
-      if (domeError.response) {
-        console.warn(`[API] Dome API response status: ${domeError.response.status}`);
-      }
+      // Dome API often fails with 403, this is expected
+      console.log(`[API] Dome API unavailable for ${address.substring(0, 8)}... (this is normal)`);
     }
     
-    // If no proxy wallet found, the EOA might be used directly (unlikely but possible)
-    console.log(`[API] ⚠️ No proxy wallet found for ${address}, will try using EOA directly`);
+    // No proxy wallet found - the EOA will be used directly with the Data API
+    // Note: Polymarket Data API works with EOA addresses directly
+    console.log(`[API] No proxy wallet found for ${address.substring(0, 8)}..., using EOA directly (this is OK)`);
     return null;
   }
 
@@ -261,6 +274,18 @@ export class PolymarketApi {
   /**
    * Get user positions from Data API
    * This helps us detect new trades by comparing position changes
+   * 
+   * Polymarket Data API returns positions with these fields:
+   * - asset: token ID (use this as the unique identifier)
+   * - conditionId: market ID
+   * - size: position size
+   * - avgPrice: average entry price
+   * - curPrice: current market price
+   * - outcome: "Yes" or "No"
+   * - outcomeIndex: 0=Yes, 1=No
+   * - proxyWallet: proxy wallet address (can be used to find proxy)
+   * - title: market title
+   * - slug: market slug
    */
   async getUserPositions(userAddress: string): Promise<any[]> {
     return this.retryRequest(async () => {
@@ -269,7 +294,20 @@ export class PolymarketApi {
         const response = await this.dataApiClient.get('/positions', {
           params: { user: userAddress.toLowerCase() }
         });
-        return response.data || [];
+        
+        const positions = response.data || [];
+        
+        // DEBUG: Log first position structure on first successful fetch
+        if (positions.length > 0) {
+          console.log(`[API] ✓ Fetched ${positions.length} position(s) for ${userAddress.substring(0, 8)}...`);
+          // Log available fields to help with debugging field name issues
+          const samplePos = positions[0];
+          console.log(`[API] Position fields available: ${Object.keys(samplePos).join(', ')}`);
+        } else {
+          console.log(`[API] No positions found for ${userAddress.substring(0, 8)}...`);
+        }
+        
+        return positions;
       } catch (error: any) {
         if (error.response?.status === 404) {
           // User has no positions
@@ -287,6 +325,17 @@ export class PolymarketApi {
   /**
    * Get user's trade history from Polymarket Data API
    * Uses the correct endpoint: GET /trades?user={proxyWalletAddress}
+   * 
+   * Polymarket Data API returns trades with these fields:
+   * - asset: token ID
+   * - conditionId: market ID  
+   * - side: "BUY" or "SELL"
+   * - size: trade size
+   * - price: trade price
+   * - timestamp: ISO timestamp
+   * - outcome: "Yes" or "No"
+   * - outcomeIndex: 0=Yes, 1=No
+   * - transactionHash: optional tx hash
    */
   async getUserTrades(userAddress: string, limit = 50): Promise<any[]> {
     return this.retryRequest(async () => {
@@ -298,7 +347,19 @@ export class PolymarketApi {
             limit 
           }
         });
-        return response.data || [];
+        
+        const trades = response.data || [];
+        
+        // DEBUG: Log first trade structure to help with field name issues
+        if (trades.length > 0) {
+          console.log(`[API] ✓ Fetched ${trades.length} trade(s) for ${userAddress.substring(0, 8)}...`);
+          const sampleTrade = trades[0];
+          console.log(`[API] Trade fields available: ${Object.keys(sampleTrade).join(', ')}`);
+        } else {
+          console.log(`[API] No trades found for ${userAddress.substring(0, 8)}...`);
+        }
+        
+        return trades;
       } catch (error: any) {
         if (error.response?.status === 404) {
           console.log(`[API] No trades found for ${userAddress.substring(0, 8)}... (404)`);

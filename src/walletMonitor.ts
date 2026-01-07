@@ -97,34 +97,44 @@ export class WalletMonitor {
       try {
         const eoaAddress = wallet.address.toLowerCase();
         
-        // Get proxy wallet address (Polymarket uses proxy wallets for trading)
+        // First try to get positions directly - Polymarket Data API works with EOA addresses
+        // The API response will include proxyWallet field if one exists
+        let positions = await this.api.getUserPositions(eoaAddress);
         let monitoringAddress = eoaAddress;
-        try {
-          const proxyAddress = await this.api.getProxyWalletAddress(eoaAddress);
-          if (proxyAddress) {
-            monitoringAddress = proxyAddress.toLowerCase();
-            console.log(`Initializing positions for proxy wallet ${monitoringAddress.substring(0, 8)}... (EOA: ${eoaAddress.substring(0, 8)}...)`);
+        
+        // DEBUG: Log the first position structure to understand the API response
+        if (positions.length > 0) {
+          console.log(`[Monitor] DEBUG: First position structure for ${eoaAddress.substring(0, 8)}...:`, 
+            JSON.stringify(positions[0], null, 2).substring(0, 500) + '...');
+          
+          // Extract proxy wallet from positions if available
+          const proxyWallet = positions[0].proxyWallet;
+          if (proxyWallet) {
+            monitoringAddress = proxyWallet.toLowerCase();
+            console.log(`[Monitor] Extracted proxy wallet from positions: ${monitoringAddress.substring(0, 8)}... for EOA: ${eoaAddress.substring(0, 8)}...`);
           }
-        } catch (proxyError: any) {
-          console.warn(`Failed to get proxy wallet for ${eoaAddress.substring(0, 8)}..., using EOA directly:`, proxyError.message);
+        } else {
+          console.log(`[Monitor] No positions found for ${eoaAddress.substring(0, 8)}... (new wallet or empty)`);
         }
         
-        const positions = await this.api.getUserPositions(monitoringAddress);
         const positionMap = new Map<string, any>();
         
         for (const position of positions) {
-          // Store position by token ID
-          const tokenId = position.tokenId || position.token_id || position.market?.tokenId;
+          // FIXED: Use 'asset' field which is the token ID in Polymarket API
+          // The API returns: asset (token ID), conditionId (market ID), size, avgPrice, outcome, etc.
+          const tokenId = position.asset;
           if (tokenId) {
             positionMap.set(tokenId, position);
+          } else {
+            console.warn(`[Monitor] Position missing 'asset' field:`, JSON.stringify(position).substring(0, 200));
           }
         }
         
-        // Use monitoringAddress as key since that's where positions are tracked
-        this.monitoredPositions.set(monitoringAddress, positionMap);
-        console.log(`Initialized ${positionMap.size} positions for ${eoaAddress.substring(0, 8)}... (monitored via ${monitoringAddress.substring(0, 8)}...)`);
+        // Use EOA address as key for consistency (we can look up positions by either)
+        this.monitoredPositions.set(eoaAddress, positionMap);
+        console.log(`[Monitor] Initialized ${positionMap.size} positions for ${eoaAddress.substring(0, 8)}...`);
       } catch (error: any) {
-        console.warn(`Failed to initialize positions for ${wallet.address}:`, error.message);
+        console.warn(`[Monitor] Failed to initialize positions for ${wallet.address}:`, error.message);
       }
     }
   }
@@ -149,62 +159,33 @@ export class WalletMonitor {
         const eoaAddress = wallet.address.toLowerCase();
         console.log(`[Monitor] Checking wallet ${eoaAddress.substring(0, 8)}... for positions and trades`);
         
-        // Get proxy wallet address (Polymarket uses proxy wallets for trading)
-        // Positions and trades are associated with the proxy wallet, not the EOA
-        let monitoringAddress = eoaAddress;
-        let proxyAddress: string | null = null;
-        try {
-          proxyAddress = await this.api.getProxyWalletAddress(eoaAddress);
-          if (proxyAddress) {
-            monitoringAddress = proxyAddress.toLowerCase();
-            console.log(`[Monitor] Using proxy wallet ${monitoringAddress.substring(0, 8)}... for monitoring (EOA: ${eoaAddress.substring(0, 8)}...)`);
-          } else {
-            console.log(`[Monitor] No proxy wallet found via API, will try EOA ${eoaAddress.substring(0, 8)}... directly`);
-          }
-        } catch (proxyError: any) {
-          console.warn(`[Monitor] Failed to get proxy wallet for ${eoaAddress.substring(0, 8)}..., will try EOA directly:`, proxyError.message);
-          proxyAddress = null; // Ensure it's null if lookup failed
-        }
-        
-        // Try to get positions - if proxy wallet was found, use it; otherwise try EOA
+        // Polymarket Data API works directly with EOA addresses
+        // The positions response includes proxyWallet field if one exists
         let currentPositions: any[] = [];
-        let positionsError: any = null;
         
         try {
-          currentPositions = await this.api.getUserPositions(monitoringAddress);
-          console.log(`[Monitor] Found ${currentPositions.length} current position(s) for ${monitoringAddress.substring(0, 8)}...`);
+          currentPositions = await this.api.getUserPositions(eoaAddress);
+          console.log(`[Monitor] Found ${currentPositions.length} current position(s) for ${eoaAddress.substring(0, 8)}...`);
         } catch (error: any) {
-          positionsError = error;
-          console.warn(`[Monitor] Failed to get positions for ${monitoringAddress.substring(0, 8)}...:`, error.message);
-          
-          // If we tried proxy wallet and it failed, try EOA as fallback
-          if (proxyAddress && monitoringAddress === proxyAddress.toLowerCase()) {
-            console.log(`[Monitor] Trying EOA ${eoaAddress.substring(0, 8)}... as fallback...`);
-            try {
-              currentPositions = await this.api.getUserPositions(eoaAddress);
-              monitoringAddress = eoaAddress; // Switch to EOA if it works
-              console.log(`[Monitor] Found ${currentPositions.length} position(s) using EOA ${eoaAddress.substring(0, 8)}...`);
-            } catch (eoaError: any) {
-              console.error(`[Monitor] Both proxy wallet and EOA failed for ${eoaAddress.substring(0, 8)}...`);
-              throw eoaError;
-            }
-          } else {
-            throw error;
-          }
+          console.error(`[Monitor] Failed to get positions for ${eoaAddress.substring(0, 8)}...:`, error.message);
+          continue; // Skip to next wallet
         }
         
-        // Use monitoringAddress as the key for tracking positions
-        const previousPositions = this.monitoredPositions.get(monitoringAddress) || new Map();
-        console.log(`[Monitor] Tracking ${previousPositions.size} previous position(s) for ${monitoringAddress.substring(0, 8)}...`);
+        // Use EOA address as the key for tracking (consistent with initializePositions)
+        const previousPositions = this.monitoredPositions.get(eoaAddress) || new Map();
+        console.log(`[Monitor] Tracking ${previousPositions.size} previous position(s) for ${eoaAddress.substring(0, 8)}...`);
 
-        // Create map of current positions
+        // Create map of current positions using CORRECT field name: 'asset'
         const currentPositionMap = new Map<string, any>();
         for (const position of currentPositions) {
-          const tokenId = position.tokenId || position.token_id || position.market?.tokenId;
+          // FIXED: Use 'asset' field which is the token ID in Polymarket API
+          const tokenId = position.asset;
           if (tokenId) {
             currentPositionMap.set(tokenId, position);
           }
         }
+        
+        console.log(`[Monitor] Built position map with ${currentPositionMap.size} entries for ${eoaAddress.substring(0, 8)}...`);
 
         // Detect changes (new positions or position size changes)
         for (const [tokenId, currentPos] of currentPositionMap.entries()) {
@@ -212,9 +193,10 @@ export class WalletMonitor {
 
           if (!previousPos) {
             // New position detected - this indicates a BUY
-            const currentSize = parseFloat(currentPos.quantity || currentPos.size || '0');
+            // FIXED: Use 'size' field from Polymarket API
+            const currentSize = parseFloat(currentPos.size || '0');
             if (currentSize > 0) {
-              console.log(`[Monitor] New position detected for ${eoaAddress.substring(0, 8)}... (proxy: ${monitoringAddress.substring(0, 8)}...): ${currentSize} tokens of ${tokenId.substring(0, 20)}...`);
+              console.log(`[Monitor] 🆕 New position detected for ${eoaAddress.substring(0, 8)}...: ${currentSize} tokens of ${tokenId.substring(0, 20)}...`);
               const trade = await this.parsePositionToTrade(eoaAddress, currentPos, tokenId, 'BUY', null);
               if (trade) {
                 console.log(`\n🔔 [Monitor] TRADE DETECTED: New position`);
@@ -237,8 +219,9 @@ export class WalletMonitor {
             }
           } else {
             // Check if position size changed significantly (indicating a trade)
-            const currentSize = parseFloat(currentPos.quantity || currentPos.size || '0');
-            const previousSize = parseFloat(previousPos.quantity || previousPos.size || '0');
+            // FIXED: Use 'size' field from Polymarket API
+            const currentSize = parseFloat(currentPos.size || '0');
+            const previousSize = parseFloat(previousPos.size || '0');
             const sizeDiff = currentSize - previousSize; // Positive = BUY, Negative = SELL
 
             // If size changed by more than 1% or 0.01 tokens, consider it a trade
@@ -247,7 +230,7 @@ export class WalletMonitor {
             
             if (absDiff > 0.01 || percentChange > 0.01) {
               const side: 'BUY' | 'SELL' = sizeDiff > 0 ? 'BUY' : 'SELL';
-              console.log(`[Monitor] Position change detected for ${eoaAddress.substring(0, 8)}... (proxy: ${monitoringAddress.substring(0, 8)}...): ${side} ${absDiff.toFixed(4)} tokens (${(percentChange * 100).toFixed(2)}% change) of ${tokenId.substring(0, 20)}...`);
+              console.log(`[Monitor] 📊 Position change detected for ${eoaAddress.substring(0, 8)}...: ${side} ${absDiff.toFixed(4)} tokens (${(percentChange * 100).toFixed(2)}% change) of ${tokenId.substring(0, 20)}...`);
               const trade = await this.parsePositionToTrade(eoaAddress, currentPos, tokenId, side, previousPos);
               if (trade) {
                 console.log(`\n🔔 [Monitor] TRADE DETECTED: Position change`);
@@ -276,11 +259,12 @@ export class WalletMonitor {
         for (const [tokenId, previousPos] of previousPositions.entries()) {
           if (!currentPositionMap.has(tokenId)) {
             // Position was closed - this indicates a SELL
-            const previousSize = parseFloat(previousPos.quantity || previousPos.size || '0');
+            // FIXED: Use 'size' field from Polymarket API
+            const previousSize = parseFloat(previousPos.size || '0');
             if (previousSize > 0.01) {
-              console.log(`[Monitor] Position closed for ${eoaAddress.substring(0, 8)}... (proxy: ${monitoringAddress.substring(0, 8)}...): ${previousSize} tokens of ${tokenId.substring(0, 20)}...`);
+              console.log(`[Monitor] 🔴 Position closed for ${eoaAddress.substring(0, 8)}...: ${previousSize} tokens of ${tokenId.substring(0, 20)}...`);
               // Create a synthetic position with zero size to represent the close
-              const closedPosition = { ...previousPos, quantity: '0', size: '0' };
+              const closedPosition = { ...previousPos, size: 0 };
               const trade = await this.parsePositionToTrade(eoaAddress, closedPosition, tokenId, 'SELL', previousPos);
               if (trade) {
                 console.log(`\n🔔 [Monitor] TRADE DETECTED: Position closed`);
@@ -305,40 +289,29 @@ export class WalletMonitor {
         // Also check for recent trades directly from trade history
         // This helps catch trades that might have been missed by position monitoring
         try {
-          console.log(`[Monitor] Fetching trade history for ${monitoringAddress.substring(0, 8)}... (EOA: ${eoaAddress.substring(0, 8)}...)`);
+          console.log(`[Monitor] Fetching trade history for ${eoaAddress.substring(0, 8)}...`);
           let recentTrades: any[] = [];
           try {
-            recentTrades = await this.api.getUserTrades(monitoringAddress, 50); // Get more trades
-            console.log(`[Monitor] Found ${recentTrades.length} trade(s) in history for ${monitoringAddress.substring(0, 8)}...`);
+            recentTrades = await this.api.getUserTrades(eoaAddress, 50);
+            console.log(`[Monitor] Found ${recentTrades.length} trade(s) in history for ${eoaAddress.substring(0, 8)}...`);
           } catch (tradesError: any) {
-            // If proxy wallet failed, try EOA as fallback
-            if (proxyAddress && monitoringAddress === proxyAddress.toLowerCase()) {
-              console.log(`[Monitor] Trade history failed for proxy wallet, trying EOA ${eoaAddress.substring(0, 8)}... as fallback...`);
-              try {
-                recentTrades = await this.api.getUserTrades(eoaAddress, 50);
-                console.log(`[Monitor] Found ${recentTrades.length} trade(s) using EOA ${eoaAddress.substring(0, 8)}...`);
-              } catch (eoaTradesError: any) {
-                console.warn(`[Monitor] Both proxy wallet and EOA failed for trade history:`, eoaTradesError.message);
-                recentTrades = [];
-              }
-            } else {
-              console.warn(`[Monitor] Failed to fetch trade history:`, tradesError.message);
-              recentTrades = [];
-            }
+            console.warn(`[Monitor] Failed to fetch trade history:`, tradesError.message);
+            recentTrades = [];
           }
           
           const now = Date.now();
-          const oneHourAgo = now - 60 * 60 * 1000; // Check last hour instead of 5 minutes
+          const fiveMinutesAgo = now - 5 * 60 * 1000; // Check last 5 minutes for recent trades
           
           let recentTradeCount = 0;
           for (const trade of recentTrades) {
-            const tradeTimestamp = new Date(trade.timestamp || trade.createdAt || trade.time);
+            // FIXED: Use correct field name 'timestamp' from Polymarket API
+            const tradeTimestamp = new Date(trade.timestamp);
             const tradeTime = tradeTimestamp.getTime();
 
-            // Process trades from the last hour (more lenient window)
-            if (tradeTime > oneHourAgo && tradeTime <= now) {
+            // Process trades from the last 5 minutes (more focused window)
+            if (tradeTime > fiveMinutesAgo && tradeTime <= now) {
               recentTradeCount++;
-              console.log(`[Monitor] Processing recent trade from ${new Date(tradeTime).toISOString()}:`, JSON.stringify(trade, null, 2));
+              console.log(`[Monitor] Processing recent trade from ${new Date(tradeTime).toISOString()}:`, JSON.stringify(trade, null, 2).substring(0, 500));
               const detectedTrade = await this.parseTradeData(eoaAddress, trade);
               if (detectedTrade) {
                 // Validate the detected trade before triggering
@@ -370,23 +343,17 @@ export class WalletMonitor {
               }
             }
           }
-          console.log(`[Monitor] Processed ${recentTradeCount} recent trade(s) (within last hour) for ${monitoringAddress.substring(0, 8)}...`);
+          console.log(`[Monitor] Processed ${recentTradeCount} recent trade(s) (within last 5 min) for ${eoaAddress.substring(0, 8)}...`);
         } catch (error: any) {
           // Trade history might not be available, continue with position monitoring
-          // Only log as warning if it's not a 404 (which is expected for wallets with no trades)
           if (error.response?.status !== 404) {
-            console.warn(`[Monitor] ⚠️ Trade history not available for ${monitoringAddress.substring(0, 8)}...:`, error.message);
-            if (error.response) {
-              console.warn(`[Monitor] Response status: ${error.response.status}, data:`, JSON.stringify(error.response.data, null, 2));
-            }
-          } else {
-            console.log(`[Monitor] No trade history found for ${monitoringAddress.substring(0, 8)}... (404 - expected if wallet has no trades)`);
+            console.warn(`[Monitor] ⚠️ Trade history not available for ${eoaAddress.substring(0, 8)}...:`, error.message);
           }
         }
 
-        // Update stored positions (use monitoringAddress as key since that's where positions are tracked)
-        this.monitoredPositions.set(monitoringAddress, currentPositionMap);
-        console.log(`[Monitor] ✓ Completed check for ${eoaAddress.substring(0, 8)}... (monitored via ${monitoringAddress.substring(0, 8)}...)`);
+        // Update stored positions using EOA address as key (consistent with initialization)
+        this.monitoredPositions.set(eoaAddress, currentPositionMap);
+        console.log(`[Monitor] ✓ Updated position map (${currentPositionMap.size} positions) for ${eoaAddress.substring(0, 8)}...`);
       } catch (error: any) {
         // Log error but continue monitoring other wallets
         const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
@@ -403,6 +370,7 @@ export class WalletMonitor {
 
   /**
    * Parse a position change into a DetectedTrade
+   * FIXED: Uses correct Polymarket API field names (asset, conditionId, size, avgPrice, outcome)
    */
   private async parsePositionToTrade(
     walletAddress: string,
@@ -412,101 +380,66 @@ export class WalletMonitor {
     previousPosition: any | null
   ): Promise<DetectedTrade | null> {
     try {
-      // Extract market information from position
-      const market = position.market || position.condition || {};
-      let marketId = market.id || market.questionId || market.conditionId;
+      // FIXED: Use conditionId from position (this is the market ID in Polymarket)
+      let marketId = position.conditionId;
       
-      // If we don't have a marketId, try to extract it from tokenId
-      // Polymarket token IDs are often in format: conditionId-outcomeIndex
-      if (!marketId && tokenId) {
-        const parts = tokenId.split('-');
-        if (parts.length >= 2) {
-          marketId = parts.slice(0, -1).join('-'); // Everything except last part
-        } else {
-          marketId = tokenId;
-        }
-      }
-      
-      // If still no marketId, we can't proceed
-      if (!marketId || marketId === 'unknown') {
-        console.warn(`Cannot determine marketId from position for token ${tokenId}, skipping trade`);
+      // If no conditionId, we can't proceed
+      if (!marketId) {
+        console.warn(`[Monitor] Cannot determine marketId from position (no conditionId), skipping trade`);
         return null;
       }
       
-      // Determine outcome (YES/NO) from token ID or market structure
-      // Polymarket tokens: [0] is YES, [1] is NO in clobTokenIds array
+      // FIXED: Use 'outcome' field directly from Polymarket API
+      // The API returns "Yes" or "No" as strings, we need to convert to uppercase
       let outcome: 'YES' | 'NO' = 'YES';
-      
-      // Try to get market info to determine outcome correctly
-      try {
-        const marketInfo = await this.api.getMarket(marketId);
-        if (marketInfo.clobTokenIds && marketInfo.clobTokenIds.length >= 2) {
-          const yesTokenId = marketInfo.clobTokenIds[0];
-          const noTokenId = marketInfo.clobTokenIds[1];
-          if (tokenId === noTokenId || tokenId === marketInfo.noTokenId) {
-            outcome = 'NO';
-          } else if (tokenId === yesTokenId || tokenId === marketInfo.yesTokenId) {
-            outcome = 'YES';
-          }
-        }
-      } catch (marketError: any) {
-        // Fallback to heuristics if market API fails
-        console.warn(`Could not fetch market info for outcome determination:`, marketError.message);
-        if (tokenId.toLowerCase().includes('no') || tokenId.endsWith('1') || tokenId.endsWith('-1')) {
-          outcome = 'NO';
-        }
+      if (position.outcome) {
+        outcome = position.outcome.toUpperCase() === 'NO' ? 'NO' : 'YES';
+      } else if (position.outcomeIndex !== undefined) {
+        // outcomeIndex: 0 = Yes, 1 = No
+        outcome = position.outcomeIndex === 1 ? 'NO' : 'YES';
       }
 
-      // Get price and amount
+      // FIXED: Use 'size' field for amount
       // For SELL, use the absolute change in position size
-      let amount = position.quantity || position.size || '0';
+      let amount: string;
       if (side === 'SELL' && previousPosition) {
-        const currentSize = parseFloat(position.quantity || position.size || '0');
-        const previousSize = parseFloat(previousPosition.quantity || previousPosition.size || '0');
+        const currentSize = parseFloat(position.size || '0');
+        const previousSize = parseFloat(previousPosition.size || '0');
         amount = Math.abs(currentSize - previousSize).toString();
+      } else {
+        amount = (position.size || '0').toString();
       }
       
-      // Try multiple sources for price
-      let price = position.avgPrice || position.price || market.currentPrice || market.price;
+      // FIXED: Use avgPrice or curPrice from Polymarket API
+      let price = position.avgPrice || position.curPrice;
       
-      // If price is still missing or invalid, try to get it from the market API
-      if (!price || price === '0' || parseFloat(price) <= 0 || parseFloat(price) > 1) {
+      // If price is missing, try to get from market API
+      if (!price || parseFloat(price) <= 0 || parseFloat(price) > 1) {
         try {
-          const marketInfo = await this.api.getMarket(marketId);
-          price = marketInfo.currentPrice || marketInfo.price || marketInfo.lastPrice;
-          
-          // If still no price, try to get from order book
-          if (!price || price === '0') {
-            try {
-              // Try to get price from order book (mid price)
-              const orderBook = await this.api.getOrderBook(tokenId);
-              if (orderBook?.bids?.[0] && orderBook?.asks?.[0]) {
-                const bidPrice = parseFloat(orderBook.bids[0].price || '0');
-                const askPrice = parseFloat(orderBook.asks[0].price || '0');
-                if (bidPrice > 0 && askPrice > 0) {
-                  price = ((bidPrice + askPrice) / 2).toString();
-                }
-              }
-            } catch (orderBookError: any) {
-              console.warn(`Could not get order book price for ${tokenId}:`, orderBookError.message);
+          const orderBook = await this.api.getOrderBook(tokenId);
+          if (orderBook?.bids?.[0] && orderBook?.asks?.[0]) {
+            const bidPrice = parseFloat(orderBook.bids[0].price || '0');
+            const askPrice = parseFloat(orderBook.asks[0].price || '0');
+            if (bidPrice > 0 && askPrice > 0) {
+              price = ((bidPrice + askPrice) / 2).toString();
             }
           }
-        } catch (marketError: any) {
-          console.warn(`Could not fetch market price for ${marketId}:`, marketError.message);
+        } catch (orderBookError: any) {
+          console.warn(`[Monitor] Could not get order book price for ${tokenId}:`, orderBookError.message);
         }
       }
       
       // Validate price before proceeding
       const priceNum = parseFloat(price || '0');
-      if (!price || price === '0' || isNaN(priceNum) || priceNum <= 0 || priceNum > 1) {
-        console.warn(`Invalid or missing price (${price}) for trade on market ${marketId}, skipping`);
+      if (!price || isNaN(priceNum) || priceNum <= 0 || priceNum > 1) {
+        console.warn(`[Monitor] Invalid or missing price (${price}) for trade on market ${marketId}, skipping`);
         return null;
       }
       
       // Validate amount
       const amountNum = parseFloat(amount || '0');
-      if (!amount || amount === '0' || isNaN(amountNum) || amountNum <= 0) {
-        console.warn(`Invalid or missing amount (${amount}) for trade on market ${marketId}, skipping`);
+      if (!amount || isNaN(amountNum) || amountNum <= 0) {
+        console.warn(`[Monitor] Invalid or missing amount (${amount}) for trade on market ${marketId}, skipping`);
         return null;
       }
 
@@ -518,106 +451,83 @@ export class WalletMonitor {
         price: price.toString(),
         side,
         timestamp: new Date(),
-        transactionHash: position.txHash || position.transactionHash || `pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        transactionHash: `pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       };
     } catch (error: any) {
-      console.error('Failed to parse position to trade:', error);
+      console.error('[Monitor] Failed to parse position to trade:', error);
       return null;
     }
   }
 
   /**
    * Parse trade data from API into DetectedTrade format
+   * FIXED: Uses correct Polymarket Data API field names
+   * 
+   * Polymarket /trades API returns:
+   * {
+   *   "asset": "12345...",        // token ID
+   *   "conditionId": "0xabc...",  // market ID (condition ID)
+   *   "side": "BUY" or "SELL",    // trade side
+   *   "size": 123,                // trade size
+   *   "price": 0.65,              // trade price
+   *   "timestamp": "2024-...",    // ISO timestamp
+   *   "outcome": "Yes" or "No",   // outcome name
+   *   "outcomeIndex": 0 or 1,     // 0=Yes, 1=No
+   *   "title": "Market Title",
+   *   "transactionHash": "0x..."  // optional tx hash
+   * }
    */
   private async parseTradeData(
     walletAddress: string,
     trade: any
   ): Promise<DetectedTrade | null> {
     try {
-      const market = trade.market || trade.condition || {};
-      let marketId = market.id || market.questionId || market.conditionId;
+      // FIXED: Use conditionId as the market ID (this is what Polymarket API returns)
+      let marketId = trade.conditionId;
       
-      // Try to extract marketId from tokenId if not available
-      if (!marketId && trade.tokenId) {
-        const parts = trade.tokenId.split('-');
-        if (parts.length >= 2) {
-          marketId = parts.slice(0, -1).join('-');
-        } else {
-          marketId = trade.tokenId;
-        }
+      // Fallback: try asset (token ID) as market ID if no conditionId
+      if (!marketId && trade.asset) {
+        marketId = trade.asset;
       }
       
       // If still no marketId, we can't proceed
       if (!marketId || marketId === 'unknown') {
-        console.warn(`Cannot determine marketId from trade data, skipping trade`);
+        console.warn(`[Monitor] Cannot determine marketId from trade data (no conditionId or asset), skipping trade`);
         return null;
       }
 
-      // Determine outcome (YES/NO) from trade data or market structure
+      // FIXED: Determine outcome from 'outcome' or 'outcomeIndex' fields
       let outcome: 'YES' | 'NO' = 'YES';
-      
-      // Check if trade data explicitly specifies outcome
-      if (trade.outcome === 'NO' || trade.outcome === 1 || trade.side === 'NO') {
-        outcome = 'NO';
-      } else if (trade.outcome === 'YES' || trade.outcome === 0 || trade.side === 'YES') {
-        outcome = 'YES';
-      } else {
-        // Try to determine from market structure
-        try {
-          const marketInfo = await this.api.getMarket(marketId);
-          if (marketInfo.clobTokenIds && marketInfo.clobTokenIds.length >= 2) {
-            const yesTokenId = marketInfo.clobTokenIds[0];
-            const noTokenId = marketInfo.clobTokenIds[1];
-            if (trade.tokenId) {
-              if (trade.tokenId === noTokenId || trade.tokenId === marketInfo.noTokenId) {
-                outcome = 'NO';
-              } else if (trade.tokenId === yesTokenId || trade.tokenId === marketInfo.yesTokenId) {
-                outcome = 'YES';
-              }
-            }
-          }
-        } catch (marketError: any) {
-          // Fallback to heuristics
-          console.warn(`Could not fetch market info for outcome determination:`, marketError.message);
-          if (trade.tokenId && (trade.tokenId.toLowerCase().includes('no') || trade.tokenId.endsWith('1') || trade.tokenId.endsWith('-1'))) {
-            outcome = 'NO';
-          }
-        }
+      if (trade.outcome) {
+        // outcome field contains "Yes" or "No" as strings
+        outcome = trade.outcome.toUpperCase() === 'NO' ? 'NO' : 'YES';
+      } else if (trade.outcomeIndex !== undefined) {
+        // outcomeIndex: 0 = Yes, 1 = No
+        outcome = trade.outcomeIndex === 1 ? 'NO' : 'YES';
       }
 
-      // Determine side from trade data
-      // Check if API provides side directly, or infer from trade type
+      // FIXED: Use 'side' field directly from Polymarket API
       let side: 'BUY' | 'SELL' = 'BUY';
       if (trade.side) {
-        // API might provide 'buy'/'sell' or 'BUY'/'SELL'
         const tradeSide = trade.side.toUpperCase();
         side = (tradeSide === 'SELL' || tradeSide === 'S') ? 'SELL' : 'BUY';
-      } else if (trade.type) {
-        // Some APIs use 'type' field
-        const tradeType = trade.type.toUpperCase();
-        side = (tradeType === 'SELL' || tradeType === 'S') ? 'SELL' : 'BUY';
-      } else if (trade.action) {
-        // Some APIs use 'action' field
-        const action = trade.action.toUpperCase();
-        side = (action === 'SELL' || action === 'S') ? 'SELL' : 'BUY';
       }
-      // Default to BUY if we can't determine
 
-      // Get price and amount
-      let price = trade.price || trade.avgPrice || trade.fillPrice || market.currentPrice || '0';
-      let amount = trade.size || trade.quantity || trade.amount || '0';
+      // FIXED: Use 'price' and 'size' fields from Polymarket API
+      let price = trade.price;
+      let amount = trade.size;
       
-      // Validate price and amount
+      // Validate price
       const priceNum = parseFloat(price || '0');
-      const amountNum = parseFloat(amount || '0');
-      
-      if (!price || price === '0' || isNaN(priceNum) || priceNum <= 0 || priceNum > 1) {
-        console.warn(`Invalid or missing price (${price}) for trade on market ${marketId}, skipping`);
+      if (!price || isNaN(priceNum) || priceNum <= 0 || priceNum > 1) {
+        console.warn(`[Monitor] Invalid or missing price (${price}) for trade on market ${marketId}, skipping`);
         return null;
       }
       
-      if (!amount || amount === '0' || isNaN(amountNum) || amountNum <= 0) {
-        console.warn(`Invalid or missing amount (${amount}) for trade on market ${marketId}, skipping`);
+      // Validate amount
+      const amountNum = parseFloat(amount || '0');
+      if (!amount || isNaN(amountNum) || amountNum <= 0) {
+        console.warn(`[Monitor] Invalid or missing amount (${amount}) for trade on market ${marketId}, skipping`);
         return null;
       }
 
@@ -628,11 +538,11 @@ export class WalletMonitor {
         amount: amount.toString(),
         price: price.toString(),
         side,
-        timestamp: new Date(trade.timestamp || trade.createdAt || trade.time || Date.now()),
-        transactionHash: trade.txHash || trade.transactionHash || trade.id || `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        timestamp: new Date(trade.timestamp || Date.now()),
+        transactionHash: trade.transactionHash || trade.id || `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       };
     } catch (error: any) {
-      console.error('Failed to parse trade data:', error);
+      console.error('[Monitor] Failed to parse trade data:', error);
       return null;
     }
   }
@@ -652,33 +562,25 @@ export class WalletMonitor {
     for (const wallet of wallets) {
       const eoaAddress = wallet.address.toLowerCase();
       
-      // Get proxy wallet address for monitoring
-      let monitoringAddress = eoaAddress;
-      try {
-        const proxyAddress = await this.api.getProxyWalletAddress(eoaAddress);
-        if (proxyAddress) {
-          monitoringAddress = proxyAddress.toLowerCase();
-        }
-      } catch (proxyError: any) {
-        // Use EOA if proxy lookup fails
-      }
-      
-      if (!this.monitoredPositions.has(monitoringAddress)) {
+      // Use EOA address directly - Polymarket Data API works with EOA
+      // and returns proxyWallet in the response if one exists
+      if (!this.monitoredPositions.has(eoaAddress)) {
         try {
-          const positions = await this.api.getUserPositions(monitoringAddress);
+          const positions = await this.api.getUserPositions(eoaAddress);
           const positionMap = new Map<string, any>();
           
           for (const position of positions) {
-            const tokenId = position.tokenId || position.token_id || position.market?.tokenId;
+            // FIXED: Use 'asset' field which is the token ID in Polymarket API
+            const tokenId = position.asset;
             if (tokenId) {
               positionMap.set(tokenId, position);
             }
           }
           
-          this.monitoredPositions.set(monitoringAddress, positionMap);
-          console.log(`Initialized ${positionMap.size} positions for newly added wallet ${eoaAddress.substring(0, 8)}... (monitored via ${monitoringAddress.substring(0, 8)}...)`);
+          this.monitoredPositions.set(eoaAddress, positionMap);
+          console.log(`[Monitor] Initialized ${positionMap.size} positions for newly added wallet ${eoaAddress.substring(0, 8)}...`);
         } catch (error: any) {
-          console.warn(`Failed to initialize positions for new wallet ${wallet.address}:`, error.message);
+          console.warn(`[Monitor] Failed to initialize positions for new wallet ${wallet.address}:`, error.message);
         }
       }
     }
@@ -688,7 +590,7 @@ export class WalletMonitor {
     for (const [address] of this.monitoredPositions.entries()) {
       if (!trackedAddresses.has(address)) {
         this.monitoredPositions.delete(address);
-        console.log(`Removed wallet ${address.substring(0, 8)}... from monitoring`);
+        console.log(`[Monitor] Removed wallet ${address.substring(0, 8)}... from monitoring`);
       }
     }
   }
