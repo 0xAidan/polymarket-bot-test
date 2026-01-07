@@ -31,270 +31,443 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Polymarket Copytrade Bot - Dashboard</title>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
+          
+          :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --info: #3b82f6;
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --surface-light: #334155;
+            --text: #f1f5f9;
+            --text-muted: #94a3b8;
+            --border: #334155;
+            --shadow: rgba(0, 0, 0, 0.3);
           }
+
+          body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 24px;
+            line-height: 1.6;
+          }
+
           .dashboard {
-            max-width: 1400px;
+            max-width: 1600px;
             margin: 0 auto;
           }
+
           .header {
-            background: white;
-            padding: 30px;
-            border-radius: 12px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            background: linear-gradient(135deg, var(--surface) 0%, var(--surface-light) 100%);
+            padding: 32px;
+            border-radius: 16px;
+            margin-bottom: 24px;
+            box-shadow: 0 8px 24px var(--shadow);
+            border: 1px solid var(--border);
           }
-          .header h1 {
-            color: #333;
-            margin-bottom: 15px;
+
+          .header-content {
             display: flex;
-            align-items: center;
-            gap: 10px;
-          }
-          .header-controls {
-            display: flex;
-            gap: 10px;
+            justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
+            gap: 20px;
           }
+
+          .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary) 0%, #8b5cf6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+          }
+
+          .header-controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+          }
+
           .status-badge {
-            padding: 8px 16px;
-            border-radius: 20px;
+            padding: 10px 20px;
+            border-radius: 24px;
             font-weight: 600;
             font-size: 14px;
-          }
-          .status-badge.running {
-            background: #d4edda;
-            color: #155724;
-          }
-          .status-badge.stopped {
-            background: #f8d7da;
-            color: #721c24;
-          }
-          .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 20px;
-          }
-          .metric-card {
-            background: white;
-            padding: 25px;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-          }
-          .metric-card h3 {
-            color: #666;
-            font-size: 14px;
-            font-weight: 500;
-            margin-bottom: 10px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
           }
+
+          .status-badge.running {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+          }
+
+          .status-badge.stopped {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--danger);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+          }
+
+          .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 24px;
+          }
+
+          .metric-card {
+            background: var(--surface);
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px var(--shadow);
+            border: 1px solid var(--border);
+            transition: transform 0.2s, box-shadow 0.2s;
+          }
+
+          .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px var(--shadow);
+          }
+
+          .metric-card h3 {
+            color: var(--text-muted);
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+          }
+
           .metric-value {
-            font-size: 32px;
+            font-size: 36px;
             font-weight: 700;
-            color: #333;
-            margin-bottom: 5px;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, var(--text) 0%, var(--text-muted) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
           }
+
           .metric-label {
-            font-size: 12px;
-            color: #999;
+            font-size: 13px;
+            color: var(--text-muted);
           }
-          .metric-card.success { border-left: 4px solid #28a745; }
-          .metric-card.warning { border-left: 4px solid #ffc107; }
-          .metric-card.danger { border-left: 4px solid #dc3545; }
-          .metric-card.info { border-left: 4px solid #17a2b8; }
+
+          .metric-card.success { border-left: 4px solid var(--success); }
+          .metric-card.warning { border-left: 4px solid var(--warning); }
+          .metric-card.danger { border-left: 4px solid var(--danger); }
+          .metric-card.info { border-left: 4px solid var(--info); }
+
           .section {
-            background: white;
-            padding: 25px;
-            border-radius: 12px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            background: var(--surface);
+            padding: 28px;
+            border-radius: 16px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 12px var(--shadow);
+            border: 1px solid var(--border);
           }
+
           .section h2 {
-            color: #333;
-            margin-bottom: 20px;
-            font-size: 20px;
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 24px;
+            color: var(--text);
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
           }
+
           button {
-            padding: 10px 20px;
+            padding: 12px 24px;
             border: none;
-            border-radius: 6px;
+            border-radius: 8px;
             font-size: 14px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s;
+            font-family: inherit;
           }
-          button:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+
+          button:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
           button:active { transform: translateY(0); }
-          .btn-primary { background: #007bff; color: white; }
-          .btn-danger { background: #dc3545; color: white; }
-          .btn-success { background: #28a745; color: white; }
-          input[type="text"] {
-            padding: 10px 15px;
-            border: 2px solid #ddd;
-            border-radius: 6px;
-            font-size: 14px;
-            width: 100%;
-            max-width: 500px;
-            margin-right: 10px;
+          button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+          .btn-primary { 
+            background: var(--primary); 
+            color: white; 
           }
-          input:focus {
-            outline: none;
-            border-color: #007bff;
+          .btn-primary:hover { background: var(--primary-dark); }
+
+          .btn-danger { 
+            background: var(--danger); 
+            color: white; 
           }
-          .wallet-input-group {
+          .btn-danger:hover { background: #dc2626; }
+
+          .btn-success { 
+            background: var(--success); 
+            color: white; 
+          }
+          .btn-success:hover { background: #059669; }
+
+          .input-group {
             display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
+            gap: 12px;
+            margin-bottom: 24px;
             flex-wrap: wrap;
-          }
-          .wallet-list {
-            display: grid;
-            gap: 15px;
-          }
-          .wallet-card {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 8px;
-            border: 1px solid #e9ecef;
-            display: grid;
-            grid-template-columns: 1fr auto;
-            gap: 15px;
             align-items: start;
           }
+
+          input[type="text"] {
+            flex: 1;
+            min-width: 300px;
+            padding: 14px 18px;
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            font-size: 14px;
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Monaco', 'Menlo', monospace;
+            transition: all 0.2s;
+          }
+
+          input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+          }
+
+          input.error {
+            border-color: var(--danger);
+          }
+
+          .input-error {
+            color: var(--danger);
+            font-size: 13px;
+            margin-top: 6px;
+            display: none;
+          }
+
+          .input-error.show {
+            display: block;
+          }
+
+          .chart-container {
+            position: relative;
+            height: 400px;
+            margin-top: 20px;
+            background: var(--bg);
+            border-radius: 12px;
+            padding: 20px;
+          }
+
+          .wallet-list {
+            display: grid;
+            gap: 16px;
+          }
+
+          .wallet-card {
+            background: var(--bg);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 20px;
+            align-items: start;
+            transition: all 0.2s;
+          }
+
+          .wallet-card:hover {
+            border-color: var(--primary);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+          }
+
           .wallet-info {
             display: grid;
-            gap: 8px;
+            gap: 12px;
           }
+
           .wallet-address {
-            font-family: monospace;
-            font-size: 14px;
-            color: #333;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 15px;
+            color: var(--text);
             word-break: break-all;
+            font-weight: 500;
           }
+
           .wallet-stats {
             display: flex;
-            gap: 20px;
-            margin-top: 10px;
+            gap: 24px;
+            margin-top: 8px;
             flex-wrap: wrap;
           }
+
           .wallet-stat {
             font-size: 13px;
-            color: #666;
+            color: var(--text-muted);
           }
+
           .wallet-stat strong {
-            color: #333;
+            color: var(--text);
             display: block;
-            font-size: 16px;
-            margin-bottom: 2px;
+            font-size: 18px;
+            margin-bottom: 4px;
+            font-weight: 600;
           }
+
           .table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 15px;
+            margin-top: 16px;
           }
+
           .table th,
           .table td {
-            padding: 12px;
+            padding: 14px;
             text-align: left;
-            border-bottom: 1px solid #e9ecef;
+            border-bottom: 1px solid var(--border);
           }
+
           .table th {
-            background: #f8f9fa;
+            background: var(--bg);
             font-weight: 600;
-            color: #666;
+            color: var(--text-muted);
             font-size: 12px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
           }
+
           .table td {
             font-size: 14px;
+            color: var(--text);
           }
+
+          .table tr:hover {
+            background: rgba(99, 102, 241, 0.05);
+          }
+
           .badge {
-            padding: 4px 10px;
-            border-radius: 12px;
+            padding: 6px 12px;
+            border-radius: 16px;
             font-size: 12px;
             font-weight: 600;
+            display: inline-block;
           }
-          .badge-success { background: #d4edda; color: #155724; }
-          .badge-danger { background: #f8d7da; color: #721c24; }
-          .badge-yes { background: #cce5ff; color: #004085; }
-          .badge-no { background: #ffe5e5; color: #721c24; }
+
+          .badge-success { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+          .badge-danger { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+          .badge-yes { background: rgba(59, 130, 246, 0.2); color: var(--info); }
+          .badge-no { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+
           .issue-item {
-            padding: 15px;
-            margin-bottom: 10px;
-            border-radius: 6px;
+            padding: 16px;
+            margin-bottom: 12px;
+            border-radius: 8px;
             border-left: 4px solid;
-            background: #f8f9fa;
+            background: var(--bg);
+            border: 1px solid var(--border);
           }
-          .issue-item.error { border-left-color: #dc3545; }
-          .issue-item.warning { border-left-color: #ffc107; }
-          .issue-item.info { border-left-color: #17a2b8; }
+
+          .issue-item.error { border-left-color: var(--danger); }
+          .issue-item.warning { border-left-color: var(--warning); }
+          .issue-item.info { border-left-color: var(--info); }
+
           .issue-header {
             display: flex;
             justify-content: space-between;
             align-items: start;
-            margin-bottom: 5px;
+            margin-bottom: 8px;
           }
+
           .issue-message {
             font-weight: 600;
-            color: #333;
+            color: var(--text);
           }
+
           .issue-time {
             font-size: 12px;
-            color: #999;
+            color: var(--text-muted);
           }
+
           .issue-details {
             font-size: 13px;
-            color: #666;
-            margin-top: 5px;
+            color: var(--text-muted);
+            margin-top: 8px;
+            font-family: monospace;
           }
-          .loading {
+
+          .loading, .empty-state {
             text-align: center;
-            padding: 40px;
-            color: #999;
+            padding: 60px 20px;
+            color: var(--text-muted);
+            font-size: 15px;
           }
-          .empty-state {
-            text-align: center;
-            padding: 40px;
-            color: #999;
+
+          .tooltip {
+            position: absolute;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            box-shadow: 0 8px 24px var(--shadow);
+            z-index: 1000;
+            pointer-events: none;
+            display: none;
+            max-width: 300px;
+            font-size: 13px;
           }
+
+          .tooltip.show {
+            display: block;
+          }
+
+          .tooltip h4 {
+            margin-bottom: 8px;
+            color: var(--text);
+            font-size: 14px;
+          }
+
+          .tooltip p {
+            margin: 4px 0;
+            color: var(--text-muted);
+            font-size: 12px;
+          }
+
           @media (max-width: 768px) {
-            .metrics-grid {
-              grid-template-columns: 1fr;
-            }
-            .wallet-card {
-              grid-template-columns: 1fr;
-            }
-            .table {
-              font-size: 12px;
-            }
-            .table th,
-            .table td {
-              padding: 8px;
-            }
+            body { padding: 16px; }
+            .metrics-grid { grid-template-columns: 1fr; }
+            .wallet-card { grid-template-columns: 1fr; }
+            .header-content { flex-direction: column; align-items: stretch; }
+            .input-group { flex-direction: column; }
+            input[type="text"] { min-width: 100%; }
           }
         </style>
       </head>
       <body>
         <div class="dashboard">
           <div class="header">
-            <h1>🤖 Polymarket Copytrade Bot</h1>
-            <div class="header-controls">
-              <span id="statusBadge" class="status-badge stopped">⏸️ Stopped</span>
-              <button id="startBtn" onclick="startBot()" class="btn-success">▶ Start Bot</button>
-              <button id="stopBtn" onclick="stopBot()" class="btn-danger">⏸ Stop Bot</button>
+            <div class="header-content">
+              <h1>🤖 Polymarket Copytrade Bot</h1>
+              <div class="header-controls">
+                <span id="statusBadge" class="status-badge stopped">⏸️ Stopped</span>
+                <button id="startBtn" onclick="startBot()" class="btn-success">▶ Start</button>
+                <button id="stopBtn" onclick="stopBot()" class="btn-danger">⏸ Stop</button>
+              </div>
             </div>
           </div>
 
@@ -332,9 +505,20 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
           </div>
 
           <div class="section">
+            <h2>📈 Performance Over Time</h2>
+            <div class="chart-container">
+              <canvas id="performanceChart"></canvas>
+            </div>
+            <div id="chartTooltip" class="tooltip"></div>
+          </div>
+
+          <div class="section">
             <h2>📊 Tracked Wallets</h2>
-            <div class="wallet-input-group">
-              <input type="text" id="walletInput" placeholder="Enter wallet address (0x...)" />
+            <div class="input-group">
+              <div style="flex: 1; min-width: 300px;">
+                <input type="text" id="walletInput" placeholder="Enter wallet address (0x...)" />
+                <div id="walletInputError" class="input-error">Invalid wallet address format</div>
+              </div>
               <button onclick="addWallet()" class="btn-success">+ Add Wallet</button>
             </div>
             <div id="walletList" class="wallet-list">
@@ -343,7 +527,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
           </div>
 
           <div class="section">
-            <h2>📈 Recent Trades</h2>
+            <h2>📋 Recent Trades</h2>
             <div id="tradesContainer">
               <div class="loading">Loading trades...</div>
             </div>
@@ -360,6 +544,34 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
         <script>
           // State management
           let updateInterval = null;
+          let performanceChart = null;
+          let tooltip = null;
+
+          // Wallet validation
+          function isValidWalletAddress(address) {
+            return /^0x[a-fA-F0-9]{40}$/i.test(address);
+          }
+
+          function validateWalletInput(input) {
+            const errorDiv = document.getElementById('walletInputError');
+            const address = input.value.trim();
+            
+            if (!address) {
+              input.classList.remove('error');
+              errorDiv.classList.remove('show');
+              return true;
+            }
+
+            if (!isValidWalletAddress(address)) {
+              input.classList.add('error');
+              errorDiv.classList.add('show');
+              return false;
+            }
+
+            input.classList.remove('error');
+            errorDiv.classList.remove('show');
+            return true;
+          }
 
           // Format helpers
           function formatTime(ms) {
@@ -380,6 +592,146 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             return address.substring(0, 6) + '...' + address.substring(address.length - 4);
           }
 
+          function formatCurrency(value) {
+            return new Intl.NumberFormat('en-US', {
+              style: 'currency',
+              currency: 'USD',
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            }).format(value);
+          }
+
+          // Initialize Chart.js
+          function initChart() {
+            const ctx = document.getElementById('performanceChart');
+            tooltip = document.getElementById('chartTooltip');
+            
+            performanceChart = new Chart(ctx, {
+              type: 'line',
+              data: {
+                datasets: [{
+                  label: 'Balance',
+                  data: [],
+                  borderColor: '#6366f1',
+                  backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                  borderWidth: 2,
+                  fill: true,
+                  tension: 0.4,
+                  pointRadius: 0,
+                  pointHoverRadius: 6,
+                  pointHoverBackgroundColor: '#6366f1',
+                  pointHoverBorderColor: '#fff',
+                  pointHoverBorderWidth: 2
+                }]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: {
+                    display: false
+                  },
+                  tooltip: {
+                    enabled: false,
+                    external: function(context) {
+                      const tooltipEl = tooltip;
+                      if (!tooltipEl) return;
+                      
+                      if (context.tooltip.opacity === 0) {
+                        tooltipEl.classList.remove('show');
+                        return;
+                      }
+
+                      const dataPoint = context.tooltip.dataPoints[0];
+                      if (!dataPoint) return;
+
+                      const point = dataPoint.raw;
+                      const tradeDetails = point.tradeDetails;
+
+                      if (tradeDetails) {
+                        tooltipEl.innerHTML = \`
+                          <h4>Trade Details</h4>
+                          <p><strong>Time:</strong> \${formatDate(point.x)}</p>
+                          <p><strong>Balance:</strong> \${formatCurrency(point.y)}</p>
+                          <p><strong>Outcome:</strong> \${tradeDetails.outcome}</p>
+                          <p><strong>Amount:</strong> \${tradeDetails.amount}</p>
+                          <p><strong>Price:</strong> \${tradeDetails.price}</p>
+                          <p><strong>Status:</strong> \${tradeDetails.success ? '✅ Success' : '❌ Failed'}</p>
+                        \`;
+                      } else {
+                        tooltipEl.innerHTML = \`
+                          <h4>Starting Point</h4>
+                          <p><strong>Time:</strong> \${formatDate(point.x)}</p>
+                          <p><strong>Balance:</strong> \${formatCurrency(point.y)}</p>
+                        \`;
+                      }
+
+                      const position = context.chart.canvas.getBoundingClientRect();
+                      tooltipEl.style.left = position.left + context.tooltip.caretX + 'px';
+                      tooltipEl.style.top = position.top + context.tooltip.caretY - 60 + 'px';
+                      tooltipEl.classList.add('show');
+                    }
+                  }
+                },
+                scales: {
+                  x: {
+                    type: 'time',
+                    time: {
+                      displayFormats: {
+                        hour: 'HH:mm',
+                        day: 'MMM dd'
+                      }
+                    },
+                    grid: {
+                      color: 'rgba(148, 163, 184, 0.1)'
+                    },
+                    ticks: {
+                      color: '#94a3b8'
+                    }
+                  },
+                  y: {
+                    grid: {
+                      color: 'rgba(148, 163, 184, 0.1)'
+                    },
+                    ticks: {
+                      color: '#94a3b8',
+                      callback: function(value) {
+                        return formatCurrency(value);
+                      }
+                    }
+                  }
+                },
+                interaction: {
+                  intersect: false,
+                  mode: 'index'
+                }
+              }
+            });
+
+            loadChartData();
+          }
+
+          // Load chart data
+          async function loadChartData() {
+            try {
+              const res = await fetch('/api/performance/data?initialBalance=1000');
+              const data = await res.json();
+              
+              if (data.success && data.dataPoints && data.dataPoints.length > 0) {
+                const chartData = data.dataPoints.map(dp => ({
+                  x: new Date(dp.timestamp),
+                  y: dp.balance,
+                  tradeDetails: dp.tradeDetails
+                }));
+
+                performanceChart.data.datasets[0].data = chartData;
+                performanceChart.update('none');
+              }
+            } catch (error) {
+              console.error('Failed to load chart data:', error);
+            }
+          }
+
           // Load performance metrics
           async function loadPerformance() {
             try {
@@ -396,6 +748,8 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                 document.getElementById('successfulTrades').textContent = data.successfulTrades;
                 document.getElementById('failedTrades').textContent = data.failedTrades;
               }
+              
+              await loadChartData();
             } catch (error) {
               console.error('Failed to load performance:', error);
             }
@@ -551,7 +905,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                       <div class="issue-message">
                         [\${issue.category}] \${issue.message}
                       </div>
-                      <button onclick="resolveIssue('\${issue.id}')" class="btn-primary" style="font-size: 12px; padding: 5px 10px;">Resolve</button>
+                      <button onclick="resolveIssue('\${issue.id}')" class="btn-primary" style="font-size: 12px; padding: 6px 12px;">Resolve</button>
                     </div>
                     <div class="issue-time">\${formatDate(issue.timestamp)}</div>
                     \${issue.details ? \`<div class="issue-details">\${JSON.stringify(issue.details)}</div>\` : ''}
@@ -571,13 +925,13 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
           async function addWallet() {
             const input = document.getElementById('walletInput');
             const address = input.value.trim();
+            
             if (!address) {
               alert('Please enter a wallet address');
               return;
             }
 
-            if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
-              alert('Invalid wallet address format');
+            if (!validateWalletInput(input)) {
               return;
             }
 
@@ -590,6 +944,8 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
               const data = await res.json();
               if (data.success) {
                 input.value = '';
+                input.classList.remove('error');
+                document.getElementById('walletInputError').classList.remove('show');
                 loadWallets();
                 loadPerformance();
               } else {
@@ -676,14 +1032,23 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             loadIssues();
           }
 
-          // Allow Enter key to add wallet
+          // Initialize on page load
           document.addEventListener('DOMContentLoaded', () => {
             const walletInput = document.getElementById('walletInput');
+            
+            // Real-time wallet validation
+            walletInput.addEventListener('input', () => {
+              validateWalletInput(walletInput);
+            });
+
             walletInput.addEventListener('keypress', (e) => {
               if (e.key === 'Enter') {
                 addWallet();
               }
             });
+
+            // Initialize chart
+            initChart();
 
             // Initial load
             refreshAll();

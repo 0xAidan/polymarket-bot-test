@@ -63,6 +63,10 @@ export class PolymarketApi {
 
     try {
       // Polymarket typically uses wallet signature authentication
+      if (!this.signer) {
+        throw new Error('Signer not initialized');
+      }
+
       // Create a message to sign
       const message = `Sign in to Polymarket\nTimestamp: ${Date.now()}`;
       
@@ -206,6 +210,10 @@ export class PolymarketApi {
         price: orderParams.price,
         nonce: orderParams.nonce || Date.now(),
       };
+
+      if (!this.signer) {
+        throw new Error('Signer not initialized');
+      }
 
       // Sign the order (Polymarket CLOB may require EIP-712 signing)
       const orderMessage = JSON.stringify(order);

@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { config } from './config.js';
-import { TradeMetrics, SystemIssue, PerformanceStats, WalletStats } from './types.js';
+import { TradeMetrics, SystemIssue, PerformanceStats, WalletStats, PerformanceDataPoint } from './types.js';
 
 const METRICS_FILE = path.join(config.dataDir, 'trade_metrics.json');
 const ISSUES_FILE = path.join(config.dataDir, 'system_issues.json');
@@ -251,6 +251,79 @@ export class PerformanceTracker {
     } catch (error) {
       // Directory might already exist
     }
+  }
+
+  /**
+   * Get performance data over time for charting
+   * Simulates balance changes based on trade outcomes
+   */
+  getPerformanceData(initialBalance = 1000): PerformanceDataPoint[] {
+    if (this.metrics.length === 0) {
+      return [{
+        timestamp: this.startTime,
+        balance: initialBalance,
+        totalTrades: 0,
+        successfulTrades: 0,
+        cumulativeVolume: 0
+      }];
+    }
+
+    // Sort trades by timestamp
+    const sortedTrades = [...this.metrics].sort((a, b) => 
+      a.timestamp.getTime() - b.timestamp.getTime()
+    );
+
+    const dataPoints: PerformanceDataPoint[] = [];
+    let currentBalance = initialBalance;
+    let cumulativeVolume = 0;
+
+    // Add starting point
+    dataPoints.push({
+      timestamp: this.startTime,
+      balance: currentBalance,
+      totalTrades: 0,
+      successfulTrades: 0,
+      cumulativeVolume: 0
+    });
+
+    // Process each trade
+    let successfulCount = 0;
+    for (const trade of sortedTrades) {
+      cumulativeVolume += parseFloat(trade.amount) || 0;
+      
+      // Simulate balance change
+      // For successful trades, assume small profit/loss based on price movement
+      // This is a simplified model - in reality you'd track actual P&L
+      if (trade.success) {
+        const amount = parseFloat(trade.amount) || 0;
+        const price = parseFloat(trade.price) || 0;
+        // Simple model: assume we can profit if price moves favorably
+        // In practice, you'd need to track actual position outcomes
+        const estimatedPnL = amount * price * 0.02; // 2% estimated gain/loss
+        currentBalance += estimatedPnL;
+        successfulCount++;
+      } else {
+        // Failed trades don't affect balance (order didn't execute)
+      }
+
+      dataPoints.push({
+        timestamp: trade.timestamp,
+        balance: Math.max(0, currentBalance), // Ensure non-negative
+        totalTrades: dataPoints.length,
+        successfulTrades: successfulCount,
+        cumulativeVolume,
+        tradeId: trade.id,
+        tradeDetails: {
+          marketId: trade.marketId,
+          outcome: trade.outcome,
+          amount: trade.amount,
+          price: trade.price,
+          success: trade.success
+        }
+      });
+    }
+
+    return dataPoints;
   }
 
   /**

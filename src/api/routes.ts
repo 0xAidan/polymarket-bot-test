@@ -139,5 +139,16 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
+  // Get performance data for charting
+  router.get('/performance/data', (req: Request, res: Response) => {
+    try {
+      const initialBalance = parseFloat(req.query.initialBalance as string) || 1000;
+      const dataPoints = performanceTracker.getPerformanceData(initialBalance);
+      res.json({ success: true, dataPoints });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   return router;
 }

@@ -105,3 +105,22 @@ export interface WalletStats {
   averageLatencyMs: number;
   lastActivity?: Date;
 }
+
+/**
+ * Performance data point for charting
+ */
+export interface PerformanceDataPoint {
+  timestamp: Date;
+  balance: number;
+  totalTrades: number;
+  successfulTrades: number;
+  cumulativeVolume: number;
+  tradeId?: string;
+  tradeDetails?: {
+    marketId: string;
+    outcome: 'YES' | 'NO';
+    amount: string;
+    price: string;
+    success: boolean;
+  };
+}
