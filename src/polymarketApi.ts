@@ -1,7 +1,39 @@
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosInstance, AxiosError } from 'axios';
 import { ethers } from 'ethers';
 import { config } from './config.js';
 import { DetectedTrade } from './types.js';
+
+/**
+ * Retry configuration for API requests
+ */
+const RETRY_CONFIG = {
+  maxRetries: 3,
+  retryDelayMs: 1000, // Start with 1 second
+  retryableStatusCodes: [429, 500, 502, 503, 504], // Rate limit and server errors
+  retryableErrors: ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND']
+};
+
+/**
+ * Sleep helper for retries
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Check if an error is retryable
+ */
+function isRetryableError(error: any): boolean {
+  if (error.response) {
+    // HTTP error response
+    return RETRY_CONFIG.retryableStatusCodes.includes(error.response.status);
+  }
+  if (error.code) {
+    // Network error
+    return RETRY_CONFIG.retryableErrors.includes(error.code);
+  }
+  return false;
+}
 
 /**
  * Polymarket API client
@@ -15,25 +47,27 @@ export class PolymarketApi {
   private authToken: string | null = null;
 
   constructor() {
-    this.dataApiClient = axios.create({
-      baseURL: config.polymarketDataApiUrl,
+    // Configure with timeouts and retry logic
+    const axiosConfig = {
+      timeout: 30000, // 30 second timeout
       headers: {
         'Content-Type': 'application/json',
       }
+    };
+
+    this.dataApiClient = axios.create({
+      ...axiosConfig,
+      baseURL: config.polymarketDataApiUrl,
     });
 
     this.clobApiClient = axios.create({
+      ...axiosConfig,
       baseURL: config.polymarketClobApiUrl,
-      headers: {
-        'Content-Type': 'application/json',
-      }
     });
 
     this.gammaApiClient = axios.create({
+      ...axiosConfig,
       baseURL: config.polymarketGammaApiUrl,
-      headers: {
-        'Content-Type': 'application/json',
-      }
     });
   }
 
@@ -135,72 +169,101 @@ export class PolymarketApi {
   }
 
   /**
+   * Retry wrapper for API requests
+   */
+  private async retryRequest<T>(
+    requestFn: () => Promise<T>,
+    operation: string,
+    retries = RETRY_CONFIG.maxRetries
+  ): Promise<T> {
+    let lastError: any;
+    
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        return await requestFn();
+      } catch (error: any) {
+        lastError = error;
+        
+        // Don't retry on last attempt or if error is not retryable
+        if (attempt === retries || !isRetryableError(error)) {
+          throw error;
+        }
+        
+        // Calculate exponential backoff delay
+        const delay = RETRY_CONFIG.retryDelayMs * Math.pow(2, attempt);
+        console.warn(`${operation} failed (attempt ${attempt + 1}/${retries + 1}), retrying in ${delay}ms...`, error.message);
+        await sleep(delay);
+      }
+    }
+    
+    throw lastError;
+  }
+
+  /**
    * Get user positions from Data API
    * This helps us detect new trades by comparing position changes
    */
   async getUserPositions(userAddress: string): Promise<any[]> {
-    try {
-      const response = await this.dataApiClient.get(`/users/${userAddress.toLowerCase()}/positions`);
-      return response.data || [];
-    } catch (error: any) {
-      if (error.response?.status === 404) {
-        // User has no positions
-        return [];
+    return this.retryRequest(async () => {
+      try {
+        const response = await this.dataApiClient.get(`/users/${userAddress.toLowerCase()}/positions`);
+        return response.data || [];
+      } catch (error: any) {
+        if (error.response?.status === 404) {
+          // User has no positions
+          return [];
+        }
+        // Re-throw to trigger retry logic
+        throw error;
       }
-      console.error(`Failed to get positions for ${userAddress}:`, error.message);
-      throw error;
-    }
+    }, `getUserPositions(${userAddress.substring(0, 8)}...)`);
   }
 
   /**
    * Get user's trade history
    */
   async getUserTrades(userAddress: string, limit = 50): Promise<any[]> {
-    try {
-      const response = await this.dataApiClient.get(
-        `/users/${userAddress.toLowerCase()}/trades`,
-        { params: { limit } }
-      );
-      return response.data || [];
-    } catch (error: any) {
-      if (error.response?.status === 404) {
-        return [];
+    return this.retryRequest(async () => {
+      try {
+        const response = await this.dataApiClient.get(
+          `/users/${userAddress.toLowerCase()}/trades`,
+          { params: { limit } }
+        );
+        return response.data || [];
+      } catch (error: any) {
+        if (error.response?.status === 404) {
+          return [];
+        }
+        throw error;
       }
-      console.error(`Failed to get trades for ${userAddress}:`, error.message);
-      throw error;
-    }
+    }, `getUserTrades(${userAddress.substring(0, 8)}...)`);
   }
 
   /**
    * Get market information from Gamma API
    */
   async getMarket(marketId: string): Promise<any> {
-    try {
+    return this.retryRequest(async () => {
       const response = await this.gammaApiClient.get(`/markets/${marketId}`);
       return response.data;
-    } catch (error: any) {
-      console.error(`Failed to get market ${marketId}:`, error.message);
-      throw error;
-    }
+    }, `getMarket(${marketId})`);
   }
 
   /**
    * Get order book for a market from CLOB API
    */
   async getOrderBook(tokenId: string): Promise<any> {
-    try {
+    return this.retryRequest(async () => {
       const response = await this.clobApiClient.get(`/book`, {
         params: { token_id: tokenId }
       });
       return response.data;
-    } catch (error: any) {
-      console.error(`Failed to get order book for ${tokenId}:`, error.message);
-      throw error;
-    }
+    }, `getOrderBook(${tokenId.substring(0, 20)}...)`);
   }
 
   /**
    * Place an order via CLOB API
+   * Note: Order placement is NOT retried to avoid duplicate orders
    */
   async placeOrder(orderParams: {
     tokenId: string;
@@ -240,11 +303,42 @@ export class PolymarketApi {
 
       return response.data;
     } catch (error: any) {
-      console.error('Failed to place order:', error.message);
+      // Provide more detailed error information
+      let errorMessage = 'Failed to place order';
+      
+      if (error.response) {
+        // HTTP error response
+        const status = error.response.status;
+        const data = error.response.data;
+        
+        if (status === 400) {
+          errorMessage = `Invalid order: ${data?.message || JSON.stringify(data)}`;
+        } else if (status === 401 || status === 403) {
+          errorMessage = `Authentication failed: ${data?.message || 'Invalid credentials'}`;
+        } else if (status === 429) {
+          errorMessage = `Rate limited: ${data?.message || 'Too many requests'}`;
+        } else if (status >= 500) {
+          errorMessage = `Server error (${status}): ${data?.message || 'Internal server error'}`;
+        } else {
+          errorMessage = `HTTP ${status}: ${data?.message || JSON.stringify(data)}`;
+        }
+      } else if (error.request) {
+        // Request made but no response
+        errorMessage = `Network error: No response from server (${error.code || 'unknown'})`;
+      } else {
+        errorMessage = error.message || 'Unknown error';
+      }
+      
+      console.error(errorMessage);
       if (error.response?.data) {
         console.error('Error details:', error.response.data);
       }
-      throw error;
+      
+      // Create a more informative error
+      const enhancedError = new Error(errorMessage);
+      (enhancedError as any).originalError = error;
+      (enhancedError as any).response = error.response;
+      throw enhancedError;
     }
   }
 

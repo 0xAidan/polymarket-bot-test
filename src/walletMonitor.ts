@@ -114,20 +114,24 @@ export class WalletMonitor {
           const previousPos = previousPositions.get(tokenId);
 
           if (!previousPos) {
-            // New position detected - this indicates a trade
-            const trade = await this.parsePositionToTrade(wallet.address, currentPos, tokenId);
-            if (trade) {
-              onTradeDetected(trade);
+            // New position detected - this indicates a BUY
+            const currentSize = parseFloat(currentPos.quantity || currentPos.size || '0');
+            if (currentSize > 0) {
+              const trade = await this.parsePositionToTrade(wallet.address, currentPos, tokenId, 'BUY', null);
+              if (trade) {
+                onTradeDetected(trade);
+              }
             }
           } else {
             // Check if position size changed significantly (indicating a trade)
             const currentSize = parseFloat(currentPos.quantity || currentPos.size || '0');
             const previousSize = parseFloat(previousPos.quantity || previousPos.size || '0');
-            const sizeDiff = Math.abs(currentSize - previousSize);
+            const sizeDiff = currentSize - previousSize; // Positive = BUY, Negative = SELL
 
             // If size changed by more than 1% or 0.01 tokens, consider it a trade
-            if (sizeDiff > 0.01 || (previousSize > 0 && sizeDiff / previousSize > 0.01)) {
-              const trade = await this.parsePositionToTrade(wallet.address, currentPos, tokenId);
+            if (Math.abs(sizeDiff) > 0.01 || (previousSize > 0 && Math.abs(sizeDiff) / previousSize > 0.01)) {
+              const side: 'BUY' | 'SELL' = sizeDiff > 0 ? 'BUY' : 'SELL';
+              const trade = await this.parsePositionToTrade(wallet.address, currentPos, tokenId, side, previousPos);
               if (trade) {
                 onTradeDetected(trade);
               }
@@ -152,13 +156,19 @@ export class WalletMonitor {
           }
         } catch (error: any) {
           // Trade history might not be available, continue with position monitoring
-          console.debug(`Trade history not available for ${address}:`, error.message);
+          // Only log as warning if it's not a 404 (which is expected for wallets with no trades)
+          if (error.response?.status !== 404) {
+            console.warn(`Trade history not available for ${address.substring(0, 8)}...:`, error.message);
+          }
         }
 
         // Update stored positions
         this.monitoredPositions.set(address, currentPositionMap);
       } catch (error: any) {
-        console.error(`Error monitoring wallet ${wallet.address}:`, error.message);
+        // Log error but continue monitoring other wallets
+        const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
+        console.error(`Error monitoring wallet ${wallet.address.substring(0, 8)}...:`, errorMsg);
+        // Don't throw - continue with other wallets
       }
     }
   }
@@ -169,7 +179,9 @@ export class WalletMonitor {
   private async parsePositionToTrade(
     walletAddress: string,
     position: any,
-    tokenId: string
+    tokenId: string,
+    side: 'BUY' | 'SELL',
+    previousPosition: any | null
   ): Promise<DetectedTrade | null> {
     try {
       // Extract market information from position
@@ -184,7 +196,14 @@ export class WalletMonitor {
       }
 
       // Get price and amount
-      const amount = position.quantity || position.size || '0';
+      // For SELL, use the absolute change in position size
+      let amount = position.quantity || position.size || '0';
+      if (side === 'SELL' && previousPosition) {
+        const currentSize = parseFloat(position.quantity || position.size || '0');
+        const previousSize = parseFloat(previousPosition.quantity || previousPosition.size || '0');
+        amount = Math.abs(currentSize - previousSize).toString();
+      }
+      
       const price = position.avgPrice || position.price || market.currentPrice || '0';
 
       return {
@@ -193,6 +212,7 @@ export class WalletMonitor {
         outcome,
         amount: amount.toString(),
         price: price.toString(),
+        side,
         timestamp: new Date(),
         transactionHash: position.txHash || position.transactionHash || `pos-${Date.now()}`
       };
@@ -218,12 +238,31 @@ export class WalletMonitor {
         outcome = 'NO';
       }
 
+      // Determine side from trade data
+      // Check if API provides side directly, or infer from trade type
+      let side: 'BUY' | 'SELL' = 'BUY';
+      if (trade.side) {
+        // API might provide 'buy'/'sell' or 'BUY'/'SELL'
+        const tradeSide = trade.side.toUpperCase();
+        side = (tradeSide === 'SELL' || tradeSide === 'S') ? 'SELL' : 'BUY';
+      } else if (trade.type) {
+        // Some APIs use 'type' field
+        const tradeType = trade.type.toUpperCase();
+        side = (tradeType === 'SELL' || tradeType === 'S') ? 'SELL' : 'BUY';
+      } else if (trade.action) {
+        // Some APIs use 'action' field
+        const action = trade.action.toUpperCase();
+        side = (action === 'SELL' || action === 'S') ? 'SELL' : 'BUY';
+      }
+      // Default to BUY if we can't determine
+
       return {
         walletAddress: walletAddress.toLowerCase(),
         marketId: marketId || 'unknown',
         outcome,
         amount: trade.size || trade.quantity || trade.amount || '0',
         price: trade.price || trade.avgPrice || '0',
+        side,
         timestamp: new Date(trade.timestamp || trade.createdAt || trade.time || Date.now()),
         transactionHash: trade.txHash || trade.transactionHash || trade.id || `trade-${Date.now()}`
       };

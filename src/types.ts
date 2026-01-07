@@ -17,6 +17,7 @@ export interface DetectedTrade {
   outcome: 'YES' | 'NO';
   amount: string; // In wei or token units
   price: string; // Price per share
+  side: 'BUY' | 'SELL'; // Whether the tracked wallet bought or sold
   timestamp: Date;
   transactionHash: string;
 }

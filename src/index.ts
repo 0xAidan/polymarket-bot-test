@@ -20,6 +20,10 @@ async function main() {
     const copyTrader = new CopyTrader();
     await copyTrader.initialize();
 
+    // Start the copy trading bot
+    console.log('🤖 Starting copy trading bot...');
+    await copyTrader.start();
+
     // Create and start web server
     console.log('🌐 Starting web server...');
     const app = await createServer(copyTrader);

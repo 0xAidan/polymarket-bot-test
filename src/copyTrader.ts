@@ -100,7 +100,7 @@ export class CopyTrader {
         outcome: trade.outcome,
         amount: trade.amount,
         price: trade.price,
-        side: 'BUY' // TODO: Determine buy/sell from trade data
+        side: trade.side // Use the side detected from the tracked wallet's trade
       };
 
       // Execute the trade

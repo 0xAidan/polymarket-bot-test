@@ -46,6 +46,15 @@ This bot allows you to:
    ```bash
    npm run dev
    ```
+   
+   The bot will automatically:
+   - Start monitoring tracked wallets
+   - Begin copying trades as they happen
+   - Launch a web dashboard at `http://localhost:3000` where you can:
+     - Add/remove wallets to track
+     - View performance statistics
+     - Start/stop the bot
+     - See recent trades and issues
 
 **IMPORTANT**: Never commit your `.env` file or private keys to git!
 
@@ -147,16 +156,18 @@ Optional:
 
 ## How It Works
 
-1. **Wallet Monitoring**: The bot polls Polymarket's Data API to monitor position changes from tracked wallets
-2. **Trade Detection**: When a position change is detected, it:
+1. **Auto-Start**: When you run `npm run dev`, the bot automatically starts monitoring and copying trades
+2. **Wallet Monitoring**: The bot polls Polymarket's Data API to monitor position changes from tracked wallets
+3. **Trade Detection**: When a position change is detected, it:
    - Extracts market ID, outcome (YES/NO), amount, and price
+   - Determines whether it's a BUY or SELL by comparing position sizes
    - Compares with previous positions to identify new trades
    - Also checks recent trade history for very recent activity
-3. **Trade Execution**: The bot places the same trade on your wallet via Polymarket CLOB API:
+4. **Trade Execution**: The bot places the same trade on your wallet via Polymarket CLOB API:
    - Gets market information to determine token IDs
-   - Constructs and signs the order
+   - Constructs and signs the order (matching the buy/sell side)
    - Submits the order to the CLOB API
-4. **Performance Tracking**: All trades are logged with success rates, latency, and errors
+5. **Performance Tracking**: All trades are logged with success rates, latency, and errors
 
 ## API Integration
 
