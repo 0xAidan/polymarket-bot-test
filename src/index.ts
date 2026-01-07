@@ -49,13 +49,17 @@ async function main() {
     // Handle graceful shutdown
     process.on('SIGINT', () => {
       console.log('\n🛑 Shutting down...');
-      copyTrader.stop();
+      if (copyTrader) {
+        copyTrader.stop();
+      }
       process.exit(0);
     });
 
     process.on('SIGTERM', () => {
       console.log('\n🛑 Shutting down...');
-      copyTrader.stop();
+      if (copyTrader) {
+        copyTrader.stop();
+      }
       process.exit(0);
     });
 
