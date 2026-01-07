@@ -1,0 +1,22 @@
+# Your wallet private key (NEVER commit this to git!)
+PRIVATE_KEY=your_private_key_here
+
+# Polymarket API credentials (optional - wallet signature auth used by default)
+POLYMARKET_API_KEY=your_api_key_here_if_needed
+
+# Polymarket API endpoints
+POLYMARKET_CLOB_API_URL=https://clob.polymarket.com
+POLYMARKET_DATA_API_URL=https://data-api.polymarket.com
+POLYMARKET_GAMMA_API_URL=https://gamma-api.polymarket.com
+
+# Polygon RPC endpoint (use a reliable provider like Alchemy, Infura, or QuickNode)
+POLYGON_RPC_URL=https://polygon-rpc.com
+
+# Server configuration
+PORT=3000
+
+# Monitoring interval in milliseconds (how often to check for new trades)
+MONITORING_INTERVAL_MS=15000
+
+# Optional: Database for tracking (using JSON file for simplicity)
+DATA_DIR=./data

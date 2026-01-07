@@ -10,6 +10,9 @@ export const config = {
   // Polymarket API configuration
   polymarketApiKey: process.env.POLYMARKET_API_KEY || '',
   polymarketApiUrl: process.env.POLYMARKET_API_URL || 'https://api.polymarket.com',
+  polymarketClobApiUrl: process.env.POLYMARKET_CLOB_API_URL || 'https://clob.polymarket.com',
+  polymarketDataApiUrl: process.env.POLYMARKET_DATA_API_URL || 'https://data-api.polymarket.com',
+  polymarketGammaApiUrl: process.env.POLYMARKET_GAMMA_API_URL || 'https://gamma-api.polymarket.com',
 
   // Blockchain configuration
   polygonRpcUrl: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
@@ -20,13 +23,15 @@ export const config = {
   // Data directory
   dataDir: process.env.DATA_DIR || './data',
 
+  // Monitoring configuration
+  monitoringIntervalMs: parseInt(process.env.MONITORING_INTERVAL_MS || '15000', 10), // 15 seconds default
+
   // Validate required configuration
   validate(): void {
     if (!this.privateKey) {
       throw new Error('PRIVATE_KEY is required in .env file');
     }
-    if (!this.polymarketApiKey) {
-      throw new Error('POLYMARKET_API_KEY is required in .env file');
-    }
+    // Note: API key might be optional depending on Polymarket's auth requirements
+    // Will implement wallet signature auth if needed
   }
 };

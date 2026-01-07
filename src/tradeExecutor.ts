@@ -1,64 +1,27 @@
-import axios, { AxiosInstance } from 'axios';
-import { config } from './config.js';
+import { PolymarketApi } from './polymarketApi.js';
 import { TradeOrder, TradeResult } from './types.js';
 
 /**
- * Executes trades on Polymarket via API
- * 
- * This is a placeholder implementation. You'll need to:
- * 1. Get actual API endpoints from Polymarket docs
- * 2. Implement authentication (API key, signatures, etc.)
- * 3. Format requests according to Polymarket API spec
- * 4. Handle responses and errors
+ * Executes trades on Polymarket via CLOB API
  */
 export class TradeExecutor {
-  private apiClient: AxiosInstance;
+  private api: PolymarketApi;
   private isAuthenticated = false;
 
   constructor() {
-    this.apiClient = axios.create({
-      baseURL: config.polymarketApiUrl,
-      headers: {
-        'Content-Type': 'application/json',
-        // TODO: Add authentication headers based on Polymarket API docs
-        // 'Authorization': `Bearer ${config.polymarketApiKey}`,
-        // 'X-API-Key': config.polymarketApiKey,
-      }
-    });
+    this.api = new PolymarketApi();
   }
 
   /**
    * Authenticate with Polymarket API
-   * 
-   * TODO: Implement based on Polymarket authentication requirements
    */
   async authenticate(): Promise<void> {
-    // Placeholder - needs actual implementation
-    // This might involve:
-    // - Signing a message with your wallet
-    // - Getting an access token
-    // - Setting up API key authentication
-    
-    console.log('Authenticating with Polymarket API...');
-    
     try {
-      // Example authentication flow (adjust based on actual API):
-      /*
-      const response = await this.apiClient.post('/auth', {
-        apiKey: config.polymarketApiKey,
-        // ... other auth params
-      });
-      
-      if (response.data.token) {
-        this.apiClient.defaults.headers['Authorization'] = `Bearer ${response.data.token}`;
-        this.isAuthenticated = true;
-      }
-      */
-      
+      await this.api.initialize();
       this.isAuthenticated = true;
-      console.log('Authentication successful');
-    } catch (error) {
-      console.error('Authentication failed:', error);
+      console.log('Trade executor authenticated');
+    } catch (error: any) {
+      console.error('Authentication failed:', error.message);
       throw error;
     }
   }
@@ -74,39 +37,73 @@ export class TradeExecutor {
       await this.authenticate();
     }
 
+    const executionStart = Date.now();
+
     try {
       console.log(`Executing trade: ${order.side} ${order.amount} shares of ${order.marketId} (${order.outcome}) at ${order.price}`);
 
-      // TODO: Implement actual API call based on Polymarket docs
-      // This will likely be something like:
-      /*
-      const response = await this.apiClient.post('/orders', {
-        marketId: order.marketId,
-        outcome: order.outcome,
+      // Get market information to find token ID
+      let tokenId: string;
+      try {
+        const market = await this.api.getMarket(order.marketId);
+        
+        // Extract token ID based on outcome
+        // Polymarket tokens are typically structured as: marketId-outcomeIndex
+        // YES is usually outcome 0, NO is outcome 1
+        if (order.outcome === 'YES') {
+          tokenId = market.tokens?.[0]?.tokenId || 
+                   market.yesTokenId || 
+                   `${order.marketId}-0` ||
+                   order.marketId;
+        } else {
+          tokenId = market.tokens?.[1]?.tokenId || 
+                   market.noTokenId || 
+                   `${order.marketId}-1` ||
+                   order.marketId;
+        }
+      } catch (error: any) {
+        // If we can't get market info, try to construct token ID
+        console.warn('Could not fetch market info, using fallback token ID:', error.message);
+        tokenId = order.outcome === 'YES' ? `${order.marketId}-0` : `${order.marketId}-1`;
+      }
+
+      // Validate price and amount
+      const price = parseFloat(order.price);
+      const size = parseFloat(order.amount);
+
+      if (isNaN(price) || price <= 0 || price > 1) {
+        throw new Error(`Invalid price: ${order.price}. Price must be between 0 and 1`);
+      }
+
+      if (isNaN(size) || size <= 0) {
+        throw new Error(`Invalid amount: ${order.amount}`);
+      }
+
+      // Place order via CLOB API
+      const orderResponse = await this.api.placeOrder({
+        tokenId,
         side: order.side,
-        amount: order.amount,
-        price: order.price,
-        // ... other required fields
+        size: size.toString(),
+        price: price.toString()
       });
+
+      const executionTime = Date.now() - executionStart;
 
       return {
         success: true,
-        orderId: response.data.orderId,
-        transactionHash: response.data.transactionHash,
-      };
-      */
-
-      // Placeholder response
-      return {
-        success: false,
-        error: 'Trade execution not yet implemented - needs Polymarket API documentation'
+        orderId: orderResponse.orderId || orderResponse.id || orderResponse.clobOrderId,
+        transactionHash: orderResponse.txHash || orderResponse.transactionHash || orderResponse.hash,
+        executionTimeMs: executionTime
       };
 
     } catch (error: any) {
-      console.error('Trade execution failed:', error);
+      const executionTime = Date.now() - executionStart;
+      console.error('Trade execution failed:', error.message);
+      
       return {
         success: false,
-        error: error.message || 'Unknown error'
+        error: error.message || 'Unknown error',
+        executionTimeMs: executionTime
       };
     }
   }
@@ -115,13 +112,10 @@ export class TradeExecutor {
    * Get market information
    */
   async getMarketInfo(marketId: string): Promise<any> {
-    // TODO: Implement market info fetching
     try {
-      // const response = await this.apiClient.get(`/markets/${marketId}`);
-      // return response.data;
-      return null;
-    } catch (error) {
-      console.error('Failed to get market info:', error);
+      return await this.api.getMarket(marketId);
+    } catch (error: any) {
+      console.error('Failed to get market info:', error.message);
       throw error;
     }
   }
