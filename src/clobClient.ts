@@ -122,6 +122,10 @@ export class PolymarketClobClient {
         });
         console.log('✓ Builder API credentials configured for authenticated trading');
         console.log(`[DEBUG] BuilderConfig created successfully`);
+        // Log partial credentials for debugging (first 8 chars only for security)
+        console.log(`[DEBUG] Builder API Key starts with: ${config.polymarketBuilderApiKey.substring(0, 8)}...`);
+        console.log(`[DEBUG] Builder Secret length: ${config.polymarketBuilderSecret.length} chars`);
+        console.log(`[DEBUG] Builder Passphrase length: ${config.polymarketBuilderPassphrase.length} chars`);
       } else {
         console.error('❌ Builder API credentials NOT configured!');
         console.error('   Orders WILL BE BLOCKED by Cloudflare without Builder authentication.');
