@@ -1,7 +1,25 @@
 import { ClobClient, Side, OrderType } from '@polymarket/clob-client';
 import { BuilderConfig } from '@polymarket/builder-signing-sdk';
 import * as ethers from 'ethers';
+import axios from 'axios';
 import { config } from './config.js';
+
+// Add axios interceptor to log all requests (for debugging Builder headers)
+axios.interceptors.request.use((request) => {
+  if (request.url?.includes('clob.polymarket.com') || request.url?.includes('order')) {
+    console.log(`[AXIOS DEBUG] ===== OUTGOING REQUEST =====`);
+    console.log(`[AXIOS DEBUG] URL: ${request.url}`);
+    console.log(`[AXIOS DEBUG] Method: ${request.method}`);
+    console.log(`[AXIOS DEBUG] Headers: ${JSON.stringify(request.headers, null, 2)}`);
+    // Check for Builder headers specifically
+    const builderHeaders = Object.keys(request.headers || {}).filter(h => h.toLowerCase().includes('poly') || h.toLowerCase().includes('builder'));
+    console.log(`[AXIOS DEBUG] Builder-related headers found: ${builderHeaders.length > 0 ? builderHeaders.join(', ') : 'NONE!'}`);
+    console.log(`[AXIOS DEBUG] ================================`);
+  }
+  return request;
+}, (error) => {
+  return Promise.reject(error);
+});
 
 /**
  * Wrapper for Polymarket CLOB client with proper L2 authentication
