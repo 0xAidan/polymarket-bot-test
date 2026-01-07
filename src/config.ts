@@ -29,7 +29,12 @@ export const config = {
   // Validate required configuration
   validate(): void {
     if (!this.privateKey) {
-      throw new Error('PRIVATE_KEY is required in .env file');
+      console.error('\n❌ ERROR: Wallet not configured!\n');
+      console.error('📝 To set up your wallet, run:');
+      console.error('   npm run setup\n');
+      console.error('Or create a .env file with your PRIVATE_KEY.');
+      console.error('See README.md for instructions.\n');
+      throw new Error('PRIVATE_KEY is required. Run "npm run setup" to configure.');
     }
     // Note: API key might be optional depending on Polymarket's auth requirements
     // Will implement wallet signature auth if needed

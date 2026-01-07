@@ -20,39 +20,48 @@ This bot allows you to:
 
 ### Installation
 
-1. Clone the repository
-2. Install dependencies:
-```bash
-npm install
-```
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd polymarket-bot-test
+   ```
 
-3. Copy `.env.example` to `.env` and fill in your credentials:
-```bash
-cp .env.example .env
-```
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+3. **Set up your wallet** (this is the only step you need to do manually):
+   ```bash
+   npm run setup
+   ```
+   
+   This will ask you for:
+   - Your wallet private key (found in your crypto wallet settings)
+   - Optional: API key and RPC URL (you can skip these)
+   
+   **That's it!** The script creates everything for you.
+
+4. **Start the bot:**
+   ```bash
+   npm run dev
+   ```
 
 **IMPORTANT**: Never commit your `.env` file or private keys to git!
-
-4. Start the development server:
-```bash
-npm run dev
-```
 
 ## Running on Separate Computers
 
 If you want to share this bot with a colleague and both run it with your own wallets on separate computers:
 
-1. **Share the repository** - Send them the repo link or a copy of the code
-2. **Each person sets up independently:**
-   - Clone the repository on their computer
-   - Copy `ENV_EXAMPLE.txt` to `.env`
-   - Fill in their own `PRIVATE_KEY` and configuration in `.env`
-   - Run `npm install` and `npm run dev`
+1. **Share the repository** - Send them the repo link
+2. **Each person does these 3 simple steps:**
+   ```bash
+   npm install
+   npm run setup    # Enter your own private key when prompted
+   npm run dev
+   ```
 
-**That's it!** Each person runs on their own computer with their own wallet. There's no conflict because:
-- Each person uses their own `.env` file with their own `PRIVATE_KEY`
-- Each person runs on their own computer (no port conflicts)
-- Each person has their own data directory
+**That's it!** Each person runs on their own computer with their own wallet. No conflicts because everyone has their own `.env` file.
 
 ## Running 24/7 (Cloud Deployment)
 

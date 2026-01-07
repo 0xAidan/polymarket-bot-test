@@ -482,10 +482,10 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                       Loading...
                     </span>
                   </div>
-                  <div style="padding: 16px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; font-size: 13px; color: var(--text-muted);">
-                    <strong style="color: var(--danger); display: block; margin-bottom: 8px;">⚠️ Important:</strong>
-                    <p style="margin: 0;">Trades will be executed using the wallet configured in your <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">.env</code> file via the <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">PRIVATE_KEY</code> variable.</p>
-                    <p style="margin: 8px 0 0 0;">To change the wallet, update <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">PRIVATE_KEY</code> in your <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">.env</code> file and restart the bot.</p>
+                  <div style="padding: 16px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; font-size: 13px; color: var(--text-muted);">
+                    <strong style="color: var(--info); display: block; margin-bottom: 8px;">💡 How to configure your wallet:</strong>
+                    <p style="margin: 0;">This wallet is set up using the <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">PRIVATE_KEY</code> in your <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">.env</code> file.</p>
+                    <p style="margin: 8px 0 0 0;"><strong>To set up or change your wallet:</strong> Run <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">npm run setup</code> in your terminal, then restart the bot.</p>
                   </div>
                 </div>
               </div>
@@ -1055,14 +1055,12 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                 walletAddressEl.textContent = data.walletAddress;
                 walletAddressEl.style.color = 'var(--success)';
               } else {
-                walletAddressEl.textContent = 'Not configured';
-                walletAddressEl.style.color = 'var(--danger)';
+                walletAddressEl.innerHTML = '<span style="color: var(--danger);">❌ Not configured</span><br><span style="font-size: 12px; color: var(--text-muted);">Run: npm run setup</span>';
               }
             } catch (error) {
               console.error('Failed to load wallet config:', error);
               const walletAddressEl = document.getElementById('tradingWalletAddress');
-              walletAddressEl.textContent = 'Error loading';
-              walletAddressEl.style.color = 'var(--danger)';
+              walletAddressEl.innerHTML = '<span style="color: var(--danger);">❌ Error</span><br><span style="font-size: 12px; color: var(--text-muted);">Run: npm run setup</span>';
             }
           }
 
