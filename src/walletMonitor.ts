@@ -273,6 +273,50 @@ export class WalletMonitor {
   }
 
   /**
+   * Reload wallets and initialize positions for newly added wallets
+   * This should be called when a wallet is added or removed
+   */
+  async reloadWallets(): Promise<void> {
+    if (!this.isMonitoring) {
+      return;
+    }
+
+    const wallets = await Storage.getActiveWallets();
+    
+    // Initialize positions for any new wallets that aren't in monitoredPositions
+    for (const wallet of wallets) {
+      const address = wallet.address.toLowerCase();
+      if (!this.monitoredPositions.has(address)) {
+        try {
+          const positions = await this.api.getUserPositions(wallet.address);
+          const positionMap = new Map<string, any>();
+          
+          for (const position of positions) {
+            const tokenId = position.tokenId || position.token_id || position.market?.tokenId;
+            if (tokenId) {
+              positionMap.set(tokenId, position);
+            }
+          }
+          
+          this.monitoredPositions.set(address, positionMap);
+          console.log(`Initialized ${positionMap.size} positions for newly added wallet ${wallet.address.substring(0, 8)}...`);
+        } catch (error: any) {
+          console.warn(`Failed to initialize positions for new wallet ${wallet.address}:`, error.message);
+        }
+      }
+    }
+
+    // Remove wallets that are no longer tracked
+    const trackedAddresses = new Set(wallets.map(w => w.address.toLowerCase()));
+    for (const [address] of this.monitoredPositions.entries()) {
+      if (!trackedAddresses.has(address)) {
+        this.monitoredPositions.delete(address);
+        console.log(`Removed wallet ${address.substring(0, 8)}... from monitoring`);
+      }
+    }
+  }
+
+  /**
    * Stop monitoring
    */
   stopMonitoring(): void {

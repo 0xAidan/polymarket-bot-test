@@ -18,7 +18,7 @@ export const config = {
   polygonRpcUrl: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
   
   // Server configuration
-  port: parseInt(process.env.PORT || '3000', 10),
+  port: parseInt(process.env.PORT || '3001', 10),
   
   // Data directory
   dataDir: process.env.DATA_DIR || './data',
