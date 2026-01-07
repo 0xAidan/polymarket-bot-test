@@ -1773,8 +1773,9 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
  */
 export async function startServer(app: express.Application): Promise<void> {
   return new Promise((resolve, reject) => {
-    const server = app.listen(config.port, () => {
-      console.log(`\n🚀 Server running on http://localhost:${config.port}`);
+    const host = process.env.HOST || '0.0.0.0'; // Listen on all interfaces for Railway/cloud
+    const server = app.listen(config.port, host, () => {
+      console.log(`\n🚀 Server running on http://${host}:${config.port}`);
       console.log(`📊 Open your browser to manage wallets and control the bot\n`);
       resolve();
     });
