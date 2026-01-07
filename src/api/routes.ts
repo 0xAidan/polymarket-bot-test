@@ -195,6 +195,16 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       }
 
       const balanceTracker = copyTrader.getBalanceTracker();
+      
+      // Ensure balance tracker is initialized
+      try {
+        // This will initialize if needed
+        await balanceTracker.getBalance(walletAddress);
+      } catch (initError: any) {
+        console.error('Balance tracker initialization error:', initError);
+        // Continue anyway - getBalanceWithChange will try to initialize again
+      }
+      
       const balanceData = await balanceTracker.getBalanceWithChange(walletAddress);
       
       res.json({ 
@@ -202,7 +212,15 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         ...balanceData
       });
     } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+      console.error('Error fetching wallet balance:', error);
+      // Return error but still provide a response so UI can show error state
+      res.status(500).json({ 
+        success: false, 
+        error: error.message || 'Failed to fetch balance',
+        currentBalance: 0,
+        change24h: 0,
+        balance24hAgo: null
+      });
     }
   });
 
