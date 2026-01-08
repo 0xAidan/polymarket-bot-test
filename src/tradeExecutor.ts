@@ -84,6 +84,10 @@ export class TradeExecutor {
       if (isNaN(size) || size <= 0) {
         throw new Error(`Invalid amount: ${order.amount}`);
       }
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:preRound',message:'Raw price and size before any rounding',data:{rawPrice:order.price,rawSize:order.amount,parsedPrice:price,parsedSize:size,tickSize,priceDecimalPlaces:(order.price.split('.')[1]||'').length,sizeDecimalPlaces:(order.amount.split('.')[1]||'').length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
+      // #endregion
 
       // Convert side to CLOB client Side enum
       const side = order.side === 'BUY' ? Side.BUY : Side.SELL;
