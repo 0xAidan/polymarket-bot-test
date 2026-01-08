@@ -462,4 +462,25 @@ export class BalanceTracker {
       }
     }
   }
+
+  /**
+   * Get balance history for charting
+   * Returns array of {timestamp, balance} points for the past 24-48 hours
+   */
+  getBalanceHistory(address: string): Array<{ timestamp: Date; balance: number }> {
+    const addressLower = address.toLowerCase();
+    const walletHistory = this.history.get(addressLower);
+    
+    if (!walletHistory || walletHistory.snapshots.length === 0) {
+      return [];
+    }
+
+    // Return all snapshots sorted by timestamp
+    return walletHistory.snapshots
+      .map(s => ({
+        timestamp: s.timestamp,
+        balance: s.balance
+      }))
+      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  }
 }

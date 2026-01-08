@@ -138,10 +138,6 @@ export class TradeExecutor {
       // Place order via CLOB client
       console.log(`\n📤 Placing order via CLOB client...`);
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade-PRE_ORDER',message:'About to place order via CLOB client',data:{tokenId,side:order.side,sizeRounded:size,priceRounded:price,tickSize,negRisk,marketId:order.marketId,outcome:order.outcome},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H4'})}).catch(()=>{});
-      // #endregion
-      
       let orderResponse: any;
       try {
         orderResponse = await this.clobClient.createAndPostOrder({
@@ -159,10 +155,6 @@ export class TradeExecutor {
       }
 
       const executionTime = Date.now() - executionStart;
-
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade-POST_ORDER',message:'Order response received from CLOB',data:{orderResponse,executionTimeMs:executionTime,orderResponseType:typeof orderResponse,orderID:orderResponse?.orderID||orderResponse?.orderId||orderResponse?.id,status:orderResponse?.status},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H2'})}).catch(()=>{});
-      // #endregion
 
       // DEBUG: Log the exact response we got
       console.log(`[DEBUG] orderResponse type: ${typeof orderResponse}`);
@@ -207,10 +199,6 @@ export class TradeExecutor {
       console.log(`   Execution Time: ${executionTime}ms`);
       console.log(`${'='.repeat(60)}\n`);
 
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade-SUCCESS',message:'Order declared SUCCESS',data:{orderId:String(orderId),responseStatus,executionTimeMs:executionTime,txHash:orderResponse.txHash||orderResponse.transactionHash||orderResponse.hash||null,fullOrderResponse:orderResponse},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H4'})}).catch(()=>{});
-      // #endregion
-
       return {
         success: true,
         orderId: String(orderId),
@@ -234,10 +222,6 @@ export class TradeExecutor {
       if (error.originalError) {
         console.error(`Original error:`, error.originalError.message);
       }
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade-FAILURE',message:'Trade execution failed',data:{errorMessage:error.message,httpStatus:error.response?.status,responseData:error.response?.data,executionTimeMs:executionTime},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H5'})}).catch(()=>{});
-      // #endregion
       
       return {
         success: false,

@@ -214,10 +214,6 @@ export class PolymarketClobClient {
       // DEBUG: Log builder config status
       console.log(`[DEBUG] Builder credentials configured: key=${!!config.polymarketBuilderApiKey}, secret=${!!config.polymarketBuilderSecret}, passphrase=${!!config.polymarketBuilderPassphrase}`);
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder-PRE',message:'About to call CLOB createAndPostOrder',data:{tokenID:params.tokenID,price:params.price,size:params.size,side:params.side,tickSize,negRisk,hasBuilderKey:!!config.polymarketBuilderApiKey},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H3'})}).catch(()=>{});
-      // #endregion
-      
       let response: any;
       try {
         response = await this.client.createAndPostOrder(
@@ -238,10 +234,6 @@ export class PolymarketClobClient {
         console.error(`[CLOB] Client threw error:`, innerError.message);
         const responseData = innerError.response?.data;
         
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder-ERROR',message:'CLOB client threw exception',data:{errorMessage:innerError.message,httpStatus:innerError.response?.status,responseData:innerError.response?.data,responseHeaders:innerError.response?.headers},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H3'})}).catch(()=>{});
-        // #endregion
-        
         // DETAILED ERROR LOGGING FOR 400 ERRORS
         const status = innerError.response?.status;
         if (status === 400) {
@@ -254,10 +246,6 @@ export class PolymarketClobClient {
         throw innerError;
       }
 
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder-RESPONSE',message:'CLOB API response received',data:{responseType:typeof response,isNull:response===null,isUndefined:response===undefined,fullResponse:response,orderID:response?.orderID,status:response?.status,error:response?.error,responseKeys:response&&typeof response==='object'?Object.keys(response):null},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H2'})}).catch(()=>{});
-      // #endregion
-      
       // DEBUG: Log the EXACT response for diagnosis
       console.log(`[DEBUG] CLOB response type: ${typeof response}`);
       console.log(`[DEBUG] CLOB response isNull: ${response === null}`);
