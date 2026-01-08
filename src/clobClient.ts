@@ -57,9 +57,6 @@ export class PolymarketClobClient {
       
       console.log(`[DEBUG] Wallet address (EOA): ${this.signer.address}`);
       console.log(`[DEBUG] About to call createOrDeriveApiKey...`);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:init',message:'CLOB init start',data:{host:HOST,walletAddress:this.signer.address},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F,G'})}).catch(()=>{});
-      // #endregion
 
       // Create temporary client to derive User API credentials
       const tempClient = new ClobClient(HOST, CHAIN_ID, this.signer);
@@ -108,9 +105,6 @@ export class PolymarketClobClient {
       console.log(`[DEBUG] POLYMARKET_BUILDER_API_KEY present: ${!!config.polymarketBuilderApiKey} (length: ${config.polymarketBuilderApiKey?.length || 0})`);
       console.log(`[DEBUG] POLYMARKET_BUILDER_SECRET present: ${!!config.polymarketBuilderSecret} (length: ${config.polymarketBuilderSecret?.length || 0})`);
       console.log(`[DEBUG] POLYMARKET_BUILDER_PASSPHRASE present: ${!!config.polymarketBuilderPassphrase} (length: ${config.polymarketBuilderPassphrase?.length || 0})`);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:builderCredCheck',message:'Builder credentials check',data:{hasKey:!!config.polymarketBuilderApiKey,keyLength:config.polymarketBuilderApiKey?.length||0,hasSecret:!!config.polymarketBuilderSecret,secretLength:config.polymarketBuilderSecret?.length||0,hasPassphrase:!!config.polymarketBuilderPassphrase,passphraseLength:config.polymarketBuilderPassphrase?.length||0,signatureType},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B,C'})}).catch(()=>{});
-      // #endregion
       
       if (config.polymarketBuilderApiKey && 
           config.polymarketBuilderSecret && 
@@ -219,15 +213,8 @@ export class PolymarketClobClient {
       
       // DEBUG: Log builder config status
       console.log(`[DEBUG] Builder credentials configured: key=${!!config.polymarketBuilderApiKey}, secret=${!!config.polymarketBuilderSecret}, passphrase=${!!config.polymarketBuilderPassphrase}`);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder',message:'Placing order',data:{tokenID:params.tokenID,price:params.price,size:params.size,side:params.side,tickSize,negRisk,clobUrl:config.polymarketClobApiUrl},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
-      // #endregion
       
       let response: any;
-      // #region agent log
-      const orderStartTime = Date.now();
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:preOrder',message:'About to call createAndPostOrder',data:{tokenID:params.tokenID,price:params.price,size:params.size,side:params.side,tickSize,negRisk,clobUrl:config.polymarketClobApiUrl||'default'},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B,C,D'})}).catch(()=>{});
-      // #endregion
       try {
         response = await this.client.createAndPostOrder(
           {
@@ -245,11 +232,7 @@ export class PolymarketClobClient {
       } catch (innerError: any) {
         // CLOB client threw an error - this is the expected behavior for failures
         console.error(`[CLOB] Client threw error:`, innerError.message);
-        const errorDuration = Date.now() - orderStartTime;
-        // Check if this is a Cloudflare block
-        const isCloudflareBlock = innerError.message?.includes('403') || innerError.message?.includes('Cloudflare') || innerError.message?.includes('blocked');
         const responseData = innerError.response?.data;
-        const isHtmlResponse = typeof responseData === 'string' && (responseData.includes('<!DOCTYPE') || responseData.includes('Cloudflare'));
         
         // DETAILED ERROR LOGGING FOR 400 ERRORS
         const status = innerError.response?.status;
@@ -258,21 +241,8 @@ export class PolymarketClobClient {
           console.error(`[CLOB] Response data:`, JSON.stringify(responseData, null, 2));
           console.error(`[CLOB] Request params: tokenID=${params.tokenID}, price=${params.price}, size=${params.size}, side=${params.side}`);
           console.error(`[CLOB] Options: tickSize=${tickSize}, negRisk=${negRisk}`);
-          // Check tick size alignment
-          const tickSizeNum = parseFloat(tickSize || '0.01');
-          const priceRemainder = params.price % tickSizeNum;
-          console.error(`[CLOB] Price tick alignment check: price=${params.price}, tickSize=${tickSizeNum}, remainder=${priceRemainder}`);
-          console.error(`[CLOB] Price decimal places: ${(params.price.toString().split('.')[1] || '').length}`);
-          console.error(`[CLOB] Size decimal places: ${(params.size.toString().split('.')[1] || '').length}`);
           console.error(`[CLOB] ======================================`);
         }
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:400error',message:'HTTP 400 error details',data:{responseData:typeof responseData==='object'?responseData:String(responseData).slice(0,500),tokenID:params.tokenID,price:params.price,size:params.size,side:params.side,tickSize,negRisk,priceDecimalPlaces:(params.price.toString().split('.')[1]||'').length,sizeDecimalPlaces:(params.size.toString().split('.')[1]||'').length,tickSizeNum:parseFloat(tickSize||'0.01'),priceRemainder:params.price%parseFloat(tickSize||'0.01')},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B,C'})}).catch(()=>{});
-        // #endregion
-        
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder:catch',message:'CLOB client error',data:{errorMsg:innerError.message,errorCode:innerError.code,responseStatus:status,responseData:typeof responseData==='object'?responseData:responseData?.slice?.(0,500),isCloudflareBlock,isHtmlResponse,errorDuration,requestParams:{tokenID:params.tokenID,price:params.price,size:params.size,side:params.side,tickSize,negRisk}},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B,C,D'})}).catch(()=>{});
-        // #endregion
         throw innerError;
       }
 
@@ -337,9 +307,6 @@ export class PolymarketClobClient {
       }
 
       console.log(`[CLOB] Order placed successfully: orderID=${orderId}`);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder:success',message:'Order placed successfully',data:{orderId,responseKeys:response?Object.keys(response):[],status:response?.status},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
-      // #endregion
       return response;
     } catch (error: any) {
       // Extract meaningful error message from various error formats
@@ -364,9 +331,6 @@ export class PolymarketClobClient {
       }
 
       console.error(`[CLOB] Order failed:`, errorMessage);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder:finalError',message:'Order failed - final error',data:{errorMessage,hasResponse:!!error.response,responseStatus:error.response?.status},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B,C'})}).catch(()=>{});
-      // #endregion
       throw new Error(`Failed to place order: ${errorMessage}`);
     }
   }
