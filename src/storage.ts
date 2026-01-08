@@ -125,7 +125,7 @@ export class Storage {
     } catch (error: any) {
       if (error.code === 'ENOENT') {
         // File doesn't exist yet, return default config
-        return { tradeSize: '10' }; // Default trade size
+        return { tradeSize: '2' }; // Default trade size in USDC
       }
       console.error('Failed to load bot config:', error);
       throw error;

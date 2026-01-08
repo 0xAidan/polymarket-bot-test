@@ -389,17 +389,17 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
-  // Get trade size configuration
+  // Get trade size configuration (in USDC)
   router.get('/config/trade-size', async (req: Request, res: Response) => {
     try {
       const tradeSize = await Storage.getTradeSize();
-      res.json({ success: true, tradeSize });
+      res.json({ success: true, tradeSize, unit: 'USDC' });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
   });
 
-  // Set trade size configuration
+  // Set trade size configuration (in USDC)
   router.post('/config/trade-size', async (req: Request, res: Response) => {
     try {
       const { tradeSize } = req.body;
@@ -407,7 +407,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       if (!tradeSize || typeof tradeSize !== 'string') {
         return res.status(400).json({ 
           success: false, 
-          error: 'Trade size is required' 
+          error: 'Trade size is required (in USDC)' 
         });
       }
 
@@ -416,12 +416,12 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       if (isNaN(sizeNum) || sizeNum <= 0) {
         return res.status(400).json({ 
           success: false, 
-          error: 'Trade size must be a positive number' 
+          error: 'Trade size must be a positive number (in USDC)' 
         });
       }
 
       await Storage.setTradeSize(tradeSize);
-      res.json({ success: true, message: 'Trade size updated', tradeSize });
+      res.json({ success: true, message: 'Trade size updated', tradeSize, unit: 'USDC' });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }

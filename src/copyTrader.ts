@@ -236,28 +236,35 @@ export class CopyTrader {
     const executionStart = Date.now();
 
     try {
-      // Get configured trade size instead of using the detected trade amount
-      const configuredTradeSize = await Storage.getTradeSize();
-      const tradeSizeNum = parseFloat(configuredTradeSize || '0');
+      // Get configured trade size in USDC and calculate shares based on price
+      const configuredTradeSizeUsdc = await Storage.getTradeSize();
+      const tradeSizeUsdcNum = parseFloat(configuredTradeSizeUsdc || '0');
       
-      if (isNaN(tradeSizeNum) || tradeSizeNum <= 0) {
-        console.error(`❌ Invalid configured trade size (${configuredTradeSize}), cannot execute trade`);
+      if (isNaN(tradeSizeUsdcNum) || tradeSizeUsdcNum <= 0) {
+        console.error(`❌ Invalid configured trade size (${configuredTradeSizeUsdc} USDC), cannot execute trade`);
         await this.performanceTracker.logIssue(
           'error',
           'trade_execution',
-          `Invalid configured trade size: ${configuredTradeSize}`,
+          `Invalid configured trade size: ${configuredTradeSizeUsdc} USDC`,
           { trade }
         );
         return;
       }
       
-      console.log(`[Trade] Using configured trade size: ${configuredTradeSize} shares`);
+      // Calculate number of shares based on USDC amount and price
+      // shares = USDC amount / price per share
+      const sharesAmount = tradeSizeUsdcNum / priceNum;
+      const sharesAmountStr = sharesAmount.toFixed(2); // Round to 2 decimal places
+      
+      console.log(`[Trade] Configured trade size: $${configuredTradeSizeUsdc} USDC`);
+      console.log(`[Trade] Price per share: $${trade.price}`);
+      console.log(`[Trade] Calculated shares: ${sharesAmountStr} shares (${tradeSizeUsdcNum} / ${priceNum})`);
       
       // Convert detected trade to trade order
       const order: TradeOrder = {
         marketId: trade.marketId,
         outcome: trade.outcome,
-        amount: configuredTradeSize, // Use configured trade size instead of detected amount
+        amount: sharesAmountStr, // Calculated shares from USDC trade size
         price: trade.price,
         side: trade.side, // Use the side detected from the tracked wallet's trade
         tokenId: trade.tokenId,    // Pass token ID for direct CLOB execution (bypasses Gamma API)
@@ -266,7 +273,7 @@ export class CopyTrader {
 
       console.log(`\n🚀 [Execute] EXECUTING TRADE:`);
       console.log(`   Action: ${order.side}`);
-      console.log(`   Amount: ${order.amount} shares`);
+      console.log(`   Amount: $${configuredTradeSizeUsdc} USDC (${order.amount} shares)`);
       console.log(`   Market: ${order.marketId}`);
       console.log(`   Outcome: ${order.outcome}`);
       console.log(`   Price: ${order.price}`);
@@ -301,7 +308,7 @@ export class CopyTrader {
         console.log(`   Execution Time: ${executionTime}ms`);
         console.log(`   Market: ${order.marketId}`);
         console.log(`   Outcome: ${order.outcome}`);
-        console.log(`   Side: ${order.side} ${order.amount} @ ${order.price}`);
+        console.log(`   Side: ${order.side} $${configuredTradeSizeUsdc} USDC (${order.amount} shares) @ ${order.price}`);
         console.log(`${'='.repeat(60)}\n`);
         this.executedTrades.add(trade.transactionHash);
       } else {
@@ -310,7 +317,7 @@ export class CopyTrader {
         console.error(`${'='.repeat(60)}`);
         console.error(`   Error: ${result.error}`);
         console.error(`   Market: ${order.marketId}`);
-        console.error(`   Side: ${order.side} ${order.amount} @ ${order.price}`);
+        console.error(`   Side: ${order.side} $${configuredTradeSizeUsdc} USDC (${order.amount} shares) @ ${order.price}`);
         console.error(`${'='.repeat(60)}\n`);
         await this.performanceTracker.logIssue(
           'error',

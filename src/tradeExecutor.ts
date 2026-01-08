@@ -74,8 +74,8 @@ export class TradeExecutor {
       console.log(`${'='.repeat(60)}`)
 
       // Validate price and amount
-      const price = parseFloat(order.price);
-      const size = parseFloat(order.amount);
+      let price = parseFloat(order.price);
+      let size = parseFloat(order.amount);
 
       if (isNaN(price) || price <= 0 || price > 1) {
         throw new Error(`Invalid price: ${order.price}. Price must be between 0 and 1`);
@@ -84,15 +84,35 @@ export class TradeExecutor {
       if (isNaN(size) || size <= 0) {
         throw new Error(`Invalid amount: ${order.amount}`);
       }
+      
+      // CRITICAL FIX: Round price to tick size alignment
+      // Polymarket CLOB API requires prices to be exact multiples of tick size
+      // e.g., with tickSize=0.01, price must be 0.74, 0.75, NOT 0.7421
+      const tickSizeNum = parseFloat(tickSize);
+      const rawPrice = price;
+      price = Math.round(price / tickSizeNum) * tickSizeNum;
+      // Fix floating point precision issues (e.g., 0.7000000001 -> 0.7)
+      price = parseFloat(price.toFixed(2));
+      
+      // CRITICAL FIX: Round size to 2 decimal places
+      // Prevents floating-point precision errors like "14.430000000000291"
+      const rawSize = size;
+      size = parseFloat(size.toFixed(2));
+      
+      // Ensure minimum size of 0.01
+      if (size < 0.01) {
+        throw new Error(`Order size too small after rounding: ${size}. Minimum is 0.01`);
+      }
+      
+      console.log(`[Execute] Price/Size rounding applied:`);
+      console.log(`   Raw price: ${rawPrice} -> Rounded: ${price} (tick size: ${tickSize})`);
+      console.log(`   Raw size: ${rawSize} -> Rounded: ${size}`);
 
       // Convert side to CLOB client Side enum
       const side = order.side === 'BUY' ? Side.BUY : Side.SELL;
 
       // Place order via CLOB client
       console.log(`\n📤 Placing order via CLOB client...`);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade',message:'About to place order',data:{tokenId,tickSize,negRisk,side:order.side,size,price},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
-      // #endregion
       
       let orderResponse: any;
       try {
