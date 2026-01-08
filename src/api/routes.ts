@@ -326,6 +326,69 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
+  // Get user wallet balance history for charting
+  router.get('/wallet/balance-history', async (req: Request, res: Response) => {
+    try {
+      const eoaAddress = copyTrader.getWalletAddress();
+      
+      if (!eoaAddress) {
+        return res.json({ 
+          success: true, 
+          dataPoints: [],
+          walletAddress: null
+        });
+      }
+
+      // Get proxy wallet address (where funds are actually held on Polymarket)
+      const proxyWalletAddress = await copyTrader.getProxyWalletAddress();
+      const balanceAddress = proxyWalletAddress || eoaAddress;
+
+      const balanceTracker = copyTrader.getBalanceTracker();
+      const history = balanceTracker.getBalanceHistory(balanceAddress);
+      
+      // Also get current balance to add as latest point
+      let currentBalance = 0;
+      try {
+        currentBalance = await balanceTracker.getBalance(balanceAddress);
+      } catch (e) {
+        // Use last known balance if we can't fetch current
+        if (history.length > 0) {
+          currentBalance = history[history.length - 1].balance;
+        }
+      }
+      
+      // Add current balance as the latest data point if history exists
+      const dataPoints = history.map(h => ({
+        timestamp: h.timestamp.toISOString(),
+        balance: h.balance
+      }));
+      
+      // Add current point if different from last
+      if (dataPoints.length === 0 || 
+          new Date(dataPoints[dataPoints.length - 1].timestamp).getTime() < Date.now() - 60000) {
+        dataPoints.push({
+          timestamp: new Date().toISOString(),
+          balance: currentBalance
+        });
+      }
+      
+      res.json({ 
+        success: true, 
+        dataPoints,
+        walletAddress: eoaAddress,
+        proxyWalletAddress,
+        currentBalance
+      });
+    } catch (error: any) {
+      console.error('[API] Error fetching balance history:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: error.message || 'Failed to fetch balance history',
+        dataPoints: []
+      });
+    }
+  });
+
   // Get tracked wallet balance with 24h change
   router.get('/wallets/:address/balance', async (req: Request, res: Response) => {
     try {

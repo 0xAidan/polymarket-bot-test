@@ -94,6 +94,30 @@ export class TradeExecutor {
       // Fix floating point precision issues (e.g., 0.7000000001 -> 0.7)
       price = parseFloat(price.toFixed(2));
       
+      // POLYMARKET PRICE LIMITS: Must be between 0.01 and 0.99
+      const MIN_PRICE = 0.01;
+      const MAX_PRICE = 0.99;
+      
+      if (price < MIN_PRICE) {
+        console.log(`[Execute] ⚠️ Price ${rawPrice} rounds to ${price}, below minimum ${MIN_PRICE}`);
+        // Return failure instead of throwing - allows caller to handle gracefully
+        return {
+          success: false,
+          error: `Price too low: ${rawPrice} rounds to ${price}. Polymarket requires price >= ${MIN_PRICE}. This is a "long shot" bet that cannot be copied.`,
+          executionTimeMs: Date.now() - executionStart
+        };
+      }
+      
+      if (price > MAX_PRICE) {
+        console.log(`[Execute] ⚠️ Price ${rawPrice} rounds to ${price}, above maximum ${MAX_PRICE}`);
+        // Return failure instead of throwing - allows caller to handle gracefully
+        return {
+          success: false,
+          error: `Price too high: ${rawPrice} rounds to ${price}. Polymarket requires price <= ${MAX_PRICE}. This market is nearly resolved.`,
+          executionTimeMs: Date.now() - executionStart
+        };
+      }
+      
       // CRITICAL FIX: Round size to 2 decimal places
       // Prevents floating-point precision errors like "14.430000000000291"
       const rawSize = size;
