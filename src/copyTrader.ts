@@ -176,6 +176,10 @@ export class CopyTrader {
       }
     }
     
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-DUPLICATE_CHECK',message:'Duplicate trade check',data:{tradeKey,lastProcessed:lastProcessed||null,now,timeSinceLastProcessed:lastProcessed?(now-lastProcessed):null,isDuplicate:lastProcessed&&(now-lastProcessed)<5*60*1000,processedTradesCount:this.processedTrades.size},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+    // #endregion
+    
     if (lastProcessed && (now - lastProcessed) < 5 * 60 * 1000) {
       console.log(`[CopyTrader] ⏭️  Similar trade already processed recently (key: ${tradeKey}), skipping duplicate`);
       return;
@@ -222,6 +226,34 @@ export class CopyTrader {
       return;
     }
     
+    // ============================================================
+    // POLYMARKET PRICE LIMITS: 0.01 to 0.99
+    // ============================================================
+    // Skip trades where price is too low or too high to execute
+    // These are typically "long shot" bets or nearly-resolved markets
+    const MIN_EXECUTABLE_PRICE = 0.01;
+    const MAX_EXECUTABLE_PRICE = 0.99;
+    
+    if (priceNum < MIN_EXECUTABLE_PRICE) {
+      console.log(`\n⏭️  [CopyTrader] SKIPPING TRADE - Price too low`);
+      console.log(`   Price: $${trade.price} (minimum executable: $${MIN_EXECUTABLE_PRICE})`);
+      console.log(`   Market: ${trade.marketId}`);
+      console.log(`   Outcome: ${trade.outcome}`);
+      console.log(`   💡 This is a "long shot" bet with price below 1 cent. Cannot copy via API.\n`);
+      // Don't log as error - this is expected behavior for cheap bets
+      return;
+    }
+    
+    if (priceNum > MAX_EXECUTABLE_PRICE) {
+      console.log(`\n⏭️  [CopyTrader] SKIPPING TRADE - Price too high`);
+      console.log(`   Price: $${trade.price} (maximum executable: $${MAX_EXECUTABLE_PRICE})`);
+      console.log(`   Market: ${trade.marketId}`);
+      console.log(`   Outcome: ${trade.outcome}`);
+      console.log(`   💡 This market is nearly resolved. Cannot copy via API.\n`);
+      // Don't log as error - this is expected behavior for nearly-resolved markets
+      return;
+    }
+    
     if (!trade.side || (trade.side !== 'BUY' && trade.side !== 'SELL')) {
       console.error(`❌ Invalid side (${trade.side}), cannot execute trade`);
       await this.performanceTracker.logIssue(
@@ -240,6 +272,10 @@ export class CopyTrader {
       const configuredTradeSizeUsdc = await Storage.getTradeSize();
       const tradeSizeUsdcNum = parseFloat(configuredTradeSizeUsdc || '0');
       
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-TRADE_SIZE',message:'Trade size calculation',data:{configuredTradeSizeUsdc,tradeSizeUsdcNum,priceNum,calculatedShares:tradeSizeUsdcNum/priceNum,minSharesRequired:5,willSkip:(tradeSizeUsdcNum/priceNum)<5},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+      // #endregion
+      
       if (isNaN(tradeSizeUsdcNum) || tradeSizeUsdcNum <= 0) {
         console.error(`❌ Invalid configured trade size (${configuredTradeSizeUsdc} USDC), cannot execute trade`);
         await this.performanceTracker.logIssue(
@@ -254,11 +290,117 @@ export class CopyTrader {
       // Calculate number of shares based on USDC amount and price
       // shares = USDC amount / price per share
       const sharesAmount = tradeSizeUsdcNum / priceNum;
-      const sharesAmountStr = sharesAmount.toFixed(2); // Round to 2 decimal places
+      const sharesAmountRounded = parseFloat(sharesAmount.toFixed(2)); // Round to 2 decimal places
       
       console.log(`[Trade] Configured trade size: $${configuredTradeSizeUsdc} USDC`);
       console.log(`[Trade] Price per share: $${trade.price}`);
-      console.log(`[Trade] Calculated shares: ${sharesAmountStr} shares (${tradeSizeUsdcNum} / ${priceNum})`);
+      console.log(`[Trade] Calculated shares: ${sharesAmountRounded} shares (${tradeSizeUsdcNum} / ${priceNum})`);
+      
+      // ============================================================
+      // POLYMARKET MINIMUM ORDER REQUIREMENTS
+      // ============================================================
+      // Polymarket requires:
+      // - Minimum 5 shares per order
+      // - Minimum $1 order value
+      const MIN_SHARES = 5;
+      const MIN_ORDER_VALUE_USDC = 1;
+      
+      // Check minimum shares requirement
+      if (sharesAmountRounded < MIN_SHARES) {
+        const minUsdcNeeded = (MIN_SHARES * priceNum).toFixed(2);
+        console.log(`\n⏭️  [CopyTrader] SKIPPING ORDER - BELOW MINIMUM SHARES`);
+        console.log(`   Calculated shares: ${sharesAmountRounded} (minimum required: ${MIN_SHARES})`);
+        console.log(`   Your trade size: $${configuredTradeSizeUsdc} USDC`);
+        console.log(`   Price per share: $${trade.price}`);
+        console.log(`   Minimum USDC needed at this price: $${minUsdcNeeded}`);
+        console.log(`   💡 Increase your trade size to at least $${minUsdcNeeded} USDC to copy this trade\n`);
+        await this.performanceTracker.logIssue(
+          'warning',
+          'trade_execution',
+          `Order skipped: ${sharesAmountRounded} shares below minimum ${MIN_SHARES}. Need $${minUsdcNeeded} USDC at price $${trade.price}`,
+          { trade, calculatedShares: sharesAmountRounded, minShares: MIN_SHARES }
+        );
+        return;
+      }
+      
+      // Check minimum order value requirement
+      const orderValueUsdc = sharesAmountRounded * priceNum;
+      if (orderValueUsdc < MIN_ORDER_VALUE_USDC) {
+        console.log(`\n⏭️  [CopyTrader] SKIPPING ORDER - BELOW MINIMUM VALUE`);
+        console.log(`   Order value: $${orderValueUsdc.toFixed(2)} USDC (minimum required: $${MIN_ORDER_VALUE_USDC})`);
+        console.log(`   💡 Increase your trade size to meet the $${MIN_ORDER_VALUE_USDC} minimum\n`);
+        await this.performanceTracker.logIssue(
+          'warning',
+          'trade_execution',
+          `Order skipped: $${orderValueUsdc.toFixed(2)} below minimum $${MIN_ORDER_VALUE_USDC}`,
+          { trade, orderValue: orderValueUsdc }
+        );
+        return;
+      }
+      
+      // ============================================================
+      // SELL ORDER - CHECK IF WE OWN SHARES
+      // ============================================================
+      let finalSharesAmount = sharesAmountRounded;
+      
+      if (trade.side === 'SELL') {
+        console.log(`\n🔍 [CopyTrader] SELL ORDER - Checking if we own shares...`);
+        
+        // Get user's positions to check if we own this token
+        const userWallet = this.getWalletAddress();
+        if (!userWallet) {
+          console.log(`⏭️  [CopyTrader] SKIPPING SELL - Cannot determine user wallet`);
+          return;
+        }
+        
+        // Get proxy wallet for positions lookup
+        const proxyWallet = await this.getProxyWalletAddress();
+        const walletToCheck = proxyWallet || userWallet;
+        
+        try {
+          const userPositions = await this.monitor.getApi().getUserPositions(walletToCheck);
+          
+          // Find position matching this tokenId
+          const matchingPosition = userPositions.find((pos: any) => {
+            // Match by asset (tokenId) - this is the unique identifier
+            return pos.asset === trade.tokenId;
+          });
+          
+          if (!matchingPosition || parseFloat(matchingPosition.size || '0') <= 0) {
+            console.log(`\n⏭️  [CopyTrader] SKIPPING SELL ORDER - No shares owned`);
+            console.log(`   Token ID: ${trade.tokenId?.substring(0, 20)}...`);
+            console.log(`   Market: ${trade.marketId}`);
+            console.log(`   Outcome: ${trade.outcome}`);
+            console.log(`   You don't own any shares of this position to sell.\n`);
+            // Don't log as error - this is expected behavior
+            return;
+          }
+          
+          const ownedShares = parseFloat(matchingPosition.size);
+          console.log(`   ✓ Found position! You own ${ownedShares.toFixed(2)} shares`);
+          
+          // Limit sell to owned shares (can't sell more than we have)
+          if (finalSharesAmount > ownedShares) {
+            console.log(`   ⚠️  Adjusting sell amount: ${finalSharesAmount} → ${ownedShares.toFixed(2)} (can't sell more than owned)`);
+            finalSharesAmount = parseFloat(ownedShares.toFixed(2));
+            
+            // Re-check minimum after adjustment
+            if (finalSharesAmount < MIN_SHARES) {
+              console.log(`\n⏭️  [CopyTrader] SKIPPING SELL - Owned shares (${finalSharesAmount}) below minimum (${MIN_SHARES})`);
+              return;
+            }
+          }
+          
+          console.log(`   ✓ Proceeding to sell ${finalSharesAmount} shares\n`);
+          
+        } catch (positionError: any) {
+          console.error(`❌ [CopyTrader] Failed to check positions:`, positionError.message);
+          console.log(`⏭️  [CopyTrader] SKIPPING SELL - Cannot verify share ownership\n`);
+          return;
+        }
+      }
+      
+      const sharesAmountStr = finalSharesAmount.toFixed(2);
       
       // Convert detected trade to trade order
       const order: TradeOrder = {
@@ -279,6 +421,10 @@ export class CopyTrader {
       console.log(`   Price: ${order.price}`);
       console.log(`   Time: ${new Date().toISOString()}`);
       
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-EXECUTE',message:'About to execute trade via executor',data:{order,configuredTradeSizeUsdc,originalTrade:{walletAddress:trade.walletAddress,marketId:trade.marketId,outcome:trade.outcome,amount:trade.amount,price:trade.price,side:trade.side}},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H4'})}).catch(()=>{});
+      // #endregion
+      
       // Execute the trade
       const result: TradeResult = await this.executor.executeTrade(order);
       const executionTime = Date.now() - executionStart;
@@ -298,6 +444,10 @@ export class CopyTrader {
         transactionHash: result.transactionHash,
         detectedTxHash: trade.transactionHash
       });
+
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-RESULT',message:'Trade execution result received',data:{success:result.success,orderId:result.orderId,transactionHash:result.transactionHash,error:result.error,executionTimeMs:result.executionTimeMs},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H4'})}).catch(()=>{});
+      // #endregion
 
       if (result.success) {
         console.log(`\n${'='.repeat(60)}`);

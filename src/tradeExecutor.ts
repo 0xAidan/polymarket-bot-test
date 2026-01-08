@@ -94,6 +94,30 @@ export class TradeExecutor {
       // Fix floating point precision issues (e.g., 0.7000000001 -> 0.7)
       price = parseFloat(price.toFixed(2));
       
+      // POLYMARKET PRICE LIMITS: Must be between 0.01 and 0.99
+      const MIN_PRICE = 0.01;
+      const MAX_PRICE = 0.99;
+      
+      if (price < MIN_PRICE) {
+        console.log(`[Execute] ⚠️ Price ${rawPrice} rounds to ${price}, below minimum ${MIN_PRICE}`);
+        // Return failure instead of throwing - allows caller to handle gracefully
+        return {
+          success: false,
+          error: `Price too low: ${rawPrice} rounds to ${price}. Polymarket requires price >= ${MIN_PRICE}. This is a "long shot" bet that cannot be copied.`,
+          executionTimeMs: Date.now() - executionStart
+        };
+      }
+      
+      if (price > MAX_PRICE) {
+        console.log(`[Execute] ⚠️ Price ${rawPrice} rounds to ${price}, above maximum ${MAX_PRICE}`);
+        // Return failure instead of throwing - allows caller to handle gracefully
+        return {
+          success: false,
+          error: `Price too high: ${rawPrice} rounds to ${price}. Polymarket requires price <= ${MAX_PRICE}. This market is nearly resolved.`,
+          executionTimeMs: Date.now() - executionStart
+        };
+      }
+      
       // CRITICAL FIX: Round size to 2 decimal places
       // Prevents floating-point precision errors like "14.430000000000291"
       const rawSize = size;
@@ -114,6 +138,10 @@ export class TradeExecutor {
       // Place order via CLOB client
       console.log(`\n📤 Placing order via CLOB client...`);
       
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade-PRE_ORDER',message:'About to place order via CLOB client',data:{tokenId,side:order.side,sizeRounded:size,priceRounded:price,tickSize,negRisk,marketId:order.marketId,outcome:order.outcome},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H4'})}).catch(()=>{});
+      // #endregion
+      
       let orderResponse: any;
       try {
         orderResponse = await this.clobClient.createAndPostOrder({
@@ -131,6 +159,10 @@ export class TradeExecutor {
       }
 
       const executionTime = Date.now() - executionStart;
+
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade-POST_ORDER',message:'Order response received from CLOB',data:{orderResponse,executionTimeMs:executionTime,orderResponseType:typeof orderResponse,orderID:orderResponse?.orderID||orderResponse?.orderId||orderResponse?.id,status:orderResponse?.status},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H2'})}).catch(()=>{});
+      // #endregion
 
       // DEBUG: Log the exact response we got
       console.log(`[DEBUG] orderResponse type: ${typeof orderResponse}`);
@@ -175,6 +207,10 @@ export class TradeExecutor {
       console.log(`   Execution Time: ${executionTime}ms`);
       console.log(`${'='.repeat(60)}\n`);
 
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade-SUCCESS',message:'Order declared SUCCESS',data:{orderId:String(orderId),responseStatus,executionTimeMs:executionTime,txHash:orderResponse.txHash||orderResponse.transactionHash||orderResponse.hash||null,fullOrderResponse:orderResponse},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H4'})}).catch(()=>{});
+      // #endregion
+
       return {
         success: true,
         orderId: String(orderId),
@@ -198,6 +234,10 @@ export class TradeExecutor {
       if (error.originalError) {
         console.error(`Original error:`, error.originalError.message);
       }
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade-FAILURE',message:'Trade execution failed',data:{errorMessage:error.message,httpStatus:error.response?.status,responseData:error.response?.data,executionTimeMs:executionTime},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H5'})}).catch(()=>{});
+      // #endregion
       
       return {
         success: false,
