@@ -198,10 +198,21 @@ export class PolymarketClobClient {
     if (!tickSize || negRisk === undefined) {
       try {
         const market = await this.getMarket(params.tokenID);
-        tickSize = tickSize || market.tickSize || '0.01';
-        negRisk = negRisk !== undefined ? negRisk : (market.negRisk || false);
+        const marketTickSize = market.tickSize;
+        const marketNegRisk = market.negRisk;
+        tickSize = tickSize || marketTickSize || '0.01';
+        negRisk = negRisk !== undefined ? negRisk : (marketNegRisk || false);
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder-marketLookup',message:'Market info fetched from CLOB',data:{tokenID:params.tokenID,marketTickSize:marketTickSize,marketNegRisk:marketNegRisk,finalTickSize:tickSize,finalNegRisk:negRisk,marketExists:!!market,marketKeys:Object.keys(market||{}).join(',')},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2,H3,H5'})}).catch(()=>{});
+        // #endregion
       } catch (error: any) {
         console.warn('Could not fetch market info, using defaults:', error.message);
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder-marketLookupFailed',message:'Market info FAILED - using defaults',data:{tokenID:params.tokenID,errorMessage:error.message,fallbackTickSize:'0.01',fallbackNegRisk:false},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
+        // #endregion
+        
         tickSize = tickSize || '0.01';
         negRisk = negRisk !== undefined ? negRisk : false;
       }
@@ -213,6 +224,10 @@ export class PolymarketClobClient {
       
       // DEBUG: Log builder config status
       console.log(`[DEBUG] Builder credentials configured: key=${!!config.polymarketBuilderApiKey}, secret=${!!config.polymarketBuilderSecret}, passphrase=${!!config.polymarketBuilderPassphrase}`);
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder-pre',message:'CLOB order params BEFORE sending',data:{tokenID:params.tokenID,tokenIDType:typeof params.tokenID,tokenIDLength:params.tokenID?.length,price:params.price,priceType:typeof params.price,size:params.size,sizeType:typeof params.size,side:params.side,tickSize:tickSize,tickSizeType:typeof tickSize,negRisk:negRisk,negRiskType:typeof negRisk},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H2,H3,H4'})}).catch(()=>{});
+      // #endregion
       
       let response: any;
       try {
@@ -242,6 +257,10 @@ export class PolymarketClobClient {
           console.error(`[CLOB] Request params: tokenID=${params.tokenID}, price=${params.price}, size=${params.size}, side=${params.side}`);
           console.error(`[CLOB] Options: tickSize=${tickSize}, negRisk=${negRisk}`);
           console.error(`[CLOB] ======================================`);
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder-400error',message:'400 BAD REQUEST from CLOB API',data:{status:400,responseData:responseData,errorMessage:innerError.message,tokenID:params.tokenID,price:params.price,size:params.size,side:params.side,tickSize:tickSize,negRisk:negRisk,fullResponse:JSON.stringify(innerError.response?.data)?.substring(0,500)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H2,H3,H4,H5'})}).catch(()=>{});
+          // #endregion
         }
         throw innerError;
       }
@@ -263,6 +282,11 @@ export class PolymarketClobClient {
       if (statusCode !== undefined && statusCode !== null) {
         const numericStatus = typeof statusCode === 'string' ? parseInt(statusCode, 10) : statusCode;
         if (!isNaN(numericStatus) && numericStatus >= 400) {
+          // Check for specific "orderbook does not exist" error (market closed/resolved)
+          const errorMsg = response?.error || '';
+          if (errorMsg.includes('orderbook') && errorMsg.includes('does not exist')) {
+            throw new Error(`MARKET_CLOSED: The orderbook for this market no longer exists. The market has been resolved or closed.`);
+          }
           throw new Error(`CLOB API returned HTTP error ${numericStatus} - request was rejected`);
         }
       }

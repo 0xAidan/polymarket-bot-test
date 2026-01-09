@@ -470,19 +470,37 @@ export class CopyTrader {
         console.log(`${'='.repeat(60)}\n`);
         this.executedTrades.add(trade.transactionHash);
       } else {
-        console.error(`\n${'='.repeat(60)}`);
-        console.error(`❌ [Execute] TRADE EXECUTION FAILED`);
-        console.error(`${'='.repeat(60)}`);
-        console.error(`   Error: ${result.error}`);
-        console.error(`   Market: ${order.marketId}`);
-        console.error(`   Side: ${order.side} $${configuredTradeSizeUsdc} USDC (${order.amount} shares) @ ${order.price}`);
-        console.error(`${'='.repeat(60)}\n`);
-        await this.performanceTracker.logIssue(
-          'error',
-          'trade_execution',
-          `Trade execution failed: ${result.error}`,
-          { trade, executionTimeMs: executionTime }
-        );
+        // Check if this is a "market closed" error (expected behavior, not a failure)
+        const isMarketClosed = result.error?.includes('MARKET_CLOSED') || 
+                               result.error?.includes('orderbook') && result.error?.includes('does not exist');
+        
+        if (isMarketClosed) {
+          // Market is resolved/closed - this is expected, log as info not error
+          console.log(`\n${'='.repeat(60)}`);
+          console.log(`⏭️  [CopyTrader] SKIPPING TRADE - Market Closed/Resolved`);
+          console.log(`${'='.repeat(60)}`);
+          console.log(`   Market: ${order.marketId}`);
+          console.log(`   Outcome: ${order.outcome}`);
+          console.log(`   Side: ${order.side} $${configuredTradeSizeUsdc} USDC (${order.amount} shares) @ ${order.price}`);
+          console.log(`   💡 The tracked wallet traded on a market that has since been resolved.`);
+          console.log(`   💡 This is normal - markets close when events conclude.`);
+          console.log(`${'='.repeat(60)}\n`);
+          // Don't log as error - this is expected behavior
+        } else {
+          console.error(`\n${'='.repeat(60)}`);
+          console.error(`❌ [Execute] TRADE EXECUTION FAILED`);
+          console.error(`${'='.repeat(60)}`);
+          console.error(`   Error: ${result.error}`);
+          console.error(`   Market: ${order.marketId}`);
+          console.error(`   Side: ${order.side} $${configuredTradeSizeUsdc} USDC (${order.amount} shares) @ ${order.price}`);
+          console.error(`${'='.repeat(60)}\n`);
+          await this.performanceTracker.logIssue(
+            'error',
+            'trade_execution',
+            `Trade execution failed: ${result.error}`,
+            { trade, executionTimeMs: executionTime }
+          );
+        }
       }
     } catch (error: any) {
       const executionTime = Date.now() - executionStart;
