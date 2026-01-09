@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "description": "Bot to copy trades from tracked wallets on Polymarket",
   "main": "dist/index.js",
-  "type": "module",
   "scripts": {
     "setup": "node setup.js",
     "dev": "tsx watch src/index.ts",
