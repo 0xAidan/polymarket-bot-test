@@ -85,6 +85,29 @@ export class TradeExecutor {
         throw new Error(`Invalid amount: ${order.amount}`);
       }
       
+      // ============================================================
+      // AGGRESSIVE PRICING FOR IMMEDIATE FILLS
+      // ============================================================
+      // Instead of placing limit orders at the detected price (which wait to fill),
+      // we adjust the price to cross the spread and fill immediately:
+      // - BUY orders: Price 2% HIGHER to take from asks
+      // - SELL orders: Price 2% LOWER to hit bids
+      // This ensures trades execute instantly rather than waiting minutes
+      const PRICE_SLIPPAGE = 0.02; // 2% slippage for immediate fills
+      const originalPrice = price;
+      
+      if (order.side === 'BUY') {
+        // For buys, increase price to ensure we take from the ask side
+        price = Math.min(price * (1 + PRICE_SLIPPAGE), 0.99);
+      } else {
+        // For sells, decrease price to ensure we hit bids
+        price = Math.max(price * (1 - PRICE_SLIPPAGE), 0.01);
+      }
+      
+      console.log(`[Execute] ⚡ AGGRESSIVE PRICING for immediate fill:`);
+      console.log(`   Original price: $${originalPrice.toFixed(4)}`);
+      console.log(`   Adjusted price: $${price.toFixed(4)} (${order.side === 'BUY' ? '+' : '-'}${(PRICE_SLIPPAGE * 100).toFixed(1)}% slippage)`);
+      
       // CRITICAL FIX: Round price to tick size alignment
       // Polymarket CLOB API requires prices to be exact multiples of tick size
       // e.g., with tickSize=0.01, price must be 0.74, 0.75, NOT 0.7421
