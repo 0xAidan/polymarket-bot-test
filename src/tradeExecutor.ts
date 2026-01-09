@@ -132,11 +132,19 @@ export class TradeExecutor {
       console.log(`   Raw price: ${rawPrice} -> Rounded: ${price} (tick size: ${tickSize})`);
       console.log(`   Raw size: ${rawSize} -> Rounded: ${size}`);
 
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade-afterRounding',message:'Final order values AFTER rounding',data:{tokenId:tokenId,tokenIdLength:tokenId?.length,rawPrice:rawPrice,roundedPrice:price,priceDecimalPlaces:(price.toString().split('.')[1]||'').length,rawSize:rawSize,roundedSize:size,tickSize:tickSize,negRisk:negRisk,side:order.side,marketId:order.marketId,outcome:order.outcome},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H2,H3,H4'})}).catch(()=>{});
+      // #endregion
+
       // Convert side to CLOB client Side enum
       const side = order.side === 'BUY' ? Side.BUY : Side.SELL;
 
       // Place order via CLOB client
       console.log(`\n📤 Placing order via CLOB client...`);
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade-preClobCall',message:'CALLING clobClient.createAndPostOrder NOW',data:{tokenID:tokenId,tokenIDpreview:tokenId?.substring(0,40),side:side,sideRaw:order.side,size:size,price:price,tickSize:tickSize,negRisk:negRisk},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H2,H3,H4,H5'})}).catch(()=>{});
+      // #endregion
       
       let orderResponse: any;
       try {
@@ -151,6 +159,11 @@ export class TradeExecutor {
       } catch (clobError: any) {
         // CLOB client threw an error - this is expected for failures
         console.error(`[Execute] CLOB client threw error:`, clobError.message);
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade-clobError',message:'CLOB client threw error',data:{errorMessage:clobError.message,errorName:clobError.name,httpStatus:clobError.response?.status,responseData:JSON.stringify(clobError.response?.data)?.substring(0,500),tokenID:tokenId,price:price,size:size,side:side,tickSize:tickSize,negRisk:negRisk},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H2,H3,H4,H5'})}).catch(()=>{});
+        // #endregion
+        
         throw clobError;
       }
 

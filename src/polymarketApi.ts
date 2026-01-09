@@ -291,8 +291,13 @@ export class PolymarketApi {
     return this.retryRequest(async () => {
       try {
         // Polymarket Data API uses: GET /positions?user={proxyWalletAddress}
+        // CRITICAL FIX: Whale wallets can have 200+ positions, default limit is 100
+        // Must request more to see all positions and detect trades on any market
         const response = await this.dataApiClient.get('/positions', {
-          params: { user: userAddress.toLowerCase() }
+          params: { 
+            user: userAddress.toLowerCase(),
+            limit: 500  // Fetch up to 500 positions to handle whale wallets
+          }
         });
         
         const positions = response.data || [];
