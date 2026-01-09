@@ -157,31 +157,41 @@ export class CopyTrader {
     console.log(`   Trade object:`, JSON.stringify(trade, null, 2));
     console.log(`${'='.repeat(60)}\n`);
     
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-entry',message:'handleDetectedTrade CALLED',data:{wallet:trade.walletAddress,marketId:trade.marketId?.substring(0,30),side:trade.side,price:trade.price,amount:trade.amount,tokenId:trade.tokenId?.substring(0,20),txHash:trade.transactionHash?.substring(0,20)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
+    // #endregion
+    
     // Prevent duplicate execution using transaction hash
     if (this.executedTrades.has(trade.transactionHash)) {
       console.log(`[CopyTrader] ⏭️  Trade ${trade.transactionHash} already executed, skipping`);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-dupeTx',message:'Skipping - duplicate txHash',data:{txHash:trade.transactionHash?.substring(0,30)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
+      // #endregion
       return;
     }
     
-    // Also check for duplicate trades using a composite key (wallet + market + outcome + side + timestamp within 5 min window)
-    // This prevents processing the same trade multiple times if detected from different sources
-    const tradeKey = `${trade.walletAddress}-${trade.marketId}-${trade.outcome}-${trade.side}-${Math.floor(trade.timestamp.getTime() / (5 * 60 * 1000))}`;
-    const lastProcessed = this.processedTrades.get(tradeKey);
-    const now = Date.now();
+    // CRITICAL FIX: Use transaction hash for deduplication, not time-bucket composite key
+    // The old approach blocked legitimate multiple trades on the same market
+    // Transaction hash is unique per trade and is the correct deduplication key
+    const tradeKey = trade.transactionHash;
     
     // Clean up old entries (older than 1 hour)
+    const now = Date.now();
     for (const [key, timestamp] of this.processedTrades.entries()) {
       if (now - timestamp > 60 * 60 * 1000) {
         this.processedTrades.delete(key);
       }
     }
     
-    if (lastProcessed && (now - lastProcessed) < 5 * 60 * 1000) {
-      console.log(`[CopyTrader] ⏭️  Similar trade already processed recently (key: ${tradeKey}), skipping duplicate`);
+    if (this.processedTrades.has(tradeKey)) {
+      console.log(`[CopyTrader] ⏭️  Trade already processed (txHash: ${tradeKey?.substring(0,20)}...), skipping duplicate`);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-dupeKey',message:'Skipping - trade already processed',data:{txHash:tradeKey?.substring(0,30)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
+      // #endregion
       return;
     }
     
-    // Mark as processed
+    // Mark as processed using transaction hash
     this.processedTrades.set(tradeKey, now);
 
     console.log(`\n${'='.repeat(60)}`);
@@ -202,6 +212,9 @@ export class CopyTrader {
     
     if (!trade.marketId || trade.marketId === 'unknown') {
       console.error(`❌ Invalid marketId (${trade.marketId}), cannot execute trade`);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-invalidMarket',message:'Skipping - invalid marketId',data:{marketId:trade.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
+      // #endregion
       await this.performanceTracker.logIssue(
         'error',
         'trade_execution',
@@ -213,6 +226,9 @@ export class CopyTrader {
     
     if (!trade.price || trade.price === '0' || isNaN(priceNum) || priceNum <= 0 || priceNum > 1) {
       console.error(`❌ Invalid price (${trade.price}), cannot execute trade`);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-invalidPrice',message:'Skipping - invalid price',data:{price:trade.price,priceNum:priceNum},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
+      // #endregion
       await this.performanceTracker.logIssue(
         'error',
         'trade_execution',
@@ -413,6 +429,10 @@ export class CopyTrader {
       console.log(`   Price: ${order.price}`);
       console.log(`   Time: ${new Date().toISOString()}`);
       
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-execute',message:'EXECUTING TRADE NOW',data:{side:order.side,amount:order.amount,price:order.price,marketId:order.marketId?.substring(0,30),tokenId:order.tokenId?.substring(0,30),outcome:order.outcome},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
+      // #endregion
+      
       // Execute the trade
       const result: TradeResult = await this.executor.executeTrade(order);
       const executionTime = Date.now() - executionStart;
@@ -433,6 +453,10 @@ export class CopyTrader {
         detectedTxHash: trade.transactionHash
       });
 
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-result',message:'Trade execution result',data:{success:result.success,orderId:result.orderId,error:result.error,executionTimeMs:executionTime},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
+      // #endregion
+      
       if (result.success) {
         console.log(`\n${'='.repeat(60)}`);
         console.log(`✅ [Execute] TRADE EXECUTED SUCCESSFULLY!`);
