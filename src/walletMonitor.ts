@@ -344,15 +344,35 @@ export class WalletMonitor {
             recentTrades = [];
           }
           
-          // Get last seen timestamp for this wallet (default to now if first time)
+          // Get last seen timestamp for this wallet (default to 0 if first time)
           let lastSeenTimestamp = this.lastSeenTradeTimestamp.get(eoaAddress) || 0;
           let newTradeCount = 0;
           
+          // CRITICAL FIX: On first run (lastSeenTimestamp === 0), DO NOT process any trades
+          // Only set the baseline timestamp so we only copy FUTURE trades, not historical ones
+          const isFirstRun = lastSeenTimestamp === 0;
+          
           // #region agent log
           if (eoaAddress === '0x6a72f61820b26b1fe4d956e17b6dc2a1ea3033ee') {
-            fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:tradeHistoryLoop',message:'Starting trade history loop',data:{wallet:eoaAddress,recentTradesCount:recentTrades.length,lastSeenTimestamp:lastSeenTimestamp,isFirstRun:lastSeenTimestamp===0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3,H6'})}).catch(()=>{});
+            fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:tradeHistoryLoop',message:'Starting trade history loop',data:{wallet:eoaAddress,recentTradesCount:recentTrades.length,lastSeenTimestamp:lastSeenTimestamp,isFirstRun:isFirstRun},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3,H6'})}).catch(()=>{});
           }
           // #endregion
+          
+          // On first run, just set the baseline timestamp and skip trade processing
+          // This prevents copying historical trades when bot starts or restarts
+          if (isFirstRun && recentTrades.length > 0) {
+            const newestTimestamp = typeof recentTrades[0].timestamp === 'number' 
+              ? recentTrades[0].timestamp 
+              : parseInt(recentTrades[0].timestamp, 10);
+            const normalizedTimestamp = newestTimestamp < 10000000000 ? newestTimestamp : Math.floor(newestTimestamp / 1000);
+            this.lastSeenTradeTimestamp.set(eoaAddress, normalizedTimestamp);
+            console.log(`[Monitor] 📋 First run for wallet ${eoaAddress.substring(0, 10)}... - Setting baseline timestamp to ${normalizedTimestamp} (${new Date(normalizedTimestamp * 1000).toISOString()})`);
+            console.log(`[Monitor]    ⏭️  Skipping ${recentTrades.length} historical trades - will only copy NEW trades from now on`);
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:firstRunSkip',message:'FIRST RUN - Skipping historical trades',data:{wallet:eoaAddress,baselineTimestamp:normalizedTimestamp,skippedTradeCount:recentTrades.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7-firstRun'})}).catch(()=>{});
+            // #endregion
+            continue; // Skip to next wallet - don't process historical trades
+          }
           
           // Process trades from newest to oldest, stopping when we hit already-seen trades
           for (const trade of recentTrades) {
@@ -361,9 +381,9 @@ export class WalletMonitor {
             const tradeTimestamp = tradeTimestampRaw < 10000000000 ? tradeTimestampRaw : Math.floor(tradeTimestampRaw / 1000);
             
             // Skip if we've already seen this trade (trades are sorted by timestamp desc)
-            // FIXED: Use < instead of <= to allow trades at the same timestamp as last seen
-            // The processedTradeIds set handles deduplication for same-timestamp trades
-            if (tradeTimestamp < lastSeenTimestamp) {
+            // FIXED: Use <= to skip trades at or before the baseline timestamp
+            // This ensures the baseline trade itself isn't re-processed on subsequent cycles
+            if (tradeTimestamp <= lastSeenTimestamp) {
               // #region agent log
               if (eoaAddress === '0x6a72f61820b26b1fe4d956e17b6dc2a1ea3033ee') {
                 fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:tradeSkipped-timestamp',message:'Trade skipped - older than lastSeenTimestamp',data:{wallet:eoaAddress,tradeTimestamp:tradeTimestamp,lastSeenTimestamp:lastSeenTimestamp,tradeSide:trade.side,tradeAsset:trade.asset?.substring(0,20)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
