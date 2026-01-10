@@ -14,6 +14,8 @@ export class WalletMonitor {
   private isMonitoring = false;
   private monitoredPositions = new Map<string, Map<string, any>>(); // wallet -> tokenId -> position
   private pollingInterval: NodeJS.Timeout | null = null;
+  private currentIntervalMs: number = config.monitoringIntervalMs;
+  private onTradeDetectedCallback: ((trade: DetectedTrade) => void) | null = null;
 
   constructor() {
     this.api = new PolymarketApi();
@@ -45,6 +47,8 @@ export class WalletMonitor {
     }
 
     this.isMonitoring = true;
+    this.onTradeDetectedCallback = onTradeDetected;
+    this.currentIntervalMs = config.monitoringIntervalMs;
     console.log('Starting wallet monitoring...');
 
     // Get initial positions for all tracked wallets
@@ -55,22 +59,13 @@ export class WalletMonitor {
     console.log(`[Monitor] Running initial trade check...`);
     await this.checkWalletsForTrades(onTradeDetected);
     
-    this.pollingInterval = setInterval(async () => {
-      if (!this.isMonitoring) return;
-      try {
-        await this.checkWalletsForTrades(onTradeDetected);
-      } catch (error: any) {
-        console.error(`[Monitor] Error in polling cycle:`, error.message);
-        console.error(`[Monitor] Stack:`, error.stack);
-        // Continue polling even if one cycle fails
-      }
-    }, config.monitoringIntervalMs);
+    this.startPolling();
 
     const wallets = await Storage.getActiveWallets();
     console.log(`\n${'='.repeat(60)}`);
     console.log(`[Monitor] 📊 POLLING-BASED MONITORING STARTED`);
     console.log(`${'='.repeat(60)}`);
-    console.log(`[Monitor] Monitoring interval: ${config.monitoringIntervalMs}ms (${config.monitoringIntervalMs / 1000}s)`);
+    console.log(`[Monitor] Monitoring interval: ${this.currentIntervalMs}ms (${this.currentIntervalMs / 1000}s)`);
     console.log(`[Monitor] Active wallets: ${wallets.length}`);
     
     if (wallets.length === 0) {
@@ -84,6 +79,50 @@ export class WalletMonitor {
         console.log(`[Monitor]   • ${wallet.address.substring(0, 10)}...${wallet.address.substring(wallet.address.length - 8)} - ${status}`);
       }
       console.log(`${'='.repeat(60)}\n`);
+    }
+  }
+
+  /**
+   * Start the polling interval
+   */
+  private startPolling(): void {
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
+    }
+    
+    if (!this.onTradeDetectedCallback) {
+      return;
+    }
+
+    this.pollingInterval = setInterval(async () => {
+      if (!this.isMonitoring || !this.onTradeDetectedCallback) return;
+      try {
+        await this.checkWalletsForTrades(this.onTradeDetectedCallback);
+      } catch (error: any) {
+        console.error(`[Monitor] Error in polling cycle:`, error.message);
+        console.error(`[Monitor] Stack:`, error.stack);
+        // Continue polling even if one cycle fails
+      }
+    }, this.currentIntervalMs);
+  }
+
+  /**
+   * Update the monitoring interval (takes effect immediately if monitoring is active)
+   */
+  async updateMonitoringInterval(intervalMs: number): Promise<void> {
+    if (intervalMs < 1000) {
+      throw new Error('Monitoring interval must be at least 1000ms (1 second)');
+    }
+    if (intervalMs > 300000) {
+      throw new Error('Monitoring interval must be at most 300000ms (5 minutes)');
+    }
+
+    this.currentIntervalMs = intervalMs;
+    
+    // If monitoring is active, restart polling with new interval
+    if (this.isMonitoring && this.onTradeDetectedCallback) {
+      console.log(`[Monitor] Updating monitoring interval to ${intervalMs}ms (${intervalMs / 1000}s)`);
+      this.startPolling();
     }
   }
 
@@ -146,6 +185,9 @@ export class WalletMonitor {
     onTradeDetected: (trade: DetectedTrade) => void
   ): Promise<void> {
     const wallets = await Storage.getActiveWallets();
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'Starting wallet check cycle',data:{activeWalletsCount:wallets.length,walletAddresses:wallets.map(w=>w.address.substring(0,8))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
     
     if (wallets.length === 0) {
       // No wallets to monitor, skip this check
@@ -153,20 +195,33 @@ export class WalletMonitor {
     }
 
     console.log(`[Monitor] Checking ${wallets.length} wallet(s) for trades...`);
+    console.log(`[Monitor] Tracked wallet addresses: ${wallets.map(w => w.address.substring(0, 8) + '...').join(', ')}`);
 
     for (const wallet of wallets) {
       try {
         const eoaAddress = wallet.address.toLowerCase();
         console.log(`[Monitor] Checking wallet ${eoaAddress.substring(0, 8)}... for positions and trades`);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'Checking specific wallet',data:{walletAddress:eoaAddress.substring(0,8),isActive:wallet.active},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
         
         // Polymarket Data API works directly with EOA addresses
         // The positions response includes proxyWallet field if one exists
         let currentPositions: any[] = [];
         
         try {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'About to fetch positions',data:{walletAddress:eoaAddress.substring(0,8)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+          // #endregion
           currentPositions = await this.api.getUserPositions(eoaAddress);
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'Positions fetched',data:{walletAddress:eoaAddress.substring(0,8),positionCount:currentPositions.length,firstPositionFields:currentPositions[0]?Object.keys(currentPositions[0]):[]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+          // #endregion
           console.log(`[Monitor] Found ${currentPositions.length} current position(s) for ${eoaAddress.substring(0, 8)}...`);
         } catch (error: any) {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'Failed to fetch positions',data:{walletAddress:eoaAddress.substring(0,8),errorMsg:error.message,errorStatus:error.response?.status},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+          // #endregion
           console.error(`[Monitor] Failed to get positions for ${eoaAddress.substring(0, 8)}...:`, error.message);
           continue; // Skip to next wallet
         }
@@ -195,9 +250,15 @@ export class WalletMonitor {
             // New position detected - this indicates a BUY
             // FIXED: Use 'size' field from Polymarket API
             const currentSize = parseFloat(currentPos.size || '0');
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'New position detected',data:{walletAddress:eoaAddress.substring(0,8),tokenId:tokenId.substring(0,20),currentSize,hasPreviousPos:!!previousPos,positionFields:Object.keys(currentPos)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,D'})}).catch(()=>{});
+            // #endregion
             if (currentSize > 0) {
               console.log(`[Monitor] 🆕 New position detected for ${eoaAddress.substring(0, 8)}...: ${currentSize} tokens of ${tokenId.substring(0, 20)}...`);
               const trade = await this.parsePositionToTrade(eoaAddress, currentPos, tokenId, 'BUY', null);
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'parsePositionToTrade result',data:{walletAddress:eoaAddress.substring(0,8),tokenId:tokenId.substring(0,20),tradeParsed:!!trade,tradeMarketId:trade?.marketId,tradePrice:trade?.price,tradeAmount:trade?.amount,tradeSide:trade?.side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B,E'})}).catch(()=>{});
+              // #endregion
               if (trade) {
                 console.log(`\n🔔 [Monitor] TRADE DETECTED: New position`);
                 console.log(`   Side: ${trade.side}`);
@@ -206,14 +267,26 @@ export class WalletMonitor {
                 console.log(`   Market: ${trade.marketId}`);
                 console.log(`   Outcome: ${trade.outcome}`);
                 console.log(`[Monitor] 📤 Calling onTradeDetected callback...`);
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'About to call callback',data:{walletAddress:eoaAddress.substring(0,8),tradeMarketId:trade.marketId,tradePrice:trade.price,tradeAmount:trade.amount,tradeSide:trade.side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
                 try {
                   await onTradeDetected(trade);
+                  // #region agent log
+                  fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'Callback completed',data:{walletAddress:eoaAddress.substring(0,8),tradeMarketId:trade.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+                  // #endregion
                   console.log(`[Monitor] ✅ Callback completed successfully`);
                 } catch (callbackError: any) {
+                  // #region agent log
+                  fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'Callback failed',data:{walletAddress:eoaAddress.substring(0,8),errorMsg:callbackError.message,errorStack:callbackError.stack?.substring(0,500),tradeMarketId:trade.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+                  // #endregion
                   console.error(`[Monitor] ❌ Callback failed:`, callbackError.message);
                   console.error(`[Monitor]    Stack:`, callbackError.stack);
                 }
               } else {
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'parsePositionToTrade returned null',data:{walletAddress:eoaAddress.substring(0,8),tokenId:tokenId.substring(0,20),positionFields:Object.keys(currentPos),positionData:JSON.stringify(currentPos).substring(0,500)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B,E'})}).catch(()=>{});
+                // #endregion
                 console.warn(`[Monitor] Failed to parse new position as trade for token ${tokenId}`);
               }
             }
@@ -230,8 +303,14 @@ export class WalletMonitor {
             
             if (absDiff > 0.01 || percentChange > 0.01) {
               const side: 'BUY' | 'SELL' = sizeDiff > 0 ? 'BUY' : 'SELL';
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'Position change detected',data:{walletAddress:eoaAddress.substring(0,8),tokenId:tokenId.substring(0,20),side,absDiff,percentChange,currentSize,previousSize},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+              // #endregion
               console.log(`[Monitor] 📊 Position change detected for ${eoaAddress.substring(0, 8)}...: ${side} ${absDiff.toFixed(4)} tokens (${(percentChange * 100).toFixed(2)}% change) of ${tokenId.substring(0, 20)}...`);
               const trade = await this.parsePositionToTrade(eoaAddress, currentPos, tokenId, side, previousPos);
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'parsePositionToTrade result (change)',data:{walletAddress:eoaAddress.substring(0,8),tokenId:tokenId.substring(0,20),tradeParsed:!!trade,tradeMarketId:trade?.marketId,tradePrice:trade?.price,tradeAmount:trade?.amount,tradeSide:trade?.side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B,E'})}).catch(()=>{});
+              // #endregion
               if (trade) {
                 console.log(`\n🔔 [Monitor] TRADE DETECTED: Position change`);
                 console.log(`   Side: ${trade.side}`);
@@ -241,14 +320,26 @@ export class WalletMonitor {
                 console.log(`   Outcome: ${trade.outcome}`);
                 console.log(`   Size change: ${sizeDiff > 0 ? '+' : ''}${sizeDiff.toFixed(4)} (${(percentChange * 100).toFixed(2)}%)`);
                 console.log(`[Monitor] 📤 Calling onTradeDetected callback...`);
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'About to call callback (change)',data:{walletAddress:eoaAddress.substring(0,8),tradeMarketId:trade.marketId,tradePrice:trade.price,tradeAmount:trade.amount,tradeSide:trade.side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
                 try {
                   await onTradeDetected(trade);
+                  // #region agent log
+                  fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'Callback completed (change)',data:{walletAddress:eoaAddress.substring(0,8),tradeMarketId:trade.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+                  // #endregion
                   console.log(`[Monitor] ✅ Callback completed successfully`);
                 } catch (callbackError: any) {
+                  // #region agent log
+                  fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'Callback failed (change)',data:{walletAddress:eoaAddress.substring(0,8),errorMsg:callbackError.message,errorStack:callbackError.stack?.substring(0,500),tradeMarketId:trade.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+                  // #endregion
                   console.error(`[Monitor] ❌ Callback failed:`, callbackError.message);
                   console.error(`[Monitor]    Stack:`, callbackError.stack);
                 }
               } else {
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'parsePositionToTrade returned null (change)',data:{walletAddress:eoaAddress.substring(0,8),tokenId:tokenId.substring(0,20),sizeDiff,positionFields:Object.keys(currentPos)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B,E'})}).catch(()=>{});
+                // #endregion
                 console.warn(`[Monitor] Failed to parse position change as trade for token ${tokenId} (size diff: ${sizeDiff})`);
               }
             }
@@ -311,8 +402,14 @@ export class WalletMonitor {
             // Process trades from the last 5 minutes (more focused window)
             if (tradeTime > fiveMinutesAgo && tradeTime <= now) {
               recentTradeCount++;
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'Processing recent trade from history',data:{walletAddress:eoaAddress.substring(0,8),tradeTime:new Date(tradeTime).toISOString(),tradeFields:Object.keys(trade),tradeData:JSON.stringify(trade).substring(0,500)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+              // #endregion
               console.log(`[Monitor] Processing recent trade from ${new Date(tradeTime).toISOString()}:`, JSON.stringify(trade, null, 2).substring(0, 500));
               const detectedTrade = await this.parseTradeData(eoaAddress, trade);
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'parseTradeData result',data:{walletAddress:eoaAddress.substring(0,8),tradeParsed:!!detectedTrade,tradeMarketId:detectedTrade?.marketId,tradePrice:detectedTrade?.price,tradeAmount:detectedTrade?.amount},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+              // #endregion
               if (detectedTrade) {
                 // Validate the detected trade before triggering
                 const priceNum = parseFloat(detectedTrade.price || '0');
@@ -328,17 +425,32 @@ export class WalletMonitor {
                   console.log(`   Outcome: ${detectedTrade.outcome}`);
                   console.log(`   Time: ${new Date(tradeTime).toISOString()}`);
                   console.log(`[Monitor] 📤 Calling onTradeDetected callback...`);
+                  // #region agent log
+                  fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'About to call callback (history)',data:{walletAddress:eoaAddress.substring(0,8),tradeMarketId:detectedTrade.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+                  // #endregion
                   try {
                     await onTradeDetected(detectedTrade);
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'Callback completed (history)',data:{walletAddress:eoaAddress.substring(0,8),tradeMarketId:detectedTrade.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+                    // #endregion
                     console.log(`[Monitor] ✅ Callback completed successfully`);
                   } catch (callbackError: any) {
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'Callback failed (history)',data:{walletAddress:eoaAddress.substring(0,8),errorMsg:callbackError.message,errorStack:callbackError.stack?.substring(0,500),tradeMarketId:detectedTrade.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+                    // #endregion
                     console.error(`[Monitor] ❌ Callback failed:`, callbackError.message);
                     console.error(`[Monitor]    Stack:`, callbackError.stack);
                   }
                 } else {
+                  // #region agent log
+                  fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'Invalid trade from history',data:{walletAddress:eoaAddress.substring(0,8),marketId:detectedTrade.marketId,price:detectedTrade.price,priceNum,amount:detectedTrade.amount,amountNum},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+                  // #endregion
                   console.warn(`[Monitor] ✗ Skipping invalid trade from history: marketId=${detectedTrade.marketId}, price=${detectedTrade.price}, amount=${detectedTrade.amount}`);
                 }
               } else {
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'parseTradeData returned null',data:{walletAddress:eoaAddress.substring(0,8),tradeFields:Object.keys(trade)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+                // #endregion
                 console.warn(`[Monitor] ✗ Failed to parse trade data for ${eoaAddress.substring(0, 8)}...`);
               }
             }

@@ -151,14 +151,63 @@ export class CopyTrader {
    * Handle a detected trade from a tracked wallet
    */
   private async handleDetectedTrade(trade: DetectedTrade): Promise<void> {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'handleDetectedTrade entry',data:{walletAddress:trade.walletAddress.substring(0,8),marketId:trade.marketId?.substring(0,20),price:trade.price,amount:trade.amount,side:trade.side,txHash:trade.transactionHash?.substring(0,20)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     console.log(`\n${'='.repeat(60)}`);
     console.log(`🔔 [CopyTrader] HANDLE_DETECTED_TRADE CALLED`);
     console.log(`${'='.repeat(60)}`);
     console.log(`   Trade object:`, JSON.stringify(trade, null, 2));
     console.log(`${'='.repeat(60)}\n`);
     
+    // CRITICAL: Verify the wallet is actually in the active tracked wallets list
+    // This prevents executing trades from wallets that were removed or never tracked
+    const activeWallets = await Storage.getActiveWallets();
+    const tradeWalletLower = trade.walletAddress.toLowerCase();
+    const isWalletTracked = activeWallets.some(w => w.address.toLowerCase() === tradeWalletLower);
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Wallet verification check',data:{tradeWallet:trade.walletAddress.substring(0,8),isTracked:isWalletTracked,activeWalletsCount:activeWallets.length,activeWalletAddresses:activeWallets.map(w=>w.address.substring(0,8))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
+    
+    if (!isWalletTracked) {
+      console.error(`\n❌ [CopyTrader] SECURITY: Trade from wallet ${trade.walletAddress.substring(0, 8)}... is NOT in active tracked wallets!`);
+      console.error(`   Active tracked wallets: ${activeWallets.map(w => w.address.substring(0, 8) + '...').join(', ')}`);
+      console.error(`   This trade will NOT be executed for security reasons.`);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'BLOCKED: Wallet not tracked',data:{tradeWallet:trade.walletAddress.substring(0,8),activeWalletsCount:activeWallets.length,marketId:trade.marketId?.substring(0,20)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
+      await this.performanceTracker.logIssue(
+        'error',
+        'security',
+        `Trade detected from untracked wallet: ${trade.walletAddress.substring(0, 8)}...`,
+        { trade, activeWallets: activeWallets.map(w => w.address) }
+      );
+      return;
+    }
+    
+    // Also check if this is the user's own wallet (should not be tracked)
+    const userWallet = this.getWalletAddress();
+    if (userWallet && userWallet.toLowerCase() === tradeWalletLower) {
+      console.error(`\n❌ [CopyTrader] SECURITY: Trade detected from YOUR OWN wallet!`);
+      console.error(`   Your wallet should not be in the tracked wallets list.`);
+      console.error(`   This trade will NOT be executed.`);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'BLOCKED: User own wallet',data:{userWallet:userWallet.substring(0,8),tradeWallet:trade.walletAddress.substring(0,8),marketId:trade.marketId?.substring(0,20)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
+      await this.performanceTracker.logIssue(
+        'error',
+        'security',
+        `Trade detected from user's own wallet (should not be tracked): ${userWallet.substring(0, 8)}...`,
+        { trade }
+      );
+      return;
+    }
+    
     // Prevent duplicate execution using transaction hash
     if (this.executedTrades.has(trade.transactionHash)) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Duplicate trade skipped',data:{txHash:trade.transactionHash?.substring(0,20)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       console.log(`[CopyTrader] ⏭️  Trade ${trade.transactionHash} already executed, skipping`);
       return;
     }
@@ -200,7 +249,14 @@ export class CopyTrader {
     const priceNum = parseFloat(trade.price || '0');
     const amountNum = parseFloat(trade.amount || '0');
     
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation start',data:{marketId:trade.marketId,price:trade.price,priceNum,amount:trade.amount,amountNum,side:trade.side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+    // #endregion
+    
     if (!trade.marketId || trade.marketId === 'unknown') {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation failed: marketId',data:{marketId:trade.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+      // #endregion
       console.error(`❌ Invalid marketId (${trade.marketId}), cannot execute trade`);
       await this.performanceTracker.logIssue(
         'error',
@@ -212,6 +268,9 @@ export class CopyTrader {
     }
     
     if (!trade.price || trade.price === '0' || isNaN(priceNum) || priceNum <= 0 || priceNum > 1) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation failed: price',data:{price:trade.price,priceNum},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+      // #endregion
       console.error(`❌ Invalid price (${trade.price}), cannot execute trade`);
       await this.performanceTracker.logIssue(
         'error',
@@ -223,6 +282,9 @@ export class CopyTrader {
     }
     
     if (!trade.side || (trade.side !== 'BUY' && trade.side !== 'SELL')) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation failed: side',data:{side:trade.side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+      // #endregion
       console.error(`❌ Invalid side (${trade.side}), cannot execute trade`);
       await this.performanceTracker.logIssue(
         'error',
@@ -232,32 +294,78 @@ export class CopyTrader {
       );
       return;
     }
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation passed',data:{marketId:trade.marketId,price:trade.price,side:trade.side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+    // #endregion
 
     const executionStart = Date.now();
 
     try {
-      // Get configured trade size instead of using the detected trade amount
-      const configuredTradeSize = await Storage.getTradeSize();
-      const tradeSizeNum = parseFloat(configuredTradeSize || '0');
+      // Get configured trade size in USDC (not shares)
+      const configuredTradeSizeUsd = await Storage.getTradeSize();
+      const tradeSizeUsdNum = parseFloat(configuredTradeSizeUsd || '0');
       
-      if (isNaN(tradeSizeNum) || tradeSizeNum <= 0) {
-        console.error(`❌ Invalid configured trade size (${configuredTradeSize}), cannot execute trade`);
+      if (isNaN(tradeSizeUsdNum) || tradeSizeUsdNum <= 0) {
+        console.error(`❌ Invalid configured trade size (${configuredTradeSizeUsd} USDC), cannot execute trade`);
         await this.performanceTracker.logIssue(
           'error',
           'trade_execution',
-          `Invalid configured trade size: ${configuredTradeSize}`,
+          `Invalid configured trade size: ${configuredTradeSizeUsd} USDC`,
           { trade }
         );
         return;
       }
       
-      console.log(`[Trade] Using configured trade size: ${configuredTradeSize} shares`);
+      // Convert USD trade size to shares based on the detected trade price
+      // Formula: shares = USD / price per share
+      const pricePerShare = parseFloat(trade.price || '0');
+      if (pricePerShare <= 0 || pricePerShare > 1) {
+        console.error(`❌ Invalid price (${trade.price}) for calculating share amount, cannot execute trade`);
+        await this.performanceTracker.logIssue(
+          'error',
+          'trade_execution',
+          `Invalid price for USD-to-shares conversion: ${trade.price}`,
+          { trade, configuredTradeSizeUsd }
+        );
+        return;
+      }
+      
+      // Calculate number of shares needed for the USD amount
+      // Round down to avoid exceeding the USD limit
+      const sharesNeeded = Math.floor(tradeSizeUsdNum / pricePerShare);
+      
+      if (sharesNeeded <= 0) {
+        console.error(`❌ Calculated share amount (${sharesNeeded}) is too small for trade size ${configuredTradeSizeUsd} USDC at price ${trade.price}`);
+        await this.performanceTracker.logIssue(
+          'error',
+          'trade_execution',
+          `Share calculation resulted in 0 or negative: ${sharesNeeded} shares for ${configuredTradeSizeUsd} USDC at ${trade.price}`,
+          { trade, configuredTradeSizeUsd }
+        );
+        return;
+      }
+      
+      // Warn if calculated shares are below Polymarket's minimum (5 shares)
+      // Many markets will reject orders smaller than 5 shares
+      if (sharesNeeded < 5) {
+        console.warn(`⚠️  WARNING: Calculated share amount (${sharesNeeded} shares) for ${configuredTradeSizeUsd} USDC at price ${trade.price} is below Polymarket's minimum (5 shares).`);
+        console.warn(`   This order may be rejected. Consider increasing your trade size or the price may be too high for your USD amount.`);
+        await this.performanceTracker.logIssue(
+          'warning',
+          'trade_execution',
+          `Calculated shares (${sharesNeeded}) below minimum (5) for ${configuredTradeSizeUsd} USDC at ${trade.price}`,
+          { trade, configuredTradeSizeUsd, sharesNeeded }
+        );
+      }
+      
+      console.log(`[Trade] Using configured trade size: ${configuredTradeSizeUsd} USDC = ${sharesNeeded} shares at price ${trade.price}`);
       
       // Convert detected trade to trade order
       const order: TradeOrder = {
         marketId: trade.marketId,
         outcome: trade.outcome,
-        amount: configuredTradeSize, // Use configured trade size instead of detected amount
+        amount: sharesNeeded.toString(), // Use calculated shares from USD trade size
         price: trade.price,
         side: trade.side, // Use the side detected from the tracked wallet's trade
         tokenId: trade.tokenId,    // Pass token ID for direct CLOB execution (bypasses Gamma API)
@@ -273,23 +381,38 @@ export class CopyTrader {
       console.log(`   Time: ${new Date().toISOString()}`);
       
       // Execute the trade
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'About to execute trade',data:{marketId:order.marketId,price:order.price,amount:order.amount,side:order.side,tokenId:order.tokenId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
       const result: TradeResult = await this.executor.executeTrade(order);
       const executionTime = Date.now() - executionStart;
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Trade execution result',data:{success:result.success,error:result.error,orderId:result.orderId,executionTime},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
 
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Recording trade result',data:{success:result.success,orderId:result.orderId,txHash:result.transactionHash?.substring(0,20),error:result.error?.substring(0,100),marketId:order.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
+      
       // Record metrics
+      // NOTE: result.success is now only true if order was actually executed (not just placed)
       await this.performanceTracker.recordTrade({
         timestamp: new Date(),
         walletAddress: trade.walletAddress,
         marketId: trade.marketId,
         outcome: trade.outcome,
-        amount: trade.amount,
+        amount: trade.amount, // Original detected amount
         price: trade.price,
-        success: result.success,
+        success: result.success, // True only if order was actually executed
+        status: result.status || (result.success ? 'executed' : 'failed'), // Use status field
         executionTimeMs: executionTime,
-        error: result.error,
+        error: result.error, // Will contain message if order was placed but not executed
         orderId: result.orderId,
         transactionHash: result.transactionHash,
-        detectedTxHash: trade.transactionHash
+        detectedTxHash: trade.transactionHash,
+        tokenId: order.tokenId, // Store token ID used
+        executedAmount: order.amount, // Store actual executed amount (configured trade size)
+        executedPrice: order.price // Store price used
       });
 
       if (result.success) {
@@ -440,5 +563,14 @@ export class CopyTrader {
    */
   getPolymarketApi(): import('./polymarketApi.js').PolymarketApi {
     return this.monitor.getApi();
+  }
+
+  /**
+   * Update the monitoring interval (takes effect immediately if bot is running)
+   */
+  async updateMonitoringInterval(intervalMs: number): Promise<void> {
+    await this.monitor.updateMonitoringInterval(intervalMs);
+    // Also update config for persistence
+    config.monitoringIntervalMs = intervalMs;
   }
 }

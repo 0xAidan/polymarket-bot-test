@@ -74,7 +74,7 @@ export class TradeExecutor {
       console.log(`${'='.repeat(60)}`)
 
       // Validate price and amount
-      const price = parseFloat(order.price);
+      let price = parseFloat(order.price);
       const size = parseFloat(order.amount);
 
       if (isNaN(price) || price <= 0 || price > 1) {
@@ -83,6 +83,16 @@ export class TradeExecutor {
 
       if (isNaN(size) || size <= 0) {
         throw new Error(`Invalid amount: ${order.amount}`);
+      }
+
+      // Round price to match tick size (critical for CLOB API)
+      // Most Polymarket markets use 0.01 tick size, but we'll round to 4 decimal places as a safe default
+      // The CLOB client will handle further rounding based on actual market tick size
+      price = Math.round(price * 10000) / 10000; // Round to 4 decimal places
+      
+      // Ensure price is still valid after rounding
+      if (price <= 0 || price > 1) {
+        throw new Error(`Price rounding resulted in invalid value: ${price} (original: ${order.price})`);
       }
 
       // Convert side to CLOB client Side enum
@@ -147,18 +157,73 @@ export class TradeExecutor {
         throw new Error(`Order placement failed: No valid order ID returned. orderId="${orderId}". Response: ${errorDetails}`);
       }
 
-      // If we get here, the order was actually placed successfully
-      console.log(`\n✅ [Execute] ORDER PLACED SUCCESSFULLY!`);
+      // Check if order actually has a transaction hash (indicates it was executed on-chain)
+      const txHash = orderResponse.txHash || orderResponse.transactionHash || orderResponse.hash || null;
+      const hasTransactionHash = txHash && txHash !== '' && txHash !== 'null' && txHash !== 'undefined';
+      
+      // Check order status and execution amounts to determine if order was actually filled
+      const orderStatus = orderResponse.status || responseStatus || '';
+      const takingAmount = orderResponse.takingAmount || '';
+      const makingAmount = orderResponse.makingAmount || '';
+      const hasExecutionAmounts = (takingAmount && takingAmount !== '' && takingAmount !== '0') || 
+                                   (makingAmount && makingAmount !== '' && makingAmount !== '0');
+      
+      // Orders with status "live" are placed on the order book but not filled yet
+      // Only mark as successfully executed if:
+      // 1. Has transaction hash (on-chain execution), OR
+      // 2. Has execution amounts (takingAmount/makingAmount filled), OR  
+      // 3. Status indicates filled/completed (not "live")
+      const isActuallyExecuted = hasTransactionHash || 
+                                 hasExecutionAmounts || 
+                                 (orderStatus && orderStatus.toLowerCase() !== 'live' && orderStatus.toLowerCase() !== 'pending');
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade',message:'Order response validation',data:{orderId:String(orderId),hasTxHash:hasTransactionHash,txHash:txHash?.substring(0,20),responseStatus,orderStatus,takingAmount,makingAmount,hasExecutionAmounts,isActuallyExecuted,responseKeys:Object.keys(orderResponse||{}),fullResponse:JSON.stringify(orderResponse).substring(0,500)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
+      
+      if (!isActuallyExecuted) {
+        // Order was accepted but not executed - it's a pending limit order
+        console.warn(`\n⚠️  [Execute] ORDER PLACED BUT NOT EXECUTED YET`);
+        console.warn(`   Order ID: ${orderId}`);
+        console.warn(`   Status: ${orderStatus || responseStatus || 'live'}`);
+        console.warn(`   This is a limit order placed on the order book.`);
+        console.warn(`   It will execute when matched, or may expire/cancel if not filled.`);
+        console.warn(`   Transaction Hash: ${txHash || 'None (order not executed yet)'}`);
+        console.warn(`   Taking Amount: ${takingAmount || 'None'}`);
+        console.warn(`   Making Amount: ${makingAmount || 'None'}\n`);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade',message:'Order placed but not executed',data:{orderId:String(orderId),orderStatus,responseStatus,marketId:order.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+        // #endregion
+        
+        // Return pending status - order was placed but not executed yet
+        return {
+          success: false, // Keep false for backward compatibility, but use status field
+          status: 'pending',
+          orderId: String(orderId),
+          transactionHash: null,
+          error: `Order placed on order book (status: ${orderStatus || 'live'}) but not executed yet. This is a pending limit order that will execute when matched.`,
+          executionTimeMs: executionTime
+        };
+      }
+
+      // If we get here, the order was actually executed
+      console.log(`\n✅ [Execute] ORDER EXECUTED SUCCESSFULLY!`);
       console.log(`${'='.repeat(60)}`);
       console.log(`   Order ID: ${orderId}`);
-      console.log(`   Status: ${responseStatus || 'accepted'}`);
+      console.log(`   Status: ${orderStatus || responseStatus || 'executed'}`);
+      console.log(`   Transaction Hash: ${txHash || 'N/A'}`);
+      if (hasExecutionAmounts) {
+        console.log(`   Taking Amount: ${takingAmount}`);
+        console.log(`   Making Amount: ${makingAmount}`);
+      }
       console.log(`   Execution Time: ${executionTime}ms`);
       console.log(`${'='.repeat(60)}\n`);
 
       return {
         success: true,
+        status: 'executed',
         orderId: String(orderId),
-        transactionHash: orderResponse.txHash || orderResponse.transactionHash || orderResponse.hash || null,
+        transactionHash: txHash,
         executionTimeMs: executionTime
       };
 
@@ -178,10 +243,35 @@ export class TradeExecutor {
       if (error.originalError) {
         console.error(`Original error:`, error.originalError.message);
       }
+      if (error.responseData) {
+        console.error(`Response data (from enhanced error):`, JSON.stringify(error.responseData, null, 2));
+      }
+      if (error.requestParams) {
+        console.error(`Request params that failed:`, JSON.stringify(error.requestParams, null, 2));
+      }
+      
+      // Build comprehensive error message
+      let errorMessage = error.message || 'Unknown error';
+      
+      // Add request params to error message for diagnostics
+      if (error.requestParams) {
+        errorMessage += ` | Request: tokenID=${error.requestParams.tokenID}, price=${error.requestParams.price}, size=${error.requestParams.size}, side=${error.requestParams.side}`;
+      }
+      
+      // Add response details if available
+      if (error.responseData) {
+        const responseStr = typeof error.responseData === 'string' 
+          ? error.responseData 
+          : JSON.stringify(error.responseData);
+        if (responseStr.length < 200) {
+          errorMessage += ` | Response: ${responseStr}`;
+        }
+      }
       
       return {
         success: false,
-        error: error.message || 'Unknown error',
+        status: 'failed',
+        error: errorMessage,
         executionTimeMs: executionTime
       };
     }

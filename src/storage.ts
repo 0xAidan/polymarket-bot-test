@@ -115,6 +115,22 @@ export class Storage {
   }
 
   /**
+   * Update wallet label
+   */
+  static async updateWalletLabel(address: string, label: string): Promise<TrackedWallet> {
+    const wallets = await this.loadTrackedWallets();
+    const wallet = wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
+    
+    if (!wallet) {
+      throw new Error('Wallet not found');
+    }
+
+    wallet.label = label.trim() || undefined; // Empty string becomes undefined
+    await this.saveTrackedWallets(wallets);
+    return wallet;
+  }
+
+  /**
    * Load bot configuration
    */
   static async loadConfig(): Promise<any> {
@@ -125,7 +141,10 @@ export class Storage {
     } catch (error: any) {
       if (error.code === 'ENOENT') {
         // File doesn't exist yet, return default config
-        return { tradeSize: '10' }; // Default trade size
+        return { 
+          tradeSize: '10', // Default trade size
+          monitoringIntervalMs: 15000 // Default 15 seconds (matches config.ts default)
+        };
       }
       console.error('Failed to load bot config:', error);
       throw error;
@@ -147,6 +166,7 @@ export class Storage {
 
   /**
    * Get configured trade size
+   * Default is 10
    */
   static async getTradeSize(): Promise<string> {
     const config = await this.loadConfig();
@@ -159,6 +179,24 @@ export class Storage {
   static async setTradeSize(size: string): Promise<void> {
     const config = await this.loadConfig();
     config.tradeSize = size;
+    await this.saveConfig(config);
+  }
+
+  /**
+   * Get configured monitoring interval (in milliseconds)
+   */
+  static async getMonitoringInterval(): Promise<number> {
+    const config = await this.loadConfig();
+    // Use stored value, or fall back to environment variable, or default to match config.ts
+    return config.monitoringIntervalMs || parseInt(process.env.MONITORING_INTERVAL_MS || '15000', 10);
+  }
+
+  /**
+   * Set configured monitoring interval (in milliseconds)
+   */
+  static async setMonitoringInterval(intervalMs: number): Promise<void> {
+    const config = await this.loadConfig();
+    config.monitoringIntervalMs = intervalMs;
     await this.saveConfig(config);
   }
 }
