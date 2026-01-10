@@ -178,7 +178,7 @@ export class CopyTrader {
       // #endregion
       await this.performanceTracker.logIssue(
         'error',
-        'security',
+        'other',
         `Trade detected from untracked wallet: ${trade.walletAddress.substring(0, 8)}...`,
         { trade, activeWallets: activeWallets.map(w => w.address) }
       );
@@ -196,7 +196,7 @@ export class CopyTrader {
       // #endregion
       await this.performanceTracker.logIssue(
         'error',
-        'security',
+        'other',
         `Trade detected from user's own wallet (should not be tracked): ${userWallet.substring(0, 8)}...`,
         { trade }
       );

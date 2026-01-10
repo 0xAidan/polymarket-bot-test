@@ -169,13 +169,53 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
 
   // Get recent trades
-  router.get('/trades', (req: Request, res: Response) => {
+  router.get('/trades', async (req: Request, res: Response) => {
     try {
       const limit = parseInt(req.query.limit as string) || 50;
+      
+      // Step 1: Get trades first (core data - always return this even if enrichment fails)
       const trades = performanceTracker.getRecentTrades(limit);
+      
+      // Step 2: Load wallets for labels (safe, local operation)
+      let walletLabelMap = new Map<string, string>();
+      try {
+        const wallets = await Storage.loadTrackedWallets();
+        walletLabelMap = new Map(
+          wallets.map(w => [w.address.toLowerCase(), w.label || ''])
+        );
+      } catch (error: any) {
+        // If wallet lookup fails, use empty map (no labels shown)
+        console.warn('[API] Failed to load wallet labels for trades:', error.message);
+      }
+      
+      // Step 3: Enrich trades with labels (safe, synchronous)
+      trades.forEach(t => {
+        (t as any).walletLabel = walletLabelMap.get(t.walletAddress.toLowerCase()) || '';
+      });
+      
+      // Step 4: Enrich trades with market names
+      // NOTE: Market name fetching is disabled to prevent blocking
+      // For now, we just use marketId - market names can be added later with a better caching strategy
+      trades.forEach(t => {
+        (t as any).marketName = t.marketId;
+      });
+      
+      // Step 5: Return enriched trades
       res.json({ success: true, trades });
     } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+      // Even if enrichment fails completely, try to return basic trades
+      try {
+        const limit = parseInt((req.query.limit as string) || '50');
+        const trades = performanceTracker.getRecentTrades(limit);
+        // Add empty labels/names if enrichment failed
+        trades.forEach(t => {
+          (t as any).walletLabel = '';
+          (t as any).marketName = t.marketId;
+        });
+        res.json({ success: true, trades });
+      } catch (fallbackError: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
     }
   });
 

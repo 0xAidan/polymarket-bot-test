@@ -200,7 +200,7 @@ export class TradeExecutor {
           success: false, // Keep false for backward compatibility, but use status field
           status: 'pending',
           orderId: String(orderId),
-          transactionHash: null,
+          transactionHash: undefined,
           error: `Order placed on order book (status: ${orderStatus || 'live'}) but not executed yet. This is a pending limit order that will execute when matched.`,
           executionTimeMs: executionTime
         };

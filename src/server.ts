@@ -1269,8 +1269,18 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
           async function loadTrades() {
             try {
               const res = await fetch('/api/trades?limit=20');
+              if (!res.ok) {
+                throw new Error('HTTP ' + res.status);
+              }
               const data = await res.json();
+              if (!data.success) {
+                throw new Error(data.error || 'Failed to load trades');
+              }
               const container = document.getElementById('tradesContainer');
+              if (!container) {
+                console.error('Trades container not found');
+                return;
+              }
               
               if (data.trades && data.trades.length > 0) {
                 container.innerHTML = \`
@@ -1288,12 +1298,21 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                       </tr>
                     </thead>
                     <tbody>
-                      \${data.trades.map((t, index) => \`
+                      \${data.trades.map((t, index) => {
+                        const walletLabel = t.walletLabel || '';
+                        const walletDisplay = walletLabel 
+                          ? \`<div style="font-weight: 600; color: var(--text);">\${walletLabel}</div><div style="font-size: 11px; color: var(--text-muted); font-family: monospace; margin-top: 2px;">\${formatAddress(t.walletAddress)}</div>\`
+                          : \`<code>\${formatAddress(t.walletAddress)}</code>\`;
+                        const marketName = t.marketName || t.marketId;
+                        const marketDisplay = t.marketName && t.marketName !== t.marketId
+                          ? \`<div style="font-weight: 500; color: var(--text);">\${marketName}</div><div style="font-size: 11px; color: var(--text-muted); font-family: monospace; margin-top: 2px;">\${formatAddress(t.marketId)}</div>\`
+                          : \`<code>\${formatAddress(t.marketId)}</code>\`;
+                        return \`
                         <tr id="trade-row-\${index}" class="trade-row" onclick="expandTradeDetails(\${index})">
                           <td><span class="expand-indicator">▶</span></td>
                           <td>\${formatDate(t.timestamp)}</td>
-                          <td><code>\${formatAddress(t.walletAddress)}</code></td>
-                          <td><code>\${formatAddress(t.marketId)}</code></td>
+                          <td>\${walletDisplay}</td>
+                          <td>\${marketDisplay}</td>
                           <td><span class="badge badge-\${t.outcome.toLowerCase()}">\${t.outcome}</span></td>
                           <td>\${parseFloat(t.amount).toFixed(2)}</td>
                           <td>
@@ -1309,11 +1328,17 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                               <div class="trade-details-grid">
                                 <div class="trade-detail-item">
                                   <span class="trade-detail-label">Tracked Wallet</span>
-                                  <span class="trade-detail-value">\${t.walletAddress}</span>
+                                  <span class="trade-detail-value">
+                                    \${t.walletLabel ? \`<div style="font-weight: 600; margin-bottom: 4px;">\${t.walletLabel}</div>\` : ''}
+                                    <div style="font-family: monospace; font-size: 12px;">\${t.walletAddress}</div>
+                                  </span>
                                 </div>
                                 <div class="trade-detail-item">
-                                  <span class="trade-detail-label">Market ID</span>
-                                  <span class="trade-detail-value">\${t.marketId}</span>
+                                  <span class="trade-detail-label">Market</span>
+                                  <span class="trade-detail-value">
+                                    \${t.marketName && t.marketName !== t.marketId ? \`<div style="font-weight: 600; margin-bottom: 4px;">\${t.marketName}</div>\` : ''}
+                                    <div style="font-family: monospace; font-size: 12px;">\${t.marketId}</div>
+                                  </span>
                                 </div>
                                 <div class="trade-detail-item">
                                   <span class="trade-detail-label">Outcome</span>
@@ -1409,11 +1434,11 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                             </div>
                           </td>
                         </tr>
-                      \`).join('')}
+                      \`}).join('')}
                     </tbody>
                   </table>
                   <div style="font-size: 12px; color: var(--text-muted); margin-top: 12px; text-align: center;">
-                    Click on a trade row to view details (details stay open)
+                    Click on a trade row to expand/collapse details
                   </div>
                 \`;
               } else {
@@ -1421,23 +1446,36 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
               }
             } catch (error) {
               console.error('Failed to load trades:', error);
-              document.getElementById('tradesContainer').innerHTML = 
-                '<div class="empty-state">Error loading trades</div>';
+              const container = document.getElementById('tradesContainer');
+              if (container) {
+                container.innerHTML = '<div class="empty-state">Error loading trades. Please refresh the page.</div>';
+              }
             }
           }
 
-          // Expand trade details (always opens, never closes)
+          // Expand/collapse trade details (toggle behavior - stays open until manually closed)
           function expandTradeDetails(tradeId) {
             const row = document.getElementById(\`trade-row-\${tradeId}\`);
             const detailsRow = document.getElementById(\`trade-details-\${tradeId}\`);
             
             if (row && detailsRow) {
-              // Always expand, never collapse - details stay open
-              row.classList.add('expanded');
-              detailsRow.classList.add('show');
               const indicator = row.querySelector('.expand-indicator');
-              if (indicator) {
-                indicator.style.transform = 'rotate(90deg)';
+              const isExpanded = detailsRow.classList.contains('show');
+              
+              if (isExpanded) {
+                // Collapse
+                row.classList.remove('expanded');
+                detailsRow.classList.remove('show');
+                if (indicator) {
+                  indicator.style.transform = 'rotate(0deg)';
+                }
+              } else {
+                // Expand
+                row.classList.add('expanded');
+                detailsRow.classList.add('show');
+                if (indicator) {
+                  indicator.style.transform = 'rotate(90deg)';
+                }
               }
             }
           }
@@ -2173,17 +2211,20 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
           }
 
           // Auto-refresh function
-          function refreshAll() {
-            loadStatus();
-            loadWalletConfig();
-            loadPerformance();
-            loadWallets();
-            loadTrades();
-            loadIssues();
-            loadTradeSize();
-            loadMonitoringInterval();
-            loadFailedTradesDiagnostics();
-            // Balance will be loaded as part of loadWalletConfig and loadWallets
+          async function refreshAll() {
+            // Run all loads in parallel with individual error handling
+            // This ensures one failure doesn't block others
+            Promise.allSettled([
+              loadStatus().catch(e => console.error('loadStatus error:', e)),
+              loadWalletConfig().catch(e => console.error('loadWalletConfig error:', e)),
+              loadPerformance().catch(e => console.error('loadPerformance error:', e)),
+              loadWallets().catch(e => console.error('loadWallets error:', e)),
+              loadTrades().catch(e => console.error('loadTrades error:', e)),
+              loadIssues().catch(e => console.error('loadIssues error:', e)),
+              loadTradeSize().catch(e => console.error('loadTradeSize error:', e)),
+              loadMonitoringInterval().catch(e => console.error('loadMonitoringInterval error:', e)),
+              loadFailedTradesDiagnostics().catch(e => console.error('loadFailedTradesDiagnostics error:', e))
+            ]);
           }
 
           // Initialize on page load
