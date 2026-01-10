@@ -176,10 +176,6 @@ export class CopyTrader {
       }
     }
     
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-DUPLICATE_CHECK',message:'Duplicate trade check',data:{tradeKey,lastProcessed:lastProcessed||null,now,timeSinceLastProcessed:lastProcessed?(now-lastProcessed):null,isDuplicate:lastProcessed&&(now-lastProcessed)<5*60*1000,processedTradesCount:this.processedTrades.size},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
-    // #endregion
-    
     if (lastProcessed && (now - lastProcessed) < 5 * 60 * 1000) {
       console.log(`[CopyTrader] ⏭️  Similar trade already processed recently (key: ${tradeKey}), skipping duplicate`);
       return;
@@ -271,10 +267,6 @@ export class CopyTrader {
       // Get configured trade size in USDC and calculate shares based on price
       const configuredTradeSizeUsdc = await Storage.getTradeSize();
       const tradeSizeUsdcNum = parseFloat(configuredTradeSizeUsdc || '0');
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-TRADE_SIZE',message:'Trade size calculation',data:{configuredTradeSizeUsdc,tradeSizeUsdcNum,priceNum,calculatedShares:tradeSizeUsdcNum/priceNum,minSharesRequired:5,willSkip:(tradeSizeUsdcNum/priceNum)<5},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-      // #endregion
       
       if (isNaN(tradeSizeUsdcNum) || tradeSizeUsdcNum <= 0) {
         console.error(`❌ Invalid configured trade size (${configuredTradeSizeUsdc} USDC), cannot execute trade`);
@@ -421,10 +413,6 @@ export class CopyTrader {
       console.log(`   Price: ${order.price}`);
       console.log(`   Time: ${new Date().toISOString()}`);
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-EXECUTE',message:'About to execute trade via executor',data:{order,configuredTradeSizeUsdc,originalTrade:{walletAddress:trade.walletAddress,marketId:trade.marketId,outcome:trade.outcome,amount:trade.amount,price:trade.price,side:trade.side}},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H4'})}).catch(()=>{});
-      // #endregion
-      
       // Execute the trade
       const result: TradeResult = await this.executor.executeTrade(order);
       const executionTime = Date.now() - executionStart;
@@ -444,10 +432,6 @@ export class CopyTrader {
         transactionHash: result.transactionHash,
         detectedTxHash: trade.transactionHash
       });
-
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-RESULT',message:'Trade execution result received',data:{success:result.success,orderId:result.orderId,transactionHash:result.transactionHash,error:result.error,executionTimeMs:result.executionTimeMs},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H4'})}).catch(()=>{});
-      // #endregion
 
       if (result.success) {
         console.log(`\n${'='.repeat(60)}`);

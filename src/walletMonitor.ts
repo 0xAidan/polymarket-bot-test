@@ -47,10 +47,6 @@ export class WalletMonitor {
     this.isMonitoring = true;
     console.log('Starting wallet monitoring...');
 
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:startMonitoring-ENTRY',message:'startMonitoring called, about to initializePositions',data:{isMonitoring:this.isMonitoring},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3-H5'})}).catch(()=>{});
-    // #endregion
-
     // Get initial positions for all tracked wallets
     await this.initializePositions();
 
@@ -96,10 +92,6 @@ export class WalletMonitor {
    */
   private async initializePositions(): Promise<void> {
     const wallets = await Storage.getActiveWallets();
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:initializePositions-ENTRY',message:'initializePositions called',data:{walletCount:wallets.length,walletAddresses:wallets.map(w=>w.address.substring(0,10)+'...'),activeWallets:wallets.filter(w=>w.active).length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3-H5'})}).catch(()=>{});
-    // #endregion
     
     for (const wallet of wallets) {
       try {
@@ -154,10 +146,6 @@ export class WalletMonitor {
     onTradeDetected: (trade: DetectedTrade) => void
   ): Promise<void> {
     const wallets = await Storage.getActiveWallets();
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades-ENTRY',message:'Check wallets called',data:{walletCount:wallets.length,walletAddresses:wallets.map(w=>w.address),monitoredPositionsKeys:Array.from(this.monitoredPositions.keys())},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3-H5'})}).catch(()=>{});
-    // #endregion
     
     if (wallets.length === 0) {
       // No wallets to monitor, skip this check

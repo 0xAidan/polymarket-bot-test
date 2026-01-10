@@ -361,6 +361,90 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             background: rgba(99, 102, 241, 0.05);
           }
 
+          .table tr.trade-row {
+            cursor: pointer;
+            transition: background 0.2s;
+          }
+
+          .table tr.trade-row:hover {
+            background: rgba(99, 102, 241, 0.1);
+          }
+
+          .trade-details-row {
+            display: none;
+          }
+
+          .trade-details-row.expanded {
+            display: table-row;
+          }
+
+          .trade-details-row td {
+            padding: 0 !important;
+            border-bottom: 1px solid var(--border);
+          }
+
+          .trade-details-content {
+            padding: 16px 20px;
+            background: var(--bg);
+            border-left: 3px solid var(--primary);
+          }
+
+          .trade-details-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+          }
+
+          .trade-detail-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+          }
+
+          .trade-detail-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+          }
+
+          .trade-detail-value {
+            font-size: 13px;
+            color: var(--text);
+            font-family: 'Monaco', 'Menlo', monospace;
+            word-break: break-all;
+          }
+
+          .trade-detail-value a {
+            color: var(--primary);
+            text-decoration: none;
+          }
+
+          .trade-detail-value a:hover {
+            text-decoration: underline;
+          }
+
+          .trade-error {
+            margin-top: 12px;
+            padding: 12px;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 8px;
+            color: var(--danger);
+            font-size: 13px;
+          }
+
+          .expand-indicator {
+            color: var(--text-muted);
+            font-size: 12px;
+            transition: transform 0.2s;
+            display: inline-block;
+          }
+
+          .trade-row.expanded .expand-indicator {
+            transform: rotate(90deg);
+          }
+
           .badge {
             padding: 6px 12px;
             border-radius: 16px;
@@ -622,17 +706,17 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
         <div class="dashboard">
           <div class="header">
             <div class="header-content">
-              <h1>🤖 Polymarket Copytrade Bot</h1>
+              <h1>Polymarket Copy Trading Bot</h1>
               <div class="header-controls">
-                <span id="statusBadge" class="status-badge stopped">⏸️ Stopped</span>
-                <button id="startBtn" onclick="startBot()" class="btn-success">▶ Start</button>
-                <button id="stopBtn" onclick="stopBot()" class="btn-danger">⏸ Stop</button>
+                <span id="statusBadge" class="status-badge stopped">Stopped</span>
+                <button id="startBtn" onclick="startBot()" class="btn-success">Start Bot</button>
+                <button id="stopBtn" onclick="stopBot()" class="btn-danger">Stop Bot</button>
               </div>
             </div>
           </div>
 
           <div class="section" style="margin-bottom: 24px;">
-            <h2>💼 Trading Wallet Configuration</h2>
+            <h2>Trading Wallet</h2>
             <div id="walletConfig" style="display: grid; gap: 16px;">
               <div class="wallet-card" style="background: var(--bg);">
                 <div class="wallet-info">
@@ -653,7 +737,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                     </div>
                   </div>
                   <div style="padding: 16px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; font-size: 13px; color: var(--text-muted); margin-top: 16px;">
-                    <strong style="color: var(--info); display: block; margin-bottom: 8px;">💡 How to configure your wallet:</strong>
+                    <strong style="color: var(--info); display: block; margin-bottom: 8px;">How to configure your wallet:</strong>
                     <p style="margin: 0;">This wallet is set up using the <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">PRIVATE_KEY</code> in your <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">.env</code> file.</p>
                     <p style="margin: 8px 0 0 0;"><strong>To set up or change your wallet:</strong> Run <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">npm run setup</code> in your terminal, then restart the bot.</p>
                   </div>
@@ -663,7 +747,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
           </div>
 
           <div class="section" style="margin-bottom: 24px;">
-            <h2>⚙️ Copy Trade Configuration</h2>
+            <h2>Copy Trade Settings</h2>
             <div class="wallet-card" style="background: var(--bg); max-width: 600px;">
               <div class="wallet-info" style="width: 100%;">
                 <div style="margin-bottom: 16px;">
@@ -683,7 +767,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                   </div>
                 </div>
                 <div style="padding: 12px; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 8px; font-size: 13px; color: var(--text-muted);">
-                  <strong style="color: var(--primary); display: block; margin-bottom: 4px;">💡 How this works:</strong>
+                  <strong style="color: var(--primary); display: block; margin-bottom: 4px;">How this works:</strong>
                   <p style="margin: 0;">When a tracked wallet makes a trade, the bot will execute the same trade direction (BUY/SELL) and outcome (YES/NO), but will use your configured trade size instead of copying their exact trade size.</p>
                 </div>
               </div>
@@ -724,7 +808,10 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
           </div>
 
           <div class="section">
-            <h2>📈 Performance Over Time</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
+              <h2 style="margin-bottom: 0;">Wallet Balance Over Time</h2>
+              <div id="chartBalanceInfo" style="font-size: 14px;"></div>
+            </div>
             <div class="chart-container">
               <canvas id="performanceChart"></canvas>
             </div>
@@ -732,7 +819,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
           </div>
 
           <div class="section">
-            <h2>📊 Tracked Wallets</h2>
+            <h2>Tracked Wallets</h2>
             <div class="input-group">
               <div style="flex: 1; min-width: 300px;">
                 <input type="text" id="walletInput" placeholder="Enter wallet address (0x...)" />
@@ -746,14 +833,14 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
           </div>
 
           <div class="section">
-            <h2>📋 Recent Trades</h2>
+            <h2>Recent Trades</h2>
             <div id="tradesContainer">
               <div class="loading">Loading trades...</div>
             </div>
           </div>
 
           <div class="section">
-            <h2>⚠️ System Issues</h2>
+            <h2>System Issues</h2>
             <div id="issuesContainer">
               <div class="loading">Loading issues...</div>
             </div>
@@ -780,6 +867,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
           let updateInterval = null;
           let performanceChart = null;
           let tooltip = null;
+          let tradeSizeInputFocused = false;
 
           // Wallet validation
           function isValidWalletAddress(address) {
@@ -882,7 +970,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                     external: function(context) {
                       const tooltipEl = tooltip;
                       if (!tooltipEl) return;
-                      
+
                       if (context.tooltip.opacity === 0) {
                         tooltipEl.classList.remove('show');
                         return;
@@ -892,25 +980,12 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                       if (!dataPoint) return;
 
                       const point = dataPoint.raw;
-                      const tradeDetails = point.tradeDetails;
-
-                      if (tradeDetails) {
-                        tooltipEl.innerHTML = \`
-                          <h4>Trade Details</h4>
-                          <p><strong>Time:</strong> \${formatDate(point.x)}</p>
-                          <p><strong>Balance:</strong> \${formatCurrency(point.y)}</p>
-                          <p><strong>Outcome:</strong> \${tradeDetails.outcome}</p>
-                          <p><strong>Amount:</strong> \${tradeDetails.amount}</p>
-                          <p><strong>Price:</strong> \${tradeDetails.price}</p>
-                          <p><strong>Status:</strong> \${tradeDetails.success ? '✅ Success' : '❌ Failed'}</p>
-                        \`;
-                      } else {
-                        tooltipEl.innerHTML = \`
-                          <h4>Starting Point</h4>
-                          <p><strong>Time:</strong> \${formatDate(point.x)}</p>
-                          <p><strong>Balance:</strong> \${formatCurrency(point.y)}</p>
-                        \`;
-                      }
+                      
+                      tooltipEl.innerHTML = \`
+                        <h4>Balance Snapshot</h4>
+                        <p><strong>Time:</strong> \${formatDate(point.x)}</p>
+                        <p><strong>Balance:</strong> \${formatCurrency(point.y)}</p>
+                      \`;
 
                       const position = context.chart.canvas.getBoundingClientRect();
                       tooltipEl.style.left = position.left + context.tooltip.caretX + 'px';
@@ -960,18 +1035,39 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
           // Load chart data
           async function loadChartData() {
             try {
-              const res = await fetch('/api/performance/data?initialBalance=1000');
+              const res = await fetch('/api/wallet/balance-history');
               const data = await res.json();
-              
+
               if (data.success && data.dataPoints && data.dataPoints.length > 0) {
                 const chartData = data.dataPoints.map(dp => ({
                   x: new Date(dp.timestamp),
-                  y: dp.balance,
-                  tradeDetails: dp.tradeDetails
+                  y: dp.balance
                 }));
 
                 performanceChart.data.datasets[0].data = chartData;
                 performanceChart.update('none');
+                
+                // Update chart title with current balance info
+                const currentBalance = data.currentBalance || chartData[chartData.length - 1]?.y || 0;
+                const startBalance = chartData[0]?.y || currentBalance;
+                const change = startBalance > 0 ? ((currentBalance - startBalance) / startBalance * 100).toFixed(2) : 0;
+                const changeColor = change >= 0 ? 'var(--success)' : 'var(--danger)';
+                const changeSign = change >= 0 ? '+' : '';
+                
+                // Update chart header if element exists
+                const chartHeader = document.getElementById('chartBalanceInfo');
+                if (chartHeader) {
+                  chartHeader.innerHTML = \`
+                    <span style="color: var(--text);">Current: <strong>\${formatCurrency(currentBalance)}</strong></span>
+                    <span style="color: \${changeColor}; margin-left: 16px;">\${changeSign}\${change}% since start</span>
+                  \`;
+                }
+              } else {
+                // No data - show empty state message
+                const chartHeader = document.getElementById('chartBalanceInfo');
+                if (chartHeader) {
+                  chartHeader.innerHTML = '<span style="color: var(--text-muted);">No balance history yet. Data will appear after tracking starts.</span>';
+                }
               }
             } catch (error) {
               console.error('Failed to load chart data:', error);
@@ -1009,10 +1105,10 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
               const badge = document.getElementById('statusBadge');
               if (data.running) {
                 badge.className = 'status-badge running';
-                badge.textContent = \`✅ Running (\${data.executedTradesCount} trades)\`;
+                badge.textContent = \`Running · \${data.executedTradesCount} trades\`;
               } else {
                 badge.className = 'status-badge stopped';
-                badge.textContent = '⏸️ Stopped';
+                badge.textContent = 'Stopped';
               }
             } catch (error) {
               console.error('Failed to load status:', error);
@@ -1209,12 +1305,13 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
               const res = await fetch('/api/trades?limit=20');
               const data = await res.json();
               const container = document.getElementById('tradesContainer');
-              
+
               if (data.trades && data.trades.length > 0) {
                 container.innerHTML = \`
                   <table class="table">
                     <thead>
                       <tr>
+                        <th style="width: 30px;"></th>
                         <th>Time</th>
                         <th>Wallet</th>
                         <th>Market</th>
@@ -1225,30 +1322,101 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                       </tr>
                     </thead>
                     <tbody>
-                      \${data.trades.map(t => \`
-                        <tr>
+                      \${data.trades.map((t, index) => \`
+                        <tr id="trade-row-\${index}" class="trade-row" onclick="toggleTradeDetails(\${index})">
+                          <td><span class="expand-indicator">▶</span></td>
                           <td>\${formatDate(t.timestamp)}</td>
                           <td><code>\${formatAddress(t.walletAddress)}</code></td>
                           <td><code>\${formatAddress(t.marketId)}</code></td>
                           <td><span class="badge badge-\${t.outcome.toLowerCase()}">\${t.outcome}</span></td>
-                          <td>\${t.amount}</td>
+                          <td>\${parseFloat(t.amount).toFixed(2)}</td>
                           <td>
                             <span class="badge badge-\${t.success ? 'success' : 'danger'}">
-                              \${t.success ? '✅ Success' : '❌ Failed'}
+                              \${t.success ? 'Success' : 'Failed'}
                             </span>
                           </td>
                           <td>\${t.executionTimeMs}ms</td>
                         </tr>
+                        <tr id="trade-details-\${index}" class="trade-details-row">
+                          <td colspan="8">
+                            <div class="trade-details-content">
+                              <div class="trade-details-grid">
+                                <div class="trade-detail-item">
+                                  <span class="trade-detail-label">Tracked Wallet</span>
+                                  <span class="trade-detail-value">\${t.walletAddress}</span>
+                                </div>
+                                <div class="trade-detail-item">
+                                  <span class="trade-detail-label">Market ID</span>
+                                  <span class="trade-detail-value">\${t.marketId}</span>
+                                </div>
+                                <div class="trade-detail-item">
+                                  <span class="trade-detail-label">Outcome</span>
+                                  <span class="trade-detail-value">\${t.outcome}</span>
+                                </div>
+                                <div class="trade-detail-item">
+                                  <span class="trade-detail-label">Amount (shares)</span>
+                                  <span class="trade-detail-value">\${t.amount}</span>
+                                </div>
+                                <div class="trade-detail-item">
+                                  <span class="trade-detail-label">Price</span>
+                                  <span class="trade-detail-value">$\${parseFloat(t.price || '0').toFixed(4)}</span>
+                                </div>
+                                <div class="trade-detail-item">
+                                  <span class="trade-detail-label">Execution Time</span>
+                                  <span class="trade-detail-value">\${t.executionTimeMs}ms</span>
+                                </div>
+                                \${t.orderId ? \`
+                                <div class="trade-detail-item">
+                                  <span class="trade-detail-label">Order ID</span>
+                                  <span class="trade-detail-value">\${t.orderId}</span>
+                                </div>
+                                \` : ''}
+                                \${t.transactionHash ? \`
+                                <div class="trade-detail-item">
+                                  <span class="trade-detail-label">Transaction Hash</span>
+                                  <span class="trade-detail-value">
+                                    <a href="https://polygonscan.com/tx/\${t.transactionHash}" target="_blank" rel="noopener">
+                                      \${t.transactionHash.substring(0, 20)}...
+                                    </a>
+                                  </span>
+                                </div>
+                                \` : ''}
+                                \${t.detectedTxHash ? \`
+                                <div class="trade-detail-item">
+                                  <span class="trade-detail-label">Original TX (Tracked Wallet)</span>
+                                  <span class="trade-detail-value">
+                                    <a href="https://polygonscan.com/tx/\${t.detectedTxHash}" target="_blank" rel="noopener">
+                                      \${t.detectedTxHash.substring(0, 20)}...
+                                    </a>
+                                  </span>
+                                </div>
+                                \` : ''}
+                                <div class="trade-detail-item">
+                                  <span class="trade-detail-label">Timestamp</span>
+                                  <span class="trade-detail-value">\${new Date(t.timestamp).toISOString()}</span>
+                                </div>
+                              </div>
+                              \${!t.success && t.error ? \`
+                              <div class="trade-error">
+                                <strong>Error:</strong> \${t.error}
+                              </div>
+                              \` : ''}
+                            </div>
+                          </td>
+                        </tr>
                       \`).join('')}
                     </tbody>
                   </table>
+                  <div style="font-size: 12px; color: var(--text-muted); margin-top: 12px; text-align: center;">
+                    Click on a trade row to expand details
+                  </div>
                 \`;
               } else {
                 container.innerHTML = '<div class="empty-state">No trades yet. Start the bot and wait for activity!</div>';
               }
             } catch (error) {
               console.error('Failed to load trades:', error);
-              document.getElementById('tradesContainer').innerHTML = 
+              document.getElementById('tradesContainer').innerHTML =
                 '<div class="empty-state">Error loading trades</div>';
             }
           }
@@ -1274,7 +1442,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                   </div>
                 \`).join('');
               } else {
-                container.innerHTML = '<div class="empty-state">✅ No active issues! Everything looks good.</div>';
+                container.innerHTML = '<div class="empty-state">No active issues. Everything looks good.</div>';
               }
             } catch (error) {
               console.error('Failed to load issues:', error);
@@ -1483,7 +1651,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                                 <td>\${parseFloat(t.price).toFixed(4)}</td>
                                 <td>
                                   <span class="badge badge-\${t.success ? 'success' : 'danger'}">
-                                    \${t.success ? '✅ Success' : '❌ Failed'}
+                                    \${t.success ? 'Success' : 'Failed'}
                                   </span>
                                 </td>
                                 <td>\${t.executionTimeMs}ms</td>
@@ -1498,7 +1666,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
               \`;
 
               content.innerHTML = html;
-              document.getElementById('walletDetailsTitle').textContent = \`📊 Wallet Details: \${shortAddress}\`;
+              document.getElementById('walletDetailsTitle').textContent = \`Wallet Details: \${shortAddress}\`;
             } catch (error) {
               console.error('Failed to load wallet details:', error);
               content.innerHTML = '<div class="empty-state">Error loading wallet details</div>';
@@ -1533,6 +1701,17 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             } catch (error) {
               alert('Failed to stop bot');
               console.error(error);
+            }
+          }
+
+          // Toggle trade details expansion
+          function toggleTradeDetails(tradeId) {
+            const row = document.getElementById(\`trade-row-\${tradeId}\`);
+            const detailsRow = document.getElementById(\`trade-details-\${tradeId}\`);
+            
+            if (row && detailsRow) {
+              row.classList.toggle('expanded');
+              detailsRow.classList.toggle('expanded');
             }
           }
 
@@ -1576,14 +1755,14 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                 // Load balance
                 await loadUserBalance();
               } else {
-                walletAddressEl.innerHTML = '<span style="color: var(--danger);">❌ Not configured</span><br><span style="font-size: 12px; color: var(--text-muted);">Run: npm run setup</span>';
+                walletAddressEl.innerHTML = '<span style="color: var(--danger);">Not configured</span><br><span style="font-size: 12px; color: var(--text-muted);">Run: npm run setup</span>';
                 document.getElementById('userBalance').textContent = 'N/A';
                 document.getElementById('userBalanceChange').textContent = 'N/A';
               }
             } catch (error) {
               console.error('Failed to load wallet config:', error);
               const walletAddressEl = document.getElementById('tradingWalletAddress');
-              walletAddressEl.innerHTML = '<span style="color: var(--danger);">❌ Error</span><br><span style="font-size: 12px; color: var(--text-muted);">Run: npm run setup</span>';
+              walletAddressEl.innerHTML = '<span style="color: var(--danger);">Error loading wallet</span><br><span style="font-size: 12px; color: var(--text-muted);">Run: npm run setup</span>';
               document.getElementById('userBalance').textContent = 'Error';
               document.getElementById('userBalanceChange').textContent = 'Error';
             }
@@ -1637,12 +1816,16 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 
           // Load trade size configuration
           async function loadTradeSize() {
+            // Skip updating if user is currently editing the input
+            if (tradeSizeInputFocused) {
+              return;
+            }
             try {
               const res = await fetch('/api/config/trade-size');
               const data = await res.json();
               if (data.success) {
                 const input = document.getElementById('tradeSizeInput');
-                if (input) {
+                if (input && !tradeSizeInputFocused) {
                   input.value = data.tradeSize || '10';
                 }
               }
@@ -1733,13 +1916,20 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
               }
             });
 
-            // Trade size input - allow Enter key to save
+            // Trade size input - allow Enter key to save and track focus
             const tradeSizeInput = document.getElementById('tradeSizeInput');
             if (tradeSizeInput) {
               tradeSizeInput.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') {
                   saveTradeSize();
                 }
+              });
+              // Track focus to prevent refresh from overwriting user input
+              tradeSizeInput.addEventListener('focus', () => {
+                tradeSizeInputFocused = true;
+              });
+              tradeSizeInput.addEventListener('blur', () => {
+                tradeSizeInputFocused = false;
               });
             }
 
