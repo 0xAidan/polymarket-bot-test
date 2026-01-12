@@ -357,47 +357,8 @@ export class CopyTrader {
       console.log(`[Trade] Price per share: $${trade.price}`);
       console.log(`[Trade] Calculated shares: ${sharesAmountRounded} shares (${tradeSizeUsdcNum} / ${priceNum})`);
       
-      // ============================================================
-      // POLYMARKET MINIMUM ORDER REQUIREMENTS
-      // ============================================================
-      // Polymarket requires:
-      // - Minimum 5 shares per order
-      // - Minimum $1 order value
-      const MIN_SHARES = 5;
-      const MIN_ORDER_VALUE_USDC = 1;
-      
-      // Check minimum shares requirement
-      if (sharesAmountRounded < MIN_SHARES) {
-        const minUsdcNeeded = (MIN_SHARES * priceNum).toFixed(2);
-        console.log(`\n⏭️  [CopyTrader] SKIPPING ORDER - BELOW MINIMUM SHARES`);
-        console.log(`   Calculated shares: ${sharesAmountRounded} (minimum required: ${MIN_SHARES})`);
-        console.log(`   Your trade size: $${configuredTradeSizeUsdc} USDC`);
-        console.log(`   Price per share: $${trade.price}`);
-        console.log(`   Minimum USDC needed at this price: $${minUsdcNeeded}`);
-        console.log(`   💡 Increase your trade size to at least $${minUsdcNeeded} USDC to copy this trade\n`);
-        await this.performanceTracker.logIssue(
-          'warning',
-          'trade_execution',
-          `Order skipped: ${sharesAmountRounded} shares below minimum ${MIN_SHARES}. Need $${minUsdcNeeded} USDC at price $${trade.price}`,
-          { trade, calculatedShares: sharesAmountRounded, minShares: MIN_SHARES }
-        );
-        return;
-      }
-      
-      // Check minimum order value requirement
-      const orderValueUsdc = sharesAmountRounded * priceNum;
-      if (orderValueUsdc < MIN_ORDER_VALUE_USDC) {
-        console.log(`\n⏭️  [CopyTrader] SKIPPING ORDER - BELOW MINIMUM VALUE`);
-        console.log(`   Order value: $${orderValueUsdc.toFixed(2)} USDC (minimum required: $${MIN_ORDER_VALUE_USDC})`);
-        console.log(`   💡 Increase your trade size to meet the $${MIN_ORDER_VALUE_USDC} minimum\n`);
-        await this.performanceTracker.logIssue(
-          'warning',
-          'trade_execution',
-          `Order skipped: $${orderValueUsdc.toFixed(2)} below minimum $${MIN_ORDER_VALUE_USDC}`,
-          { trade, orderValue: orderValueUsdc }
-        );
-        return;
-      }
+      // Note: No minimum share count enforced - the config trade size (default $2 USDC) 
+      // determines order size. Polymarket may reject very small orders on its end.
       
       // ============================================================
       // SELL ORDER - CHECK IF WE OWN SHARES
@@ -444,12 +405,6 @@ export class CopyTrader {
           if (finalSharesAmount > ownedShares) {
             console.log(`   ⚠️  Adjusting sell amount: ${finalSharesAmount} → ${ownedShares.toFixed(2)} (can't sell more than owned)`);
             finalSharesAmount = parseFloat(ownedShares.toFixed(2));
-            
-            // Re-check minimum after adjustment
-            if (finalSharesAmount < MIN_SHARES) {
-              console.log(`\n⏭️  [CopyTrader] SKIPPING SELL - Owned shares (${finalSharesAmount}) below minimum (${MIN_SHARES})`);
-              return;
-            }
           }
           
           console.log(`   ✓ Proceeding to sell ${finalSharesAmount} shares\n`);

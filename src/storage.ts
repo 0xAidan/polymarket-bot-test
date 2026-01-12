@@ -142,7 +142,7 @@ export class Storage {
       if (error.code === 'ENOENT') {
         // File doesn't exist yet, return default config
         return { 
-          tradeSize: '10', // Default trade size in USDC
+          tradeSize: '2', // Default trade size in USDC
           monitoringIntervalMs: 15000 // Default 15 seconds (matches config.ts default)
         };
       }
@@ -166,11 +166,11 @@ export class Storage {
 
   /**
    * Get configured trade size
-   * Default is 10
+   * Default is $2 USDC
    */
   static async getTradeSize(): Promise<string> {
     const config = await this.loadConfig();
-    return config.tradeSize || '10';
+    return config.tradeSize || '2';
   }
 
   /**
