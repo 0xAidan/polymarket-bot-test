@@ -2,6 +2,7 @@ import WebSocket from 'ws';
 import { PolymarketApi } from './polymarketApi.js';
 import { DetectedTrade } from './types.js';
 import { Storage } from './storage.js';
+import { config } from './config.js';
 
 /**
  * WebSocket-based monitor for real-time Polymarket trade detection
@@ -123,9 +124,13 @@ export class WebSocketMonitor {
 
     try {
       // Polymarket WebSocket endpoint for CLOB subscriptions
-      // FIXED: Add trailing slash to WebSocket URL (required by Polymarket API)
-      const wsUrl = 'wss://ws-subscriptions-clob.polymarket.com/ws/';
+      // Try different endpoint variations
+      const wsUrl = 'wss://ws-subscriptions-clob.polymarket.com/ws/market';
       console.log(`[WebSocket] Connecting to ${wsUrl}...`);
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:connect',message:'Attempting WebSocket connection',data:{wsUrl,hasBuilderCreds:!!(config.polymarketBuilderApiKey && config.polymarketBuilderSecret)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
 
       this.ws = new WebSocket(wsUrl);
 
@@ -135,6 +140,10 @@ export class WebSocketMonitor {
         this.lastConnectionTime = new Date();
         this.reconnectAttempts = 0;
         this.reconnectDelay = 5000; // Reset reconnect delay
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:connect:open',message:'WebSocket connected successfully',data:{wsUrl:'wss://ws-subscriptions-clob.polymarket.com/ws/market',trackedWallets:this.trackedWallets.size},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
 
         // Start ping interval to keep connection alive (every 30 seconds)
         this.pingInterval = setInterval(() => {
@@ -159,6 +168,9 @@ export class WebSocketMonitor {
       this.ws.on('error', (error: Error) => {
         console.error('[WebSocket] ❌ Connection error:', error.message);
         this.isConnected = false;
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:connect:error',message:'WebSocket connection error',data:{error:error.message,wsUrl:'wss://ws-subscriptions-clob.polymarket.com/ws/market'},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
       });
 
       this.ws.on('close', (code: number, reason: Buffer) => {
@@ -195,29 +207,71 @@ export class WebSocketMonitor {
 
   /**
    * Subscribe to trade events for tracked wallets
+   * Uses authenticated subscription with Builder API credentials
    */
   private subscribeToTrades(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return;
     }
 
-    // Subscribe to trade events for each tracked wallet
-    // Polymarket WebSocket API format
+    // Subscribe to trade events using authenticated USER channel
+    // Per Polymarket docs: https://docs.polymarket.com/developers/CLOB/websocket/user-channel
     try {
-      // Subscribe to user channel for all tracked wallets
-      // Format: { "type": "user", "markets": [...], "auth": {...} }
-      const subscribeMessage = {
-        type: 'user',
-        markets: ['*'] // Subscribe to all markets for these users
-      };
+      // Check if we have Builder API credentials for authentication
+      const hasAuth = config.polymarketBuilderApiKey && 
+                      config.polymarketBuilderSecret && 
+                      config.polymarketBuilderPassphrase;
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:subscribeToTrades',message:'Subscribing to trades',data:{hasAuth,trackedWalletsCount:this.trackedWallets.size,apiKeyLength:config.polymarketBuilderApiKey?.length||0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
 
-      this.ws.send(JSON.stringify(subscribeMessage));
-      console.log(`[WebSocket] 📡 Subscribed to user trades for ${this.trackedWallets.size} wallet(s)`);
+      if (hasAuth) {
+        // Authenticated subscription with Builder credentials
+        // Format per Polymarket WebSocket docs
+        const subscribeMessage = {
+          auth: {
+            apiKey: config.polymarketBuilderApiKey,
+            secret: config.polymarketBuilderSecret,
+            passphrase: config.polymarketBuilderPassphrase
+          },
+          type: 'user',  // User channel for trade notifications
+          markets: []    // Empty array = subscribe to all markets
+        };
+
+        this.ws.send(JSON.stringify(subscribeMessage));
+        console.log(`[WebSocket] 📡 Sent authenticated subscription for user trades`);
+        console.log(`[WebSocket]    Auth: API key configured (${config.polymarketBuilderApiKey.substring(0, 8)}...)`);
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:subscribeToTrades',message:'Sent authenticated subscription',data:{messageType:'user',hasAuth:true,apiKeyPrefix:config.polymarketBuilderApiKey.substring(0,8)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+      } else {
+        // Fallback: try unauthenticated subscription (will likely fail for user channel)
+        console.warn(`[WebSocket] ⚠️ No Builder API credentials - trying unauthenticated subscription`);
+        console.warn(`[WebSocket]    This will likely fail for user channel. Configure Builder credentials.`);
+        
+        const subscribeMessage = {
+          type: 'user',
+          markets: []
+        };
+
+        this.ws.send(JSON.stringify(subscribeMessage));
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:subscribeToTrades',message:'Sent unauthenticated subscription (fallback)',data:{messageType:'user',hasAuth:false},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+      }
+      
+      console.log(`[WebSocket] 📡 Monitoring ${this.trackedWallets.size} wallet(s) for trades:`);
       for (const walletAddress of this.trackedWallets) {
         console.log(`[WebSocket]   - ${walletAddress.substring(0, 8)}...`);
       }
     } catch (error: any) {
       console.error(`[WebSocket] Error subscribing to trades:`, error.message);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:subscribeToTrades',message:'Subscription error',data:{error:error.message},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
     }
   }
 
