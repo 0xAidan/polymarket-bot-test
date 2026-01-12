@@ -290,6 +290,9 @@ export class PolymarketApi {
   async getUserPositions(userAddress: string): Promise<any[]> {
     return this.retryRequest(async () => {
       try {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'polymarketApi.ts:getUserPositions',message:'API call start',data:{userAddress:userAddress.substring(0,8),apiUrl:this.dataApiClient.defaults.baseURL},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         // Polymarket Data API uses: GET /positions?user={proxyWalletAddress}
         // CRITICAL FIX: Whale wallets can have 200+ positions, default limit is 100
         // Must request more to see all positions and detect trades on any market
@@ -301,6 +304,10 @@ export class PolymarketApi {
         });
         
         const positions = response.data || [];
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'polymarketApi.ts:getUserPositions',message:'API call success',data:{userAddress:userAddress.substring(0,8),positionCount:positions.length,firstPositionFields:positions[0]?Object.keys(positions[0]):[],firstPositionSample:positions[0]?JSON.stringify(positions[0]).substring(0,500):null},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         
         // DEBUG: Log first position structure on first successful fetch
         if (positions.length > 0) {
@@ -314,6 +321,9 @@ export class PolymarketApi {
         
         return positions;
       } catch (error: any) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'polymarketApi.ts:getUserPositions',message:'API call error',data:{userAddress:userAddress.substring(0,8),errorMsg:error.message,errorStatus:error.response?.status,errorData:error.response?.data?JSON.stringify(error.response.data).substring(0,500):null},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         if (error.response?.status === 404) {
           // User has no positions
           console.log(`[API] No positions found for ${userAddress.substring(0, 8)}... (404)`);

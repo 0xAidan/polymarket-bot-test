@@ -76,6 +76,9 @@ export class WebSocketMonitor {
     this.eoaToProxyMap.clear();
 
     console.log(`[WebSocket] Loading ${wallets.length} tracked wallet(s)...`);
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:loadTrackedWallets',message:'Loading tracked wallets',data:{walletsCount:wallets.length,walletAddresses:wallets.map(w=>w.address.substring(0,8))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
 
     for (const wallet of wallets) {
       try {
@@ -303,18 +306,27 @@ export class WebSocketMonitor {
         walletAddress = maker;
         isFromTrackedWallet = true;
         console.log(`[WebSocket] ✓ Maker ${maker.substring(0, 8)}... is tracked`);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:processTradeEvent',message:'Maker wallet matched',data:{maker:maker.substring(0,8),trackedWalletsCount:this.trackedWallets.size,trackedWallets:Array.from(this.trackedWallets).map(w=>w.substring(0,8))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
       }
       // Check if taker is one of our tracked wallets
       else if (taker && this.trackedWallets.has(taker)) {
         walletAddress = taker;
         isFromTrackedWallet = true;
         console.log(`[WebSocket] ✓ Taker ${taker.substring(0, 8)}... is tracked`);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:processTradeEvent',message:'Taker wallet matched',data:{taker:taker.substring(0,8),trackedWalletsCount:this.trackedWallets.size,trackedWallets:Array.from(this.trackedWallets).map(w=>w.substring(0,8))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
       }
 
       // If not found in tracked wallets, skip this trade
       if (!isFromTrackedWallet || !walletAddress) {
         console.log(`[WebSocket] ⏭️  Trade not from tracked wallet. Maker: ${maker || '(none)'}, Taker: ${taker || '(none)'}`);
         console.log(`[WebSocket]    Tracked wallets: ${Array.from(this.trackedWallets).map(w => w.substring(0, 8) + '...').join(', ')}`);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:processTradeEvent',message:'Trade rejected: not from tracked wallet',data:{maker:maker?.substring(0,8),taker:taker?.substring(0,8),trackedWalletsCount:this.trackedWallets.size,trackedWallets:Array.from(this.trackedWallets).map(w=>w.substring(0,8))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
         return;
       }
 

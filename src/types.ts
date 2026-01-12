@@ -6,6 +6,7 @@ export interface TrackedWallet {
   addedAt: Date;
   active: boolean;
   lastSeen?: Date;
+  label?: string; // User-friendly label/name for the wallet
 }
 
 /**
@@ -42,6 +43,7 @@ export interface TradeOrder {
  */
 export interface TradeResult {
   success: boolean;
+  status?: 'executed' | 'pending' | 'failed'; // Detailed status
   orderId?: string;
   transactionHash?: string;
   error?: string;
@@ -60,11 +62,15 @@ export interface TradeMetrics {
   amount: string;
   price: string;
   success: boolean;
+  status?: 'executed' | 'pending' | 'failed'; // Detailed status: executed = filled, pending = on order book, failed = error
   executionTimeMs: number;
   error?: string;
   orderId?: string;
   transactionHash?: string;
   detectedTxHash: string; // Original transaction that triggered this
+  tokenId?: string; // Token ID used for order execution
+  executedAmount?: string; // Actual amount executed (may differ from detected amount)
+  executedPrice?: string; // Actual price used
 }
 
 /**

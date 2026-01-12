@@ -151,18 +151,54 @@ export class CopyTrader {
    * Handle a detected trade from a tracked wallet
    */
   private async handleDetectedTrade(trade: DetectedTrade): Promise<void> {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'handleDetectedTrade entry',data:{walletAddress:trade.walletAddress.substring(0,8),marketId:trade.marketId?.substring(0,20),price:trade.price,amount:trade.amount,side:trade.side,txHash:trade.transactionHash?.substring(0,20)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     console.log(`\n${'='.repeat(60)}`);
     console.log(`🔔 [CopyTrader] HANDLE_DETECTED_TRADE CALLED`);
     console.log(`${'='.repeat(60)}`);
     console.log(`   Trade object:`, JSON.stringify(trade, null, 2));
     console.log(`${'='.repeat(60)}\n`);
     
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-entry',message:'handleDetectedTrade CALLED',data:{wallet:trade.walletAddress,marketId:trade.marketId?.substring(0,30),side:trade.side,price:trade.price,amount:trade.amount,tokenId:trade.tokenId?.substring(0,20),txHash:trade.transactionHash?.substring(0,20)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
-    // #endregion
+    // CRITICAL: Verify the wallet is actually in the active tracked wallets list
+    // This prevents executing trades from wallets that were removed or never tracked
+    const activeWallets = await Storage.getActiveWallets();
+    const tradeWalletLower = trade.walletAddress.toLowerCase();
+    const isWalletTracked = activeWallets.some(w => w.address.toLowerCase() === tradeWalletLower);
+    
+    if (!isWalletTracked) {
+      console.error(`\n❌ [CopyTrader] SECURITY: Trade from wallet ${trade.walletAddress.substring(0, 8)}... is NOT in active tracked wallets!`);
+      console.error(`   Active tracked wallets: ${activeWallets.map(w => w.address.substring(0, 8) + '...').join(', ')}`);
+      console.error(`   This trade will NOT be executed for security reasons.`);
+      await this.performanceTracker.logIssue(
+        'error',
+        'other',
+        `Trade detected from untracked wallet: ${trade.walletAddress.substring(0, 8)}...`,
+        { trade, activeWallets: activeWallets.map(w => w.address) }
+      );
+      return;
+    }
+    
+    // Also check if this is the user's own wallet (should not be tracked)
+    const userWallet = this.getWalletAddress();
+    if (userWallet && userWallet.toLowerCase() === tradeWalletLower) {
+      console.error(`\n❌ [CopyTrader] SECURITY: Trade detected from YOUR OWN wallet!`);
+      console.error(`   Your wallet should not be in the tracked wallets list.`);
+      console.error(`   This trade will NOT be executed.`);
+      await this.performanceTracker.logIssue(
+        'error',
+        'other',
+        `Trade detected from user's own wallet (should not be tracked): ${userWallet.substring(0, 8)}...`,
+        { trade }
+      );
+      return;
+    }
     
     // Prevent duplicate execution using transaction hash
     if (this.executedTrades.has(trade.transactionHash)) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Duplicate trade skipped',data:{txHash:trade.transactionHash?.substring(0,20)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       console.log(`[CopyTrader] ⏭️  Trade ${trade.transactionHash} already executed, skipping`);
       // #region agent log
       fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-dupeTx',message:'Skipping - duplicate txHash',data:{txHash:trade.transactionHash?.substring(0,30)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
@@ -210,7 +246,14 @@ export class CopyTrader {
     const priceNum = parseFloat(trade.price || '0');
     const amountNum = parseFloat(trade.amount || '0');
     
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation start',data:{marketId:trade.marketId,price:trade.price,priceNum,amount:trade.amount,amountNum,side:trade.side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+    // #endregion
+    
     if (!trade.marketId || trade.marketId === 'unknown') {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation failed: marketId',data:{marketId:trade.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+      // #endregion
       console.error(`❌ Invalid marketId (${trade.marketId}), cannot execute trade`);
       // #region agent log
       fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-invalidMarket',message:'Skipping - invalid marketId',data:{marketId:trade.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
@@ -225,6 +268,9 @@ export class CopyTrader {
     }
     
     if (!trade.price || trade.price === '0' || isNaN(priceNum) || priceNum <= 0 || priceNum > 1) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation failed: price',data:{price:trade.price,priceNum},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+      // #endregion
       console.error(`❌ Invalid price (${trade.price}), cannot execute trade`);
       // #region agent log
       fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-invalidPrice',message:'Skipping - invalid price',data:{price:trade.price,priceNum:priceNum},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
@@ -267,6 +313,9 @@ export class CopyTrader {
     }
     
     if (!trade.side || (trade.side !== 'BUY' && trade.side !== 'SELL')) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation failed: side',data:{side:trade.side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+      // #endregion
       console.error(`❌ Invalid side (${trade.side}), cannot execute trade`);
       await this.performanceTracker.logIssue(
         'error',
@@ -276,6 +325,10 @@ export class CopyTrader {
       );
       return;
     }
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation passed',data:{marketId:trade.marketId,price:trade.price,side:trade.side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+    // #endregion
 
     const executionStart = Date.now();
 
@@ -355,15 +408,15 @@ export class CopyTrader {
         console.log(`\n🔍 [CopyTrader] SELL ORDER - Checking if we own shares...`);
         
         // Get user's positions to check if we own this token
-        const userWallet = this.getWalletAddress();
-        if (!userWallet) {
+        const sellUserWallet = this.getWalletAddress();
+        if (!sellUserWallet) {
           console.log(`⏭️  [CopyTrader] SKIPPING SELL - Cannot determine user wallet`);
           return;
         }
         
         // Get proxy wallet for positions lookup
         const proxyWallet = await this.getProxyWalletAddress();
-        const walletToCheck = proxyWallet || userWallet;
+        const walletToCheck = proxyWallet || sellUserWallet;
         
         try {
           const userPositions = await this.monitor.getApi().getUserPositions(walletToCheck);
@@ -434,23 +487,38 @@ export class CopyTrader {
       // #endregion
       
       // Execute the trade
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'About to execute trade',data:{marketId:order.marketId,price:order.price,amount:order.amount,side:order.side,tokenId:order.tokenId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
       const result: TradeResult = await this.executor.executeTrade(order);
       const executionTime = Date.now() - executionStart;
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Trade execution result',data:{success:result.success,error:result.error,orderId:result.orderId,executionTime},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
 
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Recording trade result',data:{success:result.success,orderId:result.orderId,txHash:result.transactionHash?.substring(0,20),error:result.error?.substring(0,100),marketId:order.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
+      
       // Record metrics
+      // NOTE: result.success is now only true if order was actually executed (not just placed)
       await this.performanceTracker.recordTrade({
         timestamp: new Date(),
         walletAddress: trade.walletAddress,
         marketId: trade.marketId,
         outcome: trade.outcome,
-        amount: trade.amount,
+        amount: trade.amount, // Original detected amount
         price: trade.price,
-        success: result.success,
+        success: result.success, // True only if order was actually executed
+        status: result.status || (result.success ? 'executed' : 'failed'), // Use status field
         executionTimeMs: executionTime,
-        error: result.error,
+        error: result.error, // Will contain message if order was placed but not executed
         orderId: result.orderId,
         transactionHash: result.transactionHash,
-        detectedTxHash: trade.transactionHash
+        detectedTxHash: trade.transactionHash,
+        tokenId: order.tokenId, // Store token ID used
+        executedAmount: order.amount, // Store actual executed amount (configured trade size)
+        executedPrice: order.price // Store price used
       });
 
       // #region agent log
@@ -623,5 +691,14 @@ export class CopyTrader {
    */
   getPolymarketApi(): import('./polymarketApi.js').PolymarketApi {
     return this.monitor.getApi();
+  }
+
+  /**
+   * Update the monitoring interval (takes effect immediately if bot is running)
+   */
+  async updateMonitoringInterval(intervalMs: number): Promise<void> {
+    await this.monitor.updateMonitoringInterval(intervalMs);
+    // Also update config for persistence
+    config.monitoringIntervalMs = intervalMs;
   }
 }

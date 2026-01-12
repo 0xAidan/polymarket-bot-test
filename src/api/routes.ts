@@ -169,11 +169,95 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
 
   // Get recent trades
-  router.get('/trades', (req: Request, res: Response) => {
+  router.get('/trades', async (req: Request, res: Response) => {
     try {
       const limit = parseInt(req.query.limit as string) || 50;
+      
+      // Step 1: Get trades first (core data - always return this even if enrichment fails)
       const trades = performanceTracker.getRecentTrades(limit);
+      
+      // Step 2: Load wallets for labels (safe, local operation)
+      let walletLabelMap = new Map<string, string>();
+      try {
+        const wallets = await Storage.loadTrackedWallets();
+        walletLabelMap = new Map(
+          wallets.map(w => [w.address.toLowerCase(), w.label || ''])
+        );
+      } catch (error: any) {
+        // If wallet lookup fails, use empty map (no labels shown)
+        console.warn('[API] Failed to load wallet labels for trades:', error.message);
+      }
+      
+      // Step 3: Enrich trades with labels (safe, synchronous)
+      trades.forEach(t => {
+        (t as any).walletLabel = walletLabelMap.get(t.walletAddress.toLowerCase()) || '';
+      });
+      
+      // Step 4: Enrich trades with market names
+      // NOTE: Market name fetching is disabled to prevent blocking
+      // For now, we just use marketId - market names can be added later with a better caching strategy
+      trades.forEach(t => {
+        (t as any).marketName = t.marketId;
+      });
+      
+      // Step 5: Return enriched trades
       res.json({ success: true, trades });
+    } catch (error: any) {
+      // Even if enrichment fails completely, try to return basic trades
+      try {
+        const limit = parseInt((req.query.limit as string) || '50');
+        const trades = performanceTracker.getRecentTrades(limit);
+        // Add empty labels/names if enrichment failed
+        trades.forEach(t => {
+          (t as any).walletLabel = '';
+          (t as any).marketName = t.marketId;
+        });
+        res.json({ success: true, trades });
+      } catch (fallbackError: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    }
+  });
+
+  // Get failed trades diagnostics
+  router.get('/trades/failed', (req: Request, res: Response) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 20;
+      const allTrades = performanceTracker.getRecentTrades(limit * 2); // Get more to filter
+      const failedTrades = allTrades
+        .filter(t => !t.success)
+        .slice(0, limit)
+        .map(t => ({
+          ...t,
+          is400Error: t.error?.includes('HTTP 400') || t.error?.includes('HTTP error 400'),
+          errorType: t.error?.includes('HTTP 400') ? 'CLOB API Rejection' : 
+                     t.error?.includes('HTTP 403') ? 'Cloudflare Block' :
+                     t.error?.includes('HTTP 401') ? 'Authentication Failed' :
+                     t.error?.includes('HTTP 429') ? 'Rate Limited' :
+                     'Other Error'
+        }));
+      
+      // Analyze common patterns
+      const analysis = {
+        totalFailed: failedTrades.length,
+        errorTypes: {} as Record<string, number>,
+        commonMarkets: {} as Record<string, number>,
+        commonTokenIds: {} as Record<string, number>
+      };
+      
+      failedTrades.forEach(t => {
+        analysis.errorTypes[t.errorType] = (analysis.errorTypes[t.errorType] || 0) + 1;
+        analysis.commonMarkets[t.marketId] = (analysis.commonMarkets[t.marketId] || 0) + 1;
+        if (t.tokenId) {
+          analysis.commonTokenIds[t.tokenId] = (analysis.commonTokenIds[t.tokenId] || 0) + 1;
+        }
+      });
+      
+      res.json({ 
+        success: true, 
+        trades: failedTrades,
+        analysis
+      });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
@@ -424,6 +508,31 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
+  // Update wallet label
+  router.patch('/wallets/:address/label', async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      const { label } = req.body;
+      
+      if (typeof label !== 'string') {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Label must be a string' 
+        });
+      }
+
+      const wallet = await Storage.updateWalletLabel(address, label);
+      
+      res.json({ 
+        success: true, 
+        message: 'Wallet label updated',
+        wallet 
+      });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
   // Get wallet positions
   router.get('/wallets/:address/positions', async (req: Request, res: Response) => {
     const { address } = req.params;
@@ -475,6 +584,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       }
 
       // Validate that it's a valid number
+      // Note: tradeSize is in USD, not shares. Share count will be calculated at execution time.
       const sizeNum = parseFloat(tradeSize);
       if (isNaN(sizeNum) || sizeNum <= 0) {
         return res.status(400).json({ 
@@ -485,6 +595,217 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
       await Storage.setTradeSize(tradeSize);
       res.json({ success: true, message: 'Trade size updated', tradeSize, unit: 'USDC' });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get monitoring interval configuration
+  router.get('/config/monitoring-interval', async (req: Request, res: Response) => {
+    try {
+      const intervalMs = await Storage.getMonitoringInterval();
+      res.json({ success: true, intervalMs, intervalSeconds: intervalMs / 1000 });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Set monitoring interval configuration
+  router.post('/config/monitoring-interval', async (req: Request, res: Response) => {
+    try {
+      const { intervalSeconds } = req.body;
+      
+      if (intervalSeconds === undefined || intervalSeconds === null) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Interval in seconds is required' 
+        });
+      }
+
+      const intervalNum = parseFloat(intervalSeconds);
+      if (isNaN(intervalNum) || intervalNum < 1) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Interval must be at least 1 second' 
+        });
+      }
+
+      if (intervalNum > 300) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Interval must be at most 300 seconds (5 minutes)' 
+        });
+      }
+
+      const intervalMs = Math.round(intervalNum * 1000);
+      
+      // Update in storage
+      await Storage.setMonitoringInterval(intervalMs);
+      
+      // Update in running bot if active
+      try {
+        await copyTrader.updateMonitoringInterval(intervalMs);
+      } catch (error: any) {
+        // Bot might not be running, that's okay
+        console.log('[API] Bot not running, interval will apply on next start');
+      }
+      
+      res.json({ 
+        success: true, 
+        message: 'Monitoring interval updated', 
+        intervalMs, 
+        intervalSeconds: intervalNum 
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get current configuration status (without exposing sensitive values)
+  router.get('/config/status', async (req: Request, res: Response) => {
+    try {
+      res.json({
+        success: true,
+        configured: {
+          privateKey: !!config.privateKey,
+          builderApiKey: !!config.polymarketBuilderApiKey,
+          builderSecret: !!config.polymarketBuilderSecret,
+          builderPassphrase: !!config.polymarketBuilderPassphrase
+        },
+        monitoringInterval: config.monitoringIntervalMs
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Update private key (WARNING: This writes to .env file)
+  router.post('/config/private-key', async (req: Request, res: Response) => {
+    try {
+      const { privateKey } = req.body;
+      
+      if (!privateKey || typeof privateKey !== 'string') {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Private key is required' 
+        });
+      }
+
+      // Validate private key format
+      if (!/^0x[a-fA-F0-9]{64}$/.test(privateKey)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Invalid private key format (must be 0x followed by 64 hex characters)' 
+        });
+      }
+
+      // Update .env file
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const envPath = path.join(process.cwd(), '.env');
+      
+      let envContent = '';
+      try {
+        envContent = await fs.readFile(envPath, 'utf-8');
+      } catch {
+        // .env doesn't exist, create it
+        envContent = '';
+      }
+
+      // Update or add PRIVATE_KEY
+      const lines = envContent.split('\n');
+      let found = false;
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith('PRIVATE_KEY=')) {
+          lines[i] = `PRIVATE_KEY=${privateKey}`;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        lines.push(`PRIVATE_KEY=${privateKey}`);
+      }
+
+      await fs.writeFile(envPath, lines.join('\n'));
+      
+      // Update in-memory config
+      config.privateKey = privateKey;
+      
+      res.json({ success: true, message: 'Private key updated. Bot restart required.' });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Update builder API credentials (WARNING: This writes to .env file)
+  router.post('/config/builder-credentials', async (req: Request, res: Response) => {
+    try {
+      const { apiKey, secret, passphrase } = req.body;
+      
+      if (!apiKey || typeof apiKey !== 'string') {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Builder API Key is required' 
+        });
+      }
+
+      if (!secret || typeof secret !== 'string') {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Builder API Secret is required' 
+        });
+      }
+
+      if (!passphrase || typeof passphrase !== 'string') {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Builder API Passphrase is required' 
+        });
+      }
+
+      // Update .env file
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const envPath = path.join(process.cwd(), '.env');
+      
+      let envContent = '';
+      try {
+        envContent = await fs.readFile(envPath, 'utf-8');
+      } catch {
+        // .env doesn't exist, create it
+        envContent = '';
+      }
+
+      // Update or add Builder credentials
+      const lines = envContent.split('\n');
+      const updates = {
+        'POLYMARKET_BUILDER_API_KEY': apiKey,
+        'POLYMARKET_BUILDER_SECRET': secret,
+        'POLYMARKET_BUILDER_PASSPHRASE': passphrase
+      };
+
+      for (const [key, value] of Object.entries(updates)) {
+        let found = false;
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].startsWith(`${key}=`)) {
+            lines[i] = `${key}=${value}`;
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          lines.push(`${key}=${value}`);
+        }
+      }
+
+      await fs.writeFile(envPath, lines.join('\n'));
+      
+      // Update in-memory config
+      config.polymarketBuilderApiKey = apiKey;
+      config.polymarketBuilderSecret = secret;
+      config.polymarketBuilderPassphrase = passphrase;
+      
+      res.json({ success: true, message: 'Builder credentials updated. Bot restart recommended.' });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
