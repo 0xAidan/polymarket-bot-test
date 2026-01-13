@@ -370,8 +370,14 @@ export class PolymarketApi {
           console.log(`[API] ✓ Fetched ${trades.length} trade(s) for ${userAddress.substring(0, 8)}...`);
           const sampleTrade = trades[0];
           console.log(`[API] Trade fields available: ${Object.keys(sampleTrade).join(', ')}`);
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'polymarketApi.ts:getUserTrades',message:'Trades fetched from API',data:{userAddress:userAddress.substring(0,8),tradeCount:trades.length,first5Trades:trades.slice(0,5).map((t:any)=>({timestamp:t.timestamp,txHash:t.transactionHash||'none',side:t.side,size:t.size,price:t.price,conditionId:t.conditionId?.substring(0,15)||'none'}))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
+          // #endregion
         } else {
           console.log(`[API] No trades found for ${userAddress.substring(0, 8)}...`);
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'polymarketApi.ts:getUserTrades',message:'NO TRADES found for wallet',data:{userAddress:userAddress.substring(0,8),tradeCount:0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+          // #endregion
         }
         
         return trades;

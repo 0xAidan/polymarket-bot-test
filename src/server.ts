@@ -1128,7 +1128,9 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                                 <span class="wallet-status-badge \${w.active ? 'active' : 'inactive'}">
                                   \${w.active ? '✓ Active' : '○ Inactive'}
                                 </span>
+                                \${w.autoBumpToMinimum ? '<span style="background: var(--warning); color: #000; padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 600;">⚡ 100% MODE</span>' : ''}
                                 <button onclick="event.stopPropagation(); editWalletLabel('\${w.address}', '\${(w.label || '').replace(/'/g, "\\'")}')" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap;" title="Edit label">✏️ Label</button>
+                                <button onclick="event.stopPropagation(); toggleAutoBump('\${w.address}', \${!w.autoBumpToMinimum})" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap; background: \${w.autoBumpToMinimum ? 'var(--warning)' : 'var(--bg-lighter)'}; color: \${w.autoBumpToMinimum ? '#000' : 'var(--text)'};" title="\${w.autoBumpToMinimum ? 'Disable 100% execution mode' : 'Enable 100% execution mode (auto-bump to minimum)'}">\${w.autoBumpToMinimum ? '⚡ 100%' : '☐ 100%'}</button>
                                 <label class="toggle-switch" onclick="event.stopPropagation();">
                                   <input type="checkbox" \${w.active ? 'checked' : ''} onchange="toggleWalletActive('\${w.address}', this.checked)" />
                                   <span class="toggle-slider"></span>
@@ -1206,7 +1208,9 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                               <span class="wallet-status-badge \${w.active ? 'active' : 'inactive'}">
                                 \${w.active ? '✓ Active' : '○ Inactive'}
                               </span>
+                              \${w.autoBumpToMinimum ? '<span style="background: var(--warning); color: #000; padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 600;">⚡ 100% MODE</span>' : ''}
                               <button onclick="event.stopPropagation(); editWalletLabel('\${w.address}', '\${(w.label || '').replace(/'/g, "\\'")}')" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap;" title="Edit label">✏️ Label</button>
+                              <button onclick="event.stopPropagation(); toggleAutoBump('\${w.address}', \${!w.autoBumpToMinimum})" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap; background: \${w.autoBumpToMinimum ? 'var(--warning)' : 'var(--bg-lighter)'}; color: \${w.autoBumpToMinimum ? '#000' : 'var(--text)'};" title="\${w.autoBumpToMinimum ? 'Disable 100% execution mode' : 'Enable 100% execution mode (auto-bump to minimum)'}">\${w.autoBumpToMinimum ? '⚡ 100%' : '☐ 100%'}</button>
                               <label class="toggle-switch" onclick="event.stopPropagation();">
                                 <input type="checkbox" \${w.active ? 'checked' : ''} onchange="toggleWalletActive('\${w.address}', this.checked)" />
                                 <span class="toggle-slider"></span>
@@ -1237,7 +1241,9 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                               <span class="wallet-status-badge \${w.active ? 'active' : 'inactive'}">
                                 \${w.active ? '✓ Active' : '○ Inactive'}
                               </span>
+                              \${w.autoBumpToMinimum ? '<span style="background: var(--warning); color: #000; padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 600;">⚡ 100% MODE</span>' : ''}
                               <button onclick="event.stopPropagation(); editWalletLabel('\${w.address}', '\${(w.label || '').replace(/'/g, "\\'")}')" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap;" title="Edit label">✏️ Label</button>
+                              <button onclick="event.stopPropagation(); toggleAutoBump('\${w.address}', \${!w.autoBumpToMinimum})" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap; background: \${w.autoBumpToMinimum ? 'var(--warning)' : 'var(--bg-lighter)'}; color: \${w.autoBumpToMinimum ? '#000' : 'var(--text)'};" title="\${w.autoBumpToMinimum ? 'Disable 100% execution mode' : 'Enable 100% execution mode (auto-bump to minimum)'}">\${w.autoBumpToMinimum ? '⚡ 100%' : '☐ 100%'}</button>
                               <label class="toggle-switch" onclick="event.stopPropagation();">
                                 <input type="checkbox" \${w.active ? 'checked' : ''} onchange="toggleWalletActive('\${w.address}', this.checked)" />
                                 <span class="toggle-slider"></span>
@@ -1633,6 +1639,29 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             } catch (error) {
               console.error('Failed to toggle wallet:', error);
               alert('Failed to toggle wallet status');
+            }
+          }
+
+          // Toggle auto-bump to minimum (100% execution mode)
+          async function toggleAutoBump(address, enabled) {
+            try {
+              const res = await fetch(\`/api/wallets/\${address}/auto-bump\`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled })
+              });
+              const data = await res.json();
+              if (data.success) {
+                await loadWallets();
+                // Show confirmation
+                const mode = enabled ? 'ENABLED - Orders will auto-increase to meet market minimum' : 'DISABLED - Orders below minimum will be rejected';
+                console.log('100% Execution Mode ' + mode);
+              } else {
+                alert('Error: ' + data.error);
+              }
+            } catch (error) {
+              console.error('Failed to toggle auto-bump:', error);
+              alert('Failed to toggle 100% execution mode');
             }
           }
 

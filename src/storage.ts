@@ -131,6 +131,24 @@ export class Storage {
   }
 
   /**
+   * Toggle wallet autoBumpToMinimum setting
+   * When enabled, orders will automatically increase to meet market minimum size
+   * This is for "high-value" wallets where you want 100% trade success rate
+   */
+  static async toggleAutoBumpToMinimum(address: string, enabled?: boolean): Promise<TrackedWallet> {
+    const wallets = await this.loadTrackedWallets();
+    const wallet = wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
+    
+    if (!wallet) {
+      throw new Error('Wallet not found');
+    }
+
+    wallet.autoBumpToMinimum = enabled !== undefined ? enabled : !wallet.autoBumpToMinimum;
+    await this.saveTrackedWallets(wallets);
+    return wallet;
+  }
+
+  /**
    * Load bot configuration
    */
   static async loadConfig(): Promise<any> {

@@ -183,6 +183,27 @@ export class PolymarketClobClient {
   }
 
   /**
+   * Get the minimum order size for a market
+   * Returns the min_order_size from the order book, defaults to 5 if not available
+   */
+  async getMinOrderSize(tokenId: string): Promise<number> {
+    try {
+      const market = await this.getMarket(tokenId);
+      // The API returns min_order_size as a string
+      const minSize = parseFloat(market?.min_order_size || market?.minOrderSize || '5');
+      if (isNaN(minSize) || minSize <= 0) {
+        console.log(`[CLOB] No valid min_order_size found for ${tokenId.substring(0, 20)}..., defaulting to 5`);
+        return 5;
+      }
+      console.log(`[CLOB] Market min_order_size for ${tokenId.substring(0, 20)}...: ${minSize}`);
+      return minSize;
+    } catch (error: any) {
+      console.warn(`[CLOB] Could not fetch min_order_size for ${tokenId.substring(0, 20)}..., defaulting to 5:`, error.message);
+      return 5; // Default to 5 shares as that's what most markets use
+    }
+  }
+
+  /**
    * Place an order using the CLOB client
    */
   async createAndPostOrder(params: {
@@ -293,6 +314,10 @@ export class PolymarketClobClient {
           } else if (responseData) {
             errorDetails = JSON.stringify(responseData);
           }
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:400error',message:'CLOB API 400 ERROR DETAILS',data:{errorDetails:errorDetails,tokenID:params.tokenID?.substring(0,30),originalPrice:params.price,finalPrice,size:params.size,side:params.side,tickSize,negRisk,isMinSizeError:errorDetails.includes('minimum'),isBalanceError:errorDetails.includes('balance'),isOrderbookError:errorDetails.includes('orderbook')},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H2,H3'})}).catch(()=>{});
+          // #endregion
           
           const enhancedMessage = `CLOB API returned HTTP 400 - ${errorDetails || 'request was rejected'}. Params: tokenID=${params.tokenID}, originalPrice=${params.price}, finalPrice=${finalPrice}, size=${params.size}, side=${params.side}, tickSize=${tickSize}, negRisk=${negRisk}. Check: tokenID validity, price/size format, market status, or balance.`;
           enhancedError = new Error(enhancedMessage);

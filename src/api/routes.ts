@@ -533,6 +533,28 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
+  // Toggle wallet autoBumpToMinimum setting (high-value wallet mode)
+  // When enabled, orders will automatically increase to meet market minimum size for 100% success rate
+  router.patch('/wallets/:address/auto-bump', async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      const { enabled } = req.body;
+      
+      const wallet = await Storage.toggleAutoBumpToMinimum(address, enabled);
+      await copyTrader.reloadWallets();
+      
+      res.json({ 
+        success: true, 
+        message: wallet.autoBumpToMinimum 
+          ? 'Auto-bump to minimum ENABLED - This wallet will auto-increase order sizes to meet market minimum for 100% success rate' 
+          : 'Auto-bump to minimum DISABLED - Orders below market minimum will be rejected',
+        wallet 
+      });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
   // Get wallet positions
   router.get('/wallets/:address/positions', async (req: Request, res: Response) => {
     const { address } = req.params;
