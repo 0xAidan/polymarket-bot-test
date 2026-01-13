@@ -391,25 +391,38 @@ export class WalletMonitor {
           }
           
           const now = Date.now();
-          const fiveMinutesAgo = now - 5 * 60 * 1000; // Check last 5 minutes for recent trades
           
           // #region agent log
-          // Log ALL transaction hashes to verify if the target trade is in the API response
-          const allTxHashes = recentTrades.map(t => t.transactionHash || 'none').filter(h => h !== 'none');
-          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:tradeHistory',message:'Trade history fetched - checking time window',data:{walletAddress:eoaAddress.substring(0,8),totalTrades:recentTrades.length,nowIso:new Date(now).toISOString(),fiveMinAgoIso:new Date(fiveMinutesAgo).toISOString(),allTxHashesFound:allTxHashes.slice(0,10),first5Trades:recentTrades.slice(0,5).map(t=>({timestamp:t.timestamp,txHash:t.transactionHash?.substring(0,30)||'none',side:t.side,size:t.size,price:t.price,ageSeconds:Math.round((now-new Date(t.timestamp).getTime())/1000)}))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+          const mostRecentTrade = recentTrades[0];
+          const mostRecentTimeRaw = mostRecentTrade?.timestamp || 0;
+          const mostRecentTime = typeof mostRecentTimeRaw === 'number' 
+            ? (mostRecentTimeRaw < 1e12 ? mostRecentTimeRaw * 1000 : mostRecentTimeRaw)
+            : new Date(mostRecentTimeRaw).getTime();
+          const mostRecentAgeSeconds = mostRecentTrade ? Math.round((now - mostRecentTime) / 1000) : -1;
+          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:tradeHistory',message:'Processing ALL trades from history (no time window)',data:{walletAddress:eoaAddress.substring(0,8),totalTrades:recentTrades.length,mostRecentTradeTimeRaw:mostRecentTimeRaw,mostRecentTimeMs:mostRecentTime,mostRecentAgeSeconds:mostRecentAgeSeconds,nowIso:new Date(now).toISOString(),mostRecentTradeIso:mostRecentTime>0?new Date(mostRecentTime).toISOString():'none'},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
           // #endregion
           
-          let recentTradeCount = 0;
-          let skippedOldTradeCount = 0;
-          let skippedFutureTradeCount = 0;
+          let processedTradeCount = 0;
           for (const trade of recentTrades) {
-            // FIXED: Use correct field name 'timestamp' from Polymarket API
-            const tradeTimestamp = new Date(trade.timestamp);
-            const tradeTime = tradeTimestamp.getTime();
+            // FIXED: Handle both Unix seconds and milliseconds timestamps from Polymarket API
+            let tradeTime: number;
+            if (typeof trade.timestamp === 'number') {
+              tradeTime = trade.timestamp < 1e12 ? trade.timestamp * 1000 : trade.timestamp;
+            } else if (typeof trade.timestamp === 'string') {
+              const parsed = new Date(trade.timestamp).getTime();
+              if (parsed < 1577836800000) {
+                tradeTime = parseInt(trade.timestamp, 10) * 1000;
+              } else {
+                tradeTime = parsed;
+              }
+            } else {
+              tradeTime = 0;
+            }
 
-            // Process trades from the last 5 minutes (more focused window)
-            if (tradeTime > fiveMinutesAgo && tradeTime <= now) {
-              recentTradeCount++;
+            // NO TIME WINDOW - Process ALL trades from history
+            // Duplicate prevention is handled by transaction hash tracking in CopyTrader
+            {
+              processedTradeCount++;
               // #region agent log
               fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'TRADE IN TIME WINDOW - Processing',data:{walletAddress:eoaAddress.substring(0,8),tradeTimeIso:new Date(tradeTime).toISOString(),ageSeconds:Math.round((now-tradeTime)/1000),txHash:trade.transactionHash?.substring(0,30)||'none',side:trade.side,size:trade.size,price:trade.price,conditionId:trade.conditionId?.substring(0,20)||'none'},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,E'})}).catch(()=>{});
               // #endregion
@@ -461,22 +474,12 @@ export class WalletMonitor {
                 // #endregion
                 console.warn(`[Monitor] ✗ Failed to parse trade data for ${eoaAddress.substring(0, 8)}...`);
               }
-            } else if (tradeTime <= fiveMinutesAgo) {
-              skippedOldTradeCount++;
-              // Log first few skipped old trades to see the timing
-              if (skippedOldTradeCount <= 3) {
-                // #region agent log
-                fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:tradeHistory',message:'TRADE SKIPPED - too old',data:{walletAddress:eoaAddress.substring(0,8),tradeTimeIso:new Date(tradeTime).toISOString(),ageSeconds:Math.round((now-tradeTime)/1000),txHash:trade.transactionHash?.substring(0,30)||'none',side:trade.side,size:trade.size,windowStart:new Date(fiveMinutesAgo).toISOString()},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-                // #endregion
-              }
-            } else {
-              skippedFutureTradeCount++;
             }
           }
           // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:tradeHistory',message:'Trade history processing complete',data:{walletAddress:eoaAddress.substring(0,8),processed:recentTradeCount,skippedOld:skippedOldTradeCount,skippedFuture:skippedFutureTradeCount,totalFetched:recentTrades.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:tradeHistory',message:'Trade history processing complete',data:{walletAddress:eoaAddress.substring(0,8),processed:processedTradeCount,totalFetched:recentTrades.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
           // #endregion
-          console.log(`[Monitor] Processed ${recentTradeCount} recent trade(s) (within last 5 min) for ${eoaAddress.substring(0, 8)}... (skipped ${skippedOldTradeCount} old trades)`);
+          console.log(`[Monitor] Processed ${processedTradeCount} trade(s) from history for ${eoaAddress.substring(0, 8)}...`);
         } catch (error: any) {
           // Trade history might not be available, continue with position monitoring
           if (error.response?.status !== 404) {
@@ -675,6 +678,19 @@ export class WalletMonitor {
       const wallets = await Storage.getActiveWallets();
       const walletSettings = wallets.find(w => w.address.toLowerCase() === walletAddress.toLowerCase());
       
+      // FIXED: Handle Unix seconds timestamp from API
+      let tradeTimestamp: Date;
+      if (trade.timestamp) {
+        if (typeof trade.timestamp === 'number') {
+          // Unix timestamp - convert seconds to milliseconds if needed
+          tradeTimestamp = new Date(trade.timestamp < 1e12 ? trade.timestamp * 1000 : trade.timestamp);
+        } else {
+          tradeTimestamp = new Date(trade.timestamp);
+        }
+      } else {
+        tradeTimestamp = new Date();
+      }
+      
       return {
         walletAddress: walletAddress.toLowerCase(),
         marketId,
@@ -682,7 +698,7 @@ export class WalletMonitor {
         amount: amount.toString(),
         price: price.toString(),
         side,
-        timestamp: new Date(trade.timestamp || Date.now()),
+        timestamp: tradeTimestamp,
         transactionHash: trade.transactionHash || trade.id || `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         tokenId: trade.asset,  // Token ID from trade data for CLOB client
         negRisk: false,  // Default, not available in trade history

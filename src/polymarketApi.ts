@@ -355,11 +355,20 @@ export class PolymarketApi {
   async getUserTrades(userAddress: string, limit = 50): Promise<any[]> {
     return this.retryRequest(async () => {
       try {
-        // Polymarket Data API uses: GET /trades?user={proxyWalletAddress}
-        const response = await this.dataApiClient.get('/trades', {
+        // Try the /activity endpoint first as it may be more real-time than /trades
+        // /activity?user={address}&type=TRADE returns more recent data
+        const response = await this.dataApiClient.get('/activity', {
           params: { 
             user: userAddress.toLowerCase(),
-            limit 
+            type: 'TRADE',
+            limit,
+            sortBy: 'TIMESTAMP',
+            sortDirection: 'DESC',
+            _t: Date.now() // Cache buster
+          },
+          headers: {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
           }
         });
         
@@ -371,7 +380,14 @@ export class PolymarketApi {
           const sampleTrade = trades[0];
           console.log(`[API] Trade fields available: ${Object.keys(sampleTrade).join(', ')}`);
           // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'polymarketApi.ts:getUserTrades',message:'Trades fetched from API',data:{userAddress:userAddress.substring(0,8),tradeCount:trades.length,first5Trades:trades.slice(0,5).map((t:any)=>({timestamp:t.timestamp,txHash:t.transactionHash||'none',side:t.side,size:t.size,price:t.price,conditionId:t.conditionId?.substring(0,15)||'none'}))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
+          // CRITICAL: Log the MOST RECENT trade timestamp to see if API returns fresh data
+          // FIXED: Handle Unix seconds timestamps from Polymarket API
+          const mostRecentTradeTimeRaw = trades[0]?.timestamp;
+          const mostRecentTradeTimeMs = typeof mostRecentTradeTimeRaw === 'number' 
+            ? (mostRecentTradeTimeRaw < 1e12 ? mostRecentTradeTimeRaw * 1000 : mostRecentTradeTimeRaw)
+            : new Date(mostRecentTradeTimeRaw).getTime();
+          const mostRecentAgeSeconds = mostRecentTradeTimeRaw ? Math.round((Date.now() - mostRecentTradeTimeMs) / 1000) : -1;
+          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'polymarketApi.ts:getUserTrades',message:'TRADES FROM API - checking freshness',data:{userAddress:userAddress.substring(0,8),tradeCount:trades.length,mostRecentTradeTimestampRaw:mostRecentTradeTimeRaw,mostRecentTradeTimestampMs:mostRecentTradeTimeMs,mostRecentAgeSeconds:mostRecentAgeSeconds,nowIso:new Date().toISOString(),mostRecentTradeIso:mostRecentTradeTimeMs>0?new Date(mostRecentTradeTimeMs).toISOString():'none',first5Trades:trades.slice(0,5).map((t:any)=>{const ts=typeof t.timestamp==='number'?(t.timestamp<1e12?t.timestamp*1000:t.timestamp):new Date(t.timestamp).getTime();return{timestampRaw:t.timestamp,timestampMs:ts,ageSeconds:Math.round((Date.now()-ts)/1000),txHash:t.transactionHash||'none',side:t.side,size:t.size,price:t.price,conditionId:t.conditionId?.substring(0,15)||'none'};})},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
           // #endregion
         } else {
           console.log(`[API] No trades found for ${userAddress.substring(0, 8)}...`);
