@@ -41,19 +41,13 @@ export class CopyTrader {
       await this.executor.authenticate();
       await this.balanceTracker.initialize();
       
-      // Record initial balances for all wallets (user + tracked)
+      // Record initial balance for user wallet only (not tracked wallets to reduce RPC calls)
       const userWallet = this.getWalletAddress();
-      const trackedWallets = await Storage.getActiveWallets();
-      const allWallets = userWallet 
-        ? [userWallet, ...trackedWallets.map(w => w.address)]
-        : trackedWallets.map(w => w.address);
-      
-      // Record initial balances
-      for (const address of allWallets) {
+      if (userWallet) {
         try {
-          await this.balanceTracker.recordBalance(address);
+          await this.balanceTracker.recordBalance(userWallet);
         } catch (error: any) {
-          console.warn(`Failed to record initial balance for ${address}:`, error.message);
+          console.warn(`Failed to record initial balance for ${userWallet}:`, error.message);
         }
       }
       
@@ -109,15 +103,10 @@ export class CopyTrader {
       console.log('⚠️ Continuing with polling-based monitoring (this is fine)');
     }
 
-    // Start balance tracking
+    // Start balance tracking for user wallet only (reduces RPC calls significantly)
     const userWallet = this.getWalletAddress();
-    const trackedWallets = await Storage.getActiveWallets();
-    const allWallets = userWallet 
-      ? [userWallet, ...trackedWallets.map(w => w.address)]
-      : trackedWallets.map(w => w.address);
-    
-    if (allWallets.length > 0) {
-      await this.balanceTracker.startTracking(allWallets);
+    if (userWallet) {
+      await this.balanceTracker.startTracking([userWallet]);
     }
 
     console.log('\n' + '='.repeat(60));
@@ -713,14 +702,8 @@ export class CopyTrader {
       await this.websocketMonitor.reloadWallets();
       await this.monitor.reloadWallets();
       
-      // Update balance tracking
-      const userWallet = this.getWalletAddress();
-      const trackedWallets = await Storage.getActiveWallets();
-      const allWallets = userWallet 
-        ? [userWallet, ...trackedWallets.map(w => w.address)]
-        : trackedWallets.map(w => w.address);
-      
-      await this.balanceTracker.updateTrackedWallets(allWallets);
+      // Balance tracking only for user wallet (not tracked wallets)
+      // This reduces RPC calls significantly
     }
   }
 
