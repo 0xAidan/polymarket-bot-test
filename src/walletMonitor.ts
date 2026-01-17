@@ -419,8 +419,23 @@ export class WalletMonitor {
               tradeTime = 0;
             }
 
-            // NO TIME WINDOW - Process ALL trades from history
-            // Duplicate prevention is handled by transaction hash tracking in CopyTrader
+            // #region agent log
+            const tradeAgeSeconds = Math.round((now - tradeTime) / 1000);
+            const tradeAgeHours = (tradeAgeSeconds / 3600).toFixed(2);
+            fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:tradeLoop',message:'PROCESSING TRADE FROM HISTORY',data:{walletAddress:eoaAddress.substring(0,8),tradeAgeSeconds,tradeAgeHours,tradeTimeIso:new Date(tradeTime).toISOString(),txHashFromApi:trade.transactionHash||'MISSING',side:trade.side,size:trade.size,price:trade.price,conditionId:trade.conditionId?.substring(0,20)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H5'})}).catch(()=>{});
+            // #endregion
+
+            // TIME WINDOW FILTER: Only process trades within the last 5 minutes
+            // This prevents executing old historical trades on bot startup
+            // The CopyTrader also has compound key deduplication as a backup
+            const MAX_TRADE_AGE_MS = 5 * 60 * 1000; // 5 minutes
+            if (now - tradeTime > MAX_TRADE_AGE_MS) {
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:tradeLoop',message:'SKIPPING OLD TRADE - outside time window',data:{walletAddress:eoaAddress.substring(0,8),tradeAgeSeconds,tradeAgeHours,maxAgeMinutes:MAX_TRADE_AGE_MS/60000,txHash:trade.transactionHash?.substring(0,30)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'FIX'})}).catch(()=>{});
+              // #endregion
+              continue; // Skip trades older than 5 minutes
+            }
+            
             {
               processedTradeCount++;
               // #region agent log

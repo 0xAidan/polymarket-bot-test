@@ -19,7 +19,8 @@ export class CopyTrader {
   private balanceTracker: BalanceTracker;
   private isRunning = false;
   private executedTrades = new Set<string>(); // Track executed trades by tx hash
-  private processedTrades = new Map<string, number>(); // Track processed trades by unique key (wallet-market-outcome-side-timestamp) to prevent duplicates
+  private processedTrades = new Map<string, number>(); // Track processed trades by tx hash to prevent duplicates
+  private processedCompoundKeys = new Map<string, number>(); // Track by compound key (wallet-market-outcome-side-timeWindow) to catch same trade with different hashes
 
   constructor() {
     this.monitor = new WalletMonitor();
@@ -194,6 +195,13 @@ export class CopyTrader {
       return;
     }
     
+    // #region agent log
+    const isSyntheticHash = trade.transactionHash?.startsWith('pos-') || trade.transactionHash?.startsWith('trade-') || trade.transactionHash?.startsWith('ws-');
+    const executedTradesSize = this.executedTrades.size;
+    const processedTradesSize = this.processedTrades.size;
+    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:dedupeCheck',message:'DEDUP CHECK - incoming trade',data:{txHash:trade.transactionHash?.substring(0,40),isSyntheticHash,alreadyInExecutedTrades:this.executedTrades.has(trade.transactionHash),executedTradesSize,processedTradesSize,walletAddress:trade.walletAddress.substring(0,8),marketId:trade.marketId?.substring(0,20)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2-H5'})}).catch(()=>{});
+    // #endregion
+    
     // Prevent duplicate execution using transaction hash
     if (this.executedTrades.has(trade.transactionHash)) {
       // #region agent log
@@ -206,9 +214,17 @@ export class CopyTrader {
       return;
     }
     
-    // CRITICAL FIX: Use transaction hash for deduplication, not time-bucket composite key
-    // The old approach blocked legitimate multiple trades on the same market
-    // Transaction hash is unique per trade and is the correct deduplication key
+    // CRITICAL FIX: Use a COMPOUND KEY for deduplication
+    // Problem: Position monitoring generates synthetic hashes (pos-...) while trade history has real hashes
+    // This caused the SAME underlying trade to be detected twice and executed twice
+    // Solution: Create a compound key based on market + outcome + price + rough timestamp
+    // This catches duplicates even when transaction hashes differ
+    const tradeTimestamp = trade.timestamp instanceof Date ? trade.timestamp.getTime() : Date.now();
+    // Round timestamp to 5-minute windows to catch trades detected slightly apart
+    const timeWindow = Math.floor(tradeTimestamp / (5 * 60 * 1000));
+    const compoundKey = `${trade.walletAddress.toLowerCase()}-${trade.marketId}-${trade.outcome}-${trade.side}-${timeWindow}`;
+    
+    // Also track by transaction hash for exact duplicates
     const tradeKey = trade.transactionHash;
     
     // Clean up old entries (older than 1 hour)
@@ -218,17 +234,39 @@ export class CopyTrader {
         this.processedTrades.delete(key);
       }
     }
+    for (const [key, timestamp] of this.processedCompoundKeys.entries()) {
+      if (now - timestamp > 60 * 60 * 1000) {
+        this.processedCompoundKeys.delete(key);
+      }
+    }
     
+    // #region agent log
+    const alreadyProcessedByTxHash = this.processedTrades.has(tradeKey);
+    const alreadyProcessedByCompoundKey = this.processedCompoundKeys.has(compoundKey);
+    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:dedupeCheck',message:'DEDUP CHECK - compound key',data:{txHash:tradeKey?.substring(0,40),compoundKey,alreadyProcessedByTxHash,alreadyProcessedByCompoundKey,isSyntheticHash:tradeKey?.startsWith('pos-')||tradeKey?.startsWith('trade-')},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'FIX'})}).catch(()=>{});
+    // #endregion
+    
+    // CHECK 1: By transaction hash (exact duplicate)
     if (this.processedTrades.has(tradeKey)) {
       console.log(`[CopyTrader] ⏭️  Trade already processed (txHash: ${tradeKey?.substring(0,20)}...), skipping duplicate`);
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-dupeKey',message:'Skipping - trade already processed',data:{txHash:tradeKey?.substring(0,30)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-dupeKey',message:'Skipping - trade already processed (txHash)',data:{txHash:tradeKey?.substring(0,30)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
       // #endregion
       return;
     }
     
-    // Mark as processed using transaction hash
+    // CHECK 2: By compound key (same trade detected with different hash - e.g., position vs trade history)
+    if (this.processedCompoundKeys.has(compoundKey)) {
+      console.log(`[CopyTrader] ⏭️  Trade already processed (compound key: ${compoundKey.substring(0, 30)}...), skipping duplicate detection`);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-dupeCompound',message:'Skipping - trade already processed (compound key)',data:{compoundKey,txHash:tradeKey?.substring(0,30)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'FIX'})}).catch(()=>{});
+      // #endregion
+      return;
+    }
+    
+    // Mark as processed using both keys
     this.processedTrades.set(tradeKey, now);
+    this.processedCompoundKeys.set(compoundKey, now);
 
     console.log(`\n${'='.repeat(60)}`);
     console.log(`🔔 TRADE DETECTED`);
