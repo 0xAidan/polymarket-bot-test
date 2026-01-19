@@ -16,12 +16,16 @@ const __dirname = dirname(__filename);
 async function runInteractiveSetup(): Promise<boolean> {
   const rl = readline.createInterface({
     input: process.stdin,
-    output: process.stdout
+    output: process.stdout,
+    terminal: false  // Disable special character handling for better paste support
   });
 
   const question = (prompt: string): Promise<string> => {
     return new Promise((resolve) => {
-      rl.question(prompt, resolve);
+      process.stdout.write(prompt);
+      rl.once('line', (answer) => {
+        resolve(answer);
+      });
     });
   };
 
