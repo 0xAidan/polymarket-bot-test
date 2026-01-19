@@ -2,47 +2,6 @@ import { config } from './config.js';
 import { CopyTrader } from './copyTrader.js';
 import { createServer, startServer } from './server.js';
 import { Storage } from './storage.js';
-import { existsSync } from 'fs';
-import { spawn } from 'child_process';
-import { join } from 'path';
-
-/**
- * Run the setup script and wait for it to complete
- */
-function runSetup(): Promise<boolean> {
-  return new Promise((resolve) => {
-    console.log('\n🔧 No configuration found. Starting setup wizard...\n');
-    
-    const setupPath = join(process.cwd(), 'setup.js');
-    
-    // Run setup.js with stdio inherited so user can interact
-    const child = spawn('node', [setupPath], {
-      stdio: 'inherit',
-      cwd: process.cwd()
-    });
-    
-    child.on('close', (code) => {
-      if (code === 0) {
-        resolve(true);
-      } else {
-        resolve(false);
-      }
-    });
-    
-    child.on('error', (err) => {
-      console.error('Failed to run setup:', err.message);
-      resolve(false);
-    });
-  });
-}
-
-/**
- * Check if .env file exists with a private key configured
- */
-function isConfigured(): boolean {
-  const envPath = join(process.cwd(), '.env');
-  return existsSync(envPath);
-}
 
 /**
  * Main entry point for the Polymarket Copytrade Bot
@@ -53,28 +12,6 @@ async function main() {
   try {
     // Ensure data directory exists (always do this, even if config fails)
     await Storage.ensureDataDir();
-
-    // Check if configuration exists - if not, run setup
-    if (!isConfigured()) {
-      const setupSuccess = await runSetup();
-      
-      if (!setupSuccess) {
-        console.log('\n❌ Setup was not completed. Please try again.\n');
-        process.exit(1);
-      }
-      
-      console.log('\n✨ Setup complete! Starting bot...\n');
-      
-      // Re-load environment variables from the new .env file
-      const dotenv = await import('dotenv');
-      dotenv.config({ override: true });
-      
-      // Update config with new values
-      config.privateKey = process.env.PRIVATE_KEY || '';
-      config.polymarketBuilderApiKey = process.env.POLYMARKET_BUILDER_API_KEY || '';
-      config.polymarketBuilderSecret = process.env.POLYMARKET_BUILDER_SECRET || '';
-      config.polymarketBuilderPassphrase = process.env.POLYMARKET_BUILDER_PASSPHRASE || '';
-    }
 
     // Create and start web server first (so it's accessible even if bot init fails)
     console.log('🌐 Starting web server...');
@@ -89,7 +26,7 @@ async function main() {
     } catch (error: any) {
       console.error('⚠️  Configuration validation failed:', error.message);
       console.error('⚠️  Bot will not start, but web server is running.');
-      console.error('⚠️  Delete your .env file and restart to run setup again.');
+      console.error('⚠️  Please configure PRIVATE_KEY and restart.');
       // Don't exit - let the server keep running so user can see the error
       return;
     }

@@ -5,7 +5,8 @@
   "main": "dist/index.js",
   "scripts": {
     "setup": "node setup.js",
-    "dev": "tsx watch src/index.ts",
+    "dev": "node start.js",
+    "dev:watch": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "lint": "eslint src --ext .ts"
