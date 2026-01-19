@@ -555,6 +555,69 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
+  // Update wallet sizing settings (per-wallet overrides)
+  router.patch('/wallets/:address/sizing-settings', async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      const { sizingModeOverride, maxExposureUsd, maxExposurePerMarketUsd, pauseOnExposureLimit } = req.body;
+
+      if (sizingModeOverride !== undefined && sizingModeOverride !== null) {
+        if (sizingModeOverride !== 'fixed' && sizingModeOverride !== 'ratio_of_trade') {
+          return res.status(400).json({
+            success: false,
+            error: 'sizingModeOverride must be "fixed" or "ratio_of_trade"'
+          });
+        }
+      }
+
+      if (maxExposureUsd !== undefined && maxExposureUsd !== null) {
+        const num = parseFloat(maxExposureUsd);
+        if (isNaN(num) || num <= 0) {
+          return res.status(400).json({
+            success: false,
+            error: 'maxExposureUsd must be a positive number'
+          });
+        }
+      }
+
+      if (maxExposurePerMarketUsd !== undefined && maxExposurePerMarketUsd !== null) {
+        const num = parseFloat(maxExposurePerMarketUsd);
+        if (isNaN(num) || num <= 0) {
+          return res.status(400).json({
+            success: false,
+            error: 'maxExposurePerMarketUsd must be a positive number'
+          });
+        }
+      }
+
+      if (pauseOnExposureLimit !== undefined && pauseOnExposureLimit !== null) {
+        if (typeof pauseOnExposureLimit !== 'boolean') {
+          return res.status(400).json({
+            success: false,
+            error: 'pauseOnExposureLimit must be a boolean'
+          });
+        }
+      }
+
+      const wallet = await Storage.updateWalletSizingSettings(address, {
+        sizingModeOverride: sizingModeOverride ?? undefined,
+        maxExposureUsd: maxExposureUsd === undefined ? undefined : (maxExposureUsd === null ? null : parseFloat(maxExposureUsd)),
+        maxExposurePerMarketUsd: maxExposurePerMarketUsd === undefined ? undefined : (maxExposurePerMarketUsd === null ? null : parseFloat(maxExposurePerMarketUsd)),
+        pauseOnExposureLimit: pauseOnExposureLimit ?? undefined
+      });
+
+      await copyTrader.reloadWallets();
+
+      res.json({
+        success: true,
+        message: 'Wallet sizing settings updated',
+        wallet
+      });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
   // Get wallet positions
   router.get('/wallets/:address/positions', async (req: Request, res: Response) => {
     const { address } = req.params;
@@ -565,6 +628,35 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     } catch (error: any) {
       console.error(`Failed to load positions for ${address}:`, error.message);
       res.json({ success: true, positions: [], error: error.message });
+    }
+  });
+
+  // Get wallet portfolio value (positions + cash balance)
+  router.get('/wallets/:address/portfolio', async (req: Request, res: Response) => {
+    const { address } = req.params;
+    try {
+      const api = copyTrader.getPolymarketApi();
+      const balanceTracker = copyTrader.getBalanceTracker();
+      const { valueUsd: positionsUsd, proxyWallet } = await api.calculatePortfolioValue(address);
+
+      let cashUsd = 0;
+      try {
+        const balanceAddress = proxyWallet || address;
+        cashUsd = await balanceTracker.getBalance(balanceAddress);
+      } catch (balanceError: any) {
+        console.warn(`[API] Failed to fetch cash balance for ${address.substring(0, 8)}...:`, balanceError.message);
+      }
+
+      res.json({
+        success: true,
+        positionsUsd,
+        cashUsd,
+        totalUsd: positionsUsd + cashUsd,
+        proxyWallet: proxyWallet || null
+      });
+    } catch (error: any) {
+      console.error(`Failed to load portfolio for ${address}:`, error.message);
+      res.status(500).json({ success: false, error: error.message });
     }
   });
 
@@ -588,6 +680,67 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     try {
       const tradeSize = await Storage.getTradeSize();
       res.json({ success: true, tradeSize, unit: 'USDC' });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get trade sizing mode and exposure caps
+  router.get('/config/trade-sizing', async (req: Request, res: Response) => {
+    try {
+      const tradeSizingMode = await Storage.getTradeSizingMode();
+      const maxExposurePerWalletUsd = await Storage.getMaxExposurePerWalletUsd();
+      const maxExposurePerMarketUsd = await Storage.getMaxExposurePerMarketUsd();
+      res.json({
+        success: true,
+        tradeSizingMode,
+        maxExposurePerWalletUsd,
+        maxExposurePerMarketUsd
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Set trade sizing mode and exposure caps
+  router.post('/config/trade-sizing', async (req: Request, res: Response) => {
+    try {
+      const { tradeSizingMode, maxExposurePerWalletUsd, maxExposurePerMarketUsd } = req.body;
+
+      if (tradeSizingMode && tradeSizingMode !== 'fixed' && tradeSizingMode !== 'ratio_of_trade') {
+        return res.status(400).json({
+          success: false,
+          error: 'tradeSizingMode must be "fixed" or "ratio_of_trade"'
+        });
+      }
+
+      if (tradeSizingMode) {
+        await Storage.setTradeSizingMode(tradeSizingMode);
+      }
+
+      if (maxExposurePerWalletUsd !== undefined) {
+        const value = maxExposurePerWalletUsd === null ? null : parseFloat(maxExposurePerWalletUsd);
+        if (value !== null && (isNaN(value) || value <= 0)) {
+          return res.status(400).json({
+            success: false,
+            error: 'maxExposurePerWalletUsd must be a positive number or null'
+          });
+        }
+        await Storage.setMaxExposurePerWalletUsd(value);
+      }
+
+      if (maxExposurePerMarketUsd !== undefined) {
+        const value = maxExposurePerMarketUsd === null ? null : parseFloat(maxExposurePerMarketUsd);
+        if (value !== null && (isNaN(value) || value <= 0)) {
+          return res.status(400).json({
+            success: false,
+            error: 'maxExposurePerMarketUsd must be a positive number or null'
+          });
+        }
+        await Storage.setMaxExposurePerMarketUsd(value);
+      }
+
+      res.json({ success: true, message: 'Trade sizing configuration updated' });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }

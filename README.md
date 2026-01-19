@@ -17,7 +17,8 @@ This guide will walk you through **EVERY SINGLE STEP** from zero to running bot.
 7. [Step 4: Set Up Your Wallet and API Keys](#step-4-set-up-your-wallet-and-api-keys)
 8. [Step 5: Start the Bot](#step-5-start-the-bot)
 9. [Step 6: Use the Dashboard](#step-6-use-the-dashboard)
-10. [Troubleshooting](#troubleshooting)
+10. [Step 7: Run on VPS/VM (Non-Blocked Region)](#step-7-run-on-vpsvm-non-blocked-region)
+11. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -373,6 +374,39 @@ The bot includes a web dashboard where you can:
 - When they make a trade on Polymarket, the bot detects it
 - The bot automatically makes the same trade for you
 - You can see all activity in the dashboard
+
+---
+
+## Step 7: Run on VPS/VM (Non-Blocked Region)
+
+If you want the bot to run 24/7 without your laptop, use a VPS in a **non‑blocked region**.
+
+### Why this matters
+- Polymarket is **geo‑restricted** in some regions (including the US/Canada).
+- Some cloud platforms share IPs that get **Cloudflare‑blocked**.
+- A dedicated VPS in a **non‑blocked region** is the most reliable option.
+
+### Recommended approach (simple + reliable)
+1. **Choose a VPS region that is not blocked**
+   - Before committing, verify from the VPS: `https://polymarket.com/api/geoblock` should return `blocked: false`
+   - Avoid “close‑only” regions where you can’t open new trades (e.g., Singapore, Poland, Thailand, Taiwan)
+
+2. **Install Docker on the VPS**
+   - Use the official Docker install guide for Ubuntu
+
+3. **Deploy the bot with Docker**
+   ```bash
+   docker build -t polymarket-bot .
+   docker run -d --env-file .env -p 3001:3001 --restart unless-stopped polymarket-bot
+   ```
+
+4. **Confirm it’s running**
+   - Visit `http://YOUR_VPS_IP:3001`
+   - Use `/api/test/clob-connectivity` to check Cloudflare access
+
+### If PaaS is required (fallback only)
+- Use a provider with dedicated IP options and ensure Builder API creds are set.
+- Expect higher risk of Cloudflare blocks.
 
 ---
 

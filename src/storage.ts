@@ -161,7 +161,10 @@ export class Storage {
         // File doesn't exist yet, return default config
         return { 
           tradeSize: '2', // Default trade size in USDC
-          monitoringIntervalMs: 15000 // Default 15 seconds (matches config.ts default)
+          monitoringIntervalMs: 15000, // Default 15 seconds (matches config.ts default)
+          tradeSizingMode: 'fixed', // Default sizing mode (uniform size)
+          maxExposurePerWalletUsd: null,
+          maxExposurePerMarketUsd: null
         };
       }
       console.error('Failed to load bot config:', error);
@@ -198,6 +201,107 @@ export class Storage {
     const config = await this.loadConfig();
     config.tradeSize = size;
     await this.saveConfig(config);
+  }
+
+  /**
+   * Get trade sizing mode (fixed or ratio_of_trade)
+   */
+  static async getTradeSizingMode(): Promise<'fixed' | 'ratio_of_trade'> {
+    const config = await this.loadConfig();
+    return config.tradeSizingMode === 'ratio_of_trade' ? 'ratio_of_trade' : 'fixed';
+  }
+
+  /**
+   * Set trade sizing mode
+   */
+  static async setTradeSizingMode(mode: 'fixed' | 'ratio_of_trade'): Promise<void> {
+    const config = await this.loadConfig();
+    config.tradeSizingMode = mode;
+    await this.saveConfig(config);
+  }
+
+  /**
+   * Get max exposure per wallet (USDC)
+   */
+  static async getMaxExposurePerWalletUsd(): Promise<number | null> {
+    const config = await this.loadConfig();
+    const value = config.maxExposurePerWalletUsd;
+    if (value === null || value === undefined) {
+      return null;
+    }
+    const num = typeof value === 'string' ? parseFloat(value) : value;
+    return isNaN(num) || num <= 0 ? null : num;
+  }
+
+  /**
+   * Set max exposure per wallet (USDC)
+   */
+  static async setMaxExposurePerWalletUsd(value: number | null): Promise<void> {
+    const config = await this.loadConfig();
+    config.maxExposurePerWalletUsd = value;
+    await this.saveConfig(config);
+  }
+
+  /**
+   * Get max exposure per market (USDC)
+   */
+  static async getMaxExposurePerMarketUsd(): Promise<number | null> {
+    const config = await this.loadConfig();
+    const value = config.maxExposurePerMarketUsd;
+    if (value === null || value === undefined) {
+      return null;
+    }
+    const num = typeof value === 'string' ? parseFloat(value) : value;
+    return isNaN(num) || num <= 0 ? null : num;
+  }
+
+  /**
+   * Set max exposure per market (USDC)
+   */
+  static async setMaxExposurePerMarketUsd(value: number | null): Promise<void> {
+    const config = await this.loadConfig();
+    config.maxExposurePerMarketUsd = value;
+    await this.saveConfig(config);
+  }
+
+  /**
+   * Update wallet sizing settings
+   */
+  static async updateWalletSizingSettings(
+    address: string,
+    settings: {
+      sizingModeOverride?: 'fixed' | 'ratio_of_trade' | null;
+      maxExposureUsd?: number | null;
+      maxExposurePerMarketUsd?: number | null;
+      pauseOnExposureLimit?: boolean | null;
+    }
+  ): Promise<TrackedWallet> {
+    const wallets = await this.loadTrackedWallets();
+    const wallet = wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
+    
+    if (!wallet) {
+      throw new Error('Wallet not found');
+    }
+
+    if (settings.sizingModeOverride !== undefined) {
+      wallet.sizingModeOverride = settings.sizingModeOverride ?? undefined;
+    }
+    if (settings.maxExposureUsd !== undefined) {
+      wallet.maxExposureUsd = settings.maxExposureUsd === null ? undefined : settings.maxExposureUsd;
+    }
+    if (settings.maxExposurePerMarketUsd !== undefined) {
+      wallet.maxExposurePerMarketUsd = settings.maxExposurePerMarketUsd === null
+        ? undefined
+        : settings.maxExposurePerMarketUsd;
+    }
+    if (settings.pauseOnExposureLimit !== undefined) {
+      wallet.pauseOnExposureLimit = settings.pauseOnExposureLimit === null
+        ? undefined
+        : settings.pauseOnExposureLimit;
+    }
+
+    await this.saveTrackedWallets(wallets);
+    return wallet;
   }
 
   /**

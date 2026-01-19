@@ -3,6 +3,7 @@ import { WebSocketMonitor } from './websocketMonitor.js';
 import { TradeExecutor } from './tradeExecutor.js';
 import { PerformanceTracker } from './performanceTracker.js';
 import { BalanceTracker } from './balanceTracker.js';
+import { ExposureTracker } from './exposureTracker.js';
 import { DetectedTrade, TradeOrder, TradeResult } from './types.js';
 import { Storage } from './storage.js';
 import { config } from './config.js';
@@ -17,6 +18,7 @@ export class CopyTrader {
   private executor: TradeExecutor;
   private performanceTracker: PerformanceTracker;
   private balanceTracker: BalanceTracker;
+  private exposureTracker: ExposureTracker;
   private isRunning = false;
   private executedTrades = new Set<string>(); // Track executed trades by tx hash
   private processedTrades = new Map<string, number>(); // Track processed trades by tx hash to prevent duplicates
@@ -28,6 +30,7 @@ export class CopyTrader {
     this.executor = new TradeExecutor();
     this.performanceTracker = new PerformanceTracker();
     this.balanceTracker = new BalanceTracker();
+    this.exposureTracker = new ExposureTracker();
   }
 
   /**
@@ -141,9 +144,6 @@ export class CopyTrader {
    * Handle a detected trade from a tracked wallet
    */
   private async handleDetectedTrade(trade: DetectedTrade): Promise<void> {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'handleDetectedTrade entry',data:{walletAddress:trade.walletAddress.substring(0,8),marketId:trade.marketId?.substring(0,20),price:trade.price,amount:trade.amount,side:trade.side,txHash:trade.transactionHash?.substring(0,20)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     console.log(`\n${'='.repeat(60)}`);
     console.log(`🔔 [CopyTrader] HANDLE_DETECTED_TRADE CALLED`);
     console.log(`${'='.repeat(60)}`);
@@ -184,22 +184,9 @@ export class CopyTrader {
       return;
     }
     
-    // #region agent log
-    const isSyntheticHash = trade.transactionHash?.startsWith('pos-') || trade.transactionHash?.startsWith('trade-') || trade.transactionHash?.startsWith('ws-');
-    const executedTradesSize = this.executedTrades.size;
-    const processedTradesSize = this.processedTrades.size;
-    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:dedupeCheck',message:'DEDUP CHECK - incoming trade',data:{txHash:trade.transactionHash?.substring(0,40),isSyntheticHash,alreadyInExecutedTrades:this.executedTrades.has(trade.transactionHash),executedTradesSize,processedTradesSize,walletAddress:trade.walletAddress.substring(0,8),marketId:trade.marketId?.substring(0,20)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2-H5'})}).catch(()=>{});
-    // #endregion
-    
     // Prevent duplicate execution using transaction hash
     if (this.executedTrades.has(trade.transactionHash)) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Duplicate trade skipped',data:{txHash:trade.transactionHash?.substring(0,20)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       console.log(`[CopyTrader] ⏭️  Trade ${trade.transactionHash} already executed, skipping`);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-dupeTx',message:'Skipping - duplicate txHash',data:{txHash:trade.transactionHash?.substring(0,30)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
       return;
     }
     
@@ -229,27 +216,15 @@ export class CopyTrader {
       }
     }
     
-    // #region agent log
-    const alreadyProcessedByTxHash = this.processedTrades.has(tradeKey);
-    const alreadyProcessedByCompoundKey = this.processedCompoundKeys.has(compoundKey);
-    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:dedupeCheck',message:'DEDUP CHECK - compound key',data:{txHash:tradeKey?.substring(0,40),compoundKey,alreadyProcessedByTxHash,alreadyProcessedByCompoundKey,isSyntheticHash:tradeKey?.startsWith('pos-')||tradeKey?.startsWith('trade-')},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'FIX'})}).catch(()=>{});
-    // #endregion
-    
     // CHECK 1: By transaction hash (exact duplicate)
     if (this.processedTrades.has(tradeKey)) {
       console.log(`[CopyTrader] ⏭️  Trade already processed (txHash: ${tradeKey?.substring(0,20)}...), skipping duplicate`);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-dupeKey',message:'Skipping - trade already processed (txHash)',data:{txHash:tradeKey?.substring(0,30)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
       return;
     }
     
     // CHECK 2: By compound key (same trade detected with different hash - e.g., position vs trade history)
     if (this.processedCompoundKeys.has(compoundKey)) {
       console.log(`[CopyTrader] ⏭️  Trade already processed (compound key: ${compoundKey.substring(0, 30)}...), skipping duplicate detection`);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-dupeCompound',message:'Skipping - trade already processed (compound key)',data:{compoundKey,txHash:tradeKey?.substring(0,30)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'FIX'})}).catch(()=>{});
-      // #endregion
       return;
     }
     
@@ -273,18 +248,8 @@ export class CopyTrader {
     const priceNum = parseFloat(trade.price || '0');
     const amountNum = parseFloat(trade.amount || '0');
     
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation start',data:{marketId:trade.marketId,price:trade.price,priceNum,amount:trade.amount,amountNum,side:trade.side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
-    // #endregion
-    
     if (!trade.marketId || trade.marketId === 'unknown') {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation failed: marketId',data:{marketId:trade.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
-      // #endregion
       console.error(`❌ Invalid marketId (${trade.marketId}), cannot execute trade`);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-invalidMarket',message:'Skipping - invalid marketId',data:{marketId:trade.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
       await this.performanceTracker.logIssue(
         'error',
         'trade_execution',
@@ -295,13 +260,7 @@ export class CopyTrader {
     }
     
     if (!trade.price || trade.price === '0' || isNaN(priceNum) || priceNum <= 0 || priceNum > 1) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation failed: price',data:{price:trade.price,priceNum},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
-      // #endregion
       console.error(`❌ Invalid price (${trade.price}), cannot execute trade`);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-invalidPrice',message:'Skipping - invalid price',data:{price:trade.price,priceNum:priceNum},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
       await this.performanceTracker.logIssue(
         'error',
         'trade_execution',
@@ -340,9 +299,6 @@ export class CopyTrader {
     }
     
     if (!trade.side || (trade.side !== 'BUY' && trade.side !== 'SELL')) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation failed: side',data:{side:trade.side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
-      // #endregion
       console.error(`❌ Invalid side (${trade.side}), cannot execute trade`);
       await this.performanceTracker.logIssue(
         'error',
@@ -352,15 +308,16 @@ export class CopyTrader {
       );
       return;
     }
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation passed',data:{marketId:trade.marketId,price:trade.price,side:trade.side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
-    // #endregion
 
     const executionStart = Date.now();
 
     try {
-      // Get configured trade size in USDC and calculate shares based on price
+      // Determine sizing mode (global default, optional per-wallet override)
+      const walletSettings = activeWallets.find(w => w.address.toLowerCase() === tradeWalletLower);
+      const globalSizingMode = await Storage.getTradeSizingMode();
+      const sizingMode = walletSettings?.sizingModeOverride || globalSizingMode;
+
+      // Get configured trade size in USDC (used for fixed sizing)
       const configuredTradeSizeUsdc = await Storage.getTradeSize();
       const tradeSizeUsdcNum = parseFloat(configuredTradeSizeUsdc || '0');
       
@@ -374,15 +331,38 @@ export class CopyTrader {
         );
         return;
       }
+
+      // Calculate target USDC size based on sizing mode
+      let targetTradeUsd = tradeSizeUsdcNum;
+      if (sizingMode === 'ratio_of_trade') {
+        const detectedShares = parseFloat(trade.amount || '0');
+        const trackedTradeUsd = Math.abs(detectedShares * priceNum);
+
+        const trackedPortfolio = await this.getPortfolioUsdForWallet(trade.walletAddress);
+        const ourPortfolio = await this.getOurPortfolioUsd();
+
+        if (trackedPortfolio.totalUsd > 0 && ourPortfolio.totalUsd > 0 && trackedTradeUsd > 0) {
+          const tradePercent = trackedTradeUsd / trackedPortfolio.totalUsd;
+          targetTradeUsd = tradePercent * ourPortfolio.totalUsd;
+          console.log(`[Trade] Sizing mode: portfolio %`);
+          console.log(`[Trade] Tracked wallet trade: $${trackedTradeUsd.toFixed(2)} of $${trackedPortfolio.totalUsd.toFixed(2)} (${(tradePercent * 100).toFixed(4)}%)`);
+          console.log(`[Trade] Our portfolio: $${ourPortfolio.totalUsd.toFixed(2)} -> target trade $${targetTradeUsd.toFixed(2)}`);
+        } else {
+          console.warn(`[Trade] Portfolio sizing unavailable, falling back to fixed size $${tradeSizeUsdcNum} USDC`);
+          targetTradeUsd = tradeSizeUsdcNum;
+        }
+      } else {
+        console.log(`[Trade] Sizing mode: uniform (fixed USDC)`);
+      }
       
       // Calculate number of shares based on USDC amount and price
       // shares = USDC amount / price per share
-      const sharesAmount = tradeSizeUsdcNum / priceNum;
+      const sharesAmount = targetTradeUsd / priceNum;
       const sharesAmountRounded = parseFloat(sharesAmount.toFixed(2)); // Round to 2 decimal places
       
-      console.log(`[Trade] Configured trade size: $${configuredTradeSizeUsdc} USDC`);
+      console.log(`[Trade] Target trade size: $${targetTradeUsd.toFixed(2)} USDC`);
       console.log(`[Trade] Price per share: $${trade.price}`);
-      console.log(`[Trade] Calculated shares: ${sharesAmountRounded} shares (${tradeSizeUsdcNum} / ${priceNum})`);
+      console.log(`[Trade] Calculated shares: ${sharesAmountRounded} shares (${targetTradeUsd.toFixed(2)} / ${priceNum})`);
       console.log(`[Trade] Auto-bump to minimum: ${trade.autoBumpToMinimum ? 'ENABLED (high-value wallet)' : 'DISABLED'}`);
       
       // ============================================================
@@ -402,10 +382,6 @@ export class CopyTrader {
         }
       }
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:sharesCalc',message:'SHARES CALCULATION - CHECKING MINIMUM',data:{tradeSizeUsdc:tradeSizeUsdcNum,pricePerShare:priceNum,rawShares:sharesAmount,roundedShares:sharesAmountRounded,marketMinShares:marketMinShares,isBelowMinimum:sharesAmountRounded<marketMinShares,autoBumpEnabled:trade.autoBumpToMinimum,suggestedMinUsdc:(marketMinShares*priceNum).toFixed(2)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H5'})}).catch(()=>{});
-      // #endregion
-      
       // Check if calculated shares are below market minimum
       let finalCalculatedShares = sharesAmountRounded;
       if (sharesAmountRounded < marketMinShares) {
@@ -416,25 +392,19 @@ export class CopyTrader {
           console.log(`\n🔼 [CopyTrader] AUTO-BUMPING ORDER SIZE (high-value wallet setting)`);
           console.log(`   Original shares: ${sharesAmountRounded} (below market minimum of ${marketMinShares})`);
           console.log(`   Bumped to: ${marketMinShares} shares`);
-          console.log(`   Original cost: $${configuredTradeSizeUsdc} USDC`);
+          console.log(`   Original cost: $${targetTradeUsd.toFixed(2)} USDC`);
           console.log(`   Actual cost: $${minUsdcRequired.toFixed(2)} USDC`);
           console.log(`   💡 This wallet has "Auto-bump to minimum" enabled for guaranteed execution\n`);
           finalCalculatedShares = marketMinShares;
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:autoBump',message:'AUTO-BUMPED to market minimum',data:{originalShares:sharesAmountRounded,bumpedShares:marketMinShares,originalUsdc:tradeSizeUsdcNum,actualUsdc:minUsdcRequired,marketId:trade.marketId,walletAddress:trade.walletAddress.substring(0,8)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-          // #endregion
         } else {
           // NORMAL WALLET: Reject trade - order size below minimum
           console.log(`\n❌ [CopyTrader] ORDER SIZE BELOW MARKET MINIMUM`);
           console.log(`   Calculated shares: ${sharesAmountRounded} (market minimum: ${marketMinShares})`);
-          console.log(`   Your configured trade size: $${configuredTradeSizeUsdc} USDC`);
+          console.log(`   Your target trade size: $${targetTradeUsd.toFixed(2)} USDC`);
           console.log(`   Minimum USDC needed at this price: $${minUsdcRequired.toFixed(2)}`);
           console.log(`   💡 Options:`);
           console.log(`      1. Increase trade size to at least $${Math.ceil(minUsdcRequired)} USDC in settings`);
           console.log(`      2. Enable "Auto-bump to minimum" for this wallet (high-value mode)\n`);
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:minSizeReject',message:'ORDER REJECTED - BELOW MINIMUM (auto-bump disabled)',data:{calculatedShares:sharesAmountRounded,marketMinShares:marketMinShares,configuredUsdc:tradeSizeUsdcNum,minUsdcNeeded:minUsdcRequired,pricePerShare:priceNum,marketId:trade.marketId,autoBumpEnabled:false},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-          // #endregion
           await this.performanceTracker.recordTrade({
             timestamp: new Date(),
             walletAddress: trade.walletAddress,
@@ -510,6 +480,60 @@ export class CopyTrader {
       }
       
       const sharesAmountStr = finalSharesAmount.toFixed(2);
+      const finalTradeUsd = finalSharesAmount * priceNum;
+
+      // ============================================================
+      // EXPOSURE LIMITS (per-wallet and per-market)
+      // ============================================================
+      const globalMaxExposureUsd = await Storage.getMaxExposurePerWalletUsd();
+      const globalMaxExposurePerMarketUsd = await Storage.getMaxExposurePerMarketUsd();
+      const maxExposureUsd = walletSettings?.maxExposureUsd ?? globalMaxExposureUsd;
+      const maxExposurePerMarketUsd = walletSettings?.maxExposurePerMarketUsd ?? globalMaxExposurePerMarketUsd;
+
+      if (trade.side === 'BUY' && finalTradeUsd > 0 && (maxExposureUsd || maxExposurePerMarketUsd)) {
+        const { projectedWalletUsd, projectedMarketUsd } = await this.exposureTracker.getProjectedExposure(
+          trade.walletAddress,
+          trade.marketId,
+          finalTradeUsd
+        );
+
+        const exceedsWalletCap = maxExposureUsd ? projectedWalletUsd > maxExposureUsd : false;
+        const exceedsMarketCap = maxExposurePerMarketUsd ? projectedMarketUsd > maxExposurePerMarketUsd : false;
+
+        if (exceedsWalletCap || exceedsMarketCap) {
+          console.log(`\n⏭️  [CopyTrader] SKIPPING TRADE - Exposure limit reached`);
+          if (exceedsWalletCap) {
+            console.log(`   Wallet exposure cap: $${maxExposureUsd} (projected: $${projectedWalletUsd.toFixed(2)})`);
+          }
+          if (exceedsMarketCap) {
+            console.log(`   Market exposure cap: $${maxExposurePerMarketUsd} (projected: $${projectedMarketUsd.toFixed(2)})`);
+          }
+          console.log(`   Market: ${trade.marketId}`);
+          console.log(`   Outcome: ${trade.outcome}\n`);
+
+          await this.performanceTracker.recordTrade({
+            timestamp: new Date(),
+            walletAddress: trade.walletAddress,
+            marketId: trade.marketId,
+            outcome: trade.outcome,
+            amount: trade.amount,
+            price: trade.price,
+            success: false,
+            status: 'rejected',
+            executionTimeMs: Date.now() - executionStart,
+            error: `Exposure limit reached (wallet cap: ${maxExposureUsd || 'none'}, market cap: ${maxExposurePerMarketUsd || 'none'})`,
+            detectedTxHash: trade.transactionHash,
+            tokenId: trade.tokenId
+          });
+
+          if (walletSettings?.pauseOnExposureLimit) {
+            await Storage.toggleWalletActive(trade.walletAddress, false);
+            await this.reloadWallets();
+            console.log(`[CopyTrader] Wallet ${trade.walletAddress.substring(0, 8)}... disabled due to exposure cap.`);
+          }
+          return;
+        }
+      }
       
       // Convert detected trade to trade order
       const order: TradeOrder = {
@@ -524,29 +548,15 @@ export class CopyTrader {
 
       console.log(`\n🚀 [Execute] EXECUTING TRADE:`);
       console.log(`   Action: ${order.side}`);
-      console.log(`   Amount: $${configuredTradeSizeUsdc} USDC (${order.amount} shares)`);
+      console.log(`   Amount: $${finalTradeUsd.toFixed(2)} USDC (${order.amount} shares)`);
       console.log(`   Market: ${order.marketId}`);
       console.log(`   Outcome: ${order.outcome}`);
       console.log(`   Price: ${order.price}`);
       console.log(`   Time: ${new Date().toISOString()}`);
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-execute',message:'EXECUTING TRADE NOW',data:{side:order.side,amount:order.amount,price:order.price,marketId:order.marketId?.substring(0,30),tokenId:order.tokenId?.substring(0,30),outcome:order.outcome},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
-      
       // Execute the trade
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'About to execute trade',data:{marketId:order.marketId,price:order.price,amount:order.amount,side:order.side,tokenId:order.tokenId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
-      // #endregion
       const result: TradeResult = await this.executor.executeTrade(order);
       const executionTime = Date.now() - executionStart;
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Trade execution result',data:{success:result.success,error:result.error,orderId:result.orderId,executionTime},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
-      // #endregion
-
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Recording trade result',data:{success:result.success,orderId:result.orderId,txHash:result.transactionHash?.substring(0,20),error:result.error?.substring(0,100),marketId:order.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
       
       // Record metrics
       // NOTE: result.success is now only true if order was actually executed (not just placed)
@@ -568,10 +578,6 @@ export class CopyTrader {
         executedAmount: order.amount, // Store actual executed amount (configured trade size)
         executedPrice: order.price // Store price used
       });
-
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-result',message:'Trade execution result',data:{success:result.success,orderId:result.orderId,error:result.error,executionTimeMs:executionTime},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
       
       if (result.success) {
         console.log(`\n${'='.repeat(60)}`);
@@ -582,9 +588,14 @@ export class CopyTrader {
         console.log(`   Execution Time: ${executionTime}ms`);
         console.log(`   Market: ${order.marketId}`);
         console.log(`   Outcome: ${order.outcome}`);
-        console.log(`   Side: ${order.side} $${configuredTradeSizeUsdc} USDC (${order.amount} shares) @ ${order.price}`);
+        console.log(`   Side: ${order.side} $${finalTradeUsd.toFixed(2)} USDC (${order.amount} shares) @ ${order.price}`);
         console.log(`${'='.repeat(60)}\n`);
         this.executedTrades.add(trade.transactionHash);
+
+        const exposureDelta = trade.side === 'BUY' ? finalTradeUsd : -finalTradeUsd;
+        if (exposureDelta !== 0) {
+          await this.exposureTracker.applyExposureDelta(trade.walletAddress, trade.marketId, exposureDelta);
+        }
       } else {
         // Check if this is a "market closed" error (expected behavior, not a failure)
         const isMarketClosed = result.error?.includes('MARKET_CLOSED') || 
@@ -597,7 +608,7 @@ export class CopyTrader {
           console.log(`${'='.repeat(60)}`);
           console.log(`   Market: ${order.marketId}`);
           console.log(`   Outcome: ${order.outcome}`);
-          console.log(`   Side: ${order.side} $${configuredTradeSizeUsdc} USDC (${order.amount} shares) @ ${order.price}`);
+          console.log(`   Side: ${order.side} $${finalTradeUsd.toFixed(2)} USDC (${order.amount} shares) @ ${order.price}`);
           console.log(`   💡 The tracked wallet traded on a market that has since been resolved.`);
           console.log(`   💡 This is normal - markets close when events conclude.`);
           console.log(`${'='.repeat(60)}\n`);
@@ -608,7 +619,7 @@ export class CopyTrader {
           console.error(`${'='.repeat(60)}`);
           console.error(`   Error: ${result.error}`);
           console.error(`   Market: ${order.marketId}`);
-          console.error(`   Side: ${order.side} $${configuredTradeSizeUsdc} USDC (${order.amount} shares) @ ${order.price}`);
+          console.error(`   Side: ${order.side} $${finalTradeUsd.toFixed(2)} USDC (${order.amount} shares) @ ${order.price}`);
           console.error(`${'='.repeat(60)}\n`);
           await this.performanceTracker.logIssue(
             'error',
@@ -643,6 +654,49 @@ export class CopyTrader {
         { trade, error: error.stack }
       );
     }
+  }
+
+  private async getPortfolioUsdForWallet(walletAddress: string): Promise<{ totalUsd: number; positionsUsd: number; cashUsd: number; proxyWallet?: string }> {
+    try {
+      const { valueUsd: positionsUsd, proxyWallet } = await this.monitor.getApi().calculatePortfolioValue(walletAddress);
+      let cashUsd = 0;
+      try {
+        const balanceAddress = proxyWallet || walletAddress;
+        cashUsd = await this.balanceTracker.getBalance(balanceAddress);
+      } catch (error: any) {
+        console.warn(`[CopyTrader] Failed to fetch cash balance for ${walletAddress.substring(0, 8)}...:`, error.message);
+      }
+      return {
+        totalUsd: positionsUsd + cashUsd,
+        positionsUsd,
+        cashUsd,
+        proxyWallet
+      };
+    } catch (error: any) {
+      console.warn(`[CopyTrader] Failed to calculate portfolio value for ${walletAddress.substring(0, 8)}...:`, error.message);
+      return { totalUsd: 0, positionsUsd: 0, cashUsd: 0 };
+    }
+  }
+
+  private async getOurPortfolioUsd(): Promise<{ totalUsd: number; positionsUsd: number; cashUsd: number; proxyWallet?: string }> {
+    const walletAddress = this.getWalletAddress();
+    if (!walletAddress) {
+      return { totalUsd: 0, positionsUsd: 0, cashUsd: 0 };
+    }
+    const { valueUsd: positionsUsd, proxyWallet } = await this.monitor.getApi().calculatePortfolioValue(walletAddress);
+    let cashUsd = 0;
+    try {
+      const balanceAddress = proxyWallet || walletAddress;
+      cashUsd = await this.balanceTracker.getBalance(balanceAddress);
+    } catch (error: any) {
+      console.warn(`[CopyTrader] Failed to fetch our cash balance:`, error.message);
+    }
+    return {
+      totalUsd: positionsUsd + cashUsd,
+      positionsUsd,
+      cashUsd,
+      proxyWallet
+    };
   }
 
   /**

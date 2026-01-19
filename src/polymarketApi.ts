@@ -46,6 +46,8 @@ export class PolymarketApi {
   private gammaApiClient: AxiosInstance;
   private signer: ethers.Wallet | null = null;
   private authToken: string | null = null;
+  private portfolioCache = new Map<string, { value: number; proxyWallet?: string; timestamp: number }>();
+  private readonly PORTFOLIO_CACHE_TTL_MS = 5 * 60 * 1000;
 
   constructor() {
     // Configure with timeouts and retry logic
@@ -290,9 +292,6 @@ export class PolymarketApi {
   async getUserPositions(userAddress: string): Promise<any[]> {
     return this.retryRequest(async () => {
       try {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'polymarketApi.ts:getUserPositions',message:'API call start',data:{userAddress:userAddress.substring(0,8),apiUrl:this.dataApiClient.defaults.baseURL},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         // Polymarket Data API uses: GET /positions?user={proxyWalletAddress}
         // CRITICAL FIX: Whale wallets can have 200+ positions, default limit is 100
         // Must request more to see all positions and detect trades on any market
@@ -304,10 +303,6 @@ export class PolymarketApi {
         });
         
         const positions = response.data || [];
-        
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'polymarketApi.ts:getUserPositions',message:'API call success',data:{userAddress:userAddress.substring(0,8),positionCount:positions.length,firstPositionFields:positions[0]?Object.keys(positions[0]):[],firstPositionSample:positions[0]?JSON.stringify(positions[0]).substring(0,500):null},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         
         // DEBUG: Log first position structure on first successful fetch
         if (positions.length > 0) {
@@ -321,9 +316,6 @@ export class PolymarketApi {
         
         return positions;
       } catch (error: any) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'polymarketApi.ts:getUserPositions',message:'API call error',data:{userAddress:userAddress.substring(0,8),errorMsg:error.message,errorStatus:error.response?.status,errorData:error.response?.data?JSON.stringify(error.response.data).substring(0,500):null},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         if (error.response?.status === 404) {
           // User has no positions
           console.log(`[API] No positions found for ${userAddress.substring(0, 8)}... (404)`);
@@ -335,6 +327,42 @@ export class PolymarketApi {
         throw error;
       }
     }, `getUserPositions(${userAddress.substring(0, 8)}...)`);
+  }
+
+  /**
+   * Calculate total portfolio value (USDC) from positions.
+   * Returns both value and proxy wallet (if available).
+   */
+  async calculatePortfolioValue(userAddress: string): Promise<{ valueUsd: number; proxyWallet?: string }> {
+    const cacheKey = userAddress.toLowerCase();
+    const cached = this.portfolioCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < this.PORTFOLIO_CACHE_TTL_MS) {
+      return { valueUsd: cached.value, proxyWallet: cached.proxyWallet };
+    }
+
+    const positions = await this.getUserPositions(userAddress);
+    let totalValue = 0;
+    let proxyWallet: string | undefined = undefined;
+
+    if (positions.length > 0 && positions[0].proxyWallet) {
+      proxyWallet = positions[0].proxyWallet;
+    }
+
+    for (const position of positions) {
+      const size = parseFloat(position.size || '0');
+      const price = parseFloat(position.curPrice || position.avgPrice || '0');
+      if (!isNaN(size) && !isNaN(price)) {
+        totalValue += size * price;
+      }
+    }
+
+    this.portfolioCache.set(cacheKey, {
+      value: totalValue,
+      proxyWallet,
+      timestamp: Date.now()
+    });
+
+    return { valueUsd: totalValue, proxyWallet };
   }
 
   /**
@@ -379,21 +407,8 @@ export class PolymarketApi {
           console.log(`[API] ✓ Fetched ${trades.length} trade(s) for ${userAddress.substring(0, 8)}...`);
           const sampleTrade = trades[0];
           console.log(`[API] Trade fields available: ${Object.keys(sampleTrade).join(', ')}`);
-          // #region agent log
-          // CRITICAL: Log the MOST RECENT trade timestamp to see if API returns fresh data
-          // FIXED: Handle Unix seconds timestamps from Polymarket API
-          const mostRecentTradeTimeRaw = trades[0]?.timestamp;
-          const mostRecentTradeTimeMs = typeof mostRecentTradeTimeRaw === 'number' 
-            ? (mostRecentTradeTimeRaw < 1e12 ? mostRecentTradeTimeRaw * 1000 : mostRecentTradeTimeRaw)
-            : new Date(mostRecentTradeTimeRaw).getTime();
-          const mostRecentAgeSeconds = mostRecentTradeTimeRaw ? Math.round((Date.now() - mostRecentTradeTimeMs) / 1000) : -1;
-          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'polymarketApi.ts:getUserTrades',message:'TRADES FROM API - checking freshness',data:{userAddress:userAddress.substring(0,8),tradeCount:trades.length,mostRecentTradeTimestampRaw:mostRecentTradeTimeRaw,mostRecentTradeTimestampMs:mostRecentTradeTimeMs,mostRecentAgeSeconds:mostRecentAgeSeconds,nowIso:new Date().toISOString(),mostRecentTradeIso:mostRecentTradeTimeMs>0?new Date(mostRecentTradeTimeMs).toISOString():'none',first5Trades:trades.slice(0,5).map((t:any)=>{const ts=typeof t.timestamp==='number'?(t.timestamp<1e12?t.timestamp*1000:t.timestamp):new Date(t.timestamp).getTime();return{timestampRaw:t.timestamp,timestampMs:ts,ageSeconds:Math.round((Date.now()-ts)/1000),txHash:t.transactionHash||'none',side:t.side,size:t.size,price:t.price,conditionId:t.conditionId?.substring(0,15)||'none'};})},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
-          // #endregion
         } else {
           console.log(`[API] No trades found for ${userAddress.substring(0, 8)}...`);
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'polymarketApi.ts:getUserTrades',message:'NO TRADES found for wallet',data:{userAddress:userAddress.substring(0,8),tradeCount:0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-          // #endregion
         }
         
         return trades;

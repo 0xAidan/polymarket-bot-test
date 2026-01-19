@@ -8,6 +8,10 @@ export interface TrackedWallet {
   lastSeen?: Date;
   label?: string; // User-friendly label/name for the wallet
   autoBumpToMinimum?: boolean; // If true, auto-increase order size to meet market minimum (for high-value wallets)
+  sizingModeOverride?: 'fixed' | 'ratio_of_trade'; // Override global sizing mode for this wallet
+  maxExposureUsd?: number; // Max total USDC exposure for this wallet
+  maxExposurePerMarketUsd?: number; // Max USDC exposure per market for this wallet
+  pauseOnExposureLimit?: boolean; // If true, disable wallet when exposure cap hit
 }
 
 /**
