@@ -2,19 +2,15 @@
 
 /**
  * Simple setup script to configure your wallet
- * Just run: npm run setup
+ * Runs automatically when no .env file exists
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-import readline from 'readline';
+const fs = require('fs');
+const path = require('path');
+const readline = require('readline');
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const ENV_EXAMPLE_PATH = join(__dirname, 'ENV_EXAMPLE.txt');
-const ENV_PATH = join(__dirname, '.env');
+const ENV_EXAMPLE_PATH = path.join(__dirname, 'ENV_EXAMPLE.txt');
+const ENV_PATH = path.join(__dirname, '.env');
 
 // Create readline interface
 const rl = readline.createInterface({
@@ -29,23 +25,26 @@ function question(prompt) {
 }
 
 async function main() {
-  console.log('\n🚀 Polymarket Bot Setup\n');
-  console.log('This script will help you configure your wallet.\n');
+  console.log('═'.repeat(60));
+  console.log('   🚀 POLYMARKET COPYTRADE BOT - SETUP WIZARD');
+  console.log('═'.repeat(60));
+  console.log('\nI\'ll guide you through setting up your bot step by step.\n');
 
   // Check if .env already exists
-  if (existsSync(ENV_PATH)) {
+  if (fs.existsSync(ENV_PATH)) {
     const overwrite = await question('⚠️  .env file already exists. Overwrite? (yes/no): ');
     if (overwrite.toLowerCase() !== 'yes' && overwrite.toLowerCase() !== 'y') {
       console.log('\n✅ Setup cancelled. Your existing .env file is unchanged.\n');
       rl.close();
       return;
     }
+    console.log('');
   }
 
   // Read the example file
   let envContent;
   try {
-    envContent = readFileSync(ENV_EXAMPLE_PATH, 'utf-8');
+    envContent = fs.readFileSync(ENV_EXAMPLE_PATH, 'utf-8');
   } catch (error) {
     console.error('❌ Error: Could not read ENV_EXAMPLE.txt');
     console.error('Make sure you\'re running this from the project folder.\n');
@@ -53,12 +52,15 @@ async function main() {
     process.exit(1);
   }
 
-  // Get private key
-  console.log('\n📝 Enter your wallet private key:');
-  console.log('   (This is found in your crypto wallet settings)');
-  console.log('   (It should start with "0x" and be 66 characters long)\n');
+  // ========== STEP 1: Private Key ==========
+  console.log('─'.repeat(60));
+  console.log('STEP 1 of 4: Your Wallet Private Key');
+  console.log('─'.repeat(60));
+  console.log('\nThis is the private key from your crypto wallet.');
+  console.log('It should start with "0x" and be 66 characters long.');
+  console.log('\n⚠️  IMPORTANT: Never share this with anyone!\n');
   
-  const privateKey = await question('Private Key: ');
+  const privateKey = await question('Enter your private key: ');
   
   if (!privateKey || !privateKey.trim()) {
     console.log('\n❌ Error: Private key cannot be empty!\n');
@@ -68,7 +70,7 @@ async function main() {
 
   const trimmedKey = privateKey.trim();
   
-  // Basic validation
+  // Basic validation with option to continue
   if (!trimmedKey.startsWith('0x')) {
     console.log('\n⚠️  Warning: Private key should start with "0x"');
     const continueAnyway = await question('Continue anyway? (yes/no): ');
@@ -89,23 +91,41 @@ async function main() {
     }
   }
 
-  // Ask for Builder API credentials (required for trading)
-  console.log('\n🔐 Polymarket Builder API Credentials (REQUIRED for trading):');
-  console.log('   Get these from: https://polymarket.com/settings?tab=builder\n');
+  // ========== STEP 2: Builder API Key ==========
+  console.log('\n');
+  console.log('─'.repeat(60));
+  console.log('STEP 2 of 4: Polymarket Builder API Key');
+  console.log('─'.repeat(60));
+  console.log('\nGo to: https://polymarket.com/settings?tab=builder');
+  console.log('Click "Create API Key" and copy the API Key here.');
+  console.log('\n(This is REQUIRED for trading to work)\n');
   
-  const builderApiKey = await question('Builder API Key: ');
-  const builderSecret = await question('Builder API Secret: ');
-  const builderPassphrase = await question('Builder API Passphrase: ');
+  const builderApiKey = await question('Enter your Builder API Key: ');
+  
+  if (!builderApiKey || !builderApiKey.trim()) {
+    console.log('\n⚠️  Warning: Without Builder API credentials, trading will fail!');
+  }
 
-  // Ask for optional API key
-  console.log('\n🔑 Optional: Enter Polymarket API key (press Enter to skip):');
-  const apiKey = await question('API Key: ');
+  // ========== STEP 3: Builder Secret ==========
+  console.log('\n');
+  console.log('─'.repeat(60));
+  console.log('STEP 3 of 4: Polymarket Builder API Secret');
+  console.log('─'.repeat(60));
+  console.log('\nThis is shown once when you create the API key.');
+  console.log('If you didn\'t save it, you may need to create a new key.\n');
+  
+  const builderSecret = await question('Enter your Builder API Secret: ');
 
-  // Ask for optional RPC URL
-  console.log('\n🌐 Optional: Enter Polygon RPC URL (press Enter to use default):');
-  const rpcUrl = await question('RPC URL: ');
+  // ========== STEP 4: Builder Passphrase ==========
+  console.log('\n');
+  console.log('─'.repeat(60));
+  console.log('STEP 4 of 4: Polymarket Builder API Passphrase');
+  console.log('─'.repeat(60));
+  console.log('\nThis is the passphrase you created with your API key.\n');
+  
+  const builderPassphrase = await question('Enter your Builder API Passphrase: ');
 
-  // Replace placeholders
+  // Replace placeholders in env content
   envContent = envContent.replace('PRIVATE_KEY=your_private_key_here', `PRIVATE_KEY=${trimmedKey}`);
   
   if (builderApiKey && builderApiKey.trim()) {
@@ -119,21 +139,17 @@ async function main() {
   if (builderPassphrase && builderPassphrase.trim()) {
     envContent = envContent.replace('POLYMARKET_BUILDER_PASSPHRASE=your_builder_passphrase_here', `POLYMARKET_BUILDER_PASSPHRASE=${builderPassphrase.trim()}`);
   }
-  
-  if (apiKey && apiKey.trim()) {
-    envContent = envContent.replace('POLYMARKET_API_KEY=your_api_key_here_if_needed', `POLYMARKET_API_KEY=${apiKey.trim()}`);
-  }
-
-  if (rpcUrl && rpcUrl.trim()) {
-    envContent = envContent.replace('POLYGON_RPC_URL=https://polygon-rpc.com', `POLYGON_RPC_URL=${rpcUrl.trim()}`);
-  }
 
   // Write the .env file
   try {
-    writeFileSync(ENV_PATH, envContent, 'utf-8');
-    console.log('\n✅ Success! Your .env file has been created.');
-    console.log('   Wallet configured: ' + trimmedKey.substring(0, 10) + '...' + trimmedKey.substring(trimmedKey.length - 8));
-    console.log('\n🎉 Setup complete! You can now run: npm run dev\n');
+    fs.writeFileSync(ENV_PATH, envContent, 'utf-8');
+    console.log('\n');
+    console.log('═'.repeat(60));
+    console.log('   ✅ SETUP COMPLETE!');
+    console.log('═'.repeat(60));
+    console.log('\nYour .env file has been created.');
+    console.log('Wallet configured: ' + trimmedKey.substring(0, 10) + '...' + trimmedKey.substring(trimmedKey.length - 8));
+    console.log('');
   } catch (error) {
     console.error('\n❌ Error: Could not write .env file');
     console.error(error.message + '\n');
