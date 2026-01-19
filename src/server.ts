@@ -735,7 +735,47 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 
           <div class="section" style="margin-bottom: 24px;">
             <h2>⚙️ Copy Trade Configuration</h2>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; align-items: start;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; align-items: start;">
+              <div style="background: var(--bg); padding: 20px; border-radius: 12px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 14px;">
+                <div style="font-size: 14px; font-weight: 600; color: var(--text);">Sizing Mode</div>
+                <div style="display: grid; gap: 10px;">
+                  <label style="display: flex; align-items: center; gap: 8px;">
+                    <input type="radio" name="tradeSizingMode" value="fixed" id="sizingModeFixed" checked />
+                    <span style="font-size: 14px;">Uniform (fixed USDC per trade)</span>
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 8px;">
+                    <input type="radio" name="tradeSizingMode" value="ratio_of_trade" id="sizingModeRatio" />
+                    <span style="font-size: 14px;">Portfolio % (match tracked wallet’s % of its portfolio)</span>
+                  </label>
+                </div>
+                <div style="display: grid; gap: 10px;">
+                  <label style="font-size: 13px; color: var(--text-muted);">Max Exposure per Wallet (USDC, optional)</label>
+                  <input 
+                    type="number" 
+                    id="maxExposurePerWalletInput" 
+                    placeholder="Leave blank for no cap" 
+                    min="0"
+                    step="0.01"
+                    style="padding: 10px 14px; border: 2px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 14px;"
+                  />
+                  <label style="font-size: 13px; color: var(--text-muted);">Max Exposure per Market (USDC, optional)</label>
+                  <input 
+                    type="number" 
+                    id="maxExposurePerMarketInput" 
+                    placeholder="Leave blank for no cap" 
+                    min="0"
+                    step="0.01"
+                    style="padding: 10px 14px; border: 2px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 14px;"
+                  />
+                </div>
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                  <button onclick="saveTradeSizing()" class="btn-primary" style="padding: 10px 20px; white-space: nowrap;">Save Sizing & Caps</button>
+                  <div id="tradeSizingError" class="input-error">Invalid sizing config</div>
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
+                  Portfolio % uses: (tracked trade USD ÷ tracked portfolio USD) × your portfolio USD. Fixed remains unchanged.
+                </div>
+              </div>
               <div style="background: var(--bg); padding: 20px; border-radius: 12px; border: 1px solid var(--border);">
                 <div style="font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 12px;">Trade Size (USDC)</div>
                 <div style="display: flex; gap: 8px; align-items: center;">
@@ -749,13 +789,17 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                 </div>
                 <div id="tradeSizeError" class="input-error">Invalid trade size</div>
                 <div style="font-size: 12px; color: var(--text-muted); margin-top: 8px; line-height: 1.5;">
-                  Fixed USD value used for all copy trades. The bot will calculate the number of shares based on the detected trade price (USD ÷ price = shares).
+                  Fixed USD value used for all copy trades (only when sizing mode is uniform). Shares = USD ÷ price.
                 </div>
               </div>
               <div style="background: rgba(99, 102, 241, 0.1); padding: 20px; border-radius: 12px; border: 1px solid rgba(99, 102, 241, 0.3);">
                 <div style="font-size: 14px; font-weight: 600; color: var(--primary); margin-bottom: 8px;">💡 How it works</div>
                 <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">
-                  The bot copies trade direction (BUY/SELL) and outcome (YES/NO) from tracked wallets, but uses your configured trade size instead of their exact amount.
+                  <ul style="padding-left: 18px; margin: 0; display: grid; gap: 8px; list-style: disc;">
+                    <li>Uniform: always uses the fixed USDC amount above.</li>
+                    <li>Portfolio %: uses the tracked wallet’s trade % of its portfolio and applies that % to yours.</li>
+                    <li>Caps: optional per-wallet and per-market USDC limits; trades beyond caps are skipped.</li>
+                  </ul>
                 </div>
               </div>
             </div>
@@ -1973,6 +2017,100 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             }
           }
 
+          // Load trade sizing mode and exposure caps
+          async function loadTradeSizing() {
+            try {
+              const res = await fetch('/api/config/trade-sizing');
+              const data = await res.json();
+              if (data.success) {
+                const mode = data.tradeSizingMode === 'ratio_of_trade' ? 'ratio_of_trade' : 'fixed';
+                const modeFixed = document.getElementById('sizingModeFixed');
+                const modeRatio = document.getElementById('sizingModeRatio');
+                if (modeFixed && modeRatio) {
+                  modeFixed.checked = mode === 'fixed';
+                  modeRatio.checked = mode === 'ratio_of_trade';
+                }
+                const maxWallet = document.getElementById('maxExposurePerWalletInput');
+                const maxMarket = document.getElementById('maxExposurePerMarketInput');
+                if (maxWallet) maxWallet.value = data.maxExposurePerWalletUsd ?? '';
+                if (maxMarket) maxMarket.value = data.maxExposurePerMarketUsd ?? '';
+              }
+            } catch (error) {
+              console.error('Failed to load trade sizing config:', error);
+            }
+          }
+
+          // Save trade sizing mode and exposure caps
+          async function saveTradeSizing() {
+            const modeFixed = document.getElementById('sizingModeFixed');
+            const modeRatio = document.getElementById('sizingModeRatio');
+            const maxWallet = document.getElementById('maxExposurePerWalletInput');
+            const maxMarket = document.getElementById('maxExposurePerMarketInput');
+            const errorDiv = document.getElementById('tradeSizingError');
+
+            const tradeSizingMode = modeRatio && modeRatio.checked ? 'ratio_of_trade' : 'fixed';
+
+            const parseCap = (el) => {
+              if (!el) return null;
+              const raw = el.value.trim();
+              if (raw === '') return null;
+              const num = parseFloat(raw);
+              if (isNaN(num) || num <= 0) return 'invalid';
+              return num;
+            };
+
+            [maxWallet, maxMarket].forEach(el => el && el.classList.remove('error'));
+            errorDiv.classList.remove('show');
+            errorDiv.textContent = '';
+            errorDiv.style.color = '';
+
+            const walletCap = parseCap(maxWallet);
+            const marketCap = parseCap(maxMarket);
+
+            if (walletCap === 'invalid') {
+              maxWallet.classList.add('error');
+              errorDiv.textContent = 'Max exposure per wallet must be a positive number or blank';
+              errorDiv.classList.add('show');
+              return;
+            }
+            if (marketCap === 'invalid') {
+              maxMarket.classList.add('error');
+              errorDiv.textContent = 'Max exposure per market must be a positive number or blank';
+              errorDiv.classList.add('show');
+              return;
+            }
+
+            try {
+              const res = await fetch('/api/config/trade-sizing', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  tradeSizingMode,
+                  maxExposurePerWalletUsd: walletCap === null ? null : walletCap,
+                  maxExposurePerMarketUsd: marketCap === null ? null : marketCap
+                })
+              });
+              const data = await res.json();
+              if (data.success) {
+                errorDiv.textContent = '✓ Sizing settings saved!';
+                errorDiv.style.color = 'var(--success)';
+                errorDiv.classList.add('show');
+                setTimeout(() => {
+                  errorDiv.classList.remove('show');
+                  errorDiv.style.color = '';
+                  errorDiv.textContent = '';
+                }, 2000);
+              } else {
+                errorDiv.textContent = data.error || 'Failed to save sizing settings';
+                errorDiv.classList.add('show');
+              }
+            } catch (error) {
+              errorDiv.textContent = 'Failed to save sizing settings';
+              errorDiv.classList.add('show');
+              console.error('Failed to save trade sizing config:', error);
+            }
+          }
+
           // Save trade size configuration
           async function saveTradeSize() {
             const input = document.getElementById('tradeSizeInput');
@@ -2251,6 +2389,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
               loadTrades().catch(e => console.error('loadTrades error:', e)),
               loadIssues().catch(e => console.error('loadIssues error:', e)),
               loadTradeSize().catch(e => console.error('loadTradeSize error:', e)),
+              loadTradeSizing().catch(e => console.error('loadTradeSizing error:', e)),
               loadMonitoringInterval().catch(e => console.error('loadMonitoringInterval error:', e)),
               loadFailedTradesDiagnostics().catch(e => console.error('loadFailedTradesDiagnostics error:', e))
             ]);
@@ -2290,6 +2429,24 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                 }
               });
             }
+
+            // Trade sizing Enter handling on caps
+            const maxExposurePerWalletInput = document.getElementById('maxExposurePerWalletInput');
+            if (maxExposurePerWalletInput) {
+              maxExposurePerWalletInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') saveTradeSizing();
+              });
+            }
+            const maxExposurePerMarketInput = document.getElementById('maxExposurePerMarketInput');
+            if (maxExposurePerMarketInput) {
+              maxExposurePerMarketInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') saveTradeSizing();
+              });
+            }
+            const sizingModeFixed = document.getElementById('sizingModeFixed');
+            const sizingModeRatio = document.getElementById('sizingModeRatio');
+            if (sizingModeFixed) sizingModeFixed.addEventListener('change', saveTradeSizing);
+            if (sizingModeRatio) sizingModeRatio.addEventListener('change', saveTradeSizing);
 
             // Initial load
             refreshAll();
