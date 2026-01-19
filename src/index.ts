@@ -10,6 +10,9 @@ import readline from 'readline';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// Get project root - works whether running from src/ or dist/
+const PROJECT_ROOT = process.cwd();
+
 /**
  * Interactive setup - asks for configuration one step at a time
  */
@@ -134,9 +137,10 @@ MONITORING_INTERVAL_MS=5000
 DATA_DIR=./data
 `;
 
-    // Write to .env file in project root (one level up from src)
-    const projectRoot = join(__dirname, '..');
-    const envPath = join(projectRoot, '.env');
+    // Write to .env file in project root
+    const envPath = join(PROJECT_ROOT, '.env');
+    
+    console.log(`\n[DEBUG] Writing .env to: ${envPath}`);
     
     writeFileSync(envPath, envContent, 'utf-8');
     
@@ -160,27 +164,30 @@ DATA_DIR=./data
  * Check if configuration exists and is valid
  */
 function isConfigured(): boolean {
-  const projectRoot = join(__dirname, '..');
-  const envPath = join(projectRoot, '.env');
+  const envPath = join(PROJECT_ROOT, '.env');
+  
+  console.log(`[DEBUG] Checking for .env at: ${envPath}`);
   
   // Check if .env file exists
   if (!existsSync(envPath)) {
+    console.log(`[DEBUG] .env file does not exist`);
     return false;
   }
   
   // Check if PRIVATE_KEY is set (not just placeholder)
   try {
     const envContent = readFileSync(envPath, 'utf-8');
-    if (envContent.includes('PRIVATE_KEY=your_private_key_here') || 
-        !envContent.includes('PRIVATE_KEY=0x')) {
-      // Has placeholder or missing proper key
-      return false;
-    }
-  } catch {
+    // Just check that PRIVATE_KEY has some value (not empty or placeholder)
+    const hasPrivateKey = envContent.includes('PRIVATE_KEY=') && 
+                          !envContent.includes('PRIVATE_KEY=your_private_key_here') &&
+                          !envContent.includes('PRIVATE_KEY=\n') &&
+                          !envContent.includes('PRIVATE_KEY=$');
+    console.log(`[DEBUG] .env exists, hasPrivateKey: ${hasPrivateKey}`);
+    return hasPrivateKey;
+  } catch (err) {
+    console.log(`[DEBUG] Error reading .env: ${err}`);
     return false;
   }
-  
-  return true;
 }
 
 /**
@@ -188,8 +195,7 @@ function isConfigured(): boolean {
  */
 function reloadConfig(): void {
   // Re-read .env file
-  const projectRoot = join(__dirname, '..');
-  const envPath = join(projectRoot, '.env');
+  const envPath = join(PROJECT_ROOT, '.env');
   
   if (existsSync(envPath)) {
     const envContent = readFileSync(envPath, 'utf-8');
