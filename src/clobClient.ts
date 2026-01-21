@@ -58,7 +58,9 @@ export class PolymarketClobClient {
       console.log(`[DEBUG] Wallet address (EOA): ${this.signer.address}`);
       console.log(`[DEBUG] About to call createOrDeriveApiKey...`);
 
-      // Create temporary client to derive User API credentials
+      // STEP 1: Create temporary client with ONLY the signer to derive API credentials
+      // Per Polymarket docs: https://docs.polymarket.com/developers/CLOB/authentication
+      // L1 auth (createOrDeriveApiKey) only needs the signer, NOT signatureType/funder
       const tempClient = new ClobClient(HOST, CHAIN_ID, this.signer);
       let apiCreds;
       try {
@@ -91,17 +93,24 @@ export class PolymarketClobClient {
       
       console.log(`✓ API credentials validated successfully`);
 
-      // Determine signature type (0 = EOA, 1 = Magic Link proxy, 2 = Gnosis Safe)
-      // NOTE: If your Polymarket account was created via email/Magic Link, use 1
-      // If you connected via MetaMask/WalletConnect directly, use 0
-      // Check your account setup at https://polymarket.com/settings
+      // STEP 2: Now read signature type and funder address for the full client
+      // Per Polymarket docs: https://docs.polymarket.com/developers/CLOB/authentication
+      // 
+      // Signature Types:
+      //   0 = EOA: Pure externally-owned account, signer IS the funder (no proxy)
+      //   1 = POLY_PROXY: Magic Link / email signup (Polymarket created internal key)
+      //   2 = POLY_GNOSIS_SAFE: Browser wallet (MetaMask/Rabby) connected with proxy wallet
+      //
+      // If you connected MetaMask and Polymarket shows a different "Proxy Wallet" address,
+      // you need signatureType=2 and funderAddress=your proxy wallet address
       const signatureType = parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '0', 10);
       
-      // Funder address - for EOA (type 0), this is the wallet address
-      // For proxy wallet (type 1), this should be the proxy wallet address
+      // Funder address - the wallet that holds the funds
+      // For EOA (type 0): same as signer address
+      // For proxy (type 1 or 2): the proxy wallet address shown in Polymarket settings
       const funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS || this.signer.address;
       
-      console.log(`[DEBUG] Signature Type: ${signatureType} (0=EOA, 1=MagicLink/Proxy, 2=GnosisSafe)`);
+      console.log(`[DEBUG] Signature Type: ${signatureType} (0=EOA, 1=MagicLink, 2=BrowserWallet+Proxy)`);
       console.log(`[DEBUG] Funder Address: ${funderAddress}`);
       console.log(`[DEBUG] Signer Address: ${this.signer.address}`);
 

@@ -1,0 +1,70 @@
+# Polymarket CLOB Authentication - CRITICAL PROJECT KNOWLEDGE
+
+## The Problem We Solved
+When trade execution fails with "invalid signature" or "not enough balance" errors, it's almost always a **signature type configuration issue**.
+
+## User's Wallet Setup
+- **EOA (MetaMask/Rabby)**: `0x2D43e332aF357CAb0fa1b2692E1e0Fdb0B733010`
+- **Proxy Wallet (on Polymarket)**: `0xD56276b120ad094ba9F429386427F2492233B6d1`
+- **Funds are in the PROXY wallet**, not the EOA
+
+## The Correct Configuration
+
+### Signature Types (from Polymarket docs)
+| Type | Name | When to Use |
+|------|------|-------------|
+| 0 | EOA | Pure EOA with NO proxy wallet (rare) |
+| 1 | POLY_PROXY | Magic Link / Email signup (internal key) |
+| **2** | POLY_GNOSIS_SAFE | **Browser wallet (MetaMask/Rabby) WITH a proxy wallet** |
+
+### For This Project
+Since the user connected with MetaMask and Polymarket created a proxy wallet, we need:
+
+```env
+POLYMARKET_SIGNATURE_TYPE=2
+POLYMARKET_FUNDER_ADDRESS=0xD56276b120ad094ba9F429386427F2492233B6d1
+```
+
+## Code Implementation (clobClient.ts)
+
+Per [Polymarket CLOB docs](https://docs.polymarket.com/developers/CLOB/authentication):
+
+1. **Derive API credentials with ONLY the signer** (no signatureType/funder):
+```typescript
+const tempClient = new ClobClient(HOST, CHAIN_ID, this.signer);
+const apiCreds = await tempClient.createOrDeriveApiKey();
+```
+
+2. **Create full client WITH signatureType and funder**:
+```typescript
+this.client = new ClobClient(
+  HOST,
+  CHAIN_ID,
+  this.signer,
+  apiCreds,
+  signatureType,  // 2 for browser wallet + proxy
+  funderAddress,  // proxy wallet address
+  undefined,
+  false,
+  builderConfig
+);
+```
+
+## Common Errors and What They Mean
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| "invalid signature" | Wrong signatureType for wallet setup | Use type 2 for MetaMask+proxy |
+| "not enough balance" | Looking at wrong wallet (EOA vs proxy) | Set POLYMARKET_FUNDER_ADDRESS to proxy |
+
+## How to Determine Correct Settings
+
+1. Go to polymarket.com/settings
+2. Look for "Proxy Wallet" address
+3. If proxy address ≠ MetaMask address → **Use type 2 + set funder to proxy**
+4. If signed up via email → Use type 1
+5. If no proxy exists (rare) → Use type 0
+
+## Reference
+- Polymarket CLOB Auth Docs: https://docs.polymarket.com/developers/CLOB/authentication
+- Polymarket CLOB Client Methods: https://docs.polymarket.com/developers/CLOB/clients/methods-l2

@@ -30,12 +30,18 @@ POLYGON_RPC_URL=https://polygon-rpc.com
 # ============================================================
 # Signature Type - IMPORTANT! Must match how you created your Polymarket account
 # ============================================================
-# 0 = EOA wallet (you connected MetaMask/WalletConnect directly to Polymarket)
-# 1 = Proxy wallet (you signed up via email/Magic Link, or Polymarket created a proxy for you)
-# 2 = Gnosis Safe (you're using a multi-sig wallet)
+# 0 = EOA wallet (pure EOA, no proxy wallet - rare, only if you NEVER see a proxy address)
+# 1 = Magic Link / Email signup (you signed up via email, Polymarket created internal key)
+# 2 = Browser Wallet + Proxy (you connected MetaMask/Rabby AND Polymarket shows a "Proxy Wallet")
 #
-# If you're getting 403 errors, try changing this value!
-# Most users who signed up via email should use 1
+# HOW TO KNOW WHICH TO USE:
+# 1. Go to polymarket.com/settings
+# 2. Look for "Proxy Wallet" address
+# 3. If you see a proxy address different from your MetaMask → Use type 2
+# 4. If you signed up via email/Magic Link → Use type 1
+# 5. If no proxy wallet exists (rare) → Use type 0
+#
+# If you're getting "invalid signature" errors, you likely have the wrong type!
 POLYMARKET_SIGNATURE_TYPE=0
 
 # Funder Address - Usually leave blank (defaults to your wallet address)
