@@ -301,8 +301,20 @@ export class WalletMonitor {
             const absDiff = Math.abs(sizeDiff);
             const percentChange = previousSize > 0 ? Math.abs(sizeDiff) / previousSize : 0;
             
+            // CRITICAL FIX: Only detect BUYs from position monitoring
+            // SELL detection from position changes is unreliable because:
+            // 1. API data can be inconsistent/cached between polls
+            // 2. Position sizes can fluctuate due to rounding
+            // 3. No way to distinguish real SELLs from API noise
+            // SELLs should only be copied when explicitly detected in trade history API
+            if (sizeDiff <= 0) {
+              // Position decreased or unchanged - skip, don't false-detect as SELL
+              // SELLs will be properly detected from trade history API instead
+              continue;
+            }
+            
             if (absDiff > 0.01 || percentChange > 0.01) {
-              const side: 'BUY' | 'SELL' = sizeDiff > 0 ? 'BUY' : 'SELL';
+              const side: 'BUY' | 'SELL' = 'BUY'; // Only BUYs from position monitoring
               // #region agent log
               fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'walletMonitor.ts:checkWalletsForTrades',message:'Position change detected',data:{walletAddress:eoaAddress.substring(0,8),tokenId:tokenId.substring(0,20),side,absDiff,percentChange,currentSize,previousSize},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
               // #endregion
@@ -346,36 +358,17 @@ export class WalletMonitor {
           }
         }
         
-        // Also check for positions that were closed (existed before but not now)
-        for (const [tokenId, previousPos] of previousPositions.entries()) {
-          if (!currentPositionMap.has(tokenId)) {
-            // Position was closed - this indicates a SELL
-            // FIXED: Use 'size' field from Polymarket API
-            const previousSize = parseFloat(previousPos.size || '0');
-            if (previousSize > 0.01) {
-              console.log(`[Monitor] 🔴 Position closed for ${eoaAddress.substring(0, 8)}...: ${previousSize} tokens of ${tokenId.substring(0, 20)}...`);
-              // Create a synthetic position with zero size to represent the close
-              const closedPosition = { ...previousPos, size: 0 };
-              const trade = await this.parsePositionToTrade(eoaAddress, closedPosition, tokenId, 'SELL', previousPos);
-              if (trade) {
-                console.log(`\n🔔 [Monitor] TRADE DETECTED: Position closed`);
-                console.log(`   Side: ${trade.side}`);
-                console.log(`   Amount: ${trade.amount} shares`);
-                console.log(`   Price: ${trade.price}`);
-                console.log(`   Market: ${trade.marketId}`);
-                console.log(`   Outcome: ${trade.outcome}`);
-                console.log(`[Monitor] 📤 Calling onTradeDetected callback...`);
-                try {
-                  await onTradeDetected(trade);
-                  console.log(`[Monitor] ✅ Callback completed successfully`);
-                } catch (callbackError: any) {
-                  console.error(`[Monitor] ❌ Callback failed:`, callbackError.message);
-                  console.error(`[Monitor]    Stack:`, callbackError.stack);
-                }
-              }
-            }
-          }
-        }
+        // NOTE: Position closed detection is DISABLED
+        // Previously, we detected when a position disappeared from the API as a SELL.
+        // This was unreliable because:
+        // 1. API responses can be incomplete/cached
+        // 2. Positions might temporarily not appear due to API lag
+        // 3. This caused false SELL detections and unintended liquidations
+        // 
+        // SELLs are now ONLY detected from the trade history API (below), which has
+        // explicit and authoritative side information.
+        //
+        // If you need to copy SELLs, they will be detected from trade history.
 
         // Also check for recent trades directly from trade history
         // This helps catch trades that might have been missed by position monitoring
