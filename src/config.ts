@@ -49,11 +49,9 @@ export const config = {
   validate(): void {
     if (!this.privateKey) {
       console.error('\n❌ ERROR: Wallet not configured!\n');
-      console.error('📝 To set up your wallet, run:');
-      console.error('   npm run setup\n');
-      console.error('Or create a .env file with your PRIVATE_KEY.');
-      console.error('See README.md for instructions.\n');
-      throw new Error('PRIVATE_KEY is required. Run "npm run setup" to configure.');
+      console.error('Your private key is missing or invalid.');
+      console.error('Please restart the bot to run the setup wizard again.\n');
+      throw new Error('PRIVATE_KEY is required. Restart the bot to configure.');
     }
     
     // Builder API credentials are REQUIRED for trading from cloud servers
