@@ -2009,7 +2009,8 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
               const data = await res.json();
               if (data.success) {
                 const input = document.getElementById('tradeSizeInput');
-                if (input) {
+                // Only update if user is NOT currently editing this field
+                if (input && document.activeElement !== input) {
                   input.value = data.tradeSize || '10';
                 }
               }
@@ -2088,7 +2089,10 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                 const statusEl = document.getElementById('thresholdStatus');
                 
                 if (checkbox) checkbox.checked = data.enabled;
-                if (input) input.value = data.percent || 10;
+                // Only update if user is NOT currently editing this field
+                if (input && document.activeElement !== input) {
+                  input.value = data.percent || 10;
+                }
                 
                 // Update status display
                 if (statusEl) {
@@ -2212,7 +2216,8 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
               const data = await res.json();
               if (data.success) {
                 const input = document.getElementById('monitoringIntervalInput');
-                if (input) {
+                // Only update if user is NOT currently editing this field
+                if (input && document.activeElement !== input) {
                   input.value = data.intervalSeconds || '5';
                 }
               }
