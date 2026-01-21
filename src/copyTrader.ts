@@ -206,11 +206,15 @@ export class CopyTrader {
     // CRITICAL FIX: Use a COMPOUND KEY for deduplication
     // Problem: Position monitoring generates synthetic hashes (pos-...) while trade history has real hashes
     // This caused the SAME underlying trade to be detected twice and executed twice
-    // Solution: Create a compound key based on market + outcome + price + rough timestamp
+    // Solution: Create a compound key based on market + outcome + side + rough timestamp
     // This catches duplicates even when transaction hashes differ
+    // 
+    // NOTE: Using 1-hour time windows to prevent re-detection of the same trade
+    // when the trade appears in multiple polling cycles from the trade history API.
+    // The primary deduplication is by transaction hash - this is a backup.
     const tradeTimestamp = trade.timestamp instanceof Date ? trade.timestamp.getTime() : Date.now();
-    // Round timestamp to 5-minute windows to catch trades detected slightly apart
-    const timeWindow = Math.floor(tradeTimestamp / (5 * 60 * 1000));
+    // Round timestamp to 1-hour windows (was 5-minute, but that caused issues when window rolled over)
+    const timeWindow = Math.floor(tradeTimestamp / (60 * 60 * 1000));
     const compoundKey = `${trade.walletAddress.toLowerCase()}-${trade.marketId}-${trade.outcome}-${trade.side}-${timeWindow}`;
     
     // Also track by transaction hash for exact duplicates
