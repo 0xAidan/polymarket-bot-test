@@ -217,4 +217,26 @@ export class Storage {
     config.monitoringIntervalMs = intervalMs;
     await this.saveConfig(config);
   }
+
+  /**
+   * Get position threshold configuration
+   * Used to filter out small "noise" trades from tracked wallets
+   */
+  static async getPositionThreshold(): Promise<{ enabled: boolean; percent: number }> {
+    const config = await this.loadConfig();
+    return {
+      enabled: config.positionThresholdEnabled || false,
+      percent: config.positionThresholdPercent || 10 // Default 10%
+    };
+  }
+
+  /**
+   * Set position threshold configuration
+   */
+  static async setPositionThreshold(enabled: boolean, percent: number): Promise<void> {
+    const config = await this.loadConfig();
+    config.positionThresholdEnabled = enabled;
+    config.positionThresholdPercent = percent;
+    await this.saveConfig(config);
+  }
 }

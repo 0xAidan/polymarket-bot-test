@@ -622,6 +622,52 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
+  // Get position threshold configuration
+  router.get('/config/position-threshold', async (req: Request, res: Response) => {
+    try {
+      const threshold = await Storage.getPositionThreshold();
+      res.json({ success: true, ...threshold });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Set position threshold configuration
+  router.post('/config/position-threshold', async (req: Request, res: Response) => {
+    try {
+      const { enabled, percent } = req.body;
+      
+      // Validate enabled is boolean
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'enabled must be a boolean' 
+        });
+      }
+
+      // Validate percent is a number between 0.1 and 100
+      const percentNum = parseFloat(percent);
+      if (isNaN(percentNum) || percentNum < 0.1 || percentNum > 100) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'percent must be a number between 0.1 and 100' 
+        });
+      }
+
+      await Storage.setPositionThreshold(enabled, percentNum);
+      res.json({ 
+        success: true, 
+        message: enabled 
+          ? `Position threshold enabled at ${percentNum}%` 
+          : 'Position threshold disabled',
+        enabled,
+        percent: percentNum
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   // Get monitoring interval configuration
   router.get('/config/monitoring-interval', async (req: Request, res: Response) => {
     try {
