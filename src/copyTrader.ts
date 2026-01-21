@@ -357,6 +357,65 @@ export class CopyTrader {
     fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation passed',data:{marketId:trade.marketId,price:trade.price,side:trade.side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
     // #endregion
 
+    // ============================================================
+    // POSITION THRESHOLD FILTER
+    // ============================================================
+    // Only copy trades that are above a % threshold of the tracked wallet's USDC balance
+    // This filters out small "noise" trades like arbitrage or test trades
+    try {
+      const thresholdConfig = await Storage.getPositionThreshold();
+      if (thresholdConfig.enabled) {
+        // Get tracked wallet's USDC balance
+        let walletBalance = 0;
+        try {
+          walletBalance = await this.balanceTracker.getBalance(trade.walletAddress);
+        } catch (balanceError: any) {
+          console.warn(`[CopyTrader] Could not fetch wallet balance for threshold check: ${balanceError.message}`);
+          console.warn(`[CopyTrader] Proceeding with trade (threshold check skipped)`);
+          // Continue with trade - don't block if balance fetch fails
+        }
+        
+        if (walletBalance > 0) {
+          // Calculate trade value in USD (amount * price)
+          const tradeValueUsd = amountNum * priceNum;
+          
+          // Calculate percentage of wallet balance
+          const tradePercent = (tradeValueUsd / walletBalance) * 100;
+          
+          if (tradePercent < thresholdConfig.percent) {
+            console.log(`\n⏭️  [CopyTrader] FILTERED - Trade below position threshold`);
+            console.log(`   Trade value: $${tradeValueUsd.toFixed(2)} (${tradePercent.toFixed(2)}% of wallet)`);
+            console.log(`   Wallet USDC balance: $${walletBalance.toFixed(2)}`);
+            console.log(`   Threshold: ${thresholdConfig.percent}%`);
+            console.log(`   💡 This trade is likely noise/arbitrage. Skipping.\n`);
+            
+            // Record the filtered trade so it appears in the trade history
+            await this.performanceTracker.recordTrade({
+              timestamp: new Date(),
+              walletAddress: trade.walletAddress,
+              marketId: trade.marketId,
+              outcome: trade.outcome,
+              amount: trade.amount,
+              price: trade.price,
+              success: false,
+              status: 'rejected',
+              executionTimeMs: 0,
+              error: `Filtered: Trade is ${tradePercent.toFixed(2)}% of wallet ($${tradeValueUsd.toFixed(2)}/$${walletBalance.toFixed(2)}), below ${thresholdConfig.percent}% threshold`,
+              detectedTxHash: trade.transactionHash,
+              tokenId: trade.tokenId
+            });
+            
+            return; // Skip this trade
+          } else {
+            console.log(`[CopyTrader] ✓ Trade passes threshold: $${tradeValueUsd.toFixed(2)} (${tradePercent.toFixed(2)}%) >= ${thresholdConfig.percent}%`);
+          }
+        }
+      }
+    } catch (thresholdError: any) {
+      // Don't block trade if threshold check fails
+      console.warn(`[CopyTrader] Threshold check error (proceeding with trade): ${thresholdError.message}`);
+    }
+
     const executionStart = Date.now();
 
     try {

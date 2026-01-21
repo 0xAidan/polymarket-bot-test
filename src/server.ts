@@ -759,6 +759,51 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                 </div>
               </div>
             </div>
+            
+            <!-- Position Threshold Filter Section -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; align-items: start; margin-top: 20px;">
+              <div style="background: var(--bg); padding: 20px; border-radius: 12px; border: 1px solid var(--border);">
+                <div style="font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 12px;">Position Threshold Filter</div>
+                
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
+                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input 
+                      type="checkbox" 
+                      id="thresholdEnabled" 
+                      onchange="toggleThreshold()"
+                      style="width: 18px; height: 18px; cursor: pointer;"
+                    />
+                    <span style="font-size: 14px; color: var(--text);">Enable threshold filter</span>
+                  </label>
+                </div>
+                
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <span style="font-size: 13px; color: var(--text-muted);">Min position size:</span>
+                  <input 
+                    type="number" 
+                    id="thresholdPercent" 
+                    placeholder="10" 
+                    min="0.1"
+                    max="100"
+                    step="0.1"
+                    style="width: 80px; padding: 8px 12px; border: 2px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 14px;"
+                  />
+                  <span style="font-size: 13px; color: var(--text-muted);">%</span>
+                  <button onclick="saveThreshold()" class="btn-primary" style="padding: 8px 16px; white-space: nowrap;">Save</button>
+                </div>
+                <div id="thresholdError" class="input-error">Invalid threshold</div>
+                <div id="thresholdStatus" style="font-size: 12px; margin-top: 12px; padding: 8px 12px; border-radius: 6px; background: var(--surface);"></div>
+              </div>
+              
+              <div style="background: rgba(34, 197, 94, 0.1); padding: 20px; border-radius: 12px; border: 1px solid rgba(34, 197, 94, 0.3);">
+                <div style="font-size: 14px; font-weight: 600; color: #22c55e; margin-bottom: 8px;">🎯 Noise Filter</div>
+                <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">
+                  Only copy trades where the position is at least X% of the tracked wallet's USDC balance.
+                  <br><br>
+                  <strong>Example:</strong> If threshold is 10% and wallet has $1M USDC, only trades ≥ $100K will be copied. Smaller trades (likely arbitrage/noise) are skipped.
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="section" style="margin-bottom: 24px;">
@@ -2032,6 +2077,134 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             }
           }
 
+          // Load position threshold configuration
+          async function loadPositionThreshold() {
+            try {
+              const res = await fetch('/api/config/position-threshold');
+              const data = await res.json();
+              if (data.success) {
+                const checkbox = document.getElementById('thresholdEnabled');
+                const input = document.getElementById('thresholdPercent');
+                const statusEl = document.getElementById('thresholdStatus');
+                
+                if (checkbox) checkbox.checked = data.enabled;
+                if (input) input.value = data.percent || 10;
+                
+                // Update status display
+                if (statusEl) {
+                  if (data.enabled) {
+                    statusEl.innerHTML = '<span style="color: var(--success);">✓ Enabled</span> - Filtering trades below ' + data.percent + '% of wallet balance';
+                  } else {
+                    statusEl.innerHTML = '<span style="color: var(--text-muted);">○ Disabled</span> - All trades will be copied';
+                  }
+                }
+              }
+            } catch (error) {
+              console.error('Failed to load position threshold:', error);
+            }
+          }
+
+          // Toggle position threshold enabled/disabled
+          async function toggleThreshold() {
+            const checkbox = document.getElementById('thresholdEnabled');
+            const input = document.getElementById('thresholdPercent');
+            const errorDiv = document.getElementById('thresholdError');
+            const statusEl = document.getElementById('thresholdStatus');
+            
+            const enabled = checkbox.checked;
+            const percent = parseFloat(input.value) || 10;
+            
+            try {
+              const res = await fetch('/api/config/position-threshold', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled, percent })
+              });
+              
+              const data = await res.json();
+              if (data.success) {
+                // Update status display
+                if (statusEl) {
+                  if (enabled) {
+                    statusEl.innerHTML = '<span style="color: var(--success);">✓ Enabled</span> - Filtering trades below ' + percent + '% of wallet balance';
+                  } else {
+                    statusEl.innerHTML = '<span style="color: var(--text-muted);">○ Disabled</span> - All trades will be copied';
+                  }
+                }
+              } else {
+                // Revert checkbox on error
+                checkbox.checked = !enabled;
+                errorDiv.textContent = data.error || 'Failed to toggle threshold';
+                errorDiv.classList.add('show');
+                setTimeout(() => errorDiv.classList.remove('show'), 3000);
+              }
+            } catch (error) {
+              checkbox.checked = !enabled;
+              console.error('Failed to toggle threshold:', error);
+            }
+          }
+
+          // Save position threshold percentage
+          async function saveThreshold() {
+            const checkbox = document.getElementById('thresholdEnabled');
+            const input = document.getElementById('thresholdPercent');
+            const errorDiv = document.getElementById('thresholdError');
+            const statusEl = document.getElementById('thresholdStatus');
+            
+            const enabled = checkbox.checked;
+            const percentStr = input.value.trim();
+            
+            // Clear previous errors
+            input.classList.remove('error');
+            errorDiv.classList.remove('show');
+            
+            const percent = parseFloat(percentStr);
+            if (isNaN(percent) || percent < 0.1 || percent > 100) {
+              input.classList.add('error');
+              errorDiv.textContent = 'Threshold must be between 0.1% and 100%';
+              errorDiv.classList.add('show');
+              return;
+            }
+            
+            try {
+              const res = await fetch('/api/config/position-threshold', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled, percent })
+              });
+              
+              const data = await res.json();
+              if (data.success) {
+                errorDiv.textContent = '✓ Threshold saved!';
+                errorDiv.style.color = 'var(--success)';
+                errorDiv.classList.add('show');
+                setTimeout(() => {
+                  errorDiv.classList.remove('show');
+                  errorDiv.style.color = '';
+                }, 2000);
+                
+                // Update status display
+                if (statusEl) {
+                  if (enabled) {
+                    statusEl.innerHTML = '<span style="color: var(--success);">✓ Enabled</span> - Filtering trades below ' + percent + '% of wallet balance';
+                  } else {
+                    statusEl.innerHTML = '<span style="color: var(--text-muted);">○ Disabled</span> - All trades will be copied';
+                  }
+                }
+              } else {
+                input.classList.add('error');
+                errorDiv.textContent = data.error || 'Failed to save threshold';
+                errorDiv.style.color = '';
+                errorDiv.classList.add('show');
+              }
+            } catch (error) {
+              input.classList.add('error');
+              errorDiv.textContent = 'Failed to save threshold';
+              errorDiv.classList.add('show');
+              console.error('Failed to save threshold:', error);
+            }
+          }
+
           // Load monitoring interval
           async function loadMonitoringInterval() {
             try {
@@ -2251,6 +2424,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
               loadTrades().catch(e => console.error('loadTrades error:', e)),
               loadIssues().catch(e => console.error('loadIssues error:', e)),
               loadTradeSize().catch(e => console.error('loadTradeSize error:', e)),
+              loadPositionThreshold().catch(e => console.error('loadPositionThreshold error:', e)),
               loadMonitoringInterval().catch(e => console.error('loadMonitoringInterval error:', e)),
               loadFailedTradesDiagnostics().catch(e => console.error('loadFailedTradesDiagnostics error:', e))
             ]);

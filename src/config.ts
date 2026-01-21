@@ -32,7 +32,8 @@ export const config = {
   polymarketBuilderPassphrase: process.env.POLYMARKET_BUILDER_PASSPHRASE || '',
 
   // Blockchain configuration
-  polygonRpcUrl: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+  // Using Alchemy RPC for reliable balance fetching (needed for position threshold filter)
+  polygonRpcUrl: process.env.POLYGON_RPC_URL || 'https://polygon-mainnet.g.alchemy.com/v2/7mtxoY0fzCQRByZFL-YBg',
   
   // Server configuration
   port: parseInt(process.env.PORT || '3001', 10),
