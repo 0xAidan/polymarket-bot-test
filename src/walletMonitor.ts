@@ -587,7 +587,7 @@ export class WalletMonitor {
         return null;
       }
 
-      // Look up wallet settings to get autoBumpToMinimum flag and trade config
+      // Look up wallet settings to get trade config
       const wallets = await Storage.getActiveWallets();
       const walletSettings = wallets.find(w => w.address.toLowerCase() === walletAddress.toLowerCase());
       
@@ -602,7 +602,6 @@ export class WalletMonitor {
         transactionHash: `pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         tokenId: tokenId,  // Pass the asset/token ID through for CLOB client
         negRisk: position.negativeRisk || false,  // Pass negative risk flag
-        autoBumpToMinimum: walletSettings?.autoBumpToMinimum || false,  // Pass wallet setting
         // Per-wallet trade config
         tradeSizingMode: walletSettings?.tradeSizingMode,
         fixedTradeSize: walletSettings?.fixedTradeSize,
@@ -687,7 +686,7 @@ export class WalletMonitor {
         return null;
       }
 
-      // Look up wallet settings to get autoBumpToMinimum flag and trade config
+      // Look up wallet settings to get trade config
       const wallets = await Storage.getActiveWallets();
       const walletSettings = wallets.find(w => w.address.toLowerCase() === walletAddress.toLowerCase());
       
@@ -715,7 +714,6 @@ export class WalletMonitor {
         transactionHash: trade.transactionHash || trade.id || `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         tokenId: trade.asset,  // Token ID from trade data for CLOB client
         negRisk: false,  // Default, not available in trade history
-        autoBumpToMinimum: walletSettings?.autoBumpToMinimum || false,  // Pass wallet setting
         // Per-wallet trade config
         tradeSizingMode: walletSettings?.tradeSizingMode,
         fixedTradeSize: walletSettings?.fixedTradeSize,

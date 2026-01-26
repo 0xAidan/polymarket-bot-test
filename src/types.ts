@@ -15,7 +15,6 @@ export interface TrackedWallet {
   active: boolean;
   lastSeen?: Date;
   label?: string; // User-friendly label/name for the wallet
-  autoBumpToMinimum?: boolean; // If true, auto-increase order size to meet market minimum (for high-value wallets)
   
   // Per-wallet trade configuration (all optional - undefined means use global defaults)
   tradeSizingMode?: TradeSizingMode; // undefined = use global size, no filter
@@ -38,7 +37,6 @@ export interface DetectedTrade {
   transactionHash: string;
   tokenId?: string;   // Token ID for CLOB client (asset from positions API)
   negRisk?: boolean;  // Negative risk flag from position data
-  autoBumpToMinimum?: boolean; // Inherited from wallet settings - auto-increase to market minimum
   
   // Inherited from wallet settings for per-wallet trade configuration
   tradeSizingMode?: TradeSizingMode;

@@ -536,7 +536,6 @@ export class CopyTrader {
       console.log(`[Trade] Trade size: $${tradeSizeUsdcNum.toFixed(2)} USDC (${tradeSizeSource})`);
       console.log(`[Trade] Price per share: $${trade.price}`);
       console.log(`[Trade] Calculated shares: ${sharesAmountRounded} shares ($${tradeSizeUsdcNum.toFixed(2)} / $${priceNum})`);
-      console.log(`[Trade] Auto-bump to minimum: ${trade.autoBumpToMinimum ? 'ENABLED (high-value wallet)' : 'DISABLED'}`);
       
       // ============================================================
       // POLYMARKET MINIMUM ORDER SIZE CHECK
@@ -556,7 +555,7 @@ export class CopyTrader {
       }
       
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:sharesCalc',message:'SHARES CALCULATION - CHECKING MINIMUM',data:{tradeSizeUsdc:tradeSizeUsdcNum,pricePerShare:priceNum,rawShares:sharesAmount,roundedShares:sharesAmountRounded,marketMinShares:marketMinShares,isBelowMinimum:sharesAmountRounded<marketMinShares,autoBumpEnabled:trade.autoBumpToMinimum,suggestedMinUsdc:(marketMinShares*priceNum).toFixed(2)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H5'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:sharesCalc',message:'SHARES CALCULATION - CHECKING MINIMUM',data:{tradeSizeUsdc:tradeSizeUsdcNum,pricePerShare:priceNum,rawShares:sharesAmount,roundedShares:sharesAmountRounded,marketMinShares:marketMinShares,isBelowMinimum:sharesAmountRounded<marketMinShares,suggestedMinUsdc:(marketMinShares*priceNum).toFixed(2)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H5'})}).catch(()=>{});
       // #endregion
       
       // Check if calculated shares are below market minimum
@@ -564,46 +563,30 @@ export class CopyTrader {
       if (sharesAmountRounded < marketMinShares) {
         const minUsdcRequired = marketMinShares * priceNum;
         
-        if (trade.autoBumpToMinimum) {
-          // HIGH-VALUE WALLET: Auto-bump to minimum for 100% success rate
-          console.log(`\n🔼 [CopyTrader] AUTO-BUMPING ORDER SIZE (high-value wallet setting)`);
-          console.log(`   Original shares: ${sharesAmountRounded} (below market minimum of ${marketMinShares})`);
-          console.log(`   Bumped to: ${marketMinShares} shares`);
-          console.log(`   Original cost: $${tradeSizeUsdcNum.toFixed(2)} USDC`);
-          console.log(`   Actual cost: $${minUsdcRequired.toFixed(2)} USDC`);
-          console.log(`   💡 This wallet has "Auto-bump to minimum" enabled for guaranteed execution\n`);
-          finalCalculatedShares = marketMinShares;
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:autoBump',message:'AUTO-BUMPED to market minimum',data:{originalShares:sharesAmountRounded,bumpedShares:marketMinShares,originalUsdc:tradeSizeUsdcNum,actualUsdc:minUsdcRequired,marketId:trade.marketId,walletAddress:trade.walletAddress.substring(0,8)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-          // #endregion
-        } else {
-          // NORMAL WALLET: Reject trade - order size below minimum
-          console.log(`\n❌ [CopyTrader] ORDER SIZE BELOW MARKET MINIMUM`);
-          console.log(`   Calculated shares: ${sharesAmountRounded} (market minimum: ${marketMinShares})`);
-          console.log(`   Your configured trade size: $${tradeSizeUsdcNum.toFixed(2)} USDC`);
-          console.log(`   Minimum USDC needed at this price: $${minUsdcRequired.toFixed(2)}`);
-          console.log(`   💡 Options:`);
-          console.log(`      1. Increase trade size to at least $${Math.ceil(minUsdcRequired)} USDC in settings`);
-          console.log(`      2. Enable "Auto-bump to minimum" for this wallet (high-value mode)\n`);
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:minSizeReject',message:'ORDER REJECTED - BELOW MINIMUM (auto-bump disabled)',data:{calculatedShares:sharesAmountRounded,marketMinShares:marketMinShares,configuredUsdc:tradeSizeUsdcNum,minUsdcNeeded:minUsdcRequired,pricePerShare:priceNum,marketId:trade.marketId,autoBumpEnabled:false},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-          // #endregion
-          await this.performanceTracker.recordTrade({
-            timestamp: new Date(),
-            walletAddress: trade.walletAddress,
-            marketId: trade.marketId,
-            outcome: trade.outcome,
-            amount: trade.amount,
-            price: trade.price,
-            success: false,
-            status: 'rejected',
-            executionTimeMs: Date.now() - executionStart,
-            error: `Order size too small: ${sharesAmountRounded} shares (market min: ${marketMinShares}). Need $${minUsdcRequired.toFixed(2)} USDC at this price, or enable "Auto-bump to minimum" for this wallet.`,
-            detectedTxHash: trade.transactionHash,
-            tokenId: trade.tokenId
-          });
-          return;
-        }
+        // Reject trade - order size below minimum
+        console.log(`\n❌ [CopyTrader] ORDER SIZE BELOW MARKET MINIMUM`);
+        console.log(`   Calculated shares: ${sharesAmountRounded} (market minimum: ${marketMinShares})`);
+        console.log(`   Your configured trade size: $${tradeSizeUsdcNum.toFixed(2)} USDC`);
+        console.log(`   Minimum USDC needed at this price: $${minUsdcRequired.toFixed(2)}`);
+        console.log(`   💡 Increase trade size to at least $${Math.ceil(minUsdcRequired)} USDC in settings\n`);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:minSizeReject',message:'ORDER REJECTED - BELOW MINIMUM',data:{calculatedShares:sharesAmountRounded,marketMinShares:marketMinShares,configuredUsdc:tradeSizeUsdcNum,minUsdcNeeded:minUsdcRequired,pricePerShare:priceNum,marketId:trade.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
+        await this.performanceTracker.recordTrade({
+          timestamp: new Date(),
+          walletAddress: trade.walletAddress,
+          marketId: trade.marketId,
+          outcome: trade.outcome,
+          amount: trade.amount,
+          price: trade.price,
+          success: false,
+          status: 'rejected',
+          executionTimeMs: Date.now() - executionStart,
+          error: `Order size too small: ${sharesAmountRounded} shares (market min: ${marketMinShares}). Need $${minUsdcRequired.toFixed(2)} USDC at this price.`,
+          detectedTxHash: trade.transactionHash,
+          tokenId: trade.tokenId
+        });
+        return;
       }
       
       // ============================================================

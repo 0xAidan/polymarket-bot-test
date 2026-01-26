@@ -737,7 +737,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             <h2>⚙️ Copy Trade Configuration</h2>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; align-items: start;">
               <div style="background: var(--bg); padding: 20px; border-radius: 12px; border: 1px solid var(--border);">
-                <div style="font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 12px;">Trade Size (USDC)</div>
+                <div style="font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 12px;">Default Trade Size (USDC)</div>
                 <div style="display: flex; gap: 8px; align-items: center;">
                   <input 
                     type="text" 
@@ -749,7 +749,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                 </div>
                 <div id="tradeSizeError" class="input-error">Invalid trade size</div>
                 <div style="font-size: 12px; color: var(--text-muted); margin-top: 8px; line-height: 1.5;">
-                  Fixed USD value used for all copy trades. The bot will calculate the number of shares based on the detected trade price (USD ÷ price = shares).
+                  Fallback trade size used when a wallet has no custom configuration. Wallets with custom settings will use their own values instead.
                 </div>
               </div>
               <div style="background: rgba(99, 102, 241, 0.1); padding: 20px; border-radius: 12px; border: 1px solid rgba(99, 102, 241, 0.3);">
@@ -1179,10 +1179,8 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                                 <span class="wallet-status-badge \${w.active ? 'active' : 'inactive'}">
                                   \${w.active ? '✓ Active' : '○ Inactive'}
                                 </span>
-                                \${w.autoBumpToMinimum ? '<span style="background: var(--warning); color: #000; padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 600;">⚡ 100% MODE</span>' : ''}
                                 <button onclick="event.stopPropagation(); editWalletLabel('\${w.address}', '\${(w.label || '').replace(/'/g, "\\'")}')" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap;" title="Edit label">✏️ Label</button>
                                 <button onclick="event.stopPropagation(); openTradeConfig('\${w.address}', '\${w.tradeSizingMode || ''}', \${w.fixedTradeSize || 'null'}, \${w.thresholdEnabled || false}, \${w.thresholdPercent || 'null'})" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap; background: \${w.tradeSizingMode ? 'var(--primary)' : 'var(--surface-light)'};" title="Configure trade sizing for this wallet">⚙️ Trade Settings</button>
-                                <button onclick="event.stopPropagation(); toggleAutoBump('\${w.address}', \${!w.autoBumpToMinimum})" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap; background: \${w.autoBumpToMinimum ? 'var(--warning)' : 'var(--bg-lighter)'}; color: \${w.autoBumpToMinimum ? '#000' : 'var(--text)'};" title="\${w.autoBumpToMinimum ? 'Disable 100% execution mode' : 'Enable 100% execution mode (auto-bump to minimum)'}">\${w.autoBumpToMinimum ? '⚡ 100%' : '☐ 100%'}</button>
                                 <label class="toggle-switch" onclick="event.stopPropagation();">
                                   <input type="checkbox" \${w.active ? 'checked' : ''} onchange="toggleWalletActive('\${w.address}', this.checked)" />
                                   <span class="toggle-slider"></span>
@@ -1263,10 +1261,8 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                               <span class="wallet-status-badge \${w.active ? 'active' : 'inactive'}">
                                 \${w.active ? '✓ Active' : '○ Inactive'}
                               </span>
-                              \${w.autoBumpToMinimum ? '<span style="background: var(--warning); color: #000; padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 600;">⚡ 100% MODE</span>' : ''}
                               <button onclick="event.stopPropagation(); editWalletLabel('\${w.address}', '\${(w.label || '').replace(/'/g, "\\'")}')" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap;" title="Edit label">✏️ Label</button>
                               <button onclick="event.stopPropagation(); openTradeConfig('\${w.address}', '\${w.tradeSizingMode || ''}', \${w.fixedTradeSize || 'null'}, \${w.thresholdEnabled || false}, \${w.thresholdPercent || 'null'})" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap; background: \${w.tradeSizingMode ? 'var(--primary)' : 'var(--surface-light)'};" title="Configure trade sizing for this wallet">⚙️ Settings</button>
-                              <button onclick="event.stopPropagation(); toggleAutoBump('\${w.address}', \${!w.autoBumpToMinimum})" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap; background: \${w.autoBumpToMinimum ? 'var(--warning)' : 'var(--bg-lighter)'}; color: \${w.autoBumpToMinimum ? '#000' : 'var(--text)'};" title="\${w.autoBumpToMinimum ? 'Disable 100% execution mode' : 'Enable 100% execution mode (auto-bump to minimum)'}">\${w.autoBumpToMinimum ? '⚡ 100%' : '☐ 100%'}</button>
                               <label class="toggle-switch" onclick="event.stopPropagation();">
                                 <input type="checkbox" \${w.active ? 'checked' : ''} onchange="toggleWalletActive('\${w.address}', this.checked)" />
                                 <span class="toggle-slider"></span>
@@ -1300,10 +1296,8 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                               <span class="wallet-status-badge \${w.active ? 'active' : 'inactive'}">
                                 \${w.active ? '✓ Active' : '○ Inactive'}
                               </span>
-                              \${w.autoBumpToMinimum ? '<span style="background: var(--warning); color: #000; padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 600;">⚡ 100% MODE</span>' : ''}
                               <button onclick="event.stopPropagation(); editWalletLabel('\${w.address}', '\${(w.label || '').replace(/'/g, "\\'")}')" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap;" title="Edit label">✏️ Label</button>
                               <button onclick="event.stopPropagation(); openTradeConfig('\${w.address}', '\${w.tradeSizingMode || ''}', \${w.fixedTradeSize || 'null'}, \${w.thresholdEnabled || false}, \${w.thresholdPercent || 'null'})" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap; background: \${w.tradeSizingMode ? 'var(--primary)' : 'var(--surface-light)'};" title="Configure trade sizing for this wallet">⚙️ Settings</button>
-                              <button onclick="event.stopPropagation(); toggleAutoBump('\${w.address}', \${!w.autoBumpToMinimum})" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap; background: \${w.autoBumpToMinimum ? 'var(--warning)' : 'var(--bg-lighter)'}; color: \${w.autoBumpToMinimum ? '#000' : 'var(--text)'};" title="\${w.autoBumpToMinimum ? 'Disable 100% execution mode' : 'Enable 100% execution mode (auto-bump to minimum)'}">\${w.autoBumpToMinimum ? '⚡ 100%' : '☐ 100%'}</button>
                               <label class="toggle-switch" onclick="event.stopPropagation();">
                                 <input type="checkbox" \${w.active ? 'checked' : ''} onchange="toggleWalletActive('\${w.address}', this.checked)" />
                                 <span class="toggle-slider"></span>
@@ -1705,28 +1699,6 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             }
           }
 
-          // Toggle auto-bump to minimum (100% execution mode)
-          async function toggleAutoBump(address, enabled) {
-            try {
-              const res = await fetch(\`/api/wallets/\${address}/auto-bump\`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ enabled })
-              });
-              const data = await res.json();
-              if (data.success) {
-                await loadWallets();
-                // Show confirmation
-                const mode = enabled ? 'ENABLED - Orders will auto-increase to meet market minimum' : 'DISABLED - Orders below minimum will be rejected';
-                console.log('100% Execution Mode ' + mode);
-              } else {
-                alert('Error: ' + data.error);
-              }
-            } catch (error) {
-              console.error('Failed to toggle auto-bump:', error);
-              alert('Failed to toggle 100% execution mode');
-            }
-          }
 
           // Stop-loss functions
           async function loadStopLoss() {
