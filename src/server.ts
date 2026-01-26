@@ -1180,9 +1180,8 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                                   \${w.active ? '✓ Active' : '○ Inactive'}
                                 </span>
                                 \${w.autoBumpToMinimum ? '<span style="background: var(--warning); color: #000; padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 600;">⚡ 100% MODE</span>' : ''}
-                                \${w.tradeSizingMode ? '<span style="background: var(--primary); color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 600;">' + (w.tradeSizingMode === 'proportional' ? '📊 PROPORTIONAL' : '💵 FIXED') + '</span>' : ''}
                                 <button onclick="event.stopPropagation(); editWalletLabel('\${w.address}', '\${(w.label || '').replace(/'/g, "\\'")}')" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap;" title="Edit label">✏️ Label</button>
-                                <button onclick="event.stopPropagation(); openTradeConfig('\${w.address}', '\${w.tradeSizingMode || ''}', \${w.fixedTradeSize || 'null'}, \${w.thresholdEnabled || false}, \${w.thresholdPercent || 'null'})" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap; background: \${w.tradeSizingMode ? 'var(--primary)' : 'var(--bg-lighter)'};" title="Configure trade sizing for this wallet">📊 Config</button>
+                                <button onclick="event.stopPropagation(); openTradeConfig('\${w.address}', '\${w.tradeSizingMode || ''}', \${w.fixedTradeSize || 'null'}, \${w.thresholdEnabled || false}, \${w.thresholdPercent || 'null'})" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap; background: \${w.tradeSizingMode ? 'var(--primary)' : 'var(--surface-light)'};" title="Configure trade sizing for this wallet">⚙️ Trade Settings</button>
                                 <button onclick="event.stopPropagation(); toggleAutoBump('\${w.address}', \${!w.autoBumpToMinimum})" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap; background: \${w.autoBumpToMinimum ? 'var(--warning)' : 'var(--bg-lighter)'}; color: \${w.autoBumpToMinimum ? '#000' : 'var(--text)'};" title="\${w.autoBumpToMinimum ? 'Disable 100% execution mode' : 'Enable 100% execution mode (auto-bump to minimum)'}">\${w.autoBumpToMinimum ? '⚡ 100%' : '☐ 100%'}</button>
                                 <label class="toggle-switch" onclick="event.stopPropagation();">
                                   <input type="checkbox" \${w.active ? 'checked' : ''} onchange="toggleWalletActive('\${w.address}', this.checked)" />
@@ -1211,6 +1210,9 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                                   <strong>\${stats.lastActivity ? formatDate(stats.lastActivity) : 'Never'}</strong>
                                   Last Activity
                                 </div>
+                              </div>
+                              <div style="margin-top: 10px; padding: 8px 12px; background: var(--surface); border-radius: 6px; font-size: 12px;">
+                                <span style="color: var(--text-muted);">Trade Settings:</span> \${getTradeConfigSummary(w)}
                               </div>
                             </div>
                           </div>
@@ -1262,9 +1264,8 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                                 \${w.active ? '✓ Active' : '○ Inactive'}
                               </span>
                               \${w.autoBumpToMinimum ? '<span style="background: var(--warning); color: #000; padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 600;">⚡ 100% MODE</span>' : ''}
-                              \${w.tradeSizingMode ? '<span style="background: var(--primary); color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 600;">' + (w.tradeSizingMode === 'proportional' ? '📊 PROPORTIONAL' : '💵 FIXED') + '</span>' : ''}
                               <button onclick="event.stopPropagation(); editWalletLabel('\${w.address}', '\${(w.label || '').replace(/'/g, "\\'")}')" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap;" title="Edit label">✏️ Label</button>
-                              <button onclick="event.stopPropagation(); openTradeConfig('\${w.address}', '\${w.tradeSizingMode || ''}', \${w.fixedTradeSize || 'null'}, \${w.thresholdEnabled || false}, \${w.thresholdPercent || 'null'})" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap; background: \${w.tradeSizingMode ? 'var(--primary)' : 'var(--bg-lighter)'};" title="Configure trade sizing for this wallet">📊 Config</button>
+                              <button onclick="event.stopPropagation(); openTradeConfig('\${w.address}', '\${w.tradeSizingMode || ''}', \${w.fixedTradeSize || 'null'}, \${w.thresholdEnabled || false}, \${w.thresholdPercent || 'null'})" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap; background: \${w.tradeSizingMode ? 'var(--primary)' : 'var(--surface-light)'};" title="Configure trade sizing for this wallet">⚙️ Settings</button>
                               <button onclick="event.stopPropagation(); toggleAutoBump('\${w.address}', \${!w.autoBumpToMinimum})" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap; background: \${w.autoBumpToMinimum ? 'var(--warning)' : 'var(--bg-lighter)'}; color: \${w.autoBumpToMinimum ? '#000' : 'var(--text)'};" title="\${w.autoBumpToMinimum ? 'Disable 100% execution mode' : 'Enable 100% execution mode (auto-bump to minimum)'}">\${w.autoBumpToMinimum ? '⚡ 100%' : '☐ 100%'}</button>
                               <label class="toggle-switch" onclick="event.stopPropagation();">
                                 <input type="checkbox" \${w.active ? 'checked' : ''} onchange="toggleWalletActive('\${w.address}', this.checked)" />
@@ -1278,6 +1279,9 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                               \${balanceHtml}
                               \${changeHtml}
                               <div class="wallet-stat">Added: \${formatDate(w.addedAt)}</div>
+                            </div>
+                            <div style="margin-top: 10px; padding: 8px 12px; background: var(--surface); border-radius: 6px; font-size: 12px;">
+                              <span style="color: var(--text-muted);">Trade Settings:</span> \${getTradeConfigSummary(w)}
                             </div>
                           </div>
                         </div>
@@ -1297,9 +1301,8 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                                 \${w.active ? '✓ Active' : '○ Inactive'}
                               </span>
                               \${w.autoBumpToMinimum ? '<span style="background: var(--warning); color: #000; padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 600;">⚡ 100% MODE</span>' : ''}
-                              \${w.tradeSizingMode ? '<span style="background: var(--primary); color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 600;">' + (w.tradeSizingMode === 'proportional' ? '📊 PROPORTIONAL' : '💵 FIXED') + '</span>' : ''}
                               <button onclick="event.stopPropagation(); editWalletLabel('\${w.address}', '\${(w.label || '').replace(/'/g, "\\'")}')" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap;" title="Edit label">✏️ Label</button>
-                              <button onclick="event.stopPropagation(); openTradeConfig('\${w.address}', '\${w.tradeSizingMode || ''}', \${w.fixedTradeSize || 'null'}, \${w.thresholdEnabled || false}, \${w.thresholdPercent || 'null'})" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap; background: \${w.tradeSizingMode ? 'var(--primary)' : 'var(--bg-lighter)'};" title="Configure trade sizing for this wallet">📊 Config</button>
+                              <button onclick="event.stopPropagation(); openTradeConfig('\${w.address}', '\${w.tradeSizingMode || ''}', \${w.fixedTradeSize || 'null'}, \${w.thresholdEnabled || false}, \${w.thresholdPercent || 'null'})" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap; background: \${w.tradeSizingMode ? 'var(--primary)' : 'var(--surface-light)'};" title="Configure trade sizing for this wallet">⚙️ Settings</button>
                               <button onclick="event.stopPropagation(); toggleAutoBump('\${w.address}', \${!w.autoBumpToMinimum})" class="btn-primary" style="font-size: 11px; padding: 6px 12px; white-space: nowrap; background: \${w.autoBumpToMinimum ? 'var(--warning)' : 'var(--bg-lighter)'}; color: \${w.autoBumpToMinimum ? '#000' : 'var(--text)'};" title="\${w.autoBumpToMinimum ? 'Disable 100% execution mode' : 'Enable 100% execution mode (auto-bump to minimum)'}">\${w.autoBumpToMinimum ? '⚡ 100%' : '☐ 100%'}</button>
                               <label class="toggle-switch" onclick="event.stopPropagation();">
                                 <input type="checkbox" \${w.active ? 'checked' : ''} onchange="toggleWalletActive('\${w.address}', this.checked)" />
@@ -1311,6 +1314,9 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
                           <div style="cursor: pointer;" onclick="openWalletDetails('\${w.address}')">
                             <div class="wallet-stats">
                               <div class="wallet-stat">Added: \${formatDate(w.addedAt)}</div>
+                            </div>
+                            <div style="margin-top: 10px; padding: 8px 12px; background: var(--surface); border-radius: 6px; font-size: 12px;">
+                              <span style="color: var(--text-muted);">Trade Settings:</span> \${getTradeConfigSummary(w)}
                             </div>
                           </div>
                         </div>
@@ -1780,11 +1786,40 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             }
           }
 
+          // Helper to generate trade config summary for display
+          function getTradeConfigSummary(w) {
+            if (!w.tradeSizingMode) {
+              return '<span style="color: var(--text-muted);">🌐 Default (global size)</span>';
+            }
+            if (w.tradeSizingMode === 'proportional') {
+              return '<span style="color: var(--primary);">📊 Proportional sizing</span>';
+            }
+            if (w.tradeSizingMode === 'fixed') {
+              let summary = '💵 Fixed';
+              if (w.fixedTradeSize) {
+                summary += ' $' + w.fixedTradeSize;
+              }
+              if (w.thresholdEnabled && w.thresholdPercent) {
+                summary += ' <span style="color: var(--info);">+ ' + w.thresholdPercent + '% filter</span>';
+              }
+              return '<span style="color: var(--success);">' + summary + '</span>';
+            }
+            return '<span style="color: var(--text-muted);">🌐 Default</span>';
+          }
+
           // Per-wallet trade config functions
           let currentConfigAddress = null;
 
           function openTradeConfig(address, mode, fixedSize, thresholdEnabled, thresholdPercent) {
             currentConfigAddress = address;
+            
+            // Determine the combined mode value for the dropdown
+            let combinedMode = '';
+            if (mode === 'proportional') {
+              combinedMode = 'proportional';
+            } else if (mode === 'fixed') {
+              combinedMode = thresholdEnabled ? 'fixed_with_filter' : 'fixed';
+            }
             
             // Create modal if it doesn't exist
             let modal = document.getElementById('tradeConfigModal');
@@ -1793,12 +1828,12 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
               modal.id = 'tradeConfigModal';
               modal.className = 'modal';
               modal.innerHTML = \`
-                <div class="modal-content" style="max-width: 500px;">
+                <div class="modal-content" style="max-width: 520px;">
                   <div class="modal-header">
-                    <h3>📊 Trade Configuration</h3>
+                    <h3>⚙️ Trade Settings</h3>
                     <button onclick="closeTradeConfig()" class="modal-close">&times;</button>
                   </div>
-                  <div id="tradeConfigContent" style="padding: 20px;"></div>
+                  <div id="tradeConfigContent" style="padding: 24px;"></div>
                 </div>
               \`;
               document.body.appendChild(modal);
@@ -1808,63 +1843,68 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
             const shortAddress = address.substring(0, 8) + '...' + address.substring(address.length - 6);
             
             content.innerHTML = \`
-              <div style="margin-bottom: 16px; font-size: 13px; color: var(--text-muted);">
-                Wallet: <span style="font-family: monospace; color: var(--primary);">\${shortAddress}</span>
+              <div style="margin-bottom: 20px; padding: 12px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border);">
+                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Configuring wallet:</div>
+                <div style="font-family: monospace; color: var(--primary); font-size: 14px;">\${shortAddress}</div>
               </div>
               
-              <div style="margin-bottom: 20px;">
-                <label style="font-size: 14px; font-weight: 600; color: var(--text); display: block; margin-bottom: 8px;">Trade Sizing Mode</label>
-                <select id="tradeSizingMode" onchange="updateTradeConfigForm()" style="width: 100%; padding: 10px 14px; border: 2px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 14px;">
-                  <option value="">Default (global size, no filter)</option>
-                  <option value="fixed" \${mode === 'fixed' ? 'selected' : ''}>Fixed (custom USDC + optional filter)</option>
-                  <option value="proportional" \${mode === 'proportional' ? 'selected' : ''}>Proportional (match their %)</option>
+              <div style="margin-bottom: 24px;">
+                <label style="font-size: 14px; font-weight: 600; color: var(--text); display: block; margin-bottom: 10px;">How should trades be sized?</label>
+                <select id="tradeSizingMode" onchange="updateTradeConfigForm()" style="width: 100%; padding: 12px 14px; border: 2px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 14px; cursor: pointer;">
+                  <option value="">🌐 Default — Use global trade size, copy all trades</option>
+                  <option value="fixed" \${combinedMode === 'fixed' ? 'selected' : ''}>💵 Fixed Size — Custom USDC amount per trade</option>
+                  <option value="fixed_with_filter" \${combinedMode === 'fixed_with_filter' ? 'selected' : ''}>💵🔍 Fixed + Filter — Custom USDC + skip small trades</option>
+                  <option value="proportional" \${combinedMode === 'proportional' ? 'selected' : ''}>📊 Proportional — Match their portfolio percentage</option>
                 </select>
               </div>
               
-              <div id="fixedModeOptions" style="display: \${mode === 'fixed' ? 'block' : 'none'}; padding: 16px; background: var(--bg); border-radius: 8px; margin-bottom: 16px;">
-                <div style="margin-bottom: 12px;">
-                  <label style="font-size: 13px; color: var(--text-muted); display: block; margin-bottom: 6px;">Trade Size (USDC)</label>
-                  <input type="number" id="fixedTradeSize" placeholder="Use global" min="0.1" step="0.1" value="\${fixedSize || ''}" 
-                    style="width: 100%; padding: 10px 14px; border: 2px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 14px;"
+              <div id="fixedModeOptions" style="display: \${combinedMode === 'fixed' || combinedMode === 'fixed_with_filter' ? 'block' : 'none'};">
+                <div style="padding: 16px; background: var(--bg); border-radius: 8px; margin-bottom: 16px; border: 1px solid var(--border);">
+                  <label style="font-size: 13px; font-weight: 600; color: var(--text); display: block; margin-bottom: 8px;">Trade Size (USDC)</label>
+                  <input type="number" id="fixedTradeSize" placeholder="Leave empty for global size" min="0.1" step="0.1" value="\${fixedSize || ''}" 
+                    style="width: 100%; padding: 12px 14px; border: 2px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 14px;"
                   />
-                  <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Leave empty to use global trade size</div>
-                </div>
-                
-                <div style="margin-bottom: 12px;">
-                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                    <input type="checkbox" id="thresholdEnabled" \${thresholdEnabled ? 'checked' : ''} style="width: 16px; height: 16px;" />
-                    <span style="font-size: 13px; color: var(--text);">Enable threshold filter</span>
-                  </label>
-                </div>
-                
-                <div>
-                  <label style="font-size: 13px; color: var(--text-muted); display: block; margin-bottom: 6px;">Min Position % of Their Portfolio</label>
-                  <input type="number" id="thresholdPercent" placeholder="10" min="0.1" max="100" step="0.1" value="\${thresholdPercent || ''}" 
-                    style="width: 100%; padding: 10px 14px; border: 2px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 14px;"
-                  />
-                  <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Skip trades below this % of their wallet</div>
+                  <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">Amount in USDC to use for each trade from this wallet</div>
                 </div>
               </div>
               
-              <div id="proportionalInfo" style="display: \${mode === 'proportional' ? 'block' : 'none'}; padding: 16px; background: rgba(99, 102, 241, 0.1); border-radius: 8px; margin-bottom: 16px; border: 1px solid rgba(99, 102, 241, 0.3);">
-                <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">
-                  <strong style="color: var(--primary);">Proportional Mode</strong><br>
-                  If they use 10% of their portfolio, you'll use 10% of yours.
-                  <br><br>
-                  Example: If they have $1M and trade $100K (10%), and you have $10K, you'll trade $1K (10%).
+              <div id="filterOptions" style="display: \${combinedMode === 'fixed_with_filter' ? 'block' : 'none'};">
+                <div style="padding: 16px; background: rgba(59, 130, 246, 0.1); border-radius: 8px; margin-bottom: 16px; border: 1px solid rgba(59, 130, 246, 0.3);">
+                  <label style="font-size: 13px; font-weight: 600; color: var(--info); display: block; margin-bottom: 8px;">🔍 Minimum Trade Size Filter</label>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 13px; color: var(--text);">Only copy trades ≥</span>
+                    <input type="number" id="thresholdPercent" placeholder="5" min="0.1" max="100" step="0.1" value="\${thresholdPercent || ''}" 
+                      style="width: 80px; padding: 10px 12px; border: 2px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 14px; text-align: center;"
+                    />
+                    <span style="font-size: 13px; color: var(--text);">% of their portfolio</span>
+                  </div>
+                  <div style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">Filters out small trades (arbitrage, tests) from this wallet</div>
                 </div>
               </div>
               
-              <div id="defaultInfo" style="display: \${!mode ? 'block' : 'none'}; padding: 16px; background: rgba(148, 163, 184, 0.1); border-radius: 8px; margin-bottom: 16px; border: 1px solid rgba(148, 163, 184, 0.3);">
-                <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">
-                  <strong>Default Mode</strong><br>
-                  Copy ALL trades at your global trade size with no filtering.
+              <div id="proportionalInfo" style="display: \${combinedMode === 'proportional' ? 'block' : 'none'};">
+                <div style="padding: 16px; background: rgba(99, 102, 241, 0.1); border-radius: 8px; margin-bottom: 16px; border: 1px solid rgba(99, 102, 241, 0.3);">
+                  <div style="font-size: 13px; color: var(--text); line-height: 1.6;">
+                    <strong style="color: var(--primary);">📊 Proportional Sizing</strong><br><br>
+                    Your trade size matches their portfolio allocation.<br><br>
+                    <span style="color: var(--text-muted);">Example: If they trade 10% of their $1M portfolio ($100K), you'll trade 10% of your portfolio.</span>
+                  </div>
                 </div>
               </div>
               
-              <div style="display: flex; gap: 12px;">
-                <button onclick="saveTradeConfig()" class="btn-primary" style="flex: 1; padding: 12px;">Save Configuration</button>
-                <button onclick="clearTradeConfig()" class="btn-secondary" style="padding: 12px;">Reset to Default</button>
+              <div id="defaultInfo" style="display: \${!combinedMode ? 'block' : 'none'};">
+                <div style="padding: 16px; background: rgba(148, 163, 184, 0.1); border-radius: 8px; margin-bottom: 16px; border: 1px solid rgba(148, 163, 184, 0.3);">
+                  <div style="font-size: 13px; color: var(--text); line-height: 1.6;">
+                    <strong>🌐 Default Mode</strong><br><br>
+                    Copies ALL trades using your global trade size setting.<br>
+                    <span style="color: var(--text-muted);">No filtering — every detected trade will be copied.</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div style="display: flex; gap: 12px; margin-top: 8px;">
+                <button onclick="saveTradeConfig()" class="btn-primary" style="flex: 1; padding: 14px; font-size: 14px; font-weight: 600;">Save Settings</button>
+                <button onclick="clearTradeConfig()" class="btn-secondary" style="padding: 14px; font-size: 13px;">Reset</button>
               </div>
             \`;
             
@@ -1873,7 +1913,8 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 
           function updateTradeConfigForm() {
             const mode = document.getElementById('tradeSizingMode').value;
-            document.getElementById('fixedModeOptions').style.display = mode === 'fixed' ? 'block' : 'none';
+            document.getElementById('fixedModeOptions').style.display = (mode === 'fixed' || mode === 'fixed_with_filter') ? 'block' : 'none';
+            document.getElementById('filterOptions').style.display = mode === 'fixed_with_filter' ? 'block' : 'none';
             document.getElementById('proportionalInfo').style.display = mode === 'proportional' ? 'block' : 'none';
             document.getElementById('defaultInfo').style.display = !mode ? 'block' : 'none';
           }
@@ -1887,16 +1928,25 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
           async function saveTradeConfig() {
             if (!currentConfigAddress) return;
             
-            const mode = document.getElementById('tradeSizingMode').value || null;
+            const combinedMode = document.getElementById('tradeSizingMode').value || null;
             const fixedSize = document.getElementById('fixedTradeSize')?.value;
-            const thresholdEnabled = document.getElementById('thresholdEnabled')?.checked;
             const thresholdPercent = document.getElementById('thresholdPercent')?.value;
+            
+            // Parse the combined mode back into separate fields
+            let mode = null;
+            let thresholdEnabled = false;
+            if (combinedMode === 'proportional') {
+              mode = 'proportional';
+            } else if (combinedMode === 'fixed' || combinedMode === 'fixed_with_filter') {
+              mode = 'fixed';
+              thresholdEnabled = combinedMode === 'fixed_with_filter';
+            }
             
             const config = {
               tradeSizingMode: mode,
-              fixedTradeSize: fixedSize ? parseFloat(fixedSize) : null,
-              thresholdEnabled: mode === 'fixed' ? thresholdEnabled : null,
-              thresholdPercent: mode === 'fixed' && thresholdPercent ? parseFloat(thresholdPercent) : null
+              fixedTradeSize: (mode === 'fixed' && fixedSize) ? parseFloat(fixedSize) : null,
+              thresholdEnabled: thresholdEnabled,
+              thresholdPercent: thresholdEnabled && thresholdPercent ? parseFloat(thresholdPercent) : null
             };
 
             try {
