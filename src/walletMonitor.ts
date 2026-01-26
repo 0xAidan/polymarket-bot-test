@@ -587,7 +587,7 @@ export class WalletMonitor {
         return null;
       }
 
-      // Look up wallet settings to get autoBumpToMinimum flag
+      // Look up wallet settings to get autoBumpToMinimum flag and trade config
       const wallets = await Storage.getActiveWallets();
       const walletSettings = wallets.find(w => w.address.toLowerCase() === walletAddress.toLowerCase());
       
@@ -603,6 +603,11 @@ export class WalletMonitor {
         tokenId: tokenId,  // Pass the asset/token ID through for CLOB client
         negRisk: position.negativeRisk || false,  // Pass negative risk flag
         autoBumpToMinimum: walletSettings?.autoBumpToMinimum || false,  // Pass wallet setting
+        // Per-wallet trade config
+        tradeSizingMode: walletSettings?.tradeSizingMode,
+        fixedTradeSize: walletSettings?.fixedTradeSize,
+        thresholdEnabled: walletSettings?.thresholdEnabled,
+        thresholdPercent: walletSettings?.thresholdPercent,
       };
     } catch (error: any) {
       console.error('[Monitor] Failed to parse position to trade:', error);
@@ -682,7 +687,7 @@ export class WalletMonitor {
         return null;
       }
 
-      // Look up wallet settings to get autoBumpToMinimum flag
+      // Look up wallet settings to get autoBumpToMinimum flag and trade config
       const wallets = await Storage.getActiveWallets();
       const walletSettings = wallets.find(w => w.address.toLowerCase() === walletAddress.toLowerCase());
       
@@ -711,6 +716,11 @@ export class WalletMonitor {
         tokenId: trade.asset,  // Token ID from trade data for CLOB client
         negRisk: false,  // Default, not available in trade history
         autoBumpToMinimum: walletSettings?.autoBumpToMinimum || false,  // Pass wallet setting
+        // Per-wallet trade config
+        tradeSizingMode: walletSettings?.tradeSizingMode,
+        fixedTradeSize: walletSettings?.fixedTradeSize,
+        thresholdEnabled: walletSettings?.thresholdEnabled,
+        thresholdPercent: walletSettings?.thresholdPercent,
       };
     } catch (error: any) {
       console.error('[Monitor] Failed to parse trade data:', error);

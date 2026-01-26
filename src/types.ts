@@ -1,4 +1,12 @@
 /**
+ * Trade sizing mode for per-wallet configuration
+ * - undefined: Use global trade size, no filtering (copy ALL trades)
+ * - 'fixed': Use wallet-specific USDC amount + optional threshold filter
+ * - 'proportional': Match their portfolio % with your portfolio %
+ */
+export type TradeSizingMode = 'fixed' | 'proportional';
+
+/**
  * Represents a wallet address being tracked
  */
 export interface TrackedWallet {
@@ -8,6 +16,12 @@ export interface TrackedWallet {
   lastSeen?: Date;
   label?: string; // User-friendly label/name for the wallet
   autoBumpToMinimum?: boolean; // If true, auto-increase order size to meet market minimum (for high-value wallets)
+  
+  // Per-wallet trade configuration (all optional - undefined means use global defaults)
+  tradeSizingMode?: TradeSizingMode; // undefined = use global size, no filter
+  fixedTradeSize?: number;           // USDC amount when mode is 'fixed'
+  thresholdEnabled?: boolean;        // Filter small trades (only when mode is 'fixed')
+  thresholdPercent?: number;         // Threshold % (only when mode is 'fixed')
 }
 
 /**
@@ -25,6 +39,12 @@ export interface DetectedTrade {
   tokenId?: string;   // Token ID for CLOB client (asset from positions API)
   negRisk?: boolean;  // Negative risk flag from position data
   autoBumpToMinimum?: boolean; // Inherited from wallet settings - auto-increase to market minimum
+  
+  // Inherited from wallet settings for per-wallet trade configuration
+  tradeSizingMode?: TradeSizingMode;
+  fixedTradeSize?: number;
+  thresholdEnabled?: boolean;
+  thresholdPercent?: number;
 }
 
 /**

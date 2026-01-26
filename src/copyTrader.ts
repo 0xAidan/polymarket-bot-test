@@ -362,78 +362,168 @@ export class CopyTrader {
     // #endregion
 
     // ============================================================
-    // POSITION THRESHOLD FILTER
+    // USDC COMMITMENT STOP-LOSS CHECK
     // ============================================================
-    // Only copy trades that are above a % threshold of the tracked wallet's USDC balance
-    // This filters out small "noise" trades like arbitrage or test trades
+    // Check if we've committed too much USDC to open positions
     try {
-      const thresholdConfig = await Storage.getPositionThreshold();
-      if (thresholdConfig.enabled) {
-        // Get tracked wallet's USDC balance
-        let walletBalance = 0;
-        try {
-          walletBalance = await this.balanceTracker.getBalance(trade.walletAddress);
-        } catch (balanceError: any) {
-          console.warn(`[CopyTrader] Could not fetch wallet balance for threshold check: ${balanceError.message}`);
-          console.warn(`[CopyTrader] Proceeding with trade (threshold check skipped)`);
-          // Continue with trade - don't block if balance fetch fails
-        }
+      const stopLossActive = await this.checkUsageStopLoss();
+      if (stopLossActive) {
+        console.log(`\n⏭️  [CopyTrader] STOP-LOSS ACTIVE - Too much USDC committed to positions`);
+        console.log(`   💡 Close some positions to resume copy trading.\n`);
         
-        if (walletBalance > 0) {
-          // Calculate trade value in USD (amount * price)
-          const tradeValueUsd = amountNum * priceNum;
-          
-          // Calculate percentage of wallet balance
-          const tradePercent = (tradeValueUsd / walletBalance) * 100;
-          
-          if (tradePercent < thresholdConfig.percent) {
-            console.log(`\n⏭️  [CopyTrader] FILTERED - Trade below position threshold`);
-            console.log(`   Trade value: $${tradeValueUsd.toFixed(2)} (${tradePercent.toFixed(2)}% of wallet)`);
-            console.log(`   Wallet USDC balance: $${walletBalance.toFixed(2)}`);
-            console.log(`   Threshold: ${thresholdConfig.percent}%`);
-            console.log(`   💡 This trade is likely noise/arbitrage. Skipping.\n`);
-            
-            // Record the filtered trade so it appears in the trade history
-            await this.performanceTracker.recordTrade({
-              timestamp: new Date(),
-              walletAddress: trade.walletAddress,
-              marketId: trade.marketId,
-              outcome: trade.outcome,
-              amount: trade.amount,
-              price: trade.price,
-              success: false,
-              status: 'rejected',
-              executionTimeMs: 0,
-              error: `Filtered: Trade is ${tradePercent.toFixed(2)}% of wallet ($${tradeValueUsd.toFixed(2)}/$${walletBalance.toFixed(2)}), below ${thresholdConfig.percent}% threshold`,
-              detectedTxHash: trade.transactionHash,
-              tokenId: trade.tokenId
-            });
-            
-            return; // Skip this trade
-          } else {
-            console.log(`[CopyTrader] ✓ Trade passes threshold: $${tradeValueUsd.toFixed(2)} (${tradePercent.toFixed(2)}%) >= ${thresholdConfig.percent}%`);
-          }
-        }
+        await this.performanceTracker.recordTrade({
+          timestamp: new Date(),
+          walletAddress: trade.walletAddress,
+          marketId: trade.marketId,
+          outcome: trade.outcome,
+          amount: trade.amount,
+          price: trade.price,
+          success: false,
+          status: 'rejected',
+          executionTimeMs: 0,
+          error: `Stop-loss active: Too much USDC committed to open positions`,
+          detectedTxHash: trade.transactionHash,
+          tokenId: trade.tokenId
+        });
+        
+        return; // Skip this trade
       }
-    } catch (thresholdError: any) {
-      // Don't block trade if threshold check fails
-      console.warn(`[CopyTrader] Threshold check error (proceeding with trade): ${thresholdError.message}`);
+    } catch (stopLossError: any) {
+      // Don't block trade if stop-loss check fails
+      console.warn(`[CopyTrader] Stop-loss check error (proceeding with trade): ${stopLossError.message}`);
     }
 
     const executionStart = Date.now();
 
     try {
-      // Get configured trade size in USDC and calculate shares based on price
-      const configuredTradeSizeUsdc = await Storage.getTradeSize();
-      const tradeSizeUsdcNum = parseFloat(configuredTradeSizeUsdc || '0');
+      // ============================================================
+      // PER-WALLET TRADE SIZING
+      // ============================================================
+      // Determine trade size based on wallet's configured sizing mode:
+      // - undefined (default): Use global trade size, NO filtering - copy ALL trades
+      // - 'fixed': Use wallet-specific USDC amount + optional threshold filter
+      // - 'proportional': Match their portfolio % with your portfolio %
       
+      let tradeSizeUsdcNum: number;
+      let tradeSizeSource: string;
+      
+      if (trade.tradeSizingMode === 'proportional') {
+        // PROPORTIONAL MODE: Match their portfolio % with our portfolio %
+        console.log(`[Trade] Mode: PROPORTIONAL (matching their % of portfolio)`);
+        
+        // Get tracked wallet's USDC balance
+        let theirBalance = 0;
+        try {
+          theirBalance = await this.balanceTracker.getBalance(trade.walletAddress);
+        } catch (balanceError: any) {
+          console.warn(`[CopyTrader] Could not fetch tracked wallet balance: ${balanceError.message}`);
+        }
+        
+        // Get OUR USDC balance
+        let ourBalance = 0;
+        try {
+          const userWallet = this.getWalletAddress();
+          const proxyWallet = await this.getProxyWalletAddress();
+          const walletToCheck = proxyWallet || userWallet;
+          if (walletToCheck) {
+            ourBalance = await this.balanceTracker.getBalance(walletToCheck);
+          }
+        } catch (balanceError: any) {
+          console.warn(`[CopyTrader] Could not fetch our wallet balance: ${balanceError.message}`);
+        }
+        
+        if (theirBalance > 0 && ourBalance > 0) {
+          // Calculate what % of their portfolio this trade represents
+          const tradeValueUsd = amountNum * priceNum;
+          const theirTradePercent = (tradeValueUsd / theirBalance) * 100;
+          
+          // Apply the same % to our portfolio
+          tradeSizeUsdcNum = (theirTradePercent / 100) * ourBalance;
+          tradeSizeSource = `proportional (${theirTradePercent.toFixed(2)}% of their $${theirBalance.toFixed(2)} = ${theirTradePercent.toFixed(2)}% of our $${ourBalance.toFixed(2)})`;
+          
+          console.log(`[Trade] Their trade: $${tradeValueUsd.toFixed(2)} (${theirTradePercent.toFixed(2)}% of $${theirBalance.toFixed(2)})`);
+          console.log(`[Trade] Our trade: $${tradeSizeUsdcNum.toFixed(2)} (${theirTradePercent.toFixed(2)}% of $${ourBalance.toFixed(2)})`);
+        } else {
+          // Fallback to global trade size if balance fetch fails
+          const globalTradeSize = await Storage.getTradeSize();
+          tradeSizeUsdcNum = parseFloat(globalTradeSize || '2');
+          tradeSizeSource = `global fallback (balance fetch failed)`;
+          console.warn(`[Trade] Proportional mode failed (balance fetch), using global trade size: $${tradeSizeUsdcNum}`);
+        }
+        
+      } else if (trade.tradeSizingMode === 'fixed') {
+        // FIXED MODE: Use wallet-specific USDC amount + optional threshold filter
+        console.log(`[Trade] Mode: FIXED (wallet-specific settings)`);
+        
+        // Use wallet's fixed trade size, or fall back to global
+        if (trade.fixedTradeSize && trade.fixedTradeSize > 0) {
+          tradeSizeUsdcNum = trade.fixedTradeSize;
+          tradeSizeSource = `wallet fixed ($${trade.fixedTradeSize})`;
+        } else {
+          const globalTradeSize = await Storage.getTradeSize();
+          tradeSizeUsdcNum = parseFloat(globalTradeSize || '2');
+          tradeSizeSource = `global (wallet fixed not set)`;
+        }
+        
+        // Check threshold filter if enabled for this wallet
+        if (trade.thresholdEnabled && trade.thresholdPercent && trade.thresholdPercent > 0) {
+          // Get tracked wallet's USDC balance
+          let walletBalance = 0;
+          try {
+            walletBalance = await this.balanceTracker.getBalance(trade.walletAddress);
+          } catch (balanceError: any) {
+            console.warn(`[CopyTrader] Could not fetch wallet balance for threshold check: ${balanceError.message}`);
+          }
+          
+          if (walletBalance > 0) {
+            const tradeValueUsd = amountNum * priceNum;
+            const tradePercent = (tradeValueUsd / walletBalance) * 100;
+            
+            if (tradePercent < trade.thresholdPercent) {
+              console.log(`\n⏭️  [CopyTrader] FILTERED - Trade below wallet threshold`);
+              console.log(`   Trade value: $${tradeValueUsd.toFixed(2)} (${tradePercent.toFixed(2)}% of wallet)`);
+              console.log(`   Wallet USDC balance: $${walletBalance.toFixed(2)}`);
+              console.log(`   Wallet threshold: ${trade.thresholdPercent}%`);
+              console.log(`   💡 This trade is below the configured threshold for this wallet. Skipping.\n`);
+              
+              await this.performanceTracker.recordTrade({
+                timestamp: new Date(),
+                walletAddress: trade.walletAddress,
+                marketId: trade.marketId,
+                outcome: trade.outcome,
+                amount: trade.amount,
+                price: trade.price,
+                success: false,
+                status: 'rejected',
+                executionTimeMs: 0,
+                error: `Filtered: Trade is ${tradePercent.toFixed(2)}% of wallet ($${tradeValueUsd.toFixed(2)}/$${walletBalance.toFixed(2)}), below ${trade.thresholdPercent}% threshold`,
+                detectedTxHash: trade.transactionHash,
+                tokenId: trade.tokenId
+              });
+              
+              return; // Skip this trade
+            } else {
+              console.log(`[CopyTrader] ✓ Trade passes wallet threshold: $${tradeValueUsd.toFixed(2)} (${tradePercent.toFixed(2)}%) >= ${trade.thresholdPercent}%`);
+            }
+          }
+        }
+        
+      } else {
+        // DEFAULT MODE: Use global trade size, NO filtering - copy ALL trades
+        console.log(`[Trade] Mode: DEFAULT (global size, no filtering)`);
+        const globalTradeSize = await Storage.getTradeSize();
+        tradeSizeUsdcNum = parseFloat(globalTradeSize || '2');
+        tradeSizeSource = `global ($${globalTradeSize})`;
+      }
+      
+      // Validate final trade size
       if (isNaN(tradeSizeUsdcNum) || tradeSizeUsdcNum <= 0) {
-        console.error(`❌ Invalid configured trade size (${configuredTradeSizeUsdc} USDC), cannot execute trade`);
+        console.error(`❌ Invalid calculated trade size ($${tradeSizeUsdcNum} USDC), cannot execute trade`);
         await this.performanceTracker.logIssue(
           'error',
           'trade_execution',
-          `Invalid configured trade size: ${configuredTradeSizeUsdc} USDC`,
-          { trade }
+          `Invalid calculated trade size: $${tradeSizeUsdcNum} USDC`,
+          { trade, tradeSizeSource }
         );
         return;
       }
@@ -443,9 +533,9 @@ export class CopyTrader {
       const sharesAmount = tradeSizeUsdcNum / priceNum;
       const sharesAmountRounded = parseFloat(sharesAmount.toFixed(2)); // Round to 2 decimal places
       
-      console.log(`[Trade] Configured trade size: $${configuredTradeSizeUsdc} USDC`);
+      console.log(`[Trade] Trade size: $${tradeSizeUsdcNum.toFixed(2)} USDC (${tradeSizeSource})`);
       console.log(`[Trade] Price per share: $${trade.price}`);
-      console.log(`[Trade] Calculated shares: ${sharesAmountRounded} shares (${tradeSizeUsdcNum} / ${priceNum})`);
+      console.log(`[Trade] Calculated shares: ${sharesAmountRounded} shares ($${tradeSizeUsdcNum.toFixed(2)} / $${priceNum})`);
       console.log(`[Trade] Auto-bump to minimum: ${trade.autoBumpToMinimum ? 'ENABLED (high-value wallet)' : 'DISABLED'}`);
       
       // ============================================================
@@ -479,7 +569,7 @@ export class CopyTrader {
           console.log(`\n🔼 [CopyTrader] AUTO-BUMPING ORDER SIZE (high-value wallet setting)`);
           console.log(`   Original shares: ${sharesAmountRounded} (below market minimum of ${marketMinShares})`);
           console.log(`   Bumped to: ${marketMinShares} shares`);
-          console.log(`   Original cost: $${configuredTradeSizeUsdc} USDC`);
+          console.log(`   Original cost: $${tradeSizeUsdcNum.toFixed(2)} USDC`);
           console.log(`   Actual cost: $${minUsdcRequired.toFixed(2)} USDC`);
           console.log(`   💡 This wallet has "Auto-bump to minimum" enabled for guaranteed execution\n`);
           finalCalculatedShares = marketMinShares;
@@ -490,7 +580,7 @@ export class CopyTrader {
           // NORMAL WALLET: Reject trade - order size below minimum
           console.log(`\n❌ [CopyTrader] ORDER SIZE BELOW MARKET MINIMUM`);
           console.log(`   Calculated shares: ${sharesAmountRounded} (market minimum: ${marketMinShares})`);
-          console.log(`   Your configured trade size: $${configuredTradeSizeUsdc} USDC`);
+          console.log(`   Your configured trade size: $${tradeSizeUsdcNum.toFixed(2)} USDC`);
           console.log(`   Minimum USDC needed at this price: $${minUsdcRequired.toFixed(2)}`);
           console.log(`   💡 Options:`);
           console.log(`      1. Increase trade size to at least $${Math.ceil(minUsdcRequired)} USDC in settings`);
@@ -587,7 +677,7 @@ export class CopyTrader {
 
       console.log(`\n🚀 [Execute] EXECUTING TRADE:`);
       console.log(`   Action: ${order.side}`);
-      console.log(`   Amount: $${configuredTradeSizeUsdc} USDC (${order.amount} shares)`);
+      console.log(`   Amount: $${tradeSizeUsdcNum.toFixed(2)} USDC (${order.amount} shares)`);
       console.log(`   Market: ${order.marketId}`);
       console.log(`   Outcome: ${order.outcome}`);
       console.log(`   Price: ${order.price}`);
@@ -645,7 +735,7 @@ export class CopyTrader {
         console.log(`   Execution Time: ${executionTime}ms`);
         console.log(`   Market: ${order.marketId}`);
         console.log(`   Outcome: ${order.outcome}`);
-        console.log(`   Side: ${order.side} $${configuredTradeSizeUsdc} USDC (${order.amount} shares) @ ${order.price}`);
+        console.log(`   Side: ${order.side} $${tradeSizeUsdcNum.toFixed(2)} USDC (${order.amount} shares) @ ${order.price}`);
         console.log(`${'='.repeat(60)}\n`);
         this.executedTrades.add(trade.transactionHash);
       } else {
@@ -660,7 +750,7 @@ export class CopyTrader {
           console.log(`${'='.repeat(60)}`);
           console.log(`   Market: ${order.marketId}`);
           console.log(`   Outcome: ${order.outcome}`);
-          console.log(`   Side: ${order.side} $${configuredTradeSizeUsdc} USDC (${order.amount} shares) @ ${order.price}`);
+          console.log(`   Side: ${order.side} $${tradeSizeUsdcNum.toFixed(2)} USDC (${order.amount} shares) @ ${order.price}`);
           console.log(`   💡 The tracked wallet traded on a market that has since been resolved.`);
           console.log(`   💡 This is normal - markets close when events conclude.`);
           console.log(`${'='.repeat(60)}\n`);
@@ -671,7 +761,7 @@ export class CopyTrader {
           console.error(`${'='.repeat(60)}`);
           console.error(`   Error: ${result.error}`);
           console.error(`   Market: ${order.marketId}`);
-          console.error(`   Side: ${order.side} $${configuredTradeSizeUsdc} USDC (${order.amount} shares) @ ${order.price}`);
+          console.error(`   Side: ${order.side} $${tradeSizeUsdcNum.toFixed(2)} USDC (${order.amount} shares) @ ${order.price}`);
           console.error(`${'='.repeat(60)}\n`);
           await this.performanceTracker.logIssue(
             'error',
@@ -805,5 +895,71 @@ export class CopyTrader {
     await this.monitor.updateMonitoringInterval(intervalMs);
     // Also update config for persistence
     config.monitoringIntervalMs = intervalMs;
+  }
+
+  /**
+   * Check if usage stop-loss is active (too much USDC committed to positions)
+   * Returns true if stop-loss should prevent new trades
+   */
+  async checkUsageStopLoss(): Promise<boolean> {
+    try {
+      const stopLossConfig = await Storage.getUsageStopLoss();
+      if (!stopLossConfig.enabled) {
+        return false; // Stop-loss not enabled
+      }
+
+      // Get our wallet address
+      const userWallet = this.getWalletAddress();
+      const proxyWallet = await this.getProxyWalletAddress();
+      const walletToCheck = proxyWallet || userWallet;
+      
+      if (!walletToCheck) {
+        console.warn(`[CopyTrader] Cannot check stop-loss: wallet address not available`);
+        return false; // Can't check, allow trade
+      }
+
+      // Get our current USDC balance (free USDC)
+      let freeUsdc = 0;
+      try {
+        freeUsdc = await this.balanceTracker.getBalance(walletToCheck);
+      } catch (error: any) {
+        console.warn(`[CopyTrader] Cannot fetch USDC balance for stop-loss check: ${error.message}`);
+        return false; // Can't check, allow trade
+      }
+
+      // Get our open positions and calculate their total value
+      let positionsValue = 0;
+      try {
+        const positions = await this.monitor.getApi().getUserPositions(walletToCheck);
+        for (const position of positions) {
+          const size = parseFloat(position.size || '0');
+          const price = parseFloat(position.avgPrice || position.curPrice || '0.5');
+          positionsValue += size * price;
+        }
+      } catch (error: any) {
+        console.warn(`[CopyTrader] Cannot fetch positions for stop-loss check: ${error.message}`);
+        return false; // Can't check, allow trade
+      }
+
+      // Calculate commitment percentage
+      const totalValue = freeUsdc + positionsValue;
+      if (totalValue <= 0) {
+        return false; // No value, allow trade
+      }
+
+      const commitmentPercent = (positionsValue / totalValue) * 100;
+      
+      console.log(`[CopyTrader] Stop-loss check: ${commitmentPercent.toFixed(2)}% committed ($${positionsValue.toFixed(2)} in positions / $${totalValue.toFixed(2)} total), limit: ${stopLossConfig.maxCommitmentPercent}%`);
+
+      if (commitmentPercent >= stopLossConfig.maxCommitmentPercent) {
+        console.log(`[CopyTrader] ⚠️ STOP-LOSS ACTIVE: ${commitmentPercent.toFixed(2)}% >= ${stopLossConfig.maxCommitmentPercent}%`);
+        return true; // Stop-loss active, block trade
+      }
+
+      return false; // Under limit, allow trade
+    } catch (error: any) {
+      console.warn(`[CopyTrader] Stop-loss check error: ${error.message}`);
+      return false; // Error, allow trade to proceed
+    }
   }
 }

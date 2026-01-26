@@ -555,6 +555,100 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
+  // Update per-wallet trade configuration
+  // Allows setting trade sizing mode and threshold per wallet
+  // - tradeSizingMode: undefined = use global size (no filter), 'fixed' = wallet-specific size + threshold, 'proportional' = match their %
+  // - fixedTradeSize: USDC amount when mode is 'fixed'
+  // - thresholdEnabled: Filter small trades (only when mode is 'fixed')
+  // - thresholdPercent: Threshold % (only when mode is 'fixed')
+  router.patch('/wallets/:address/trade-config', async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      const { tradeSizingMode, fixedTradeSize, thresholdEnabled, thresholdPercent } = req.body;
+      
+      // Validate tradeSizingMode
+      if (tradeSizingMode !== undefined && tradeSizingMode !== null) {
+        if (tradeSizingMode !== 'fixed' && tradeSizingMode !== 'proportional') {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'tradeSizingMode must be "fixed", "proportional", or null (to use global defaults)' 
+          });
+        }
+      }
+      
+      // Validate fixedTradeSize
+      if (fixedTradeSize !== undefined && fixedTradeSize !== null) {
+        const sizeNum = parseFloat(fixedTradeSize);
+        if (isNaN(sizeNum) || sizeNum <= 0) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'fixedTradeSize must be a positive number (USDC amount)' 
+          });
+        }
+      }
+      
+      // Validate thresholdPercent
+      if (thresholdPercent !== undefined && thresholdPercent !== null) {
+        const percentNum = parseFloat(thresholdPercent);
+        if (isNaN(percentNum) || percentNum < 0.1 || percentNum > 100) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'thresholdPercent must be a number between 0.1 and 100' 
+          });
+        }
+      }
+      
+      const wallet = await Storage.updateWalletTradeConfig(address, {
+        tradeSizingMode: tradeSizingMode,
+        fixedTradeSize: fixedTradeSize !== null ? parseFloat(fixedTradeSize) : null,
+        thresholdEnabled: thresholdEnabled,
+        thresholdPercent: thresholdPercent !== null ? parseFloat(thresholdPercent) : null
+      });
+      
+      await copyTrader.reloadWallets();
+      
+      // Build message based on mode
+      let message = 'Wallet trade config updated: ';
+      if (!wallet.tradeSizingMode) {
+        message += 'Using global defaults (copy all trades at global size)';
+      } else if (wallet.tradeSizingMode === 'proportional') {
+        message += 'Proportional mode (match their portfolio %)';
+      } else if (wallet.tradeSizingMode === 'fixed') {
+        message += `Fixed mode ($${wallet.fixedTradeSize || 'global'} USDC`;
+        if (wallet.thresholdEnabled) {
+          message += `, filter trades < ${wallet.thresholdPercent}% of their portfolio`;
+        }
+        message += ')';
+      }
+      
+      res.json({ 
+        success: true, 
+        message,
+        wallet 
+      });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Clear per-wallet trade configuration (revert to global defaults)
+  router.delete('/wallets/:address/trade-config', async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      
+      const wallet = await Storage.clearWalletTradeConfig(address);
+      await copyTrader.reloadWallets();
+      
+      res.json({ 
+        success: true, 
+        message: 'Wallet trade config cleared - using global defaults (copy all trades at global size)',
+        wallet 
+      });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
   // Get wallet positions
   router.get('/wallets/:address/positions', async (req: Request, res: Response) => {
     const { address } = req.params;
@@ -623,16 +717,25 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
 
   // Get position threshold configuration
+  // @deprecated - Use per-wallet trade config instead (PATCH /api/wallets/:address/trade-config)
+  // This global threshold is no longer used - filters are now per-wallet only
   router.get('/config/position-threshold', async (req: Request, res: Response) => {
     try {
       const threshold = await Storage.getPositionThreshold();
-      res.json({ success: true, ...threshold });
+      res.json({ 
+        success: true, 
+        ...threshold,
+        deprecated: true,
+        message: 'This endpoint is deprecated. Use per-wallet trade config instead (PATCH /api/wallets/:address/trade-config). Global threshold is no longer applied.'
+      });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
   });
 
   // Set position threshold configuration
+  // @deprecated - Use per-wallet trade config instead (PATCH /api/wallets/:address/trade-config)
+  // This global threshold is no longer used - filters are now per-wallet only
   router.post('/config/position-threshold', async (req: Request, res: Response) => {
     try {
       const { enabled, percent } = req.body;
@@ -657,11 +760,58 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       await Storage.setPositionThreshold(enabled, percentNum);
       res.json({ 
         success: true, 
-        message: enabled 
-          ? `Position threshold enabled at ${percentNum}%` 
-          : 'Position threshold disabled',
+        message: 'WARNING: This setting is deprecated and no longer applied. Use per-wallet trade config instead.',
+        deprecated: true,
         enabled,
         percent: percentNum
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get USDC usage stop-loss configuration
+  // When enabled, stops taking new trades when X% of USDC is committed to open positions
+  router.get('/config/usage-stop-loss', async (req: Request, res: Response) => {
+    try {
+      const stopLoss = await Storage.getUsageStopLoss();
+      res.json({ success: true, ...stopLoss });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Set USDC usage stop-loss configuration
+  // When enabled, stops taking new trades when X% of USDC is committed to open positions
+  router.post('/config/usage-stop-loss', async (req: Request, res: Response) => {
+    try {
+      const { enabled, maxCommitmentPercent } = req.body;
+      
+      // Validate enabled is boolean
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'enabled must be a boolean' 
+        });
+      }
+
+      // Validate maxCommitmentPercent is a number between 1 and 99
+      const percentNum = parseFloat(maxCommitmentPercent);
+      if (isNaN(percentNum) || percentNum < 1 || percentNum > 99) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'maxCommitmentPercent must be a number between 1 and 99' 
+        });
+      }
+
+      await Storage.setUsageStopLoss(enabled, percentNum);
+      res.json({ 
+        success: true, 
+        message: enabled 
+          ? `Stop-loss enabled: Will stop taking new trades when ${percentNum}% of USDC is committed to open positions` 
+          : 'Stop-loss disabled',
+        enabled,
+        maxCommitmentPercent: percentNum
       });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });

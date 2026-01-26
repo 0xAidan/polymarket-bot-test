@@ -149,6 +149,60 @@ export class Storage {
   }
 
   /**
+   * Update wallet trade configuration
+   * Allows per-wallet sizing mode and threshold settings
+   * - tradeSizingMode: undefined = use global size (no filter), 'fixed' = wallet-specific size + threshold, 'proportional' = match their %
+   * - fixedTradeSize: USDC amount when mode is 'fixed'
+   * - thresholdEnabled: Filter small trades (only when mode is 'fixed')
+   * - thresholdPercent: Threshold % (only when mode is 'fixed')
+   */
+  static async updateWalletTradeConfig(
+    address: string,
+    config: {
+      tradeSizingMode?: 'fixed' | 'proportional' | null; // null to clear (use global)
+      fixedTradeSize?: number | null;
+      thresholdEnabled?: boolean | null;
+      thresholdPercent?: number | null;
+    }
+  ): Promise<TrackedWallet> {
+    const wallets = await this.loadTrackedWallets();
+    const wallet = wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
+    
+    if (!wallet) {
+      throw new Error('Wallet not found');
+    }
+
+    // Update fields - null clears the value (reverts to global/default)
+    if (config.tradeSizingMode !== undefined) {
+      wallet.tradeSizingMode = config.tradeSizingMode === null ? undefined : config.tradeSizingMode;
+    }
+    if (config.fixedTradeSize !== undefined) {
+      wallet.fixedTradeSize = config.fixedTradeSize === null ? undefined : config.fixedTradeSize;
+    }
+    if (config.thresholdEnabled !== undefined) {
+      wallet.thresholdEnabled = config.thresholdEnabled === null ? undefined : config.thresholdEnabled;
+    }
+    if (config.thresholdPercent !== undefined) {
+      wallet.thresholdPercent = config.thresholdPercent === null ? undefined : config.thresholdPercent;
+    }
+
+    await this.saveTrackedWallets(wallets);
+    return wallet;
+  }
+
+  /**
+   * Clear wallet trade configuration (revert to global defaults)
+   */
+  static async clearWalletTradeConfig(address: string): Promise<TrackedWallet> {
+    return this.updateWalletTradeConfig(address, {
+      tradeSizingMode: null,
+      fixedTradeSize: null,
+      thresholdEnabled: null,
+      thresholdPercent: null
+    });
+  }
+
+  /**
    * Load bot configuration
    */
   static async loadConfig(): Promise<any> {
@@ -232,11 +286,36 @@ export class Storage {
 
   /**
    * Set position threshold configuration
+   * @deprecated Use per-wallet trade config instead (updateWalletTradeConfig)
    */
   static async setPositionThreshold(enabled: boolean, percent: number): Promise<void> {
     const config = await this.loadConfig();
     config.positionThresholdEnabled = enabled;
     config.positionThresholdPercent = percent;
+    await this.saveConfig(config);
+  }
+
+  /**
+   * Get USDC usage stop-loss configuration
+   * When enabled, stops taking new trades when X% of USDC is committed to open positions
+   */
+  static async getUsageStopLoss(): Promise<{ enabled: boolean; maxCommitmentPercent: number }> {
+    const config = await this.loadConfig();
+    return {
+      enabled: config.usageStopLossEnabled || false,
+      maxCommitmentPercent: config.usageStopLossPercent || 80 // Default 80%
+    };
+  }
+
+  /**
+   * Set USDC usage stop-loss configuration
+   * @param enabled - Whether stop-loss is enabled
+   * @param maxCommitmentPercent - Maximum % of USDC that can be committed to positions (1-99)
+   */
+  static async setUsageStopLoss(enabled: boolean, maxCommitmentPercent: number): Promise<void> {
+    const config = await this.loadConfig();
+    config.usageStopLossEnabled = enabled;
+    config.usageStopLossPercent = maxCommitmentPercent;
     await this.saveConfig(config);
   }
 }
