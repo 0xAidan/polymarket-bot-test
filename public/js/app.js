@@ -268,21 +268,29 @@ async function loadTrackedWalletBalance(address) {
     const data = await res.json();
     
     if (data.success && data.currentBalance !== undefined) {
-      const value = data.currentBalance;
+      const totalValue = data.currentBalance;
+      const usdcBalance = data.usdcBalance || 0;
+      const positionsValue = data.positionsValue || 0;
       const posCount = data.positionCount || 0;
       
-      if (value > 0) {
+      if (totalValue > 0) {
+        // Show breakdown: USDC + positions
+        let breakdown = [];
+        if (usdcBalance > 0) breakdown.push(`$${formatNumber(usdcBalance)} USDC`);
+        if (positionsValue > 0) breakdown.push(`$${formatNumber(positionsValue)} in ${posCount} pos`);
+        
         balanceEl.innerHTML = `
-          <span class="balance-value">$${formatNumber(value)}</span>
-          <span class="balance-note">${posCount} position${posCount !== 1 ? 's' : ''}</span>
+          <span class="balance-value">$${formatNumber(totalValue)}</span>
+          <span class="balance-note">${breakdown.join(' + ') || 'No breakdown'}</span>
         `;
       } else {
         balanceEl.innerHTML = `
-          <span class="balance-value muted">No positions</span>
+          <span class="balance-value muted">$0</span>
+          <span class="balance-note">No funds detected</span>
         `;
       }
     } else {
-      balanceEl.innerHTML = `<span class="balance-error">-</span>`;
+      balanceEl.innerHTML = `<span class="balance-error">Error</span>`;
     }
   } catch (error) {
     console.error(`Error loading balance for ${address}:`, error);

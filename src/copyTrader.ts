@@ -609,14 +609,14 @@ export class CopyTrader {
         // PROPORTIONAL MODE: Match their portfolio % with our portfolio %
         console.log(`[Trade] Mode: PROPORTIONAL (matching their % of portfolio)`);
         
-        // Get tracked wallet's portfolio value from Polymarket (positions value)
-        // This represents their "active trading capital" on Polymarket
+        // Get tracked wallet's TOTAL portfolio value (USDC balance + positions)
+        // USDC is fetched from their proxy wallet on-chain via Alchemy RPC
         let theirPortfolioValue = 0;
         try {
           const polymarketApi = this.monitor.getApi();
-          const portfolioData = await polymarketApi.getPortfolioValue(trade.walletAddress);
+          const portfolioData = await polymarketApi.getPortfolioValue(trade.walletAddress, this.balanceTracker);
           theirPortfolioValue = portfolioData.totalValue;
-          console.log(`[Trade] Their Polymarket portfolio: $${theirPortfolioValue.toFixed(2)} (${portfolioData.positionCount} positions)`);
+          console.log(`[Trade] Their Polymarket portfolio: $${theirPortfolioValue.toFixed(2)} (USDC: $${portfolioData.usdcBalance.toFixed(2)} + ${portfolioData.positionCount} positions: $${portfolioData.positionsValue.toFixed(2)})`);
         } catch (balanceError: any) {
           console.warn(`[CopyTrader] Could not fetch tracked wallet portfolio: ${balanceError.message}`);
         }
@@ -671,13 +671,13 @@ export class CopyTrader {
         
         // Check threshold filter if enabled for this wallet
         if (trade.thresholdEnabled && trade.thresholdPercent && trade.thresholdPercent > 0) {
-          // Get tracked wallet's portfolio value from Polymarket
+          // Get tracked wallet's TOTAL portfolio value (USDC + positions)
           let walletPortfolioValue = 0;
           try {
             const polymarketApi = this.monitor.getApi();
-            const portfolioData = await polymarketApi.getPortfolioValue(trade.walletAddress);
+            const portfolioData = await polymarketApi.getPortfolioValue(trade.walletAddress, this.balanceTracker);
             walletPortfolioValue = portfolioData.totalValue;
-            console.log(`[Trade] Threshold check - Their portfolio: $${walletPortfolioValue.toFixed(2)} (${portfolioData.positionCount} positions)`);
+            console.log(`[Trade] Threshold check - Their portfolio: $${walletPortfolioValue.toFixed(2)} (USDC: $${portfolioData.usdcBalance.toFixed(2)} + ${portfolioData.positionCount} positions: $${portfolioData.positionsValue.toFixed(2)})`);
           } catch (balanceError: any) {
             console.warn(`[CopyTrader] Could not fetch wallet portfolio for threshold check: ${balanceError.message}`);
           }

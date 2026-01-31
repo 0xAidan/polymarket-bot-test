@@ -515,56 +515,32 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
-  // Get tracked wallet's Polymarket portfolio value
-  // For tracked wallets, we estimate value from their positions since we can't access their CLOB balance
+  // Get tracked wallet's full Polymarket portfolio value
+  // Includes: on-chain USDC balance (from proxy wallet) + positions value
   router.get('/wallets/:address/balance', async (req: Request, res: Response) => {
     try {
       const { address } = req.params;
       const polymarketApi = copyTrader.getPolymarketApi();
+      const balanceTracker = copyTrader.getBalanceTracker();
       
-      // Get the wallet's proxy address first
-      const proxyAddress = await polymarketApi.getProxyWalletAddress(address);
-      const walletToCheck = proxyAddress || address;
+      console.log(`[API] Fetching tracked wallet portfolio for: ${address}`);
       
-      console.log(`[API] Fetching tracked wallet balance for: ${address}`);
-      console.log(`[API] Using address: ${walletToCheck} (proxy: ${!!proxyAddress})`);
+      // Get full portfolio value (USDC + positions)
+      const portfolioData = await polymarketApi.getPortfolioValue(address, balanceTracker);
       
-      // Get positions from Polymarket Data API
-      let positions: any[] = [];
-      try {
-        positions = await polymarketApi.getUserPositions(walletToCheck);
-      } catch (posError: any) {
-        console.warn(`[API] Could not fetch positions for ${address}: ${posError.message}`);
-      }
-      
-      // Calculate total position value
-      // Each position has: size (number of shares), curPrice (current market price)
-      let totalPositionValue = 0;
-      let positionCount = 0;
-      
-      for (const pos of positions) {
-        const size = parseFloat(pos.size || '0');
-        const curPrice = parseFloat(pos.curPrice || pos.currentPrice || '0');
-        
-        if (size > 0 && curPrice > 0) {
-          // Position value = shares * current price
-          const posValue = size * curPrice;
-          totalPositionValue += posValue;
-          positionCount++;
-        }
-      }
-      
-      console.log(`[API] Tracked wallet ${address.substring(0, 8)}... has ${positionCount} positions worth ~$${totalPositionValue.toFixed(2)}`);
+      console.log(`[API] Tracked wallet ${address.substring(0, 8)}... portfolio: $${portfolioData.totalValue.toFixed(2)}`);
+      console.log(`[API]   USDC: $${portfolioData.usdcBalance.toFixed(2)}`);
+      console.log(`[API]   Positions: $${portfolioData.positionsValue.toFixed(2)} (${portfolioData.positionCount} positions)`);
       
       res.json({ 
         success: true, 
-        currentBalance: totalPositionValue,
-        positionCount,
-        positionsValue: totalPositionValue,
+        currentBalance: portfolioData.totalValue,
+        usdcBalance: portfolioData.usdcBalance,
+        positionsValue: portfolioData.positionsValue,
+        positionCount: portfolioData.positionCount,
         walletAddress: address,
-        proxyAddress: proxyAddress,
-        source: 'positions_estimate', // Indicate this is estimated from positions
-        note: 'Balance is estimated from open positions (does not include uninvested USDC)'
+        proxyWallet: portfolioData.proxyWallet,
+        source: 'usdc_plus_positions'
       });
     } catch (error: any) {
       console.error(`[API] Error fetching tracked wallet balance:`, error.message);

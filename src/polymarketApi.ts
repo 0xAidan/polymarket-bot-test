@@ -338,27 +338,47 @@ export class PolymarketApi {
   }
 
   /**
-   * Calculate the total value of a user's Polymarket positions
-   * This represents their "active trading capital" on Polymarket
+   * Calculate the total portfolio value of a user on Polymarket
+   * This includes: USDC balance (on-chain in proxy wallet) + positions value
    * 
    * @param userAddress The wallet address to check (can be EOA or proxy)
-   * @returns Total value in USD of all positions
+   * @param balanceTracker Optional balance tracker for on-chain USDC lookup
+   * @returns Total portfolio value in USD
    */
-  async getPortfolioValue(userAddress: string): Promise<{ 
-    totalValue: number; 
+  async getPortfolioValue(userAddress: string, balanceTracker?: any): Promise<{ 
+    totalValue: number;
+    usdcBalance: number;
+    positionsValue: number;
     positionCount: number;
+    proxyWallet: string | null;
     positions: Array<{ size: number; price: number; value: number; market: string }>;
   }> {
     try {
       // First try to get proxy wallet if this is an EOA
+      // The proxy wallet is where Polymarket holds the user's USDC
       const proxyAddress = await this.getProxyWalletAddress(userAddress);
       const walletToCheck = proxyAddress || userAddress;
       
-      console.log(`[API] Calculating portfolio value for ${userAddress.substring(0, 8)}... (using: ${walletToCheck.substring(0, 8)}...)`);
+      console.log(`[API] Calculating portfolio value for ${userAddress.substring(0, 8)}...`);
+      console.log(`[API]   EOA: ${userAddress.substring(0, 10)}...`);
+      console.log(`[API]   Proxy wallet: ${proxyAddress ? proxyAddress.substring(0, 10) + '...' : 'NOT FOUND'}`);
+      console.log(`[API]   Checking: ${walletToCheck.substring(0, 10)}...`);
       
+      // 1. Get on-chain USDC balance from the proxy wallet
+      let usdcBalance = 0;
+      if (balanceTracker && walletToCheck) {
+        try {
+          usdcBalance = await balanceTracker.getBalance(walletToCheck);
+          console.log(`[API]   On-chain USDC balance: $${usdcBalance.toFixed(2)}`);
+        } catch (balanceError: any) {
+          console.warn(`[API]   Could not fetch on-chain USDC: ${balanceError.message}`);
+        }
+      }
+      
+      // 2. Get positions from Polymarket Data API
       const positions = await this.getUserPositions(walletToCheck);
       
-      let totalValue = 0;
+      let positionsValue = 0;
       const positionDetails: Array<{ size: number; price: number; value: number; market: string }> = [];
       
       for (const pos of positions) {
@@ -368,7 +388,7 @@ export class PolymarketApi {
         if (size > 0 && curPrice >= 0) {
           // Position value = shares * current price
           const value = size * curPrice;
-          totalValue += value;
+          positionsValue += value;
           positionDetails.push({
             size,
             price: curPrice,
@@ -378,16 +398,23 @@ export class PolymarketApi {
         }
       }
       
-      console.log(`[API] Portfolio value for ${userAddress.substring(0, 8)}...: $${totalValue.toFixed(2)} across ${positionDetails.length} positions`);
+      // 3. Total portfolio = USDC + positions
+      const totalValue = usdcBalance + positionsValue;
+      
+      console.log(`[API]   Positions value: $${positionsValue.toFixed(2)} (${positionDetails.length} positions)`);
+      console.log(`[API]   TOTAL PORTFOLIO: $${totalValue.toFixed(2)} (USDC: $${usdcBalance.toFixed(2)} + Positions: $${positionsValue.toFixed(2)})`);
       
       return {
         totalValue,
+        usdcBalance,
+        positionsValue,
         positionCount: positionDetails.length,
+        proxyWallet: proxyAddress,
         positions: positionDetails
       };
     } catch (error: any) {
       console.error(`[API] Error calculating portfolio value for ${userAddress}:`, error.message);
-      return { totalValue: 0, positionCount: 0, positions: [] };
+      return { totalValue: 0, usdcBalance: 0, positionsValue: 0, positionCount: 0, proxyWallet: null, positions: [] };
     }
   }
 
