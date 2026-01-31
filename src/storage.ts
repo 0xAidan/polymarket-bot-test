@@ -100,8 +100,9 @@ export class Storage {
 
   /**
    * Add a wallet to track
+   * New wallets default to active=false (must be explicitly enabled after configuration)
    */
-  static async addWallet(address: string): Promise<void> {
+  static async addWallet(address: string): Promise<TrackedWallet> {
     const wallets = await this.loadTrackedWallets();
     
     // Check if wallet already exists
@@ -109,13 +110,16 @@ export class Storage {
       throw new Error('Wallet already being tracked');
     }
 
-    wallets.push({
+    const newWallet: TrackedWallet = {
       address: address.toLowerCase(),
       addedAt: new Date(),
-      active: true
-    });
-
+      active: false  // Default to OFF - must configure and enable
+    };
+    
+    wallets.push(newWallet);
     await this.saveTrackedWallets(wallets);
+    
+    return newWallet;
   }
 
   /**
@@ -170,22 +174,33 @@ export class Storage {
   }
 
   /**
-   * Update wallet trade configuration
-   * Allows per-wallet sizing mode, threshold settings, and trade side filter
-   * - tradeSizingMode: undefined = use global size (no filter), 'fixed' = wallet-specific size + threshold, 'proportional' = match their %
-   * - fixedTradeSize: USDC amount when mode is 'fixed'
-   * - thresholdEnabled: Filter small trades (only when mode is 'fixed')
-   * - thresholdPercent: Threshold % (only when mode is 'fixed')
-   * - tradeSideFilter: undefined = use global, 'all'/'buy_only'/'sell_only' = per-wallet override
+   * Update wallet trade configuration (ALL settings are per-wallet)
+   * Pass null to clear a value (revert to default)
    */
   static async updateWalletTradeConfig(
     address: string,
     walletConfig: {
-      tradeSizingMode?: 'fixed' | 'proportional' | null; // null to clear (use global)
+      // Trade sizing
+      tradeSizingMode?: 'fixed' | 'proportional' | null;
       fixedTradeSize?: number | null;
       thresholdEnabled?: boolean | null;
       thresholdPercent?: number | null;
-      tradeSideFilter?: TradeSideFilter | null; // null to clear (use global)
+      
+      // Trade side filter
+      tradeSideFilter?: TradeSideFilter | null;
+      
+      // Advanced filters
+      noRepeatEnabled?: boolean | null;
+      noRepeatPeriodHours?: number | null;  // 0 = forever
+      priceLimitsMin?: number | null;
+      priceLimitsMax?: number | null;
+      rateLimitEnabled?: boolean | null;
+      rateLimitPerHour?: number | null;
+      rateLimitPerDay?: number | null;
+      valueFilterEnabled?: boolean | null;
+      valueFilterMin?: number | null;
+      valueFilterMax?: number | null;
+      slippagePercent?: number | null;
     }
   ): Promise<TrackedWallet> {
     const wallets = await this.loadTrackedWallets();
@@ -195,29 +210,41 @@ export class Storage {
       throw new Error('Wallet not found');
     }
 
-    // Update fields - null clears the value (reverts to global/default)
-    if (walletConfig.tradeSizingMode !== undefined) {
-      wallet.tradeSizingMode = walletConfig.tradeSizingMode === null ? undefined : walletConfig.tradeSizingMode;
-    }
-    if (walletConfig.fixedTradeSize !== undefined) {
-      wallet.fixedTradeSize = walletConfig.fixedTradeSize === null ? undefined : walletConfig.fixedTradeSize;
-    }
-    if (walletConfig.thresholdEnabled !== undefined) {
-      wallet.thresholdEnabled = walletConfig.thresholdEnabled === null ? undefined : walletConfig.thresholdEnabled;
-    }
-    if (walletConfig.thresholdPercent !== undefined) {
-      wallet.thresholdPercent = walletConfig.thresholdPercent === null ? undefined : walletConfig.thresholdPercent;
-    }
-    if (walletConfig.tradeSideFilter !== undefined) {
-      wallet.tradeSideFilter = walletConfig.tradeSideFilter === null ? undefined : walletConfig.tradeSideFilter;
-    }
+    // Helper to update field: undefined = don't change, null = clear, value = set
+    const updateField = <T>(current: T | undefined, newVal: T | null | undefined): T | undefined => {
+      if (newVal === undefined) return current;  // Don't change
+      if (newVal === null) return undefined;     // Clear
+      return newVal;                              // Set new value
+    };
+
+    // Trade sizing
+    wallet.tradeSizingMode = updateField(wallet.tradeSizingMode, walletConfig.tradeSizingMode);
+    wallet.fixedTradeSize = updateField(wallet.fixedTradeSize, walletConfig.fixedTradeSize);
+    wallet.thresholdEnabled = updateField(wallet.thresholdEnabled, walletConfig.thresholdEnabled);
+    wallet.thresholdPercent = updateField(wallet.thresholdPercent, walletConfig.thresholdPercent);
+    
+    // Trade side filter
+    wallet.tradeSideFilter = updateField(wallet.tradeSideFilter, walletConfig.tradeSideFilter);
+    
+    // Advanced filters
+    wallet.noRepeatEnabled = updateField(wallet.noRepeatEnabled, walletConfig.noRepeatEnabled);
+    wallet.noRepeatPeriodHours = updateField(wallet.noRepeatPeriodHours, walletConfig.noRepeatPeriodHours);
+    wallet.priceLimitsMin = updateField(wallet.priceLimitsMin, walletConfig.priceLimitsMin);
+    wallet.priceLimitsMax = updateField(wallet.priceLimitsMax, walletConfig.priceLimitsMax);
+    wallet.rateLimitEnabled = updateField(wallet.rateLimitEnabled, walletConfig.rateLimitEnabled);
+    wallet.rateLimitPerHour = updateField(wallet.rateLimitPerHour, walletConfig.rateLimitPerHour);
+    wallet.rateLimitPerDay = updateField(wallet.rateLimitPerDay, walletConfig.rateLimitPerDay);
+    wallet.valueFilterEnabled = updateField(wallet.valueFilterEnabled, walletConfig.valueFilterEnabled);
+    wallet.valueFilterMin = updateField(wallet.valueFilterMin, walletConfig.valueFilterMin);
+    wallet.valueFilterMax = updateField(wallet.valueFilterMax, walletConfig.valueFilterMax);
+    wallet.slippagePercent = updateField(wallet.slippagePercent, walletConfig.slippagePercent);
 
     await this.saveTrackedWallets(wallets);
     return wallet;
   }
 
   /**
-   * Clear wallet trade configuration (revert to global defaults)
+   * Clear ALL wallet trade configuration (revert to defaults)
    */
   static async clearWalletTradeConfig(address: string): Promise<TrackedWallet> {
     return this.updateWalletTradeConfig(address, {
@@ -225,7 +252,18 @@ export class Storage {
       fixedTradeSize: null,
       thresholdEnabled: null,
       thresholdPercent: null,
-      tradeSideFilter: null
+      tradeSideFilter: null,
+      noRepeatEnabled: null,
+      noRepeatPeriodHours: null,
+      priceLimitsMin: null,
+      priceLimitsMax: null,
+      rateLimitEnabled: null,
+      rateLimitPerHour: null,
+      rateLimitPerDay: null,
+      valueFilterEnabled: null,
+      valueFilterMin: null,
+      valueFilterMax: null,
+      slippagePercent: null
     });
   }
 
@@ -558,6 +596,7 @@ export class Storage {
 
   /**
    * Check if a market+side position has been executed within the block period
+   * @param blockPeriodHours - Hours to block (0 = forever until manually cleared)
    * @returns true if the position exists and is within the block period (should be blocked)
    */
   static async isPositionBlocked(
@@ -566,6 +605,15 @@ export class Storage {
     blockPeriodHours: number
   ): Promise<boolean> {
     const positions = await this.loadExecutedPositions();
+    
+    // 0 = forever - any existing position blocks
+    if (blockPeriodHours === 0) {
+      return positions.some(
+        p => p.marketId === marketId && p.side === side
+      );
+    }
+    
+    // Time-based blocking
     const blockPeriodMs = blockPeriodHours * 60 * 60 * 1000;
     const cutoffTime = Date.now() - blockPeriodMs;
     
@@ -593,8 +641,14 @@ export class Storage {
   /**
    * Cleanup expired executed positions
    * Removes positions older than the specified block period
+   * @param blockPeriodHours - Hours after which positions expire (0 = never expire)
    */
   static async cleanupExpiredPositions(blockPeriodHours: number): Promise<number> {
+    // If blockPeriodHours is 0 (forever), don't clean up anything
+    if (blockPeriodHours === 0) {
+      return 0;
+    }
+    
     const positions = await this.loadExecutedPositions();
     const blockPeriodMs = blockPeriodHours * 60 * 60 * 1000;
     const cutoffTime = Date.now() - blockPeriodMs;
@@ -608,5 +662,13 @@ export class Storage {
     }
     
     return removedCount;
+  }
+
+  /**
+   * Get a specific wallet by address
+   */
+  static async getWallet(address: string): Promise<TrackedWallet | null> {
+    const wallets = await this.loadTrackedWallets();
+    return wallets.find(w => w.address.toLowerCase() === address.toLowerCase()) || null;
   }
 }
