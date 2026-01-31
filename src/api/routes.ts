@@ -535,15 +535,16 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
 
   // Update per-wallet trade configuration
-  // Allows setting trade sizing mode and threshold per wallet
+  // Allows setting trade sizing mode, threshold, and side filter per wallet
   // - tradeSizingMode: undefined = use global size (no filter), 'fixed' = wallet-specific size + threshold, 'proportional' = match their %
   // - fixedTradeSize: USDC amount when mode is 'fixed'
   // - thresholdEnabled: Filter small trades (only when mode is 'fixed')
   // - thresholdPercent: Threshold % (only when mode is 'fixed')
+  // - tradeSideFilter: 'all' | 'buy_only' | 'sell_only' | null (null = use global)
   router.patch('/wallets/:address/trade-config', async (req: Request, res: Response) => {
     try {
       const { address } = req.params;
-      const { tradeSizingMode, fixedTradeSize, thresholdEnabled, thresholdPercent } = req.body;
+      const { tradeSizingMode, fixedTradeSize, thresholdEnabled, thresholdPercent, tradeSideFilter } = req.body;
       
       // Validate tradeSizingMode
       if (tradeSizingMode !== undefined && tradeSizingMode !== null) {
@@ -577,11 +578,22 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         }
       }
       
+      // Validate tradeSideFilter
+      if (tradeSideFilter !== undefined && tradeSideFilter !== null) {
+        if (!['all', 'buy_only', 'sell_only'].includes(tradeSideFilter)) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'tradeSideFilter must be "all", "buy_only", "sell_only", or null (to use global)' 
+          });
+        }
+      }
+      
       const wallet = await Storage.updateWalletTradeConfig(address, {
         tradeSizingMode: tradeSizingMode,
-        fixedTradeSize: fixedTradeSize !== null ? parseFloat(fixedTradeSize) : null,
+        fixedTradeSize: fixedTradeSize !== null && fixedTradeSize !== undefined ? parseFloat(fixedTradeSize) : (fixedTradeSize === null ? null : undefined),
         thresholdEnabled: thresholdEnabled,
-        thresholdPercent: thresholdPercent !== null ? parseFloat(thresholdPercent) : null
+        thresholdPercent: thresholdPercent !== null && thresholdPercent !== undefined ? parseFloat(thresholdPercent) : (thresholdPercent === null ? null : undefined),
+        tradeSideFilter: tradeSideFilter
       });
       
       await copyTrader.reloadWallets();
@@ -598,6 +610,13 @@ export function createRoutes(copyTrader: CopyTrader): Router {
           message += `, filter trades < ${wallet.thresholdPercent}% of their portfolio`;
         }
         message += ')';
+      }
+      
+      // Add trade side filter info
+      if (wallet.tradeSideFilter) {
+        const sideLabel = wallet.tradeSideFilter === 'buy_only' ? 'BUY only' : 
+                          wallet.tradeSideFilter === 'sell_only' ? 'SELL only' : 'All trades';
+        message += ` | Side filter: ${sideLabel}`;
       }
       
       res.json({ 
@@ -1003,6 +1022,532 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       config.polymarketBuilderPassphrase = passphrase;
       
       res.json({ success: true, message: 'Builder credentials updated. Bot restart recommended.' });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // ADVANCED TRADE FILTER CONFIGURATION ENDPOINTS
+  // ============================================================================
+
+  // Get no-repeat-trades configuration
+  router.get('/config/no-repeat-trades', async (req: Request, res: Response) => {
+    try {
+      const config = await Storage.getNoRepeatTrades();
+      res.json({ success: true, ...config });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Set no-repeat-trades configuration
+  router.post('/config/no-repeat-trades', async (req: Request, res: Response) => {
+    try {
+      const { enabled, blockPeriodHours } = req.body;
+      
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'enabled must be a boolean' 
+        });
+      }
+
+      const periodNum = parseInt(blockPeriodHours);
+      const validPeriods = [1, 6, 12, 24, 48, 168]; // 1h, 6h, 12h, 24h, 48h, 7 days
+      if (isNaN(periodNum) || !validPeriods.includes(periodNum)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: `blockPeriodHours must be one of: ${validPeriods.join(', ')}` 
+        });
+      }
+
+      await Storage.setNoRepeatTrades(enabled, periodNum);
+      
+      // Cleanup expired positions when enabling or changing period
+      if (enabled) {
+        await Storage.cleanupExpiredPositions(periodNum);
+      }
+      
+      res.json({ 
+        success: true, 
+        message: enabled 
+          ? `No-repeat-trades enabled: Will block repeat trades in same market+side for ${periodNum} hours` 
+          : 'No-repeat-trades disabled',
+        enabled,
+        blockPeriodHours: periodNum
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get no-repeat-trades history (blocked positions)
+  router.get('/config/no-repeat-trades/history', async (req: Request, res: Response) => {
+    try {
+      const positions = await Storage.getExecutedPositions();
+      const config = await Storage.getNoRepeatTrades();
+      const blockPeriodMs = config.blockPeriodHours * 60 * 60 * 1000;
+      const cutoffTime = Date.now() - blockPeriodMs;
+      
+      // Mark which positions are currently blocking
+      const positionsWithStatus = positions.map(p => ({
+        ...p,
+        isBlocking: p.timestamp > cutoffTime,
+        expiresAt: new Date(p.timestamp + blockPeriodMs).toISOString(),
+        age: Math.round((Date.now() - p.timestamp) / (60 * 60 * 1000)) + ' hours'
+      }));
+      
+      res.json({ 
+        success: true, 
+        positions: positionsWithStatus,
+        totalPositions: positions.length,
+        activeBlocks: positionsWithStatus.filter(p => p.isBlocking).length
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Clear no-repeat-trades history
+  router.delete('/config/no-repeat-trades/history', async (req: Request, res: Response) => {
+    try {
+      await Storage.clearExecutedPositions();
+      res.json({ 
+        success: true, 
+        message: 'No-repeat-trades history cleared. All markets are now unblocked.' 
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get price limits configuration
+  router.get('/config/price-limits', async (req: Request, res: Response) => {
+    try {
+      const limits = await Storage.getPriceLimits();
+      res.json({ success: true, ...limits });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Set price limits configuration
+  router.post('/config/price-limits', async (req: Request, res: Response) => {
+    try {
+      const { minPrice, maxPrice } = req.body;
+      
+      const minNum = parseFloat(minPrice);
+      const maxNum = parseFloat(maxPrice);
+      
+      if (isNaN(minNum) || minNum < 0.01 || minNum > 0.98) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'minPrice must be between 0.01 and 0.98' 
+        });
+      }
+      
+      if (isNaN(maxNum) || maxNum < 0.02 || maxNum > 0.99) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'maxPrice must be between 0.02 and 0.99' 
+        });
+      }
+      
+      if (minNum >= maxNum) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'minPrice must be less than maxPrice' 
+        });
+      }
+
+      await Storage.setPriceLimits(minNum, maxNum);
+      res.json({ 
+        success: true, 
+        message: `Price limits updated: Only copy trades between $${minNum.toFixed(2)} and $${maxNum.toFixed(2)}`,
+        minPrice: minNum,
+        maxPrice: maxNum
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get slippage configuration
+  router.get('/config/slippage', async (req: Request, res: Response) => {
+    try {
+      const slippagePercent = await Storage.getSlippagePercent();
+      res.json({ success: true, slippagePercent });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Set slippage configuration
+  router.post('/config/slippage', async (req: Request, res: Response) => {
+    try {
+      const { slippagePercent } = req.body;
+      
+      const percentNum = parseFloat(slippagePercent);
+      if (isNaN(percentNum) || percentNum < 0.5 || percentNum > 10) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'slippagePercent must be between 0.5 and 10' 
+        });
+      }
+
+      await Storage.setSlippagePercent(percentNum);
+      res.json({ 
+        success: true, 
+        message: `Slippage updated to ${percentNum}%`,
+        slippagePercent: percentNum
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get global trade side filter configuration
+  router.get('/config/trade-side-filter', async (req: Request, res: Response) => {
+    try {
+      const tradeSideFilter = await Storage.getTradeSideFilter();
+      res.json({ success: true, tradeSideFilter });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Set global trade side filter configuration
+  router.post('/config/trade-side-filter', async (req: Request, res: Response) => {
+    try {
+      const { tradeSideFilter } = req.body;
+      
+      if (!['all', 'buy_only', 'sell_only'].includes(tradeSideFilter)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'tradeSideFilter must be "all", "buy_only", or "sell_only"' 
+        });
+      }
+
+      await Storage.setTradeSideFilter(tradeSideFilter);
+      
+      const filterLabel = tradeSideFilter === 'buy_only' ? 'BUY trades only' : 
+                          tradeSideFilter === 'sell_only' ? 'SELL trades only' : 'All trades (BUY and SELL)';
+      
+      res.json({ 
+        success: true, 
+        message: `Trade side filter set to: ${filterLabel}`,
+        tradeSideFilter
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get rate limiting configuration
+  router.get('/config/rate-limiting', async (req: Request, res: Response) => {
+    try {
+      const rateLimiting = await Storage.getRateLimiting();
+      res.json({ success: true, ...rateLimiting });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Set rate limiting configuration
+  router.post('/config/rate-limiting', async (req: Request, res: Response) => {
+    try {
+      const { enabled, maxTradesPerHour, maxTradesPerDay } = req.body;
+      
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'enabled must be a boolean' 
+        });
+      }
+
+      const hourNum = parseInt(maxTradesPerHour);
+      if (isNaN(hourNum) || hourNum < 1 || hourNum > 100) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'maxTradesPerHour must be between 1 and 100' 
+        });
+      }
+
+      const dayNum = parseInt(maxTradesPerDay);
+      if (isNaN(dayNum) || dayNum < 1 || dayNum > 500) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'maxTradesPerDay must be between 1 and 500' 
+        });
+      }
+
+      if (hourNum > dayNum) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'maxTradesPerHour cannot exceed maxTradesPerDay' 
+        });
+      }
+
+      await Storage.setRateLimiting(enabled, hourNum, dayNum);
+      res.json({ 
+        success: true, 
+        message: enabled 
+          ? `Rate limiting enabled: Max ${hourNum} trades/hour, ${dayNum} trades/day` 
+          : 'Rate limiting disabled',
+        enabled,
+        maxTradesPerHour: hourNum,
+        maxTradesPerDay: dayNum
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get rate limiting status (current counts)
+  router.get('/config/rate-limiting/status', async (req: Request, res: Response) => {
+    try {
+      const rateLimiting = await Storage.getRateLimiting();
+      const status = copyTrader.getRateLimitStatus();
+      
+      res.json({ 
+        success: true, 
+        config: rateLimiting,
+        current: status,
+        remainingThisHour: rateLimiting.enabled ? Math.max(0, rateLimiting.maxTradesPerHour - status.tradesThisHour) : null,
+        remainingThisDay: rateLimiting.enabled ? Math.max(0, rateLimiting.maxTradesPerDay - status.tradesThisDay) : null
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get trade value filters configuration
+  router.get('/config/trade-value-filters', async (req: Request, res: Response) => {
+    try {
+      const filters = await Storage.getTradeValueFilters();
+      res.json({ success: true, ...filters });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Set trade value filters configuration
+  router.post('/config/trade-value-filters', async (req: Request, res: Response) => {
+    try {
+      const { enabled, minTradeValueUSD, maxTradeValueUSD } = req.body;
+      
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'enabled must be a boolean' 
+        });
+      }
+
+      let minVal: number | null = null;
+      let maxVal: number | null = null;
+
+      if (minTradeValueUSD !== null && minTradeValueUSD !== undefined) {
+        minVal = parseFloat(minTradeValueUSD);
+        if (isNaN(minVal) || minVal < 0) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'minTradeValueUSD must be a non-negative number or null' 
+          });
+        }
+      }
+
+      if (maxTradeValueUSD !== null && maxTradeValueUSD !== undefined) {
+        maxVal = parseFloat(maxTradeValueUSD);
+        if (isNaN(maxVal) || maxVal < 0) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'maxTradeValueUSD must be a non-negative number or null' 
+          });
+        }
+      }
+
+      if (minVal !== null && maxVal !== null && minVal >= maxVal) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'minTradeValueUSD must be less than maxTradeValueUSD' 
+        });
+      }
+
+      await Storage.setTradeValueFilters(enabled, minVal, maxVal);
+      
+      let message = enabled ? 'Trade value filters enabled: ' : 'Trade value filters disabled';
+      if (enabled) {
+        const parts = [];
+        if (minVal !== null) parts.push(`min $${minVal}`);
+        if (maxVal !== null) parts.push(`max $${maxVal}`);
+        message += parts.length > 0 ? parts.join(', ') : 'no limits set';
+      }
+      
+      res.json({ 
+        success: true, 
+        message,
+        enabled,
+        minTradeValueUSD: minVal,
+        maxTradeValueUSD: maxVal
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get all configuration in one call (for UI)
+  router.get('/config/all', async (req: Request, res: Response) => {
+    try {
+      const [
+        tradeSize,
+        noRepeatTrades,
+        priceLimits,
+        slippagePercent,
+        tradeSideFilter,
+        rateLimiting,
+        tradeValueFilters,
+        usageStopLoss,
+        monitoringInterval
+      ] = await Promise.all([
+        Storage.getTradeSize(),
+        Storage.getNoRepeatTrades(),
+        Storage.getPriceLimits(),
+        Storage.getSlippagePercent(),
+        Storage.getTradeSideFilter(),
+        Storage.getRateLimiting(),
+        Storage.getTradeValueFilters(),
+        Storage.getUsageStopLoss(),
+        Storage.getMonitoringInterval()
+      ]);
+
+      res.json({ 
+        success: true,
+        config: {
+          tradeSize,
+          noRepeatTrades,
+          priceLimits,
+          slippagePercent,
+          tradeSideFilter,
+          rateLimiting,
+          tradeValueFilters,
+          usageStopLoss,
+          monitoringIntervalMs: monitoringInterval
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Validate configuration and detect conflicts
+  router.get('/config/validate', async (req: Request, res: Response) => {
+    try {
+      const [
+        noRepeatTrades,
+        priceLimits,
+        rateLimiting,
+        tradeValueFilters,
+        usageStopLoss,
+        wallets
+      ] = await Promise.all([
+        Storage.getNoRepeatTrades(),
+        Storage.getPriceLimits(),
+        Storage.getRateLimiting(),
+        Storage.getTradeValueFilters(),
+        Storage.getUsageStopLoss(),
+        Storage.loadTrackedWallets()
+      ]);
+
+      const conflicts: Array<{
+        type: 'warning' | 'error';
+        code: string;
+        message: string;
+        affectedSettings: string[];
+        suggestion?: string;
+      }> = [];
+
+      // Check for narrow price range
+      const priceRange = priceLimits.maxPrice - priceLimits.minPrice;
+      if (priceRange < 0.10) {
+        conflicts.push({
+          type: 'warning',
+          code: 'NARROW_PRICE_RANGE',
+          message: `Price range is very narrow (${(priceRange * 100).toFixed(0)}¢). This may skip many valid trades.`,
+          affectedSettings: ['priceLimits'],
+          suggestion: 'Consider widening the price range to at least 0.10'
+        });
+      }
+
+      // Check for very low rate limits
+      if (rateLimiting.enabled && rateLimiting.maxTradesPerHour < 3) {
+        conflicts.push({
+          type: 'warning',
+          code: 'LOW_RATE_LIMIT',
+          message: `Rate limit is very low (${rateLimiting.maxTradesPerHour}/hour). You may miss important trades.`,
+          affectedSettings: ['rateLimiting'],
+          suggestion: 'Consider allowing at least 5 trades per hour'
+        });
+      }
+
+      // Check for stop-loss blocking most trades
+      if (usageStopLoss.enabled && usageStopLoss.maxCommitmentPercent < 10) {
+        conflicts.push({
+          type: 'warning',
+          code: 'AGGRESSIVE_STOP_LOSS',
+          message: `Stop-loss is set very low (${usageStopLoss.maxCommitmentPercent}%). This may block most trades.`,
+          affectedSettings: ['usageStopLoss'],
+          suggestion: 'Consider setting stop-loss to at least 20%'
+        });
+      }
+
+      // Check for trade value filter conflicts
+      if (tradeValueFilters.enabled) {
+        if (tradeValueFilters.minTradeValueUSD !== null && 
+            tradeValueFilters.maxTradeValueUSD !== null &&
+            tradeValueFilters.minTradeValueUSD >= tradeValueFilters.maxTradeValueUSD) {
+          conflicts.push({
+            type: 'error',
+            code: 'INVALID_VALUE_FILTER',
+            message: 'Minimum trade value is greater than or equal to maximum trade value.',
+            affectedSettings: ['tradeValueFilters'],
+            suggestion: 'Set minimum value lower than maximum value'
+          });
+        }
+      }
+
+      // Check for short no-repeat block period
+      if (noRepeatTrades.enabled && noRepeatTrades.blockPeriodHours < 6) {
+        conflicts.push({
+          type: 'warning',
+          code: 'SHORT_BLOCK_PERIOD',
+          message: `No-repeat block period is short (${noRepeatTrades.blockPeriodHours}h). Repeated trades may still occur.`,
+          affectedSettings: ['noRepeatTrades'],
+          suggestion: 'Consider blocking for at least 24 hours'
+        });
+      }
+
+      // Check for per-wallet threshold conflicts
+      const walletsWithThresholdButNoFixedMode = wallets.filter(
+        w => w.thresholdEnabled && w.tradeSizingMode !== 'fixed'
+      );
+      if (walletsWithThresholdButNoFixedMode.length > 0) {
+        conflicts.push({
+          type: 'warning',
+          code: 'THRESHOLD_WITHOUT_FIXED_MODE',
+          message: `${walletsWithThresholdButNoFixedMode.length} wallet(s) have threshold enabled but aren't in 'fixed' sizing mode. Threshold will be ignored.`,
+          affectedSettings: ['perWalletConfig'],
+          suggestion: 'Set tradeSizingMode to "fixed" for wallets where you want threshold filtering'
+        });
+      }
+
+      res.json({ 
+        success: true,
+        valid: conflicts.filter(c => c.type === 'error').length === 0,
+        conflicts,
+        errorCount: conflicts.filter(c => c.type === 'error').length,
+        warningCount: conflicts.filter(c => c.type === 'warning').length
+      });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
