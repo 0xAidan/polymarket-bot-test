@@ -609,44 +609,50 @@ export class CopyTrader {
         // PROPORTIONAL MODE: Match their portfolio % with our portfolio %
         console.log(`[Trade] Mode: PROPORTIONAL (matching their % of portfolio)`);
         
-        // Get tracked wallet's USDC balance
-        let theirBalance = 0;
+        // Get tracked wallet's portfolio value from Polymarket (positions value)
+        // This represents their "active trading capital" on Polymarket
+        let theirPortfolioValue = 0;
         try {
-          theirBalance = await this.balanceTracker.getBalance(trade.walletAddress);
+          const polymarketApi = this.monitor.getApi();
+          const portfolioData = await polymarketApi.getPortfolioValue(trade.walletAddress);
+          theirPortfolioValue = portfolioData.totalValue;
+          console.log(`[Trade] Their Polymarket portfolio: $${theirPortfolioValue.toFixed(2)} (${portfolioData.positionCount} positions)`);
         } catch (balanceError: any) {
-          console.warn(`[CopyTrader] Could not fetch tracked wallet balance: ${balanceError.message}`);
+          console.warn(`[CopyTrader] Could not fetch tracked wallet portfolio: ${balanceError.message}`);
         }
         
-        // Get OUR USDC balance
+        // Get OUR USDC balance from Polymarket CLOB API (our tradable funds)
         let ourBalance = 0;
         try {
-          const userWallet = this.getWalletAddress();
-          const proxyWallet = await this.getProxyWalletAddress();
-          const walletToCheck = proxyWallet || userWallet;
-          if (walletToCheck) {
-            ourBalance = await this.balanceTracker.getBalance(walletToCheck);
-          }
+          const clobClient = this.executor.getClobClient();
+          ourBalance = await clobClient.getUsdcBalance();
+          console.log(`[Trade] Our Polymarket USDC balance: $${ourBalance.toFixed(2)}`);
         } catch (balanceError: any) {
-          console.warn(`[CopyTrader] Could not fetch our wallet balance: ${balanceError.message}`);
+          console.warn(`[CopyTrader] Could not fetch our USDC balance: ${balanceError.message}`);
         }
         
-        if (theirBalance > 0 && ourBalance > 0) {
+        if (theirPortfolioValue > 0 && ourBalance > 0) {
           // Calculate what % of their portfolio this trade represents
           const tradeValueUsd = amountNum * priceNum;
-          const theirTradePercent = (tradeValueUsd / theirBalance) * 100;
+          const theirTradePercent = (tradeValueUsd / theirPortfolioValue) * 100;
           
-          // Apply the same % to our portfolio
+          // Apply the same % to our tradable balance
           tradeSizeUsdcNum = (theirTradePercent / 100) * ourBalance;
-          tradeSizeSource = `proportional (${theirTradePercent.toFixed(2)}% of their $${theirBalance.toFixed(2)} = ${theirTradePercent.toFixed(2)}% of our $${ourBalance.toFixed(2)})`;
+          tradeSizeSource = `proportional (${theirTradePercent.toFixed(2)}% of their $${theirPortfolioValue.toFixed(2)} portfolio = ${theirTradePercent.toFixed(2)}% of our $${ourBalance.toFixed(2)})`;
           
-          console.log(`[Trade] Their trade: $${tradeValueUsd.toFixed(2)} (${theirTradePercent.toFixed(2)}% of $${theirBalance.toFixed(2)})`);
-          console.log(`[Trade] Our trade: $${tradeSizeUsdcNum.toFixed(2)} (${theirTradePercent.toFixed(2)}% of $${ourBalance.toFixed(2)})`);
+          console.log(`[Trade] Their trade: $${tradeValueUsd.toFixed(2)} (${theirTradePercent.toFixed(2)}% of their $${theirPortfolioValue.toFixed(2)} portfolio)`);
+          console.log(`[Trade] Our trade: $${tradeSizeUsdcNum.toFixed(2)} (${theirTradePercent.toFixed(2)}% of our $${ourBalance.toFixed(2)} USDC)`);
         } else {
-          // Fallback to global trade size if balance fetch fails
-          const globalTradeSize = await Storage.getTradeSize();
-          tradeSizeUsdcNum = parseFloat(globalTradeSize || '2');
-          tradeSizeSource = `global fallback (balance fetch failed)`;
-          console.warn(`[Trade] Proportional mode failed (balance fetch), using global trade size: $${tradeSizeUsdcNum}`);
+          // Fallback to wallet's fixed trade size if set, otherwise global
+          if (trade.fixedTradeSize && trade.fixedTradeSize > 0) {
+            tradeSizeUsdcNum = trade.fixedTradeSize;
+            tradeSizeSource = `wallet fixed fallback (portfolio fetch failed)`;
+          } else {
+            const globalTradeSize = await Storage.getTradeSize();
+            tradeSizeUsdcNum = parseFloat(globalTradeSize || '2');
+            tradeSizeSource = `global fallback (portfolio fetch failed)`;
+          }
+          console.warn(`[Trade] Proportional mode failed (their portfolio: $${theirPortfolioValue}, our balance: $${ourBalance}), using ${tradeSizeSource}: $${tradeSizeUsdcNum}`);
         }
         
       } else if (trade.tradeSizingMode === 'fixed') {
@@ -665,22 +671,25 @@ export class CopyTrader {
         
         // Check threshold filter if enabled for this wallet
         if (trade.thresholdEnabled && trade.thresholdPercent && trade.thresholdPercent > 0) {
-          // Get tracked wallet's USDC balance
-          let walletBalance = 0;
+          // Get tracked wallet's portfolio value from Polymarket
+          let walletPortfolioValue = 0;
           try {
-            walletBalance = await this.balanceTracker.getBalance(trade.walletAddress);
+            const polymarketApi = this.monitor.getApi();
+            const portfolioData = await polymarketApi.getPortfolioValue(trade.walletAddress);
+            walletPortfolioValue = portfolioData.totalValue;
+            console.log(`[Trade] Threshold check - Their portfolio: $${walletPortfolioValue.toFixed(2)} (${portfolioData.positionCount} positions)`);
           } catch (balanceError: any) {
-            console.warn(`[CopyTrader] Could not fetch wallet balance for threshold check: ${balanceError.message}`);
+            console.warn(`[CopyTrader] Could not fetch wallet portfolio for threshold check: ${balanceError.message}`);
           }
           
-          if (walletBalance > 0) {
+          if (walletPortfolioValue > 0) {
             const tradeValueUsd = amountNum * priceNum;
-            const tradePercent = (tradeValueUsd / walletBalance) * 100;
+            const tradePercent = (tradeValueUsd / walletPortfolioValue) * 100;
             
             if (tradePercent < trade.thresholdPercent) {
               console.log(`\n⏭️  [CopyTrader] FILTERED - Trade below wallet threshold`);
-              console.log(`   Trade value: $${tradeValueUsd.toFixed(2)} (${tradePercent.toFixed(2)}% of wallet)`);
-              console.log(`   Wallet USDC balance: $${walletBalance.toFixed(2)}`);
+              console.log(`   Trade value: $${tradeValueUsd.toFixed(2)} (${tradePercent.toFixed(2)}% of portfolio)`);
+              console.log(`   Wallet portfolio value: $${walletPortfolioValue.toFixed(2)}`);
               console.log(`   Wallet threshold: ${trade.thresholdPercent}%`);
               console.log(`   💡 This trade is below the configured threshold for this wallet. Skipping.\n`);
               
@@ -694,15 +703,17 @@ export class CopyTrader {
                 success: false,
                 status: 'rejected',
                 executionTimeMs: 0,
-                error: `Filtered: Trade is ${tradePercent.toFixed(2)}% of wallet ($${tradeValueUsd.toFixed(2)}/$${walletBalance.toFixed(2)}), below ${trade.thresholdPercent}% threshold`,
+                error: `Filtered: Trade is ${tradePercent.toFixed(2)}% of portfolio ($${tradeValueUsd.toFixed(2)}/$${walletPortfolioValue.toFixed(2)}), below ${trade.thresholdPercent}% threshold`,
                 detectedTxHash: trade.transactionHash,
                 tokenId: trade.tokenId
               });
               
               return; // Skip this trade
             } else {
-              console.log(`[CopyTrader] ✓ Trade passes wallet threshold: $${tradeValueUsd.toFixed(2)} (${tradePercent.toFixed(2)}%) >= ${trade.thresholdPercent}%`);
+              console.log(`[CopyTrader] ✓ Trade passes wallet threshold: $${tradeValueUsd.toFixed(2)} (${tradePercent.toFixed(2)}% of $${walletPortfolioValue.toFixed(2)}) >= ${trade.thresholdPercent}%`);
             }
+          } else {
+            console.warn(`[CopyTrader] ⚠️ Could not get portfolio value for threshold check - proceeding with trade`);
           }
         }
         
@@ -1125,10 +1136,11 @@ export class CopyTrader {
         return false; // Can't check, allow trade
       }
 
-      // Get our current USDC balance (free USDC)
+      // Get our current USDC balance from Polymarket CLOB API (free USDC for trading)
       let freeUsdc = 0;
       try {
-        freeUsdc = await this.balanceTracker.getBalance(walletToCheck);
+        const clobClient = this.executor.getClobClient();
+        freeUsdc = await clobClient.getUsdcBalance();
       } catch (error: any) {
         console.warn(`[CopyTrader] Cannot fetch USDC balance for stop-loss check: ${error.message}`);
         return false; // Can't check, allow trade

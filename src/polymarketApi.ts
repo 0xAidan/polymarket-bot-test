@@ -338,6 +338,60 @@ export class PolymarketApi {
   }
 
   /**
+   * Calculate the total value of a user's Polymarket positions
+   * This represents their "active trading capital" on Polymarket
+   * 
+   * @param userAddress The wallet address to check (can be EOA or proxy)
+   * @returns Total value in USD of all positions
+   */
+  async getPortfolioValue(userAddress: string): Promise<{ 
+    totalValue: number; 
+    positionCount: number;
+    positions: Array<{ size: number; price: number; value: number; market: string }>;
+  }> {
+    try {
+      // First try to get proxy wallet if this is an EOA
+      const proxyAddress = await this.getProxyWalletAddress(userAddress);
+      const walletToCheck = proxyAddress || userAddress;
+      
+      console.log(`[API] Calculating portfolio value for ${userAddress.substring(0, 8)}... (using: ${walletToCheck.substring(0, 8)}...)`);
+      
+      const positions = await this.getUserPositions(walletToCheck);
+      
+      let totalValue = 0;
+      const positionDetails: Array<{ size: number; price: number; value: number; market: string }> = [];
+      
+      for (const pos of positions) {
+        const size = parseFloat(pos.size || '0');
+        const curPrice = parseFloat(pos.curPrice || pos.currentPrice || '0');
+        
+        if (size > 0 && curPrice >= 0) {
+          // Position value = shares * current price
+          const value = size * curPrice;
+          totalValue += value;
+          positionDetails.push({
+            size,
+            price: curPrice,
+            value,
+            market: pos.title || pos.conditionId || 'Unknown'
+          });
+        }
+      }
+      
+      console.log(`[API] Portfolio value for ${userAddress.substring(0, 8)}...: $${totalValue.toFixed(2)} across ${positionDetails.length} positions`);
+      
+      return {
+        totalValue,
+        positionCount: positionDetails.length,
+        positions: positionDetails
+      };
+    } catch (error: any) {
+      console.error(`[API] Error calculating portfolio value for ${userAddress}:`, error.message);
+      return { totalValue: 0, positionCount: 0, positions: [] };
+    }
+  }
+
+  /**
    * Get user's trade history from Polymarket Data API
    * Uses the correct endpoint: GET /trades?user={proxyWalletAddress}
    * 
