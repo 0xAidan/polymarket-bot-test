@@ -483,19 +483,35 @@ export class PolymarketClobClient {
 
     try {
       // Get balance for COLLATERAL (USDC) asset type
+      console.log(`[CLOB] Fetching USDC balance via getBalanceAllowance...`);
       const response = await (this.client as any).getBalanceAllowance({
         asset_type: 'COLLATERAL'
       });
       
-      // Balance is returned as a string in wei (6 decimals for USDC)
-      const balanceStr = response?.balance || '0';
-      // Convert from USDC units (6 decimals)
-      const balance = parseFloat(balanceStr) / 1_000_000;
+      console.log(`[CLOB] getBalanceAllowance response:`, JSON.stringify(response));
       
-      console.log(`[CLOB] USDC balance: $${balance.toFixed(2)} (raw: ${balanceStr})`);
+      const balanceStr = response?.balance || '0';
+      const balanceNum = parseFloat(balanceStr);
+      
+      // Determine if balance is in wei (large number) or already human-readable
+      // USDC has 6 decimals, so $4.00 in wei = 4000000
+      // If the number is > 1000, it's likely in wei format
+      let balance: number;
+      if (balanceNum > 1000) {
+        // Balance is in wei (smallest unit), convert to USDC
+        balance = balanceNum / 1_000_000;
+        console.log(`[CLOB] Balance appears to be in wei format, converting: ${balanceStr} -> $${balance.toFixed(2)}`);
+      } else {
+        // Balance is already in human-readable USDC format
+        balance = balanceNum;
+        console.log(`[CLOB] Balance appears to be in USDC format: $${balance.toFixed(2)}`);
+      }
+      
+      console.log(`[CLOB] USDC balance: $${balance.toFixed(2)}`);
       return balance;
     } catch (error: any) {
       console.error('[CLOB] Failed to get USDC balance:', error.message);
+      console.error('[CLOB] Error details:', error);
       throw error;
     }
   }

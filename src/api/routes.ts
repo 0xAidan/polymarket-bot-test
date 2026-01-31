@@ -373,26 +373,45 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       console.log(`[API] Using CLOB API for balance (not on-chain)`);
       console.log(`[API] ==============================`);
 
-      // Use CLOB client to get actual Polymarket trading balance
-      // This is the correct method - it queries Polymarket's internal balance, not on-chain USDC
-      const clobClient = copyTrader.getClobClient();
+      // Try multiple methods to get the balance
       let currentBalance = 0;
+      let balanceSource = 'unknown';
       
+      // Method 1: Try CLOB API (Polymarket's internal balance)
       try {
+        const clobClient = copyTrader.getClobClient();
         currentBalance = await clobClient.getUsdcBalance();
-        console.log(`[API] CLOB balance fetched: $${currentBalance.toFixed(2)} USDC`);
+        balanceSource = 'clob_api';
+        console.log(`[API] ✓ CLOB balance: $${currentBalance.toFixed(2)} USDC`);
       } catch (clobError: any) {
-        console.warn(`[API] CLOB balance fetch failed: ${clobError.message}`);
-        // Fallback to on-chain balance tracker if CLOB fails
-        const balanceTracker = copyTrader.getBalanceTracker();
-        const balanceAddress = proxyWalletAddress || eoaAddress;
-        try {
-          currentBalance = await balanceTracker.getBalance(balanceAddress);
-          console.log(`[API] Fallback on-chain balance: $${currentBalance.toFixed(2)} USDC`);
-        } catch (fallbackError: any) {
-          console.error(`[API] Fallback balance also failed: ${fallbackError.message}`);
+        console.warn(`[API] CLOB balance failed: ${clobError.message}`);
+        
+        // Method 2: Try on-chain balance of PROXY wallet (where Polymarket holds funds)
+        if (proxyWalletAddress) {
+          try {
+            const balanceTracker = copyTrader.getBalanceTracker();
+            currentBalance = await balanceTracker.getBalance(proxyWalletAddress);
+            balanceSource = 'proxy_wallet_onchain';
+            console.log(`[API] ✓ Proxy wallet on-chain balance: $${currentBalance.toFixed(2)} USDC`);
+          } catch (proxyError: any) {
+            console.warn(`[API] Proxy wallet balance failed: ${proxyError.message}`);
+          }
+        }
+        
+        // Method 3: Try on-chain balance of EOA (unlikely to have USDC but worth checking)
+        if (currentBalance === 0) {
+          try {
+            const balanceTracker = copyTrader.getBalanceTracker();
+            currentBalance = await balanceTracker.getBalance(eoaAddress);
+            balanceSource = 'eoa_onchain';
+            console.log(`[API] ✓ EOA on-chain balance: $${currentBalance.toFixed(2)} USDC`);
+          } catch (eoaError: any) {
+            console.warn(`[API] EOA balance failed: ${eoaError.message}`);
+          }
         }
       }
+      
+      console.log(`[API] Final balance: $${currentBalance.toFixed(2)} (source: ${balanceSource})`)
 
       // For 24h change, use balance tracker's history if available
       const balanceTracker = copyTrader.getBalanceTracker();
@@ -437,7 +456,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         balance24hAgo,
         walletAddress: eoaAddress,
         proxyWalletAddress: proxyWalletAddress,
-        source: 'polymarket_clob' // Indicate the balance source
+        source: balanceSource
       });
     } catch (error: any) {
       console.error('[API] Error fetching wallet balance:', error);
