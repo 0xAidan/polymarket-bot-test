@@ -1,8 +1,14 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { config } from './config.js';
 import { createRoutes } from './api/routes.js';
 import { CopyTrader } from './copyTrader.js';
+
+// Get directory name for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 /**
  * Create and configure the Express server
@@ -14,6 +20,10 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   app.use(cors());
   app.use(express.json());
 
+  // Serve static files from public directory
+  const publicPath = path.join(__dirname, '..', 'public');
+  app.use(express.static(publicPath));
+
   // API routes
   app.use('/api', createRoutes(copyTrader));
 
@@ -22,8 +32,14 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  // Serve dashboard UI
+  // Serve dashboard UI (fallback for SPA-style routing)
   app.get('/', (req, res) => {
+    res.sendFile(path.join(publicPath, 'index.html'));
+  });
+
+  // LEGACY: Keep the old inline dashboard as fallback at /legacy
+  // This can be removed once the new UI is confirmed working
+  app.get('/legacy', (req, res) => {
     res.send(`
       <!DOCTYPE html>
       <html lang="en">

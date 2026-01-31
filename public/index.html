@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Polymarket Copytrade Bot - Dashboard</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="dashboard">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-content">
+        <h1>Polymarket Copytrade Bot</h1>
+        <div class="header-controls">
+          <span id="statusBadge" class="status-badge status-stopped">Stopped</span>
+          <button id="startBtn" class="btn btn-success" onclick="startBot()">Start Bot</button>
+          <button id="stopBtn" class="btn btn-danger" onclick="stopBot()" style="display:none;">Stop Bot</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="tab-nav">
+      <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
+      <button class="tab-btn" data-tab="wallets" onclick="switchTab('wallets')">Wallets</button>
+      <button class="tab-btn" data-tab="filters" onclick="switchTab('filters')">Trade Filters</button>
+      <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">Settings</button>
+      <button class="tab-btn" data-tab="diagnostics" onclick="switchTab('diagnostics')">Diagnostics</button>
+    </nav>
+
+    <!-- Conflict Warning Banner (shown when conflicts detected) -->
+    <div id="conflictBanner" class="conflict-banner" style="display:none;">
+      <span class="conflict-icon">&#9888;</span>
+      <span id="conflictMessage">Configuration conflicts detected</span>
+      <button class="btn btn-sm" onclick="switchTab('filters')">View Details</button>
+    </div>
+
+    <!-- Tab Content -->
+    <div class="tab-content">
+      <!-- Dashboard Tab -->
+      <div id="tab-dashboard" class="tab-panel active">
+        <!-- Wallet Balance Card -->
+        <div class="card wallet-card">
+          <h2>Trading Wallet</h2>
+          <div class="wallet-info">
+            <div class="wallet-address" id="walletAddress">Not configured</div>
+            <div class="wallet-balance">
+              <span class="balance-label">USDC Balance:</span>
+              <span class="balance-amount" id="walletBalance">$0.00</span>
+              <span class="balance-change positive" id="balanceChange">+$0.00 (24h)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Metrics Grid -->
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-value" id="successRate">0%</div>
+            <div class="metric-label">Success Rate</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value" id="totalTrades">0</div>
+            <div class="metric-label">Total Trades</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value" id="avgLatency">0ms</div>
+            <div class="metric-label">Avg Latency</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value" id="walletsTracked">0</div>
+            <div class="metric-label">Wallets Tracked</div>
+          </div>
+          <div class="metric-card success">
+            <div class="metric-value" id="successfulTrades">0</div>
+            <div class="metric-label">Successful</div>
+          </div>
+          <div class="metric-card danger">
+            <div class="metric-value" id="failedTrades">0</div>
+            <div class="metric-label">Failed</div>
+          </div>
+        </div>
+
+        <!-- Recent Trades -->
+        <div class="card">
+          <h2>Recent Trades</h2>
+          <div class="table-container">
+            <table class="data-table" id="tradesTable">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Wallet</th>
+                  <th>Market</th>
+                  <th>Side</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="tradesTableBody">
+                <tr><td colspan="6" class="empty-state">No trades yet</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Active Issues -->
+        <div class="card" id="issuesCard" style="display:none;">
+          <h2>Active Issues</h2>
+          <div id="issuesList" class="issues-list"></div>
+        </div>
+      </div>
+
+      <!-- Wallets Tab -->
+      <div id="tab-wallets" class="tab-panel">
+        <!-- Add Wallet -->
+        <div class="card">
+          <h2>Add Tracked Wallet</h2>
+          <div class="input-group">
+            <input type="text" id="newWalletAddress" placeholder="0x..." class="input">
+            <button class="btn btn-primary" onclick="addWallet()">Add Wallet</button>
+          </div>
+        </div>
+
+        <!-- Tracked Wallets List -->
+        <div class="card">
+          <h2>Tracked Wallets</h2>
+          <div id="walletsList" class="wallets-list">
+            <div class="empty-state">No wallets tracked yet</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Trade Filters Tab -->
+      <div id="tab-filters" class="tab-panel">
+        <!-- Conflict Detection Panel -->
+        <div id="conflictPanel" class="card conflict-panel" style="display:none;">
+          <h2>Configuration Conflicts</h2>
+          <div id="conflictsList" class="conflicts-list"></div>
+        </div>
+
+        <!-- Trade Pipeline Preview -->
+        <div class="card">
+          <h2>Trade Filter Pipeline</h2>
+          <p class="card-description">Trades pass through these filters in order. Enable filters to customize which trades are copied.</p>
+          <div class="pipeline-preview" id="pipelinePreview">
+            <div class="pipeline-step">
+              <div class="step-icon">1</div>
+              <div class="step-content">
+                <div class="step-title">Security Check</div>
+                <div class="step-desc">Verify wallet is active</div>
+              </div>
+              <div class="step-status always-on">Always On</div>
+            </div>
+            <div class="pipeline-arrow">&#8595;</div>
+            <div class="pipeline-step" id="pipeline-side-filter">
+              <div class="step-icon">2</div>
+              <div class="step-content">
+                <div class="step-title">Trade Side Filter</div>
+                <div class="step-desc" id="pipeline-side-desc">All trades</div>
+              </div>
+              <div class="step-status off" id="pipeline-side-status">OFF</div>
+            </div>
+            <div class="pipeline-arrow">&#8595;</div>
+            <div class="pipeline-step" id="pipeline-price-limits">
+              <div class="step-icon">3</div>
+              <div class="step-content">
+                <div class="step-title">Price Limits</div>
+                <div class="step-desc" id="pipeline-price-desc">$0.01 - $0.99</div>
+              </div>
+              <div class="step-status off" id="pipeline-price-status">DEFAULT</div>
+            </div>
+            <div class="pipeline-arrow">&#8595;</div>
+            <div class="pipeline-step" id="pipeline-no-repeat">
+              <div class="step-icon">4</div>
+              <div class="step-content">
+                <div class="step-title">No Repeat Trades</div>
+                <div class="step-desc" id="pipeline-norepeat-desc">Block 24h</div>
+              </div>
+              <div class="step-status off" id="pipeline-norepeat-status">OFF</div>
+            </div>
+            <div class="pipeline-arrow">&#8595;</div>
+            <div class="pipeline-step" id="pipeline-value-filter">
+              <div class="step-icon">5</div>
+              <div class="step-content">
+                <div class="step-title">Trade Value Filter</div>
+                <div class="step-desc" id="pipeline-value-desc">No limits</div>
+              </div>
+              <div class="step-status off" id="pipeline-value-status">OFF</div>
+            </div>
+            <div class="pipeline-arrow">&#8595;</div>
+            <div class="pipeline-step" id="pipeline-rate-limit">
+              <div class="step-icon">6</div>
+              <div class="step-content">
+                <div class="step-title">Rate Limiting</div>
+                <div class="step-desc" id="pipeline-rate-desc">10/hr, 50/day</div>
+              </div>
+              <div class="step-status off" id="pipeline-rate-status">OFF</div>
+            </div>
+            <div class="pipeline-arrow">&#8595;</div>
+            <div class="pipeline-step">
+              <div class="step-icon">7</div>
+              <div class="step-content">
+                <div class="step-title">Trade Sizing</div>
+                <div class="step-desc">Per-wallet or global</div>
+              </div>
+              <div class="step-status always-on">Always On</div>
+            </div>
+            <div class="pipeline-arrow">&#8595;</div>
+            <div class="pipeline-step" id="pipeline-stop-loss">
+              <div class="step-icon">8</div>
+              <div class="step-content">
+                <div class="step-title">Stop-Loss Check</div>
+                <div class="step-desc" id="pipeline-stoploss-desc">Max 80%</div>
+              </div>
+              <div class="step-status off" id="pipeline-stoploss-status">OFF</div>
+            </div>
+            <div class="pipeline-arrow">&#8595;</div>
+            <div class="pipeline-step final">
+              <div class="step-icon">&#10003;</div>
+              <div class="step-content">
+                <div class="step-title">Execute Trade</div>
+                <div class="step-desc">Place order on CLOB</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Filter Configuration Cards -->
+        <div class="filters-grid">
+          <!-- Trade Side Filter -->
+          <div class="card filter-card">
+            <h3>Trade Side Filter</h3>
+            <p class="filter-desc">Choose which trade types to copy</p>
+            <div class="radio-group">
+              <label class="radio-label">
+                <input type="radio" name="tradeSideFilter" value="all" checked onchange="updateTradeSideFilter(this.value)">
+                <span>All Trades</span>
+              </label>
+              <label class="radio-label">
+                <input type="radio" name="tradeSideFilter" value="buy_only" onchange="updateTradeSideFilter(this.value)">
+                <span>BUY Only</span>
+              </label>
+              <label class="radio-label">
+                <input type="radio" name="tradeSideFilter" value="sell_only" onchange="updateTradeSideFilter(this.value)">
+                <span>SELL Only</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Price Limits -->
+          <div class="card filter-card">
+            <h3>Price Limits</h3>
+            <p class="filter-desc">Only copy trades within this price range</p>
+            <div class="range-inputs">
+              <div class="input-row">
+                <label>Min Price:</label>
+                <input type="number" id="minPrice" value="0.01" min="0.01" max="0.98" step="0.01" class="input input-sm" onchange="updatePriceLimits()">
+              </div>
+              <div class="input-row">
+                <label>Max Price:</label>
+                <input type="number" id="maxPrice" value="0.99" min="0.02" max="0.99" step="0.01" class="input input-sm" onchange="updatePriceLimits()">
+              </div>
+            </div>
+          </div>
+
+          <!-- No Repeat Trades -->
+          <div class="card filter-card">
+            <h3>No Repeat Trades</h3>
+            <p class="filter-desc">Block repeat trades in the same market+side</p>
+            <div class="toggle-row">
+              <label class="toggle">
+                <input type="checkbox" id="noRepeatEnabled" onchange="updateNoRepeatTrades()">
+                <span class="toggle-slider"></span>
+              </label>
+              <span>Enable</span>
+            </div>
+            <div class="input-row" id="noRepeatPeriodRow" style="display:none;">
+              <label>Block Period:</label>
+              <select id="noRepeatPeriod" class="input input-sm" onchange="updateNoRepeatTrades()">
+                <option value="1">1 hour</option>
+                <option value="6">6 hours</option>
+                <option value="12">12 hours</option>
+                <option value="24" selected>24 hours</option>
+                <option value="48">48 hours</option>
+                <option value="168">7 days</option>
+              </select>
+            </div>
+            <div id="noRepeatHistory" style="display:none;">
+              <button class="btn btn-sm btn-outline" onclick="viewNoRepeatHistory()">View Blocked Markets</button>
+              <button class="btn btn-sm btn-danger" onclick="clearNoRepeatHistory()">Clear History</button>
+            </div>
+          </div>
+
+          <!-- Trade Value Filter -->
+          <div class="card filter-card">
+            <h3>Trade Value Filter</h3>
+            <p class="filter-desc">Filter trades by USDC value (detected trade value)</p>
+            <div class="toggle-row">
+              <label class="toggle">
+                <input type="checkbox" id="valueFilterEnabled" onchange="updateTradeValueFilters()">
+                <span class="toggle-slider"></span>
+              </label>
+              <span>Enable</span>
+            </div>
+            <div id="valueFilterInputs" style="display:none;">
+              <div class="input-row">
+                <label>Min Value ($):</label>
+                <input type="number" id="minTradeValue" placeholder="No minimum" min="0" step="1" class="input input-sm" onchange="updateTradeValueFilters()">
+              </div>
+              <div class="input-row">
+                <label>Max Value ($):</label>
+                <input type="number" id="maxTradeValue" placeholder="No maximum" min="0" step="1" class="input input-sm" onchange="updateTradeValueFilters()">
+              </div>
+            </div>
+          </div>
+
+          <!-- Rate Limiting -->
+          <div class="card filter-card">
+            <h3>Rate Limiting</h3>
+            <p class="filter-desc">Limit how many trades can be executed</p>
+            <div class="toggle-row">
+              <label class="toggle">
+                <input type="checkbox" id="rateLimitEnabled" onchange="updateRateLimiting()">
+                <span class="toggle-slider"></span>
+              </label>
+              <span>Enable</span>
+            </div>
+            <div id="rateLimitInputs" style="display:none;">
+              <div class="input-row">
+                <label>Max per hour:</label>
+                <input type="number" id="maxTradesPerHour" value="10" min="1" max="100" class="input input-sm" onchange="updateRateLimiting()">
+              </div>
+              <div class="input-row">
+                <label>Max per day:</label>
+                <input type="number" id="maxTradesPerDay" value="50" min="1" max="500" class="input input-sm" onchange="updateRateLimiting()">
+              </div>
+              <div class="rate-status" id="rateStatus">
+                <span>This hour: <strong id="tradesThisHour">0</strong></span>
+                <span>Today: <strong id="tradesThisDay">0</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Slippage -->
+          <div class="card filter-card">
+            <h3>Price Slippage</h3>
+            <p class="filter-desc">Adjust order price for immediate fills</p>
+            <div class="input-row">
+              <label>Slippage %:</label>
+              <input type="number" id="slippagePercent" value="2" min="0.5" max="10" step="0.5" class="input input-sm" onchange="updateSlippage()">
+            </div>
+            <p class="input-hint">Higher = more likely to fill, but worse price</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings Tab -->
+      <div id="tab-settings" class="tab-panel">
+        <!-- Trade Size -->
+        <div class="card">
+          <h2>Default Trade Size</h2>
+          <p class="card-description">USDC amount to use when copying trades (can be overridden per-wallet)</p>
+          <div class="input-group">
+            <span class="input-prefix">$</span>
+            <input type="number" id="tradeSize" value="2" min="0.01" step="0.01" class="input" onchange="updateTradeSize()">
+            <span class="input-suffix">USDC</span>
+          </div>
+        </div>
+
+        <!-- Stop-Loss -->
+        <div class="card">
+          <h2>Stop-Loss Protection</h2>
+          <p class="card-description">Stop taking new trades when too much USDC is committed to positions</p>
+          <div class="toggle-row">
+            <label class="toggle">
+              <input type="checkbox" id="stopLossEnabled" onchange="updateStopLoss()">
+              <span class="toggle-slider"></span>
+            </label>
+            <span>Enable Stop-Loss</span>
+          </div>
+          <div id="stopLossInputs" style="display:none;">
+            <div class="input-row">
+              <label>Max commitment %:</label>
+              <input type="number" id="stopLossPercent" value="80" min="1" max="99" class="input input-sm" onchange="updateStopLoss()">
+            </div>
+            <p class="input-hint">Stop new trades when this % of your USDC is in open positions</p>
+          </div>
+        </div>
+
+        <!-- Monitoring Interval -->
+        <div class="card">
+          <h2>Monitoring Settings</h2>
+          <div class="input-row">
+            <label>Scan Frequency (seconds):</label>
+            <input type="number" id="monitoringInterval" value="15" min="1" max="300" class="input input-sm" onchange="updateMonitoringInterval()">
+          </div>
+          <p class="input-hint">How often to check tracked wallets for new trades</p>
+        </div>
+
+        <!-- Security -->
+        <div class="card">
+          <h2>Security Configuration</h2>
+          <div class="warning-banner">
+            <strong>Warning:</strong> These credentials are stored in your .env file. Never share them.
+          </div>
+          <div class="input-row">
+            <label>Private Key:</label>
+            <input type="password" id="privateKey" placeholder="0x..." class="input">
+            <button class="btn btn-sm" onclick="updatePrivateKey()">Update</button>
+          </div>
+          <div class="input-row">
+            <label>Builder API Key:</label>
+            <input type="text" id="builderApiKey" placeholder="Your API key" class="input">
+          </div>
+          <div class="input-row">
+            <label>Builder Secret:</label>
+            <input type="password" id="builderSecret" placeholder="Your secret" class="input">
+          </div>
+          <div class="input-row">
+            <label>Builder Passphrase:</label>
+            <input type="password" id="builderPassphrase" placeholder="Your passphrase" class="input">
+            <button class="btn btn-sm" onclick="updateBuilderCredentials()">Update All</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Diagnostics Tab -->
+      <div id="tab-diagnostics" class="tab-panel">
+        <!-- CLOB Connectivity Test -->
+        <div class="card">
+          <h2>CLOB API Connectivity</h2>
+          <button class="btn btn-primary" onclick="testClobConnectivity()">Run Connectivity Test</button>
+          <div id="clobTestResults" class="test-results" style="display:none;"></div>
+        </div>
+
+        <!-- Failed Trades Analysis -->
+        <div class="card">
+          <h2>Failed Trades Analysis</h2>
+          <div id="failedTradesAnalysis" class="analysis-content">
+            <div class="empty-state">Click refresh to load failed trades analysis</div>
+          </div>
+          <button class="btn btn-outline" onclick="loadFailedTrades()">Refresh Analysis</button>
+        </div>
+
+        <!-- System Issues Log -->
+        <div class="card">
+          <h2>System Issues Log</h2>
+          <div id="systemIssuesLog" class="issues-log">
+            <div class="empty-state">No issues recorded</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Wallet Detail Modal -->
+  <div id="walletModal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="walletModalTitle">Wallet Details</h2>
+        <button class="modal-close" onclick="closeWalletModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="walletModalBody">
+        <!-- Dynamic content -->
+      </div>
+    </div>
+  </div>
+
+  <!-- No Repeat History Modal -->
+  <div id="noRepeatModal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Blocked Markets (No-Repeat)</h2>
+        <button class="modal-close" onclick="closeNoRepeatModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="noRepeatModalBody">
+        <!-- Dynamic content -->
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/conflicts.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
