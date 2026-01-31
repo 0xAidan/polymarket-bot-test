@@ -16,24 +16,57 @@ export type TradeSideFilter = 'all' | 'buy_only' | 'sell_only';
 
 /**
  * Represents a wallet address being tracked
+ * ALL configuration is per-wallet - new wallets start with active=false and no settings
  */
 export interface TrackedWallet {
   address: string;
   addedAt: Date;
-  active: boolean;
+  active: boolean;  // Default: false for new wallets
   lastSeen?: Date;
   label?: string; // User-friendly label/name for the wallet
   
-  // Per-wallet trade configuration (all optional - undefined means use global defaults)
+  // ============================================================
+  // TRADE SIZING MODE (Primary configuration)
+  // ============================================================
   tradeSizingMode?: TradeSizingMode; // undefined = use global size, no filter
   fixedTradeSize?: number;           // USDC amount when mode is 'fixed'
   thresholdEnabled?: boolean;        // Filter small trades (only when mode is 'fixed')
   thresholdPercent?: number;         // Threshold % (only when mode is 'fixed')
-  tradeSideFilter?: TradeSideFilter; // Per-wallet trade side filter override
+  
+  // ============================================================
+  // TRADE SIDE FILTER
+  // ============================================================
+  tradeSideFilter?: TradeSideFilter; // 'all' | 'buy_only' | 'sell_only'
+  
+  // ============================================================
+  // ADVANCED FILTERS (All per-wallet)
+  // ============================================================
+  
+  // No Repeat Trades - Block repeat trades in same market+side
+  noRepeatEnabled?: boolean;
+  noRepeatPeriodHours?: number; // 0 = forever (until manually cleared)
+  
+  // Price Limits - Only copy trades within this price range
+  priceLimitsMin?: number;  // Default: 0.01
+  priceLimitsMax?: number;  // Default: 0.99
+  
+  // Rate Limiting - Limit trades per hour/day for this wallet
+  rateLimitEnabled?: boolean;
+  rateLimitPerHour?: number;  // Default: 10
+  rateLimitPerDay?: number;   // Default: 50
+  
+  // Trade Value Filter - Filter by detected trade value
+  valueFilterEnabled?: boolean;
+  valueFilterMin?: number | null;  // null = no minimum
+  valueFilterMax?: number | null;  // null = no maximum
+  
+  // Slippage - Per-wallet slippage override
+  slippagePercent?: number;  // Default: 2%
 }
 
 /**
  * Represents a detected trade from a tracked wallet
+ * Carries ALL per-wallet settings for use during trade processing
  */
 export interface DetectedTrade {
   walletAddress: string;
@@ -47,12 +80,31 @@ export interface DetectedTrade {
   tokenId?: string;   // Token ID for CLOB client (asset from positions API)
   negRisk?: boolean;  // Negative risk flag from position data
   
+  // ============================================================
   // Inherited from wallet settings for per-wallet trade configuration
+  // ============================================================
+  
+  // Trade sizing
   tradeSizingMode?: TradeSizingMode;
   fixedTradeSize?: number;
   thresholdEnabled?: boolean;
   thresholdPercent?: number;
-  tradeSideFilter?: TradeSideFilter; // Per-wallet trade side filter
+  
+  // Trade side filter
+  tradeSideFilter?: TradeSideFilter;
+  
+  // Advanced filters (all per-wallet)
+  noRepeatEnabled?: boolean;
+  noRepeatPeriodHours?: number;
+  priceLimitsMin?: number;
+  priceLimitsMax?: number;
+  rateLimitEnabled?: boolean;
+  rateLimitPerHour?: number;
+  rateLimitPerDay?: number;
+  valueFilterEnabled?: boolean;
+  valueFilterMin?: number | null;
+  valueFilterMax?: number | null;
+  slippagePercent?: number;
 }
 
 /**
@@ -239,6 +291,7 @@ export interface ConfigValidationResult {
 
 /**
  * Rate limiting runtime state (in-memory tracking)
+ * Used for both global and per-wallet rate limiting
  */
 export interface RateLimitState {
   tradesThisHour: number;
@@ -246,6 +299,11 @@ export interface RateLimitState {
   hourStartTime: number;
   dayStartTime: number;
 }
+
+/**
+ * Per-wallet rate limit states (keyed by wallet address)
+ */
+export type PerWalletRateLimitStates = Map<string, RateLimitState>;
 
 /**
  * Complete bot configuration (for API responses)
