@@ -436,9 +436,26 @@ export class PolymarketClobClient {
 
   /**
    * Get the wallet address (EOA)
+   * If the CLOB client isn't initialized, derive from private key
    */
   getWalletAddress(): string | null {
-    return this.signer?.address || null;
+    // First try the signer if initialized
+    if (this.signer?.address) {
+      return this.signer.address;
+    }
+    
+    // If not initialized, derive from private key in config
+    try {
+      const privateKey = process.env.PRIVATE_KEY || config.privateKey;
+      if (privateKey && privateKey.length === 66 && privateKey.startsWith('0x')) {
+        const wallet = new ethers.Wallet(privateKey);
+        return wallet.address;
+      }
+    } catch (error: any) {
+      console.warn('[CLOB] Could not derive wallet address:', error.message);
+    }
+    
+    return null;
   }
 
   /**

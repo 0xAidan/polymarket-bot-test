@@ -1106,10 +1106,23 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
       await fs.writeFile(envPath, lines.join('\n'));
       
-      // Update in-memory config
-      config.privateKey = privateKey;
+      // Reinitialize all components with the new private key
+      console.log('[API] Reinitializing bot with new private key...');
+      const result = await copyTrader.reinitializeCredentials();
       
-      res.json({ success: true, message: 'Private key updated. Bot restart required.' });
+      if (result.success) {
+        res.json({ 
+          success: true, 
+          message: 'Private key updated and bot reinitialized',
+          walletAddress: result.walletAddress
+        });
+      } else {
+        res.json({ 
+          success: true, 
+          message: 'Private key saved but reinitialization failed: ' + result.error,
+          requiresRestart: true
+        });
+      }
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
@@ -1178,12 +1191,23 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
       await fs.writeFile(envPath, lines.join('\n'));
       
-      // Update in-memory config
-      config.polymarketBuilderApiKey = apiKey;
-      config.polymarketBuilderSecret = secret;
-      config.polymarketBuilderPassphrase = passphrase;
+      // Reinitialize all components with the new builder credentials
+      console.log('[API] Reinitializing bot with new builder credentials...');
+      const result = await copyTrader.reinitializeCredentials();
       
-      res.json({ success: true, message: 'Builder credentials updated. Bot restart recommended.' });
+      if (result.success) {
+        res.json({ 
+          success: true, 
+          message: 'Builder credentials updated and bot reinitialized',
+          walletAddress: result.walletAddress
+        });
+      } else {
+        res.json({ 
+          success: true, 
+          message: 'Builder credentials saved but reinitialization failed: ' + result.error,
+          requiresRestart: true
+        });
+      }
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }

@@ -161,6 +161,63 @@ export class CopyTrader {
   }
 
   /**
+   * Reinitialize all components after credentials change
+   * This reloads the private key and reinitializes all clients
+   */
+  async reinitializeCredentials(): Promise<{ success: boolean; walletAddress: string | null; error?: string }> {
+    console.log('[CopyTrader] Reinitializing with new credentials...');
+    
+    const wasRunning = this.isRunning;
+    
+    // Stop the bot if running
+    if (wasRunning) {
+      this.stop();
+    }
+    
+    try {
+      // Reload environment variables to get the new private key
+      const dotenv = await import('dotenv');
+      dotenv.config({ override: true });
+      
+      // Update config with new private key
+      config.privateKey = process.env.PRIVATE_KEY || '';
+      
+      if (!config.privateKey) {
+        return { success: false, walletAddress: null, error: 'Private key not found in environment' };
+      }
+      
+      // Recreate executor with new credentials (this reinitializes the CLOB client)
+      this.executor = new TradeExecutor();
+      await this.executor.authenticate();
+      
+      // Reinitialize monitor (this reinitializes the PolymarketApi)
+      this.monitor = new WalletMonitor();
+      await this.monitor.initialize();
+      
+      // Reinitialize websocket monitor
+      this.websocketMonitor = new WebSocketMonitor();
+      await this.websocketMonitor.initialize();
+      
+      // Reinitialize balance tracker
+      this.balanceTracker = new BalanceTracker();
+      await this.balanceTracker.initialize();
+      
+      const walletAddress = this.getWalletAddress();
+      console.log(`[CopyTrader] ✓ Reinitialized with wallet: ${walletAddress}`);
+      
+      // Restart the bot if it was running
+      if (wasRunning) {
+        await this.start();
+      }
+      
+      return { success: true, walletAddress };
+    } catch (error: any) {
+      console.error('[CopyTrader] Reinitialization failed:', error.message);
+      return { success: false, walletAddress: null, error: error.message };
+    }
+  }
+
+  /**
    * Handle a detected trade from a tracked wallet
    */
   private async handleDetectedTrade(trade: DetectedTrade): Promise<void> {
