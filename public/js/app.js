@@ -32,9 +32,6 @@ function refreshCurrentTab() {
     case 'wallets':
       loadWallets();
       break;
-    case 'filters':
-      loadFiltersData();
-      break;
   }
 }
 
@@ -45,9 +42,8 @@ async function loadAllData() {
       loadWalletBalance(),
       loadPerformance(),
       loadTrades(),
-      loadFiltersData(),
-      loadSettings(),
-      ConflictDetector.refreshConflictDisplay()
+      loadWallets(),
+      loadSettings()
     ]);
   } catch (error) {
     console.error('Error loading data:', error);
@@ -380,11 +376,14 @@ async function openWalletModal(address) {
     
     document.getElementById('modalWalletLabel').value = wallet.label || '';
     
+    // Trade size (the primary setting)
+    document.getElementById('modalTradeSize').value = wallet.fixedTradeSize || 2;
+    
     // Trade sizing mode
-    const modeValue = wallet.tradeSizingMode || '';
+    const modeValue = wallet.tradeSizingMode || 'fixed';
     document.querySelector(`input[name="modalTradeSizingMode"][value="${modeValue}"]`).checked = true;
-    document.getElementById('modalFixedSizeInputs').style.display = wallet.tradeSizingMode === 'fixed' ? 'block' : 'none';
-    document.getElementById('modalFixedTradeSize').value = wallet.fixedTradeSize || '';
+    
+    // Threshold settings
     document.getElementById('modalThresholdEnabled').checked = wallet.thresholdEnabled || false;
     document.getElementById('modalThresholdInputs').style.display = wallet.thresholdEnabled ? 'block' : 'none';
     document.getElementById('modalThresholdPercent').value = wallet.thresholdPercent || 10;
@@ -415,8 +414,8 @@ async function openWalletModal(address) {
     document.getElementById('modalSlippagePercent').value = wallet.slippagePercent || '';
     updateSlippageBadge();
     
-    // Update config summary
-    updateModalConfigSummary();
+    // Update pipeline display
+    updateModalPipeline();
     
     // Show modal
     document.getElementById('walletModal').style.display = 'flex';
@@ -431,49 +430,142 @@ async function openWalletModal(address) {
 }
 
 function setupModalEventListeners() {
+  // Trade size change
+  document.getElementById('modalTradeSize').onchange = updateModalPipeline;
+  
   // Trade sizing mode change
   document.querySelectorAll('input[name="modalTradeSizingMode"]').forEach(radio => {
-    radio.onchange = function() {
-      document.getElementById('modalFixedSizeInputs').style.display = this.value === 'fixed' ? 'block' : 'none';
-      updateModalConfigSummary();
-    };
+    radio.onchange = updateModalPipeline;
   });
   
   // Threshold toggle
   document.getElementById('modalThresholdEnabled').onchange = function() {
     document.getElementById('modalThresholdInputs').style.display = this.checked ? 'block' : 'none';
-    updateModalConfigSummary();
+    updateModalPipeline();
   };
   
   // Trade side filter change
   document.querySelectorAll('input[name="modalTradeSideFilter"]').forEach(radio => {
-    radio.onchange = updateModalConfigSummary;
+    radio.onchange = updateModalPipeline;
   });
   
   // No repeat toggle
   document.getElementById('modalNoRepeatEnabled').onchange = function() {
     document.getElementById('modalNoRepeatInputs').style.display = this.checked ? 'block' : 'none';
-    updateModalConfigSummary();
+    updateModalPipeline();
   };
+  document.getElementById('modalNoRepeatPeriod').onchange = updateModalPipeline;
   
   // Value filter toggle
   document.getElementById('modalValueFilterEnabled').onchange = function() {
     document.getElementById('modalValueFilterInputs').style.display = this.checked ? 'block' : 'none';
-    updateModalConfigSummary();
+    updateModalPipeline();
   };
+  document.getElementById('modalValueFilterMin').onchange = updateModalPipeline;
+  document.getElementById('modalValueFilterMax').onchange = updateModalPipeline;
   
   // Rate limit toggle
   document.getElementById('modalRateLimitEnabled').onchange = function() {
     document.getElementById('modalRateLimitInputs').style.display = this.checked ? 'block' : 'none';
-    updateModalConfigSummary();
+    updateModalPipeline();
   };
+  document.getElementById('modalRateLimitPerHour').onchange = updateModalPipeline;
+  document.getElementById('modalRateLimitPerDay').onchange = updateModalPipeline;
   
   // Price limits change
-  document.getElementById('modalPriceLimitsMin').onchange = updatePriceBadge;
-  document.getElementById('modalPriceLimitsMax').onchange = updatePriceBadge;
+  document.getElementById('modalPriceLimitsMin').onchange = function() {
+    updatePriceBadge();
+    updateModalPipeline();
+  };
+  document.getElementById('modalPriceLimitsMax').onchange = function() {
+    updatePriceBadge();
+    updateModalPipeline();
+  };
   
   // Slippage change
-  document.getElementById('modalSlippagePercent').onchange = updateSlippageBadge;
+  document.getElementById('modalSlippagePercent').onchange = function() {
+    updateSlippageBadge();
+    updateModalPipeline();
+  };
+}
+
+// Update the pipeline visualization in the modal
+function updateModalPipeline() {
+  // Trade size
+  const tradeSize = document.getElementById('modalTradeSize').value || 2;
+  document.getElementById('modal-pipeline-size-desc').textContent = `$${tradeSize} USDC`;
+  
+  // Side filter
+  const side = document.querySelector('input[name="modalTradeSideFilter"]:checked').value;
+  const sideDesc = document.getElementById('modal-pipeline-side-desc');
+  const sideStatus = document.getElementById('modal-pipeline-side-status');
+  if (side !== 'all') {
+    sideDesc.textContent = side === 'buy_only' ? 'BUY only' : 'SELL only';
+    sideStatus.textContent = 'ON';
+    sideStatus.className = 'step-status on';
+  } else {
+    sideDesc.textContent = 'All trades';
+    sideStatus.textContent = 'OFF';
+    sideStatus.className = 'step-status off';
+  }
+  
+  // Price limits
+  const minPrice = document.getElementById('modalPriceLimitsMin').value || 0.01;
+  const maxPrice = document.getElementById('modalPriceLimitsMax').value || 0.99;
+  const isDefaultPrice = parseFloat(minPrice) === 0.01 && parseFloat(maxPrice) === 0.99;
+  document.getElementById('modal-pipeline-price-desc').textContent = `$${minPrice} - $${maxPrice}`;
+  document.getElementById('modal-pipeline-price-status').textContent = isDefaultPrice ? 'DEFAULT' : 'CUSTOM';
+  document.getElementById('modal-pipeline-price-status').className = `step-status ${isDefaultPrice ? 'off' : 'on'}`;
+  
+  // No repeat
+  const noRepeatEnabled = document.getElementById('modalNoRepeatEnabled').checked;
+  const noRepeatPeriod = document.getElementById('modalNoRepeatPeriod').value;
+  const noRepeatDesc = document.getElementById('modal-pipeline-norepeat-desc');
+  const noRepeatStatus = document.getElementById('modal-pipeline-norepeat-status');
+  if (noRepeatEnabled) {
+    noRepeatDesc.textContent = noRepeatPeriod === '0' ? 'Block forever' : `Block ${noRepeatPeriod}h`;
+    noRepeatStatus.textContent = 'ON';
+    noRepeatStatus.className = 'step-status on';
+  } else {
+    noRepeatDesc.textContent = 'Disabled';
+    noRepeatStatus.textContent = 'OFF';
+    noRepeatStatus.className = 'step-status off';
+  }
+  
+  // Value filter
+  const valueEnabled = document.getElementById('modalValueFilterEnabled').checked;
+  const valueMin = document.getElementById('modalValueFilterMin').value;
+  const valueMax = document.getElementById('modalValueFilterMax').value;
+  const valueDesc = document.getElementById('modal-pipeline-value-desc');
+  const valueStatus = document.getElementById('modal-pipeline-value-status');
+  if (valueEnabled) {
+    const parts = [];
+    if (valueMin) parts.push(`>$${valueMin}`);
+    if (valueMax) parts.push(`<$${valueMax}`);
+    valueDesc.textContent = parts.length > 0 ? parts.join(', ') : 'No limits set';
+    valueStatus.textContent = 'ON';
+    valueStatus.className = 'step-status on';
+  } else {
+    valueDesc.textContent = 'No limits';
+    valueStatus.textContent = 'OFF';
+    valueStatus.className = 'step-status off';
+  }
+  
+  // Rate limit
+  const rateEnabled = document.getElementById('modalRateLimitEnabled').checked;
+  const rateHour = document.getElementById('modalRateLimitPerHour').value || 10;
+  const rateDay = document.getElementById('modalRateLimitPerDay').value || 50;
+  const rateDesc = document.getElementById('modal-pipeline-rate-desc');
+  const rateStatus = document.getElementById('modal-pipeline-rate-status');
+  if (rateEnabled) {
+    rateDesc.textContent = `${rateHour}/hr, ${rateDay}/day`;
+    rateStatus.textContent = 'ON';
+    rateStatus.className = 'step-status on';
+  } else {
+    rateDesc.textContent = 'Unlimited';
+    rateStatus.textContent = 'OFF';
+    rateStatus.className = 'step-status off';
+  }
 }
 
 function updatePriceBadge() {
@@ -496,69 +588,6 @@ function updateSlippageBadge() {
   } else {
     badge.textContent = `${value}%`;
     badge.className = 'badge badge-success';
-  }
-}
-
-function updateModalConfigSummary() {
-  const summary = document.getElementById('modalConfigSummary');
-  const items = [];
-  
-  // Trade sizing
-  const mode = document.querySelector('input[name="modalTradeSizingMode"]:checked').value;
-  if (mode === 'proportional') {
-    items.push({ label: 'Trade Sizing', value: 'Proportional (match their %)', active: true });
-  } else if (mode === 'fixed') {
-    const size = document.getElementById('modalFixedTradeSize').value || 'not set';
-    items.push({ label: 'Trade Sizing', value: `Fixed $${size} USDC`, active: true });
-    
-    if (document.getElementById('modalThresholdEnabled').checked) {
-      const thresh = document.getElementById('modalThresholdPercent').value;
-      items.push({ label: 'Threshold Filter', value: `>${thresh}% of portfolio`, active: true });
-    }
-  } else {
-    items.push({ label: 'Trade Sizing', value: 'Global default', active: false });
-  }
-  
-  // Side filter
-  const side = document.querySelector('input[name="modalTradeSideFilter"]:checked').value;
-  if (side !== 'all') {
-    items.push({ label: 'Side Filter', value: side === 'buy_only' ? 'BUY only' : 'SELL only', active: true });
-  }
-  
-  // No repeat
-  if (document.getElementById('modalNoRepeatEnabled').checked) {
-    const period = document.getElementById('modalNoRepeatPeriod').value;
-    const periodLabel = period === '0' ? 'forever' : `${period} hours`;
-    items.push({ label: 'No Repeat Trades', value: `Block for ${periodLabel}`, active: true });
-  }
-  
-  // Rate limit
-  if (document.getElementById('modalRateLimitEnabled').checked) {
-    const hour = document.getElementById('modalRateLimitPerHour').value;
-    const day = document.getElementById('modalRateLimitPerDay').value;
-    items.push({ label: 'Rate Limiting', value: `${hour}/hour, ${day}/day`, active: true });
-  }
-  
-  // Value filter
-  if (document.getElementById('modalValueFilterEnabled').checked) {
-    const min = document.getElementById('modalValueFilterMin').value;
-    const max = document.getElementById('modalValueFilterMax').value;
-    let valueStr = '';
-    if (min) valueStr += `Min $${min}`;
-    if (max) valueStr += (valueStr ? ', ' : '') + `Max $${max}`;
-    items.push({ label: 'Value Filter', value: valueStr || 'No limits set', active: true });
-  }
-  
-  // Render
-  if (items.length === 0) {
-    summary.innerHTML = '<div class="empty-state" style="padding: 20px;">Using all global defaults</div>';
-  } else {
-    summary.innerHTML = items.map(item => `
-      <div class="config-summary-item">
-        <span class="config-summary-label">${item.label}</span>
-        <span class="config-summary-value ${item.active ? 'active' : 'inactive'}">${item.value}</span>
-      </div>
-    `).join('');
   }
 }
 
@@ -624,17 +653,18 @@ async function saveWalletConfigAndEnable() {
 function collectModalConfig() {
   const mode = document.querySelector('input[name="modalTradeSizingMode"]:checked').value;
   const side = document.querySelector('input[name="modalTradeSideFilter"]:checked').value;
+  const tradeSize = parseFloat(document.getElementById('modalTradeSize').value);
   
   return {
-    // Trade sizing
-    tradeSizingMode: mode || null,
-    fixedTradeSize: mode === 'fixed' ? parseFloat(document.getElementById('modalFixedTradeSize').value) || null : null,
-    thresholdEnabled: mode === 'fixed' ? document.getElementById('modalThresholdEnabled').checked : null,
-    thresholdPercent: mode === 'fixed' && document.getElementById('modalThresholdEnabled').checked 
+    // Trade sizing - use the trade size field for fixed size
+    tradeSizingMode: mode || 'fixed',
+    fixedTradeSize: tradeSize || 2,
+    thresholdEnabled: document.getElementById('modalThresholdEnabled').checked,
+    thresholdPercent: document.getElementById('modalThresholdEnabled').checked 
       ? parseFloat(document.getElementById('modalThresholdPercent').value) : null,
     
     // Side filter
-    tradeSideFilter: side || null,
+    tradeSideFilter: side || 'all',
     
     // No repeat
     noRepeatEnabled: document.getElementById('modalNoRepeatEnabled').checked,
@@ -642,8 +672,8 @@ function collectModalConfig() {
       ? parseInt(document.getElementById('modalNoRepeatPeriod').value) : null,
     
     // Price limits
-    priceLimitsMin: parseFloat(document.getElementById('modalPriceLimitsMin').value) || null,
-    priceLimitsMax: parseFloat(document.getElementById('modalPriceLimitsMax').value) || null,
+    priceLimitsMin: parseFloat(document.getElementById('modalPriceLimitsMin').value) || 0.01,
+    priceLimitsMax: parseFloat(document.getElementById('modalPriceLimitsMax').value) || 0.99,
     
     // Value filter
     valueFilterEnabled: document.getElementById('modalValueFilterEnabled').checked,
@@ -665,277 +695,22 @@ function collectModalConfig() {
 }
 
 // ============================================================
-// TRADE FILTERS
-// ============================================================
-
-async function loadFiltersData() {
-  try {
-    const config = await API.getAllConfig();
-    const c = config.config;
-    
-    // Trade Side Filter
-    document.querySelector(`input[name="tradeSideFilter"][value="${c.tradeSideFilter || 'all'}"]`).checked = true;
-    
-    // Price Limits
-    document.getElementById('minPrice').value = c.priceLimits?.minPrice || 0.01;
-    document.getElementById('maxPrice').value = c.priceLimits?.maxPrice || 0.99;
-    
-    // No Repeat Trades
-    document.getElementById('noRepeatEnabled').checked = c.noRepeatTrades?.enabled || false;
-    document.getElementById('noRepeatPeriod').value = c.noRepeatTrades?.blockPeriodHours || 24;
-    document.getElementById('noRepeatPeriodRow').style.display = c.noRepeatTrades?.enabled ? 'flex' : 'none';
-    document.getElementById('noRepeatHistory').style.display = c.noRepeatTrades?.enabled ? 'flex' : 'none';
-    
-    // Trade Value Filters
-    document.getElementById('valueFilterEnabled').checked = c.tradeValueFilters?.enabled || false;
-    document.getElementById('minTradeValue').value = c.tradeValueFilters?.minTradeValueUSD || '';
-    document.getElementById('maxTradeValue').value = c.tradeValueFilters?.maxTradeValueUSD || '';
-    document.getElementById('valueFilterInputs').style.display = c.tradeValueFilters?.enabled ? 'block' : 'none';
-    
-    // Rate Limiting
-    document.getElementById('rateLimitEnabled').checked = c.rateLimiting?.enabled || false;
-    document.getElementById('maxTradesPerHour').value = c.rateLimiting?.maxTradesPerHour || 10;
-    document.getElementById('maxTradesPerDay').value = c.rateLimiting?.maxTradesPerDay || 50;
-    document.getElementById('rateLimitInputs').style.display = c.rateLimiting?.enabled ? 'block' : 'none';
-    
-    // Slippage
-    document.getElementById('slippagePercent').value = c.slippagePercent || 2;
-    
-    // Update pipeline display
-    updatePipelineDisplay(c);
-    
-    // Load rate limit status if enabled
-    if (c.rateLimiting?.enabled) {
-      await loadRateLimitStatus();
-    }
-    
-    // Check for conflicts
-    await ConflictDetector.refreshConflictDisplay();
-  } catch (error) {
-    console.error('Error loading filters data:', error);
-  }
-}
-
-function updatePipelineDisplay(config) {
-  // Side Filter
-  const sideFilter = config.tradeSideFilter || 'all';
-  document.getElementById('pipeline-side-desc').textContent = 
-    sideFilter === 'buy_only' ? 'BUY only' : sideFilter === 'sell_only' ? 'SELL only' : 'All trades';
-  document.getElementById('pipeline-side-status').textContent = sideFilter !== 'all' ? 'ON' : 'OFF';
-  document.getElementById('pipeline-side-status').className = `step-status ${sideFilter !== 'all' ? 'on' : 'off'}`;
-  
-  // Price Limits
-  const priceLimits = config.priceLimits || { minPrice: 0.01, maxPrice: 0.99 };
-  const isDefaultPrice = priceLimits.minPrice === 0.01 && priceLimits.maxPrice === 0.99;
-  document.getElementById('pipeline-price-desc').textContent = `$${priceLimits.minPrice} - $${priceLimits.maxPrice}`;
-  document.getElementById('pipeline-price-status').textContent = isDefaultPrice ? 'DEFAULT' : 'CUSTOM';
-  document.getElementById('pipeline-price-status').className = `step-status ${isDefaultPrice ? 'off' : 'on'}`;
-  
-  // No Repeat
-  const noRepeat = config.noRepeatTrades || { enabled: false };
-  document.getElementById('pipeline-norepeat-desc').textContent = noRepeat.enabled ? `Block ${noRepeat.blockPeriodHours}h` : 'Disabled';
-  document.getElementById('pipeline-norepeat-status').textContent = noRepeat.enabled ? 'ON' : 'OFF';
-  document.getElementById('pipeline-norepeat-status').className = `step-status ${noRepeat.enabled ? 'on' : 'off'}`;
-  
-  // Value Filter
-  const valueFilter = config.tradeValueFilters || { enabled: false };
-  let valueDesc = 'No limits';
-  if (valueFilter.enabled) {
-    const parts = [];
-    if (valueFilter.minTradeValueUSD) parts.push(`Min $${valueFilter.minTradeValueUSD}`);
-    if (valueFilter.maxTradeValueUSD) parts.push(`Max $${valueFilter.maxTradeValueUSD}`);
-    valueDesc = parts.join(', ') || 'No limits set';
-  }
-  document.getElementById('pipeline-value-desc').textContent = valueDesc;
-  document.getElementById('pipeline-value-status').textContent = valueFilter.enabled ? 'ON' : 'OFF';
-  document.getElementById('pipeline-value-status').className = `step-status ${valueFilter.enabled ? 'on' : 'off'}`;
-  
-  // Rate Limiting
-  const rateLimit = config.rateLimiting || { enabled: false };
-  document.getElementById('pipeline-rate-desc').textContent = rateLimit.enabled 
-    ? `${rateLimit.maxTradesPerHour}/hr, ${rateLimit.maxTradesPerDay}/day` 
-    : 'Disabled';
-  document.getElementById('pipeline-rate-status').textContent = rateLimit.enabled ? 'ON' : 'OFF';
-  document.getElementById('pipeline-rate-status').className = `step-status ${rateLimit.enabled ? 'on' : 'off'}`;
-  
-  // Stop Loss
-  const stopLoss = config.usageStopLoss || { enabled: false };
-  document.getElementById('pipeline-stoploss-desc').textContent = stopLoss.enabled 
-    ? `Max ${stopLoss.maxCommitmentPercent}%` 
-    : 'Disabled';
-  document.getElementById('pipeline-stoploss-status').textContent = stopLoss.enabled ? 'ON' : 'OFF';
-  document.getElementById('pipeline-stoploss-status').className = `step-status ${stopLoss.enabled ? 'on' : 'off'}`;
-}
-
-async function loadRateLimitStatus() {
-  try {
-    const data = await API.getRateLimitStatus();
-    document.getElementById('tradesThisHour').textContent = data.current?.tradesThisHour || 0;
-    document.getElementById('tradesThisDay').textContent = data.current?.tradesThisDay || 0;
-  } catch (error) {
-    console.error('Error loading rate limit status:', error);
-  }
-}
-
-// Filter update functions
-async function updateTradeSideFilter(value) {
-  try {
-    await API.setTradeSideFilter(value);
-    await loadFiltersData();
-  } catch (error) {
-    alert(`Failed to update: ${error.message}`);
-  }
-}
-
-async function updatePriceLimits() {
-  const minPrice = parseFloat(document.getElementById('minPrice').value);
-  const maxPrice = parseFloat(document.getElementById('maxPrice').value);
-  
-  try {
-    await API.setPriceLimits(minPrice, maxPrice);
-    await loadFiltersData();
-  } catch (error) {
-    alert(`Failed to update: ${error.message}`);
-  }
-}
-
-async function updateNoRepeatTrades() {
-  const enabled = document.getElementById('noRepeatEnabled').checked;
-  const blockPeriodHours = parseInt(document.getElementById('noRepeatPeriod').value);
-  
-  document.getElementById('noRepeatPeriodRow').style.display = enabled ? 'flex' : 'none';
-  document.getElementById('noRepeatHistory').style.display = enabled ? 'flex' : 'none';
-  
-  try {
-    await API.setNoRepeatTrades(enabled, blockPeriodHours);
-    await loadFiltersData();
-  } catch (error) {
-    alert(`Failed to update: ${error.message}`);
-  }
-}
-
-async function viewNoRepeatHistory() {
-  try {
-    const data = await API.getNoRepeatHistory();
-    const modal = document.getElementById('noRepeatModal');
-    const body = document.getElementById('noRepeatModalBody');
-    
-    if (!data.positions || data.positions.length === 0) {
-      body.innerHTML = '<div class="empty-state">No blocked markets</div>';
-    } else {
-      body.innerHTML = `
-        <p>Active blocks: ${data.activeBlocks} / ${data.totalPositions}</p>
-        <div class="table-container">
-          <table class="data-table">
-            <thead>
-              <tr><th>Market</th><th>Side</th><th>Age</th><th>Expires</th><th>Status</th></tr>
-            </thead>
-            <tbody>
-              ${data.positions.map(p => `
-                <tr>
-                  <td>${p.marketId.slice(0, 12)}...</td>
-                  <td>${p.side}</td>
-                  <td>${p.age}</td>
-                  <td>${new Date(p.expiresAt).toLocaleString()}</td>
-                  <td><span class="status-pill ${p.isBlocking ? 'pending' : 'success'}">${p.isBlocking ? 'Blocking' : 'Expired'}</span></td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-      `;
-    }
-    
-    modal.style.display = 'flex';
-  } catch (error) {
-    alert(`Failed to load history: ${error.message}`);
-  }
-}
-
-function closeNoRepeatModal() {
-  document.getElementById('noRepeatModal').style.display = 'none';
-}
-
-async function clearNoRepeatHistory() {
-  if (!confirm('Clear all blocked markets? This will allow repeat trades in all markets.')) return;
-  
-  try {
-    await API.clearNoRepeatHistory();
-    alert('History cleared');
-  } catch (error) {
-    alert(`Failed to clear: ${error.message}`);
-  }
-}
-
-async function updateTradeValueFilters() {
-  const enabled = document.getElementById('valueFilterEnabled').checked;
-  const minValue = document.getElementById('minTradeValue').value || null;
-  const maxValue = document.getElementById('maxTradeValue').value || null;
-  
-  document.getElementById('valueFilterInputs').style.display = enabled ? 'block' : 'none';
-  
-  try {
-    await API.setTradeValueFilters(enabled, minValue ? parseFloat(minValue) : null, maxValue ? parseFloat(maxValue) : null);
-    await loadFiltersData();
-  } catch (error) {
-    alert(`Failed to update: ${error.message}`);
-  }
-}
-
-async function updateRateLimiting() {
-  const enabled = document.getElementById('rateLimitEnabled').checked;
-  const maxPerHour = parseInt(document.getElementById('maxTradesPerHour').value);
-  const maxPerDay = parseInt(document.getElementById('maxTradesPerDay').value);
-  
-  document.getElementById('rateLimitInputs').style.display = enabled ? 'block' : 'none';
-  
-  try {
-    await API.setRateLimiting(enabled, maxPerHour, maxPerDay);
-    await loadFiltersData();
-  } catch (error) {
-    alert(`Failed to update: ${error.message}`);
-  }
-}
-
-async function updateSlippage() {
-  const slippagePercent = parseFloat(document.getElementById('slippagePercent').value);
-  
-  try {
-    await API.setSlippage(slippagePercent);
-  } catch (error) {
-    alert(`Failed to update: ${error.message}`);
-  }
-}
-
-// ============================================================
 // SETTINGS
 // ============================================================
 
 async function loadSettings() {
   try {
-    const [tradeSize, stopLoss, interval] = await Promise.all([
-      API.getTradeSize(),
+    const [stopLoss, interval] = await Promise.all([
       API.getStopLoss(),
       API.getMonitoringInterval()
     ]);
     
-    document.getElementById('tradeSize').value = tradeSize.tradeSize || 2;
     document.getElementById('stopLossEnabled').checked = stopLoss.enabled || false;
     document.getElementById('stopLossPercent').value = stopLoss.maxCommitmentPercent || 80;
     document.getElementById('stopLossInputs').style.display = stopLoss.enabled ? 'block' : 'none';
     document.getElementById('monitoringInterval').value = interval.intervalSeconds || 15;
   } catch (error) {
     console.error('Error loading settings:', error);
-  }
-}
-
-async function updateTradeSize() {
-  const size = document.getElementById('tradeSize').value;
-  
-  try {
-    await API.setTradeSize(size);
-  } catch (error) {
-    alert(`Failed to update: ${error.message}`);
   }
 }
 
