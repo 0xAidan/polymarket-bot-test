@@ -1082,6 +1082,13 @@ export class CopyTrader {
   }
 
   /**
+   * Get the CLOB client instance for direct API access
+   */
+  getClobClient(): import('./clobClient.js').PolymarketClobClient {
+    return this.executor.getClobClient();
+  }
+
+  /**
    * Get Polymarket API instance (via monitor)
    */
   getPolymarketApi(): import('./polymarketApi.js').PolymarketApi {

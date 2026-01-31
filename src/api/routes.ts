@@ -346,6 +346,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
 
   // Get user wallet balance with 24h change
+  // Uses Polymarket's CLOB API for accurate trading balance
   router.get('/wallet/balance', async (req: Request, res: Response) => {
     try {
       const eoaAddress = copyTrader.getWalletAddress();
@@ -363,43 +364,84 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         });
       }
 
-      // Get proxy wallet address (where funds are actually held on Polymarket)
-      console.log(`[API] Fetching proxy wallet address for EOA: ${eoaAddress}...`);
+      // Get proxy wallet address for reference
       const proxyWalletAddress = await copyTrader.getProxyWalletAddress();
-      const balanceAddress = proxyWalletAddress || eoaAddress; // Use proxy if available, otherwise use EOA
       
       console.log(`[API] ===== Balance Check Info =====`);
       console.log(`[API] EOA Address: ${eoaAddress}`);
       console.log(`[API] Proxy Wallet: ${proxyWalletAddress || 'NOT FOUND'}`);
-      console.log(`[API] Will check balance for: ${balanceAddress}`);
+      console.log(`[API] Using CLOB API for balance (not on-chain)`);
       console.log(`[API] ==============================`);
 
-      const balanceTracker = copyTrader.getBalanceTracker();
+      // Use CLOB client to get actual Polymarket trading balance
+      // This is the correct method - it queries Polymarket's internal balance, not on-chain USDC
+      const clobClient = copyTrader.getClobClient();
+      let currentBalance = 0;
       
-      // Ensure balance tracker is initialized
       try {
-        // This will initialize if needed
-        await balanceTracker.getBalance(balanceAddress);
-      } catch (initError: any) {
-        console.error('[API] Balance tracker initialization error:', initError);
-        // Continue anyway - getBalanceWithChange will try to initialize again
+        currentBalance = await clobClient.getUsdcBalance();
+        console.log(`[API] CLOB balance fetched: $${currentBalance.toFixed(2)} USDC`);
+      } catch (clobError: any) {
+        console.warn(`[API] CLOB balance fetch failed: ${clobError.message}`);
+        // Fallback to on-chain balance tracker if CLOB fails
+        const balanceTracker = copyTrader.getBalanceTracker();
+        const balanceAddress = proxyWalletAddress || eoaAddress;
+        try {
+          currentBalance = await balanceTracker.getBalance(balanceAddress);
+          console.log(`[API] Fallback on-chain balance: $${currentBalance.toFixed(2)} USDC`);
+        } catch (fallbackError: any) {
+          console.error(`[API] Fallback balance also failed: ${fallbackError.message}`);
+        }
       }
-      
-      console.log(`[API] Fetching balance for wallet: ${balanceAddress}`);
-      const balanceData = await balanceTracker.getBalanceWithChange(balanceAddress);
-      console.log(`[API] Balance fetched: ${balanceData.currentBalance} USDC`);
+
+      // For 24h change, use balance tracker's history if available
+      const balanceTracker = copyTrader.getBalanceTracker();
+      const balanceAddress = proxyWalletAddress || eoaAddress;
+      let change24h = 0;
+      let balance24hAgo: number | null = null;
+
+      // Try to get 24h history for change calculation
+      try {
+        const history = balanceTracker.getBalanceHistory(balanceAddress);
+        if (history.length > 0) {
+          const now = new Date();
+          const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          
+          // Find closest snapshot to 24h ago
+          let closestSnapshot = null;
+          let minDiff = Infinity;
+          
+          for (const snapshot of history) {
+            const diff = Math.abs(snapshot.timestamp.getTime() - twentyFourHoursAgo.getTime());
+            if (diff < minDiff) {
+              minDiff = diff;
+              closestSnapshot = snapshot;
+            }
+          }
+          
+          if (closestSnapshot && minDiff < 25 * 60 * 60 * 1000) {
+            balance24hAgo = closestSnapshot.balance;
+            if (balance24hAgo > 0) {
+              change24h = ((currentBalance - balance24hAgo) / balance24hAgo) * 100;
+            }
+          }
+        }
+      } catch (historyError: any) {
+        console.warn(`[API] Could not calculate 24h change: ${historyError.message}`);
+      }
       
       res.json({ 
         success: true, 
-        ...balanceData,
-        walletAddress: eoaAddress, // Return EOA for display
-        proxyWalletAddress: proxyWalletAddress, // Return proxy for reference
-        balanceCheckedFor: balanceAddress // Show which address we checked
+        currentBalance,
+        change24h,
+        balance24hAgo,
+        walletAddress: eoaAddress,
+        proxyWalletAddress: proxyWalletAddress,
+        source: 'polymarket_clob' // Indicate the balance source
       });
     } catch (error: any) {
       console.error('[API] Error fetching wallet balance:', error);
       console.error('[API] Error stack:', error.stack);
-      // Return error but still provide a response so UI can show error state
       res.status(500).json({ 
         success: false, 
         error: error.message || 'Failed to fetch balance',
@@ -473,19 +515,64 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
-  // Get tracked wallet balance with 24h change
+  // Get tracked wallet's Polymarket portfolio value
+  // For tracked wallets, we estimate value from their positions since we can't access their CLOB balance
   router.get('/wallets/:address/balance', async (req: Request, res: Response) => {
     try {
       const { address } = req.params;
-      const balanceTracker = copyTrader.getBalanceTracker();
-      const balanceData = await balanceTracker.getBalanceWithChange(address);
+      const polymarketApi = copyTrader.getPolymarketApi();
+      
+      // Get the wallet's proxy address first
+      const proxyAddress = await polymarketApi.getProxyWalletAddress(address);
+      const walletToCheck = proxyAddress || address;
+      
+      console.log(`[API] Fetching tracked wallet balance for: ${address}`);
+      console.log(`[API] Using address: ${walletToCheck} (proxy: ${!!proxyAddress})`);
+      
+      // Get positions from Polymarket Data API
+      let positions: any[] = [];
+      try {
+        positions = await polymarketApi.getUserPositions(walletToCheck);
+      } catch (posError: any) {
+        console.warn(`[API] Could not fetch positions for ${address}: ${posError.message}`);
+      }
+      
+      // Calculate total position value
+      // Each position has: size (number of shares), curPrice (current market price)
+      let totalPositionValue = 0;
+      let positionCount = 0;
+      
+      for (const pos of positions) {
+        const size = parseFloat(pos.size || '0');
+        const curPrice = parseFloat(pos.curPrice || pos.currentPrice || '0');
+        
+        if (size > 0 && curPrice > 0) {
+          // Position value = shares * current price
+          const posValue = size * curPrice;
+          totalPositionValue += posValue;
+          positionCount++;
+        }
+      }
+      
+      console.log(`[API] Tracked wallet ${address.substring(0, 8)}... has ${positionCount} positions worth ~$${totalPositionValue.toFixed(2)}`);
       
       res.json({ 
         success: true, 
-        ...balanceData
+        currentBalance: totalPositionValue,
+        positionCount,
+        positionsValue: totalPositionValue,
+        walletAddress: address,
+        proxyAddress: proxyAddress,
+        source: 'positions_estimate', // Indicate this is estimated from positions
+        note: 'Balance is estimated from open positions (does not include uninvested USDC)'
       });
     } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+      console.error(`[API] Error fetching tracked wallet balance:`, error.message);
+      res.status(500).json({ 
+        success: false, 
+        error: error.message,
+        currentBalance: 0
+      });
     }
   });
 

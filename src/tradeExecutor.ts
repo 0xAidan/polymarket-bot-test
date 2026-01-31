@@ -382,4 +382,11 @@ export class TradeExecutor {
   getWalletAddress(): string | null {
     return this.clobClient.getWalletAddress();
   }
+
+  /**
+   * Get the CLOB client instance for direct access
+   */
+  getClobClient(): PolymarketClobClient {
+    return this.clobClient;
+  }
 }

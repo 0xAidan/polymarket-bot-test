@@ -212,16 +212,22 @@ async function loadWallets() {
       return;
     }
     
+    // First render without balances
     list.innerHTML = data.wallets.map(wallet => {
       const isActive = wallet.active;
       const configBadges = getWalletConfigBadges(wallet);
       
       return `
-        <div class="wallet-item ${isActive ? 'active' : 'inactive'}">
+        <div class="wallet-item ${isActive ? 'active' : 'inactive'}" id="wallet-${wallet.address}">
           <div class="wallet-item-info">
-            <div class="wallet-item-address">
-              ${wallet.label ? `<span class="wallet-item-label">${wallet.label}</span>` : ''}
-              <span style="font-family: monospace;">${wallet.address.slice(0, 10)}...${wallet.address.slice(-8)}</span>
+            <div class="wallet-item-header">
+              <div class="wallet-item-address">
+                ${wallet.label ? `<span class="wallet-item-label">${wallet.label}</span>` : ''}
+                <span style="font-family: monospace;">${wallet.address.slice(0, 10)}...${wallet.address.slice(-8)}</span>
+              </div>
+              <div class="wallet-item-balance" id="balance-${wallet.address}">
+                <span class="balance-loading">Loading...</span>
+              </div>
             </div>
             <div class="wallet-item-status">
               <span class="status-dot ${isActive ? 'active' : 'inactive'}"></span>
@@ -242,8 +248,56 @@ async function loadWallets() {
         </div>
       `;
     }).join('');
+    
+    // Then fetch balances asynchronously for each wallet
+    for (const wallet of data.wallets) {
+      loadTrackedWalletBalance(wallet.address);
+    }
   } catch (error) {
     console.error('Error loading wallets:', error);
+  }
+}
+
+// Fetch and display balance for a tracked wallet
+async function loadTrackedWalletBalance(address) {
+  const balanceEl = document.getElementById(`balance-${address}`);
+  if (!balanceEl) return;
+  
+  try {
+    const res = await fetch(`/api/wallets/${address}/balance`);
+    const data = await res.json();
+    
+    if (data.success && data.currentBalance !== undefined) {
+      const value = data.currentBalance;
+      const posCount = data.positionCount || 0;
+      
+      if (value > 0) {
+        balanceEl.innerHTML = `
+          <span class="balance-value">$${formatNumber(value)}</span>
+          <span class="balance-note">${posCount} position${posCount !== 1 ? 's' : ''}</span>
+        `;
+      } else {
+        balanceEl.innerHTML = `
+          <span class="balance-value muted">No positions</span>
+        `;
+      }
+    } else {
+      balanceEl.innerHTML = `<span class="balance-error">-</span>`;
+    }
+  } catch (error) {
+    console.error(`Error loading balance for ${address}:`, error);
+    balanceEl.innerHTML = `<span class="balance-error">-</span>`;
+  }
+}
+
+// Format number with commas and reasonable decimals
+function formatNumber(num) {
+  if (num >= 1000) {
+    return num.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  } else if (num >= 1) {
+    return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  } else {
+    return num.toFixed(2);
   }
 }
 

@@ -467,4 +467,36 @@ export class PolymarketClobClient {
     // Use cancelOrder method which takes order_id as a string parameter
     return await this.client.cancelOrder(orderId);
   }
+
+  /**
+   * Get USDC (collateral) balance for the authenticated wallet
+   * Uses Polymarket's internal balance, not raw on-chain USDC
+   * This is the actual trading balance available on Polymarket
+   */
+  async getUsdcBalance(): Promise<number> {
+    if (!this.client) {
+      await this.initialize();
+    }
+    if (!this.client) {
+      throw new Error('CLOB client not initialized');
+    }
+
+    try {
+      // Get balance for COLLATERAL (USDC) asset type
+      const response = await (this.client as any).getBalanceAllowance({
+        asset_type: 'COLLATERAL'
+      });
+      
+      // Balance is returned as a string in wei (6 decimals for USDC)
+      const balanceStr = response?.balance || '0';
+      // Convert from USDC units (6 decimals)
+      const balance = parseFloat(balanceStr) / 1_000_000;
+      
+      console.log(`[CLOB] USDC balance: $${balance.toFixed(2)} (raw: ${balanceStr})`);
+      return balance;
+    } catch (error: any) {
+      console.error('[CLOB] Failed to get USDC balance:', error.message);
+      throw error;
+    }
+  }
 }
