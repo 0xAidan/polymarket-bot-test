@@ -7,6 +7,14 @@
 export type TradeSizingMode = 'fixed' | 'proportional';
 
 /**
+ * Trade side filter options
+ * - 'all': Copy both BUY and SELL trades
+ * - 'buy_only': Only copy BUY trades
+ * - 'sell_only': Only copy SELL trades
+ */
+export type TradeSideFilter = 'all' | 'buy_only' | 'sell_only';
+
+/**
  * Represents a wallet address being tracked
  */
 export interface TrackedWallet {
@@ -21,6 +29,7 @@ export interface TrackedWallet {
   fixedTradeSize?: number;           // USDC amount when mode is 'fixed'
   thresholdEnabled?: boolean;        // Filter small trades (only when mode is 'fixed')
   thresholdPercent?: number;         // Threshold % (only when mode is 'fixed')
+  tradeSideFilter?: TradeSideFilter; // Per-wallet trade side filter override
 }
 
 /**
@@ -43,6 +52,7 @@ export interface DetectedTrade {
   fixedTradeSize?: number;
   thresholdEnabled?: boolean;
   thresholdPercent?: number;
+  tradeSideFilter?: TradeSideFilter; // Per-wallet trade side filter
 }
 
 /**
@@ -155,3 +165,110 @@ export interface PerformanceDataPoint {
     success: boolean;
   };
 }
+
+// ============================================================================
+// ADVANCED TRADE FILTER CONFIGURATION TYPES
+// ============================================================================
+
+/**
+ * No repeat trades configuration
+ * Prevents copying trades in markets where you already have a position
+ */
+export interface NoRepeatTradesConfig {
+  enabled: boolean;
+  blockPeriodHours: number; // How long to block repeats (1, 6, 12, 24, 48, 168)
+}
+
+/**
+ * Price limits configuration
+ * Replaces hard-coded MIN/MAX_EXECUTABLE_PRICE
+ */
+export interface PriceLimitsConfig {
+  minPrice: number; // Default: 0.01, Range: 0.01-0.98
+  maxPrice: number; // Default: 0.99, Range: 0.02-0.99
+}
+
+/**
+ * Rate limiting configuration
+ * Prevents excessive trade execution
+ */
+export interface RateLimitingConfig {
+  enabled: boolean;
+  maxTradesPerHour: number;  // Default: 10, Range: 1-100
+  maxTradesPerDay: number;   // Default: 50, Range: 1-500
+}
+
+/**
+ * Trade value filters configuration
+ * Filter trades by USDC value
+ */
+export interface TradeValueFiltersConfig {
+  enabled: boolean;
+  minTradeValueUSD: number | null; // null = no minimum
+  maxTradeValueUSD: number | null; // null = no maximum
+}
+
+/**
+ * Executed position record for no-repeat-trades tracking
+ */
+export interface ExecutedPosition {
+  marketId: string;
+  side: 'YES' | 'NO';
+  timestamp: number;
+  walletAddress: string; // Which tracked wallet triggered this
+}
+
+/**
+ * Configuration conflict detected by the system
+ */
+export interface ConfigConflict {
+  type: 'warning' | 'error';
+  code: string;
+  message: string;
+  affectedSettings: string[];
+  suggestion?: string;
+}
+
+/**
+ * Configuration validation result
+ */
+export interface ConfigValidationResult {
+  valid: boolean;
+  conflicts: ConfigConflict[];
+}
+
+/**
+ * Rate limiting runtime state (in-memory tracking)
+ */
+export interface RateLimitState {
+  tradesThisHour: number;
+  tradesThisDay: number;
+  hourStartTime: number;
+  dayStartTime: number;
+}
+
+/**
+ * Complete bot configuration (for API responses)
+ */
+export interface BotConfigSummary {
+  // Global trade settings
+  tradeSize: string;
+  slippagePercent: number;
+  
+  // Filters
+  noRepeatTrades: NoRepeatTradesConfig;
+  priceLimits: PriceLimitsConfig;
+  tradeSideFilter: TradeSideFilter;
+  rateLimiting: RateLimitingConfig;
+  tradeValueFilters: TradeValueFiltersConfig;
+  
+  // Stop-loss
+  usageStopLoss: {
+    enabled: boolean;
+    maxCommitmentPercent: number;
+  };
+  
+  // Monitoring
+  monitoringIntervalMs: number;
+}
+
