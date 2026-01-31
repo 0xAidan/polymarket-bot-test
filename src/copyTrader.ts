@@ -3,7 +3,7 @@ import { WebSocketMonitor } from './websocketMonitor.js';
 import { TradeExecutor } from './tradeExecutor.js';
 import { PerformanceTracker } from './performanceTracker.js';
 import { BalanceTracker } from './balanceTracker.js';
-import { DetectedTrade, TradeOrder, TradeResult } from './types.js';
+import { DetectedTrade, TradeOrder, TradeResult, RateLimitState, TradeSideFilter } from './types.js';
 import { Storage } from './storage.js';
 import { config } from './config.js';
 
@@ -21,6 +21,14 @@ export class CopyTrader {
   private executedTrades = new Set<string>(); // Track executed trades by tx hash
   private processedTrades = new Map<string, number>(); // Track processed trades by tx hash to prevent duplicates
   private processedCompoundKeys = new Map<string, number>(); // Track by compound key (wallet-market-outcome-side-timeWindow) to catch same trade with different hashes
+  
+  // Rate limiting state (in-memory)
+  private rateLimitState: RateLimitState = {
+    tradesThisHour: 0,
+    tradesThisDay: 0,
+    hourStartTime: Date.now(),
+    dayStartTime: Date.now()
+  };
 
   constructor() {
     this.monitor = new WalletMonitor();
@@ -49,6 +57,19 @@ export class CopyTrader {
         } catch (error: any) {
           console.warn(`Failed to record initial balance for ${userWallet}:`, error.message);
         }
+      }
+      
+      // Cleanup expired executed positions (for no-repeat-trades feature)
+      try {
+        const noRepeatConfig = await Storage.getNoRepeatTrades();
+        if (noRepeatConfig.enabled) {
+          const removed = await Storage.cleanupExpiredPositions(noRepeatConfig.blockPeriodHours);
+          if (removed > 0) {
+            console.log(`[CopyTrader] Cleaned up ${removed} expired no-repeat-trades entries`);
+          }
+        }
+      } catch (cleanupError: any) {
+        console.warn(`[CopyTrader] Failed to cleanup expired positions: ${cleanupError.message}`);
       }
       
       console.log('Copy trader initialized');
@@ -316,31 +337,204 @@ export class CopyTrader {
     }
     
     // ============================================================
-    // POLYMARKET PRICE LIMITS: 0.01 to 0.99
+    // TRADE SIDE FILTER (Global + Per-Wallet)
     // ============================================================
-    // Skip trades where price is too low or too high to execute
-    // These are typically "long shot" bets or nearly-resolved markets
-    const MIN_EXECUTABLE_PRICE = 0.01;
-    const MAX_EXECUTABLE_PRICE = 0.99;
+    // Check if we should copy this trade based on side filter
+    try {
+      const globalSideFilter = await Storage.getTradeSideFilter();
+      // Per-wallet setting overrides global (if set)
+      const effectiveSideFilter: TradeSideFilter = trade.tradeSideFilter || globalSideFilter;
+      
+      if (effectiveSideFilter === 'buy_only' && trade.side === 'SELL') {
+        console.log(`\n⏭️  [CopyTrader] FILTERED - Trade side filter (BUY only mode)`);
+        console.log(`   Trade: ${trade.side} ${trade.outcome}`);
+        console.log(`   Filter: ${trade.tradeSideFilter ? 'Per-wallet' : 'Global'} = ${effectiveSideFilter}`);
+        console.log(`   💡 This SELL trade is blocked by your side filter settings.\n`);
+        return;
+      }
+      
+      if (effectiveSideFilter === 'sell_only' && trade.side === 'BUY') {
+        console.log(`\n⏭️  [CopyTrader] FILTERED - Trade side filter (SELL only mode)`);
+        console.log(`   Trade: ${trade.side} ${trade.outcome}`);
+        console.log(`   Filter: ${trade.tradeSideFilter ? 'Per-wallet' : 'Global'} = ${effectiveSideFilter}`);
+        console.log(`   💡 This BUY trade is blocked by your side filter settings.\n`);
+        return;
+      }
+    } catch (sideFilterError: any) {
+      console.warn(`[CopyTrader] Side filter check error (proceeding with trade): ${sideFilterError.message}`);
+    }
+
+    // ============================================================
+    // CONFIGURABLE PRICE LIMITS (replaces hard-coded 0.01-0.99)
+    // ============================================================
+    // Skip trades where price is outside configured limits
+    let priceLimits = { minPrice: 0.01, maxPrice: 0.99 }; // Defaults
+    try {
+      priceLimits = await Storage.getPriceLimits();
+    } catch (priceLimitsError: any) {
+      console.warn(`[CopyTrader] Could not load price limits (using defaults): ${priceLimitsError.message}`);
+    }
     
-    if (priceNum < MIN_EXECUTABLE_PRICE) {
-      console.log(`\n⏭️  [CopyTrader] SKIPPING TRADE - Price too low`);
-      console.log(`   Price: $${trade.price} (minimum executable: $${MIN_EXECUTABLE_PRICE})`);
+    if (priceNum < priceLimits.minPrice) {
+      console.log(`\n⏭️  [CopyTrader] FILTERED - Price below minimum`);
+      console.log(`   Price: $${trade.price} (configured minimum: $${priceLimits.minPrice})`);
       console.log(`   Market: ${trade.marketId}`);
       console.log(`   Outcome: ${trade.outcome}`);
-      console.log(`   💡 This is a "long shot" bet with price below 1 cent. Cannot copy via API.\n`);
-      // Don't log as error - this is expected behavior for cheap bets
+      console.log(`   💡 Adjust price limits in settings if you want to copy low-price trades.\n`);
       return;
     }
     
-    if (priceNum > MAX_EXECUTABLE_PRICE) {
-      console.log(`\n⏭️  [CopyTrader] SKIPPING TRADE - Price too high`);
-      console.log(`   Price: $${trade.price} (maximum executable: $${MAX_EXECUTABLE_PRICE})`);
+    if (priceNum > priceLimits.maxPrice) {
+      console.log(`\n⏭️  [CopyTrader] FILTERED - Price above maximum`);
+      console.log(`   Price: $${trade.price} (configured maximum: $${priceLimits.maxPrice})`);
       console.log(`   Market: ${trade.marketId}`);
       console.log(`   Outcome: ${trade.outcome}`);
-      console.log(`   💡 This market is nearly resolved. Cannot copy via API.\n`);
-      // Don't log as error - this is expected behavior for nearly-resolved markets
+      console.log(`   💡 Adjust price limits in settings if you want to copy high-price trades.\n`);
       return;
+    }
+
+    // ============================================================
+    // NO-REPEAT-TRADES FILTER
+    // ============================================================
+    // Check if we've already traded this market+side within the block period
+    try {
+      const noRepeatConfig = await Storage.getNoRepeatTrades();
+      if (noRepeatConfig.enabled) {
+        const isBlocked = await Storage.isPositionBlocked(
+          trade.marketId,
+          trade.outcome,
+          noRepeatConfig.blockPeriodHours
+        );
+        
+        if (isBlocked) {
+          console.log(`\n⏭️  [CopyTrader] FILTERED - No-repeat-trades (already have position)`);
+          console.log(`   Market: ${trade.marketId}`);
+          console.log(`   Side: ${trade.outcome}`);
+          console.log(`   Block period: ${noRepeatConfig.blockPeriodHours} hours`);
+          console.log(`   💡 You already have a ${trade.outcome} position in this market. Skipping repeat trade.\n`);
+          
+          await this.performanceTracker.recordTrade({
+            timestamp: new Date(),
+            walletAddress: trade.walletAddress,
+            marketId: trade.marketId,
+            outcome: trade.outcome,
+            amount: trade.amount,
+            price: trade.price,
+            success: false,
+            status: 'rejected',
+            executionTimeMs: 0,
+            error: `No-repeat-trades: Already have ${trade.outcome} position in this market (blocked for ${noRepeatConfig.blockPeriodHours}h)`,
+            detectedTxHash: trade.transactionHash,
+            tokenId: trade.tokenId
+          });
+          
+          return;
+        }
+      }
+    } catch (noRepeatError: any) {
+      console.warn(`[CopyTrader] No-repeat check error (proceeding with trade): ${noRepeatError.message}`);
+    }
+
+    // ============================================================
+    // TRADE VALUE FILTER
+    // ============================================================
+    // Check if the detected trade value is within configured limits
+    try {
+      const valueFilters = await Storage.getTradeValueFilters();
+      if (valueFilters.enabled) {
+        const detectedTradeValue = amountNum * priceNum;
+        
+        if (valueFilters.minTradeValueUSD !== null && detectedTradeValue < valueFilters.minTradeValueUSD) {
+          console.log(`\n⏭️  [CopyTrader] FILTERED - Trade value below minimum`);
+          console.log(`   Detected trade value: $${detectedTradeValue.toFixed(2)}`);
+          console.log(`   Configured minimum: $${valueFilters.minTradeValueUSD}`);
+          console.log(`   💡 This trade is too small based on your value filter settings.\n`);
+          return;
+        }
+        
+        if (valueFilters.maxTradeValueUSD !== null && detectedTradeValue > valueFilters.maxTradeValueUSD) {
+          console.log(`\n⏭️  [CopyTrader] FILTERED - Trade value above maximum`);
+          console.log(`   Detected trade value: $${detectedTradeValue.toFixed(2)}`);
+          console.log(`   Configured maximum: $${valueFilters.maxTradeValueUSD}`);
+          console.log(`   💡 This trade is too large based on your value filter settings.\n`);
+          return;
+        }
+      }
+    } catch (valueFilterError: any) {
+      console.warn(`[CopyTrader] Value filter check error (proceeding with trade): ${valueFilterError.message}`);
+    }
+
+    // ============================================================
+    // RATE LIMITING CHECK
+    // ============================================================
+    // Check if we've exceeded the configured rate limits
+    try {
+      const rateLimitConfig = await Storage.getRateLimiting();
+      if (rateLimitConfig.enabled) {
+        // Update rate limit state (reset counters if window has passed)
+        const now = Date.now();
+        const hourMs = 60 * 60 * 1000;
+        const dayMs = 24 * 60 * 60 * 1000;
+        
+        if (now - this.rateLimitState.hourStartTime > hourMs) {
+          this.rateLimitState.tradesThisHour = 0;
+          this.rateLimitState.hourStartTime = now;
+        }
+        
+        if (now - this.rateLimitState.dayStartTime > dayMs) {
+          this.rateLimitState.tradesThisDay = 0;
+          this.rateLimitState.dayStartTime = now;
+        }
+        
+        // Check limits
+        if (this.rateLimitState.tradesThisHour >= rateLimitConfig.maxTradesPerHour) {
+          console.log(`\n⏭️  [CopyTrader] RATE LIMITED - Max trades per hour reached`);
+          console.log(`   Trades this hour: ${this.rateLimitState.tradesThisHour}/${rateLimitConfig.maxTradesPerHour}`);
+          console.log(`   💡 Increase rate limit in settings or wait for the next hour.\n`);
+          
+          await this.performanceTracker.recordTrade({
+            timestamp: new Date(),
+            walletAddress: trade.walletAddress,
+            marketId: trade.marketId,
+            outcome: trade.outcome,
+            amount: trade.amount,
+            price: trade.price,
+            success: false,
+            status: 'rejected',
+            executionTimeMs: 0,
+            error: `Rate limited: ${this.rateLimitState.tradesThisHour}/${rateLimitConfig.maxTradesPerHour} trades this hour`,
+            detectedTxHash: trade.transactionHash,
+            tokenId: trade.tokenId
+          });
+          
+          return;
+        }
+        
+        if (this.rateLimitState.tradesThisDay >= rateLimitConfig.maxTradesPerDay) {
+          console.log(`\n⏭️  [CopyTrader] RATE LIMITED - Max trades per day reached`);
+          console.log(`   Trades today: ${this.rateLimitState.tradesThisDay}/${rateLimitConfig.maxTradesPerDay}`);
+          console.log(`   💡 Increase rate limit in settings or wait until tomorrow.\n`);
+          
+          await this.performanceTracker.recordTrade({
+            timestamp: new Date(),
+            walletAddress: trade.walletAddress,
+            marketId: trade.marketId,
+            outcome: trade.outcome,
+            amount: trade.amount,
+            price: trade.price,
+            success: false,
+            status: 'rejected',
+            executionTimeMs: 0,
+            error: `Rate limited: ${this.rateLimitState.tradesThisDay}/${rateLimitConfig.maxTradesPerDay} trades today`,
+            detectedTxHash: trade.transactionHash,
+            tokenId: trade.tokenId
+          });
+          
+          return;
+        }
+      }
+    } catch (rateLimitError: any) {
+      console.warn(`[CopyTrader] Rate limit check error (proceeding with trade): ${rateLimitError.message}`);
     }
     
     if (!trade.side || (trade.side !== 'BUY' && trade.side !== 'SELL')) {
@@ -721,6 +915,21 @@ export class CopyTrader {
         console.log(`   Side: ${order.side} $${tradeSizeUsdcNum.toFixed(2)} USDC (${order.amount} shares) @ ${order.price}`);
         console.log(`${'='.repeat(60)}\n`);
         this.executedTrades.add(trade.transactionHash);
+        
+        // Increment rate limit counters
+        this.rateLimitState.tradesThisHour++;
+        this.rateLimitState.tradesThisDay++;
+        
+        // Record executed position for no-repeat-trades feature
+        try {
+          const noRepeatConfig = await Storage.getNoRepeatTrades();
+          if (noRepeatConfig.enabled) {
+            await Storage.addExecutedPosition(trade.marketId, trade.outcome, trade.walletAddress);
+            console.log(`[CopyTrader] Recorded position for no-repeat-trades: ${trade.marketId} ${trade.outcome}`);
+          }
+        } catch (recordError: any) {
+          console.warn(`[CopyTrader] Failed to record executed position: ${recordError.message}`);
+        }
       } else {
         // Check if this is a "market closed" error (expected behavior, not a failure)
         const isMarketClosed = result.error?.includes('MARKET_CLOSED') || 
@@ -944,5 +1153,27 @@ export class CopyTrader {
       console.warn(`[CopyTrader] Stop-loss check error: ${error.message}`);
       return false; // Error, allow trade to proceed
     }
+  }
+
+  /**
+   * Get current rate limit status (for API)
+   */
+  getRateLimitStatus(): RateLimitState {
+    // Update state first (reset counters if window has passed)
+    const now = Date.now();
+    const hourMs = 60 * 60 * 1000;
+    const dayMs = 24 * 60 * 60 * 1000;
+    
+    if (now - this.rateLimitState.hourStartTime > hourMs) {
+      this.rateLimitState.tradesThisHour = 0;
+      this.rateLimitState.hourStartTime = now;
+    }
+    
+    if (now - this.rateLimitState.dayStartTime > dayMs) {
+      this.rateLimitState.tradesThisDay = 0;
+      this.rateLimitState.dayStartTime = now;
+    }
+    
+    return { ...this.rateLimitState };
   }
 }
