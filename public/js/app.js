@@ -122,13 +122,36 @@ async function loadWalletBalance() {
     document.getElementById('walletAddress').textContent = 
       wallet.walletAddress ? `${wallet.walletAddress.slice(0, 6)}...${wallet.walletAddress.slice(-4)}` : 'Not configured';
     
-    document.getElementById('walletBalance').textContent = 
-      `$${(balance.currentBalance || 0).toFixed(2)}`;
+    // Show total balance with breakdown if available
+    const total = balance.currentBalance || 0;
+    const usdc = balance.usdcBalance || 0;
+    const positions = balance.positionsValue || 0;
+    const posCount = balance.positionCount || 0;
+    
+    const balanceEl = document.getElementById('walletBalance');
+    if (total > 0 && (usdc > 0 || positions > 0)) {
+      // Show breakdown
+      balanceEl.innerHTML = `
+        <span class="total-balance">$${total.toFixed(2)}</span>
+        <span class="balance-breakdown" style="font-size: 0.75rem; color: var(--text-muted); display: block;">
+          $${usdc.toFixed(2)} USDC${positions > 0 ? ` + $${positions.toFixed(2)} in ${posCount} pos` : ''}
+        </span>
+      `;
+    } else {
+      balanceEl.textContent = `$${total.toFixed(2)}`;
+    }
     
     const changeEl = document.getElementById('balanceChange');
     const change = balance.change24h || 0;
     changeEl.textContent = `${change >= 0 ? '+' : ''}$${change.toFixed(2)} (24h)`;
     changeEl.className = `balance-change ${change >= 0 ? 'positive' : 'negative'}`;
+    
+    // Log for debugging
+    console.log('[Dashboard] Wallet balance loaded:', {
+      total, usdc, positions, posCount,
+      source: balance.source,
+      proxyWallet: balance.proxyWalletAddress
+    });
   } catch (error) {
     console.error('Error loading wallet balance:', error);
   }
@@ -762,15 +785,21 @@ function collectModalConfig() {
 
 async function loadSettings() {
   try {
-    const [stopLoss, interval] = await Promise.all([
+    const [stopLoss, interval, proxyWallet] = await Promise.all([
       API.getStopLoss(),
-      API.getMonitoringInterval()
+      API.getMonitoringInterval(),
+      fetch('/api/config/proxy-wallet').then(r => r.json()).catch(() => ({ proxyWalletAddress: '' }))
     ]);
     
     document.getElementById('stopLossEnabled').checked = stopLoss.enabled || false;
     document.getElementById('stopLossPercent').value = stopLoss.maxCommitmentPercent || 80;
     document.getElementById('stopLossInputs').style.display = stopLoss.enabled ? 'block' : 'none';
     document.getElementById('monitoringInterval').value = interval.intervalSeconds || 15;
+    
+    // Load proxy wallet address if configured
+    if (proxyWallet.proxyWalletAddress) {
+      document.getElementById('proxyWalletAddress').value = proxyWallet.proxyWalletAddress;
+    }
   } catch (error) {
     console.error('Error loading settings:', error);
   }
@@ -811,7 +840,9 @@ async function updatePrivateKey() {
   try {
     await API.updatePrivateKey(privateKey);
     document.getElementById('privateKey').value = '';
-    alert('Private key updated. Restart the bot to apply.');
+    alert('Private key updated and bot reinitialized!');
+    // Refresh wallet display
+    loadWalletBalance();
   } catch (error) {
     alert(`Failed to update: ${error.message}`);
   }
@@ -832,7 +863,42 @@ async function updateBuilderCredentials() {
     document.getElementById('builderApiKey').value = '';
     document.getElementById('builderSecret').value = '';
     document.getElementById('builderPassphrase').value = '';
-    alert('Builder credentials updated. Restart the bot to apply.');
+    alert('Builder credentials updated. Bot reinitialized.');
+    // Refresh wallet balance to show updated info
+    loadWalletBalance();
+  } catch (error) {
+    alert(`Failed to update: ${error.message}`);
+  }
+}
+
+async function updateProxyWallet() {
+  const proxyAddress = document.getElementById('proxyWalletAddress').value.trim();
+  
+  if (!proxyAddress) {
+    alert('Please enter your proxy wallet address');
+    return;
+  }
+  
+  if (!/^0x[a-fA-F0-9]{40}$/.test(proxyAddress)) {
+    alert('Invalid address format. Must be 0x followed by 40 hex characters.');
+    return;
+  }
+  
+  try {
+    const response = await fetch('/api/config/proxy-wallet', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proxyWalletAddress: proxyAddress })
+    });
+    const data = await response.json();
+    
+    if (data.success) {
+      alert('Proxy wallet address saved! Balance will update shortly.');
+      // Refresh wallet balance to show updated info
+      loadWalletBalance();
+    } else {
+      alert(`Failed to save: ${data.error}`);
+    }
   } catch (error) {
     alert(`Failed to update: ${error.message}`);
   }

@@ -346,7 +346,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
 
   // Get user wallet balance with 24h change
-  // Uses Polymarket's CLOB API for accurate trading balance
+  // Uses the SAME method as tracked wallets: on-chain proxy USDC + positions
   router.get('/wallet/balance', async (req: Request, res: Response) => {
     try {
       const eoaAddress = copyTrader.getWalletAddress();
@@ -364,63 +364,57 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         });
       }
 
-      // Get proxy wallet address - try multiple sources
-      let proxyWalletAddress = await copyTrader.getProxyWalletAddress();
+      // Use the SAME method that works for tracked wallets:
+      // Get on-chain proxy wallet USDC + positions value
+      const polymarketApi = copyTrader.getPolymarketApi();
+      const balanceTracker = copyTrader.getBalanceTracker();
       
-      // If no proxy found from positions, try funder address from CLOB client
-      if (!proxyWalletAddress) {
-        try {
-          const clobClient = copyTrader.getClobClient();
-          const funderAddress = clobClient.getFunderAddress();
-          if (funderAddress) {
-            proxyWalletAddress = funderAddress;
-            console.log(`[API] Using funder address as proxy wallet: ${funderAddress}`);
-          }
-        } catch (e) {
-          // CLOB client not initialized yet, that's fine
-        }
-      }
+      console.log(`[API] Fetching portfolio value for user wallet: ${eoaAddress}`);
       
-      console.log(`[API] ===== Balance Check Info =====`);
-      console.log(`[API] EOA Address: ${eoaAddress}`);
-      console.log(`[API] Proxy Wallet: ${proxyWalletAddress || 'NOT FOUND'}`);
-      console.log(`[API] ==============================`);
-
-      // Try multiple methods to get the balance
       let currentBalance = 0;
+      let usdcBalance = 0;
+      let positionsValue = 0;
+      let positionCount = 0;
+      let proxyWalletAddress: string | null = null;
       let balanceSource = 'unknown';
       
-      // Method 1: Try CLOB API (Polymarket's internal balance)
       try {
-        const clobClient = copyTrader.getClobClient();
-        currentBalance = await clobClient.getUsdcBalance();
-        balanceSource = 'clob_api';
-        console.log(`[API] ✓ CLOB balance: $${currentBalance.toFixed(2)} USDC`);
-      } catch (clobError: any) {
-        console.warn(`[API] CLOB balance failed: ${clobError.message}`);
+        // This is the SAME method that works for tracked wallets
+        const portfolioData = await polymarketApi.getPortfolioValue(eoaAddress, balanceTracker);
         
-        // Method 2: Try on-chain balance of PROXY wallet (where Polymarket holds funds)
-        if (proxyWalletAddress) {
-          try {
-            const balanceTracker = copyTrader.getBalanceTracker();
-            currentBalance = await balanceTracker.getBalance(proxyWalletAddress);
-            balanceSource = 'proxy_wallet_onchain';
-            console.log(`[API] ✓ Proxy wallet on-chain balance: $${currentBalance.toFixed(2)} USDC`);
-          } catch (proxyError: any) {
-            console.warn(`[API] Proxy wallet balance failed: ${proxyError.message}`);
-          }
+        currentBalance = portfolioData.totalValue;
+        usdcBalance = portfolioData.usdcBalance;
+        positionsValue = portfolioData.positionsValue;
+        positionCount = portfolioData.positionCount;
+        proxyWalletAddress = portfolioData.proxyWallet;
+        balanceSource = 'portfolio_value';
+        
+        console.log(`[API] ✓ User portfolio breakdown:`);
+        console.log(`[API]   - Proxy wallet: ${proxyWalletAddress || 'NOT FOUND'}`);
+        console.log(`[API]   - USDC balance: $${usdcBalance.toFixed(2)}`);
+        console.log(`[API]   - Positions value: $${positionsValue.toFixed(2)} (${positionCount} positions)`);
+        console.log(`[API]   - Total: $${currentBalance.toFixed(2)}`);
+      } catch (portfolioError: any) {
+        console.warn(`[API] Portfolio value failed: ${portfolioError.message}`);
+        
+        // Fallback: try CLOB API balance
+        try {
+          const clobClient = copyTrader.getClobClient();
+          currentBalance = await clobClient.getUsdcBalance();
+          usdcBalance = currentBalance;
+          balanceSource = 'clob_api';
+          console.log(`[API] ✓ Fallback CLOB balance: $${currentBalance.toFixed(2)} USDC`);
+        } catch (clobError: any) {
+          console.warn(`[API] CLOB balance also failed: ${clobError.message}`);
         }
         
-        // Method 3: Try on-chain balance of EOA (unlikely to have USDC but worth checking)
-        if (currentBalance === 0) {
+        // Get proxy wallet address for display
+        proxyWalletAddress = await copyTrader.getProxyWalletAddress();
+        if (!proxyWalletAddress) {
           try {
-            const balanceTracker = copyTrader.getBalanceTracker();
-            currentBalance = await balanceTracker.getBalance(eoaAddress);
-            balanceSource = 'eoa_onchain';
-            console.log(`[API] ✓ EOA on-chain balance: $${currentBalance.toFixed(2)} USDC`);
-          } catch (eoaError: any) {
-            console.warn(`[API] EOA balance failed: ${eoaError.message}`);
-          }
+            const clobClient = copyTrader.getClobClient();
+            proxyWalletAddress = clobClient.getFunderAddress();
+          } catch (e) {}
         }
       }
       
@@ -465,6 +459,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       res.json({ 
         success: true, 
         currentBalance,
+        usdcBalance,
+        positionsValue,
+        positionCount,
         change24h,
         balance24hAgo,
         walletAddress: eoaAddress,
@@ -1206,6 +1203,99 @@ export function createRoutes(copyTrader: CopyTrader): Router {
           success: true, 
           message: 'Builder credentials saved but reinitialization failed: ' + result.error,
           requiresRestart: true
+        });
+      }
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get proxy wallet (funder) address configuration
+  router.get('/config/proxy-wallet', async (req: Request, res: Response) => {
+    try {
+      const funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS || '';
+      const eoaAddress = copyTrader.getWalletAddress();
+      
+      res.json({ 
+        success: true, 
+        proxyWalletAddress: funderAddress,
+        eoaAddress: eoaAddress,
+        configured: !!funderAddress
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Update proxy wallet (funder) address (WARNING: This writes to .env file)
+  // The proxy wallet is where Polymarket holds your USDC
+  router.post('/config/proxy-wallet', async (req: Request, res: Response) => {
+    try {
+      const { proxyWalletAddress } = req.body;
+      
+      if (!proxyWalletAddress || typeof proxyWalletAddress !== 'string') {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Proxy wallet address is required' 
+        });
+      }
+
+      // Validate address format (0x followed by 40 hex chars)
+      const trimmedAddress = proxyWalletAddress.trim();
+      if (!/^0x[a-fA-F0-9]{40}$/.test(trimmedAddress)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Invalid address format (must be 0x followed by 40 hex characters)' 
+        });
+      }
+
+      // Update .env file
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const envPath = path.join(process.cwd(), '.env');
+      
+      let envContent = '';
+      try {
+        envContent = await fs.readFile(envPath, 'utf-8');
+      } catch {
+        // .env doesn't exist, create it
+        envContent = '';
+      }
+
+      // Update or add POLYMARKET_FUNDER_ADDRESS
+      const lines = envContent.split('\n');
+      let found = false;
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith('POLYMARKET_FUNDER_ADDRESS=')) {
+          lines[i] = `POLYMARKET_FUNDER_ADDRESS=${trimmedAddress}`;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        lines.push(`POLYMARKET_FUNDER_ADDRESS=${trimmedAddress}`);
+      }
+
+      await fs.writeFile(envPath, lines.join('\n'));
+      
+      // Update environment variable in memory
+      process.env.POLYMARKET_FUNDER_ADDRESS = trimmedAddress;
+      
+      // Reinitialize to pick up the new proxy wallet
+      console.log('[API] Reinitializing bot with new proxy wallet address...');
+      const result = await copyTrader.reinitializeCredentials();
+      
+      if (result.success) {
+        res.json({ 
+          success: true, 
+          message: 'Proxy wallet address saved and bot reinitialized',
+          proxyWalletAddress: trimmedAddress
+        });
+      } else {
+        res.json({ 
+          success: true, 
+          message: 'Proxy wallet address saved. Balance should update on next refresh.',
+          proxyWalletAddress: trimmedAddress
         });
       }
     } catch (error: any) {

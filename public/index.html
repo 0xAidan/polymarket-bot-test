@@ -178,6 +178,16 @@
             <input type="password" id="builderPassphrase" placeholder="Your passphrase" class="input">
             <button class="btn btn-sm" onclick="updateBuilderCredentials()">Update All</button>
           </div>
+          <hr style="margin: 1.5rem 0; border-color: var(--border);">
+          <div class="input-row">
+            <label>Proxy Wallet Address:</label>
+            <input type="text" id="proxyWalletAddress" placeholder="0x..." class="input" style="font-family: monospace;">
+            <button class="btn btn-sm" onclick="updateProxyWallet()">Update</button>
+          </div>
+          <p class="help-text" style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">
+            Your Polymarket proxy wallet holds your USDC. Find it on <a href="https://polygonscan.com" target="_blank">Polygonscan</a> 
+            by looking at your first USDC transfer to Polymarket. Required for accurate balance display.
+          </p>
         </div>
       </div>
 

@@ -165,6 +165,14 @@ export class PolymarketApi {
       console.log(`[API] Dome API unavailable for ${address.substring(0, 8)}... (this is normal)`);
     }
     
+    // FALLBACK: Check POLYMARKET_FUNDER_ADDRESS env variable
+    // This is the most reliable method if the user has set it
+    const funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS;
+    if (funderAddress && funderAddress.toLowerCase() !== normalizedEoa) {
+      console.log(`[API] ✓ Using POLYMARKET_FUNDER_ADDRESS: ${funderAddress} for EOA: ${address.substring(0, 8)}...`);
+      return funderAddress;
+    }
+    
     // No proxy wallet found - the EOA will be used directly with the Data API
     // Note: Polymarket Data API works with EOA addresses directly
     console.log(`[API] No proxy wallet found for ${address.substring(0, 8)}..., using EOA directly (this is OK)`);
