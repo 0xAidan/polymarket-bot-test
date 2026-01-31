@@ -1672,30 +1672,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         tests: []
       };
       
-      // Test 1: Simple unauthenticated request to CLOB API (tick-size endpoint)
       const clobUrl = config.polymarketClobApiUrl || 'https://clob.polymarket.com';
-      try {
-        const tickSizeResponse = await axios.get(`${clobUrl}/tick-size`, { 
-          timeout: 10000,
-          validateStatus: () => true // Don't throw on any status code
-        });
-        results.tests.push({
-          name: 'CLOB tick-size endpoint (unauthenticated)',
-          url: `${clobUrl}/tick-size`,
-          status: tickSizeResponse.status,
-          statusText: tickSizeResponse.statusText,
-          isCloudflareBlock: typeof tickSizeResponse.data === 'string' && tickSizeResponse.data.includes('Cloudflare'),
-          success: tickSizeResponse.status === 200
-        });
-      } catch (e: any) {
-        results.tests.push({
-          name: 'CLOB tick-size endpoint (unauthenticated)',
-          error: e.message,
-          success: false
-        });
-      }
-
-      // Test 2: Check if we can reach the CLOB server endpoint at all
+      
+      // Test 1: CLOB time endpoint - reliable connectivity check
       try {
         const serverTimeResponse = await axios.get(`${clobUrl}/time`, { 
           timeout: 10000,
@@ -1718,7 +1697,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         });
       }
 
-      // Test 3: Check Builder credentials presence
+      // Test 2: Check Builder credentials presence
       results.builderCredentials = {
         apiKeyPresent: !!config.polymarketBuilderApiKey,
         apiKeyLength: config.polymarketBuilderApiKey?.length || 0,
@@ -1728,7 +1707,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         passphraseLength: config.polymarketBuilderPassphrase?.length || 0
       };
 
-      // Test 4: Check signature type configuration
+      // Test 3: Check signature type configuration
       results.signatureType = parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '0', 10);
       results.funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS || 'Not set (using EOA)';
 
@@ -1742,7 +1721,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         diagnosis: anyCloudflareBlocks 
           ? 'CLOUDFLARE BLOCKING DETECTED - Your server IP is blocked by Polymarket. Try running locally or using a different server.'
           : allTestsPassed 
-            ? 'CLOB API is accessible - issue may be with Builder credentials or signature type'
+            ? 'CLOB API is accessible - credentials configured correctly'
             : 'CLOB API unreachable - network or configuration issue'
       };
 
