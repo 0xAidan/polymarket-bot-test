@@ -122,36 +122,15 @@ async function loadWalletBalance() {
     document.getElementById('walletAddress').textContent = 
       wallet.walletAddress ? `${wallet.walletAddress.slice(0, 6)}...${wallet.walletAddress.slice(-4)}` : 'Not configured';
     
-    // Show total balance with breakdown if available
-    const total = balance.currentBalance || 0;
-    const usdc = balance.usdcBalance || 0;
-    const positions = balance.positionsValue || 0;
-    const posCount = balance.positionCount || 0;
-    
-    const balanceEl = document.getElementById('walletBalance');
-    if (total > 0 && (usdc > 0 || positions > 0)) {
-      // Show breakdown
-      balanceEl.innerHTML = `
-        <span class="total-balance">$${total.toFixed(2)}</span>
-        <span class="balance-breakdown" style="font-size: 0.75rem; color: var(--text-muted); display: block;">
-          $${usdc.toFixed(2)} USDC${positions > 0 ? ` + $${positions.toFixed(2)} in ${posCount} pos` : ''}
-        </span>
-      `;
-    } else {
-      balanceEl.textContent = `$${total.toFixed(2)}`;
-    }
+    document.getElementById('walletBalance').textContent = 
+      `$${(balance.currentBalance || 0).toFixed(2)}`;
     
     const changeEl = document.getElementById('balanceChange');
     const change = balance.change24h || 0;
     changeEl.textContent = `${change >= 0 ? '+' : ''}$${change.toFixed(2)} (24h)`;
     changeEl.className = `balance-change ${change >= 0 ? 'positive' : 'negative'}`;
     
-    // Log for debugging
-    console.log('[Dashboard] Wallet balance loaded:', {
-      total, usdc, positions, posCount,
-      source: balance.source,
-      proxyWallet: balance.proxyWalletAddress
-    });
+    console.log('[Dashboard] Wallet balance:', balance.currentBalance);
   } catch (error) {
     console.error('Error loading wallet balance:', error);
   }
