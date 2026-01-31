@@ -203,40 +203,90 @@ async function stopBot() {
 // WALLETS
 // ============================================================
 
+// Current wallet being configured in modal
+let currentWalletAddress = null;
+
 async function loadWallets() {
   try {
     const data = await API.getWallets();
     const list = document.getElementById('walletsList');
     
     if (!data.wallets || data.wallets.length === 0) {
-      list.innerHTML = '<div class="empty-state">No wallets tracked yet</div>';
+      list.innerHTML = '<div class="empty-state">No wallets tracked yet. Add a wallet address above to start copy trading.</div>';
       return;
     }
     
-    list.innerHTML = data.wallets.map(wallet => `
-      <div class="wallet-item">
-        <div class="wallet-item-info">
-          <div class="wallet-item-address">
-            ${wallet.label ? `<span class="wallet-item-label">${wallet.label}</span>` : ''}
-            ${wallet.address.slice(0, 10)}...${wallet.address.slice(-8)}
+    list.innerHTML = data.wallets.map(wallet => {
+      const isActive = wallet.active;
+      const configBadges = getWalletConfigBadges(wallet);
+      
+      return `
+        <div class="wallet-item ${isActive ? 'active' : 'inactive'}">
+          <div class="wallet-item-info">
+            <div class="wallet-item-address">
+              ${wallet.label ? `<span class="wallet-item-label">${wallet.label}</span>` : ''}
+              <span style="font-family: monospace;">${wallet.address.slice(0, 10)}...${wallet.address.slice(-8)}</span>
+            </div>
+            <div class="wallet-item-status">
+              <span class="status-dot ${isActive ? 'active' : 'inactive'}"></span>
+              <span>${isActive ? 'Active - Copy trading enabled' : 'Inactive - Not copying trades'}</span>
+            </div>
+            <div class="wallet-item-config" style="margin-top: 8px;">
+              ${configBadges}
+            </div>
           </div>
-          <div class="wallet-item-config">
-            ${getWalletConfigSummary(wallet)}
+          <div class="wallet-item-actions">
+            <label class="toggle">
+              <input type="checkbox" ${isActive ? 'checked' : ''} onchange="toggleWallet('${wallet.address}', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+            <button class="btn btn-sm btn-outline" onclick="openWalletModal('${wallet.address}')">Configure</button>
+            <button class="btn btn-sm btn-danger" onclick="removeWallet('${wallet.address}')">Remove</button>
           </div>
         </div>
-        <div class="wallet-item-actions">
-          <label class="toggle">
-            <input type="checkbox" ${wallet.active ? 'checked' : ''} onchange="toggleWallet('${wallet.address}', this.checked)">
-            <span class="toggle-slider"></span>
-          </label>
-          <button class="btn btn-sm btn-outline" onclick="openWalletModal('${wallet.address}')">Configure</button>
-          <button class="btn btn-sm btn-danger" onclick="removeWallet('${wallet.address}')">Remove</button>
-        </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
   } catch (error) {
     console.error('Error loading wallets:', error);
   }
+}
+
+function getWalletConfigBadges(wallet) {
+  const badges = [];
+  
+  // Trade sizing mode
+  if (wallet.tradeSizingMode === 'fixed') {
+    badges.push(`<span class="badge badge-success">Fixed $${wallet.fixedTradeSize || '?'}</span>`);
+    if (wallet.thresholdEnabled) {
+      badges.push(`<span class="badge badge-success">${wallet.thresholdPercent}% threshold</span>`);
+    }
+  } else if (wallet.tradeSizingMode === 'proportional') {
+    badges.push(`<span class="badge badge-success">Proportional</span>`);
+  } else {
+    badges.push(`<span class="badge badge-default">Global size</span>`);
+  }
+  
+  // Trade side filter
+  if (wallet.tradeSideFilter && wallet.tradeSideFilter !== 'all') {
+    const label = wallet.tradeSideFilter === 'buy_only' ? 'BUY only' : 'SELL only';
+    badges.push(`<span class="badge badge-warning">${label}</span>`);
+  }
+  
+  // Advanced filters
+  if (wallet.noRepeatEnabled) {
+    const period = wallet.noRepeatPeriodHours === 0 ? 'forever' : `${wallet.noRepeatPeriodHours}h`;
+    badges.push(`<span class="badge badge-success">No repeat (${period})</span>`);
+  }
+  
+  if (wallet.rateLimitEnabled) {
+    badges.push(`<span class="badge badge-success">Rate limited</span>`);
+  }
+  
+  if (wallet.valueFilterEnabled) {
+    badges.push(`<span class="badge badge-success">Value filter</span>`);
+  }
+  
+  return badges.join(' ') || '<span class="badge badge-default">Using defaults</span>';
 }
 
 function getWalletConfigSummary(wallet) {
@@ -273,13 +323,17 @@ async function addWallet() {
     await API.addWallet(address);
     input.value = '';
     await loadWallets();
+    // Prompt to configure the new wallet
+    if (confirm('Wallet added (inactive by default). Would you like to configure it now?')) {
+      openWalletModal(address.toLowerCase());
+    }
   } catch (error) {
     alert(`Failed to add wallet: ${error.message}`);
   }
 }
 
 async function removeWallet(address) {
-  if (!confirm('Are you sure you want to remove this wallet?')) return;
+  if (!confirm('Are you sure you want to remove this wallet? This will stop copy trading from this wallet.')) return;
   
   try {
     await API.removeWallet(address);
@@ -292,19 +346,322 @@ async function removeWallet(address) {
 async function toggleWallet(address, active) {
   try {
     await API.toggleWallet(address, active);
+    await loadWallets();
   } catch (error) {
     alert(`Failed to toggle wallet: ${error.message}`);
     await loadWallets();
   }
 }
 
-function openWalletModal(address) {
-  // Simplified for now - can expand later
-  alert(`Configure wallet: ${address}\n\nUse the API or extend this modal to configure per-wallet settings.`);
+// ============================================================
+// WALLET CONFIGURATION MODAL
+// ============================================================
+
+async function openWalletModal(address) {
+  currentWalletAddress = address;
+  
+  try {
+    // Load wallet data
+    const data = await API.getWallets();
+    const wallet = data.wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
+    
+    if (!wallet) {
+      alert('Wallet not found');
+      return;
+    }
+    
+    // Populate modal fields
+    document.getElementById('walletModalTitle').textContent = `Configure: ${wallet.label || address.slice(0, 10) + '...'}`;
+    document.getElementById('modalWalletAddress').textContent = address;
+    
+    const statusEl = document.getElementById('modalWalletStatus');
+    statusEl.textContent = wallet.active ? 'Active' : 'Inactive';
+    statusEl.className = `wallet-modal-status ${wallet.active ? 'active' : 'inactive'}`;
+    
+    document.getElementById('modalWalletLabel').value = wallet.label || '';
+    
+    // Trade sizing mode
+    const modeValue = wallet.tradeSizingMode || '';
+    document.querySelector(`input[name="modalTradeSizingMode"][value="${modeValue}"]`).checked = true;
+    document.getElementById('modalFixedSizeInputs').style.display = wallet.tradeSizingMode === 'fixed' ? 'block' : 'none';
+    document.getElementById('modalFixedTradeSize').value = wallet.fixedTradeSize || '';
+    document.getElementById('modalThresholdEnabled').checked = wallet.thresholdEnabled || false;
+    document.getElementById('modalThresholdInputs').style.display = wallet.thresholdEnabled ? 'block' : 'none';
+    document.getElementById('modalThresholdPercent').value = wallet.thresholdPercent || 10;
+    
+    // Trade side filter
+    const sideValue = wallet.tradeSideFilter || 'all';
+    document.querySelector(`input[name="modalTradeSideFilter"][value="${sideValue}"]`).checked = true;
+    
+    // Advanced filters
+    document.getElementById('modalNoRepeatEnabled').checked = wallet.noRepeatEnabled || false;
+    document.getElementById('modalNoRepeatInputs').style.display = wallet.noRepeatEnabled ? 'block' : 'none';
+    document.getElementById('modalNoRepeatPeriod').value = wallet.noRepeatPeriodHours ?? 24;
+    
+    document.getElementById('modalPriceLimitsMin').value = wallet.priceLimitsMin ?? 0.01;
+    document.getElementById('modalPriceLimitsMax').value = wallet.priceLimitsMax ?? 0.99;
+    updatePriceBadge();
+    
+    document.getElementById('modalValueFilterEnabled').checked = wallet.valueFilterEnabled || false;
+    document.getElementById('modalValueFilterInputs').style.display = wallet.valueFilterEnabled ? 'block' : 'none';
+    document.getElementById('modalValueFilterMin').value = wallet.valueFilterMin || '';
+    document.getElementById('modalValueFilterMax').value = wallet.valueFilterMax || '';
+    
+    document.getElementById('modalRateLimitEnabled').checked = wallet.rateLimitEnabled || false;
+    document.getElementById('modalRateLimitInputs').style.display = wallet.rateLimitEnabled ? 'block' : 'none';
+    document.getElementById('modalRateLimitPerHour').value = wallet.rateLimitPerHour ?? 10;
+    document.getElementById('modalRateLimitPerDay').value = wallet.rateLimitPerDay ?? 50;
+    
+    document.getElementById('modalSlippagePercent').value = wallet.slippagePercent || '';
+    updateSlippageBadge();
+    
+    // Update config summary
+    updateModalConfigSummary();
+    
+    // Show modal
+    document.getElementById('walletModal').style.display = 'flex';
+    
+    // Set up event listeners for dynamic updates
+    setupModalEventListeners();
+    
+  } catch (error) {
+    console.error('Error loading wallet for modal:', error);
+    alert(`Failed to load wallet: ${error.message}`);
+  }
+}
+
+function setupModalEventListeners() {
+  // Trade sizing mode change
+  document.querySelectorAll('input[name="modalTradeSizingMode"]').forEach(radio => {
+    radio.onchange = function() {
+      document.getElementById('modalFixedSizeInputs').style.display = this.value === 'fixed' ? 'block' : 'none';
+      updateModalConfigSummary();
+    };
+  });
+  
+  // Threshold toggle
+  document.getElementById('modalThresholdEnabled').onchange = function() {
+    document.getElementById('modalThresholdInputs').style.display = this.checked ? 'block' : 'none';
+    updateModalConfigSummary();
+  };
+  
+  // Trade side filter change
+  document.querySelectorAll('input[name="modalTradeSideFilter"]').forEach(radio => {
+    radio.onchange = updateModalConfigSummary;
+  });
+  
+  // No repeat toggle
+  document.getElementById('modalNoRepeatEnabled').onchange = function() {
+    document.getElementById('modalNoRepeatInputs').style.display = this.checked ? 'block' : 'none';
+    updateModalConfigSummary();
+  };
+  
+  // Value filter toggle
+  document.getElementById('modalValueFilterEnabled').onchange = function() {
+    document.getElementById('modalValueFilterInputs').style.display = this.checked ? 'block' : 'none';
+    updateModalConfigSummary();
+  };
+  
+  // Rate limit toggle
+  document.getElementById('modalRateLimitEnabled').onchange = function() {
+    document.getElementById('modalRateLimitInputs').style.display = this.checked ? 'block' : 'none';
+    updateModalConfigSummary();
+  };
+  
+  // Price limits change
+  document.getElementById('modalPriceLimitsMin').onchange = updatePriceBadge;
+  document.getElementById('modalPriceLimitsMax').onchange = updatePriceBadge;
+  
+  // Slippage change
+  document.getElementById('modalSlippagePercent').onchange = updateSlippageBadge;
+}
+
+function updatePriceBadge() {
+  const min = parseFloat(document.getElementById('modalPriceLimitsMin').value);
+  const max = parseFloat(document.getElementById('modalPriceLimitsMax').value);
+  const isDefault = min === 0.01 && max === 0.99;
+  
+  const badge = document.getElementById('modalPriceBadge');
+  badge.textContent = isDefault ? 'DEFAULT' : 'CUSTOM';
+  badge.className = `badge ${isDefault ? 'badge-default' : 'badge-success'}`;
+}
+
+function updateSlippageBadge() {
+  const value = document.getElementById('modalSlippagePercent').value;
+  const badge = document.getElementById('modalSlippageBadge');
+  
+  if (!value || parseFloat(value) === 2) {
+    badge.textContent = 'DEFAULT (2%)';
+    badge.className = 'badge badge-default';
+  } else {
+    badge.textContent = `${value}%`;
+    badge.className = 'badge badge-success';
+  }
+}
+
+function updateModalConfigSummary() {
+  const summary = document.getElementById('modalConfigSummary');
+  const items = [];
+  
+  // Trade sizing
+  const mode = document.querySelector('input[name="modalTradeSizingMode"]:checked').value;
+  if (mode === 'proportional') {
+    items.push({ label: 'Trade Sizing', value: 'Proportional (match their %)', active: true });
+  } else if (mode === 'fixed') {
+    const size = document.getElementById('modalFixedTradeSize').value || 'not set';
+    items.push({ label: 'Trade Sizing', value: `Fixed $${size} USDC`, active: true });
+    
+    if (document.getElementById('modalThresholdEnabled').checked) {
+      const thresh = document.getElementById('modalThresholdPercent').value;
+      items.push({ label: 'Threshold Filter', value: `>${thresh}% of portfolio`, active: true });
+    }
+  } else {
+    items.push({ label: 'Trade Sizing', value: 'Global default', active: false });
+  }
+  
+  // Side filter
+  const side = document.querySelector('input[name="modalTradeSideFilter"]:checked').value;
+  if (side !== 'all') {
+    items.push({ label: 'Side Filter', value: side === 'buy_only' ? 'BUY only' : 'SELL only', active: true });
+  }
+  
+  // No repeat
+  if (document.getElementById('modalNoRepeatEnabled').checked) {
+    const period = document.getElementById('modalNoRepeatPeriod').value;
+    const periodLabel = period === '0' ? 'forever' : `${period} hours`;
+    items.push({ label: 'No Repeat Trades', value: `Block for ${periodLabel}`, active: true });
+  }
+  
+  // Rate limit
+  if (document.getElementById('modalRateLimitEnabled').checked) {
+    const hour = document.getElementById('modalRateLimitPerHour').value;
+    const day = document.getElementById('modalRateLimitPerDay').value;
+    items.push({ label: 'Rate Limiting', value: `${hour}/hour, ${day}/day`, active: true });
+  }
+  
+  // Value filter
+  if (document.getElementById('modalValueFilterEnabled').checked) {
+    const min = document.getElementById('modalValueFilterMin').value;
+    const max = document.getElementById('modalValueFilterMax').value;
+    let valueStr = '';
+    if (min) valueStr += `Min $${min}`;
+    if (max) valueStr += (valueStr ? ', ' : '') + `Max $${max}`;
+    items.push({ label: 'Value Filter', value: valueStr || 'No limits set', active: true });
+  }
+  
+  // Render
+  if (items.length === 0) {
+    summary.innerHTML = '<div class="empty-state" style="padding: 20px;">Using all global defaults</div>';
+  } else {
+    summary.innerHTML = items.map(item => `
+      <div class="config-summary-item">
+        <span class="config-summary-label">${item.label}</span>
+        <span class="config-summary-value ${item.active ? 'active' : 'inactive'}">${item.value}</span>
+      </div>
+    `).join('');
+  }
+}
+
+function toggleSection(sectionId) {
+  const section = document.getElementById(sectionId);
+  if (section) {
+    section.style.display = section.style.display === 'none' ? 'block' : 'none';
+  }
 }
 
 function closeWalletModal() {
   document.getElementById('walletModal').style.display = 'none';
+  currentWalletAddress = null;
+}
+
+// Save wallet config (draft mode - doesn't enable)
+async function saveWalletConfig() {
+  if (!currentWalletAddress) return;
+  
+  try {
+    const config = collectModalConfig();
+    
+    // Update label if changed
+    const newLabel = document.getElementById('modalWalletLabel').value.trim();
+    await API.updateWalletLabel(currentWalletAddress, newLabel);
+    
+    // Update trade config
+    await API.updateWalletTradeConfig(currentWalletAddress, config);
+    
+    alert('Configuration saved (wallet remains inactive until enabled)');
+    closeWalletModal();
+    await loadWallets();
+  } catch (error) {
+    alert(`Failed to save: ${error.message}`);
+  }
+}
+
+// Save and enable wallet
+async function saveWalletConfigAndEnable() {
+  if (!currentWalletAddress) return;
+  
+  try {
+    const config = collectModalConfig();
+    
+    // Update label if changed
+    const newLabel = document.getElementById('modalWalletLabel').value.trim();
+    await API.updateWalletLabel(currentWalletAddress, newLabel);
+    
+    // Update trade config
+    await API.updateWalletTradeConfig(currentWalletAddress, config);
+    
+    // Enable the wallet
+    await API.toggleWallet(currentWalletAddress, true);
+    
+    alert('Configuration saved and wallet enabled!');
+    closeWalletModal();
+    await loadWallets();
+  } catch (error) {
+    alert(`Failed to save: ${error.message}`);
+  }
+}
+
+function collectModalConfig() {
+  const mode = document.querySelector('input[name="modalTradeSizingMode"]:checked').value;
+  const side = document.querySelector('input[name="modalTradeSideFilter"]:checked').value;
+  
+  return {
+    // Trade sizing
+    tradeSizingMode: mode || null,
+    fixedTradeSize: mode === 'fixed' ? parseFloat(document.getElementById('modalFixedTradeSize').value) || null : null,
+    thresholdEnabled: mode === 'fixed' ? document.getElementById('modalThresholdEnabled').checked : null,
+    thresholdPercent: mode === 'fixed' && document.getElementById('modalThresholdEnabled').checked 
+      ? parseFloat(document.getElementById('modalThresholdPercent').value) : null,
+    
+    // Side filter
+    tradeSideFilter: side || null,
+    
+    // No repeat
+    noRepeatEnabled: document.getElementById('modalNoRepeatEnabled').checked,
+    noRepeatPeriodHours: document.getElementById('modalNoRepeatEnabled').checked 
+      ? parseInt(document.getElementById('modalNoRepeatPeriod').value) : null,
+    
+    // Price limits
+    priceLimitsMin: parseFloat(document.getElementById('modalPriceLimitsMin').value) || null,
+    priceLimitsMax: parseFloat(document.getElementById('modalPriceLimitsMax').value) || null,
+    
+    // Value filter
+    valueFilterEnabled: document.getElementById('modalValueFilterEnabled').checked,
+    valueFilterMin: document.getElementById('modalValueFilterEnabled').checked 
+      ? (parseFloat(document.getElementById('modalValueFilterMin').value) || null) : null,
+    valueFilterMax: document.getElementById('modalValueFilterEnabled').checked 
+      ? (parseFloat(document.getElementById('modalValueFilterMax').value) || null) : null,
+    
+    // Rate limit
+    rateLimitEnabled: document.getElementById('modalRateLimitEnabled').checked,
+    rateLimitPerHour: document.getElementById('modalRateLimitEnabled').checked 
+      ? parseInt(document.getElementById('modalRateLimitPerHour').value) : null,
+    rateLimitPerDay: document.getElementById('modalRateLimitEnabled').checked 
+      ? parseInt(document.getElementById('modalRateLimitPerDay').value) : null,
+    
+    // Slippage
+    slippagePercent: parseFloat(document.getElementById('modalSlippagePercent').value) || null
+  };
 }
 
 // ============================================================

@@ -864,6 +864,282 @@ body {
   color: var(--text-muted);
 }
 
+/* Large Modal (Wallet Configuration) */
+.modal-large {
+  max-width: 700px;
+  max-height: 90vh;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.btn-secondary {
+  background: var(--surface-light);
+  color: var(--text);
+}
+
+.btn-secondary:hover {
+  background: var(--border);
+}
+
+/* Modal Sections */
+.modal-section {
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-section:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-title.collapsible {
+  cursor: pointer;
+  user-select: none;
+}
+
+.section-title.collapsible:hover {
+  color: var(--primary);
+}
+
+.section-icon {
+  font-size: 10px;
+  transition: transform 0.2s;
+}
+
+.section-content {
+  padding-left: 8px;
+}
+
+/* Wallet Modal Info */
+.wallet-modal-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.wallet-modal-address {
+  font-family: monospace;
+  font-size: 13px;
+  color: var(--text-muted);
+  background: var(--bg);
+  padding: 6px 12px;
+  border-radius: 6px;
+}
+
+.wallet-modal-status {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wallet-modal-status.active {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--success);
+}
+
+.wallet-modal-status.inactive {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--danger);
+}
+
+/* Radio Group Variants */
+.radio-group.vertical {
+  flex-direction: column;
+  gap: 12px;
+}
+
+.radio-group.horizontal {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+/* Sub Inputs (nested inside toggles) */
+.sub-inputs {
+  margin-top: 12px;
+  padding-left: 16px;
+  border-left: 2px solid var(--border);
+}
+
+/* Filter Block (inside modal) */
+.filter-block {
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.filter-block:last-child {
+  margin-bottom: 0;
+}
+
+.filter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.filter-header span:first-child {
+  font-weight: 500;
+  font-size: 14px;
+}
+
+/* Input Grid */
+.input-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* Badges */
+.badge {
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.badge-default {
+  background: var(--surface-light);
+  color: var(--text-muted);
+}
+
+.badge-success {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--success);
+}
+
+.badge-danger {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--danger);
+}
+
+.badge-warning {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--warning);
+}
+
+/* Config Summary */
+.config-summary {
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.config-summary-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.config-summary-item:last-child {
+  border-bottom: none;
+}
+
+.config-summary-label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.config-summary-value {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.config-summary-value.active {
+  color: var(--success);
+}
+
+.config-summary-value.inactive {
+  color: var(--text-muted);
+}
+
+/* Info Banner */
+.info-banner {
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid var(--info);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--info);
+}
+
+.info-icon {
+  font-size: 18px;
+}
+
+/* Enhanced Wallet Item */
+.wallet-item.active {
+  border: 1px solid var(--success);
+}
+
+.wallet-item.inactive {
+  border: 1px solid var(--border);
+  opacity: 0.8;
+}
+
+.wallet-item-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.wallet-item-status .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.wallet-item-status .status-dot.active {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+}
+
+.wallet-item-status .status-dot.inactive {
+  background: var(--danger);
+}
+
+/* Toggle with green/red color */
+.toggle input:checked + .toggle-slider {
+  background: var(--success);
+}
+
+.toggle input:not(:checked) + .toggle-slider {
+  background: var(--danger);
+  opacity: 0.6;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   body {
@@ -902,5 +1178,20 @@ body {
   
   .input-row label {
     margin-bottom: 4px;
+  }
+  
+  .modal-large {
+    max-width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+  
+  .input-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .radio-group.horizontal {
+    flex-direction: column;
+    gap: 12px;
   }
 }
