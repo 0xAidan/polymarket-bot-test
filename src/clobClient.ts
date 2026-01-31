@@ -435,10 +435,23 @@ export class PolymarketClobClient {
   }
 
   /**
-   * Get the wallet address
+   * Get the wallet address (EOA)
    */
   getWalletAddress(): string | null {
     return this.signer?.address || null;
+  }
+
+  /**
+   * Get the funder address (proxy wallet) if configured
+   * This is the address where Polymarket holds your funds
+   */
+  getFunderAddress(): string | null {
+    // Check if POLYMARKET_FUNDER_ADDRESS is set
+    const funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS;
+    if (funderAddress && funderAddress !== this.signer?.address) {
+      return funderAddress;
+    }
+    return null;
   }
 
   /**

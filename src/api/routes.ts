@@ -364,13 +364,26 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         });
       }
 
-      // Get proxy wallet address for reference
-      const proxyWalletAddress = await copyTrader.getProxyWalletAddress();
+      // Get proxy wallet address - try multiple sources
+      let proxyWalletAddress = await copyTrader.getProxyWalletAddress();
+      
+      // If no proxy found from positions, try funder address from CLOB client
+      if (!proxyWalletAddress) {
+        try {
+          const clobClient = copyTrader.getClobClient();
+          const funderAddress = clobClient.getFunderAddress();
+          if (funderAddress) {
+            proxyWalletAddress = funderAddress;
+            console.log(`[API] Using funder address as proxy wallet: ${funderAddress}`);
+          }
+        } catch (e) {
+          // CLOB client not initialized yet, that's fine
+        }
+      }
       
       console.log(`[API] ===== Balance Check Info =====`);
       console.log(`[API] EOA Address: ${eoaAddress}`);
       console.log(`[API] Proxy Wallet: ${proxyWalletAddress || 'NOT FOUND'}`);
-      console.log(`[API] Using CLOB API for balance (not on-chain)`);
       console.log(`[API] ==============================`);
 
       // Try multiple methods to get the balance

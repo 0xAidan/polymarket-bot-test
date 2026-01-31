@@ -384,6 +384,13 @@ export class TradeExecutor {
   }
 
   /**
+   * Get the funder/proxy wallet address if configured
+   */
+  getFunderAddress(): string | null {
+    return this.clobClient.getFunderAddress();
+  }
+
+  /**
    * Get the CLOB client instance for direct access
    */
   getClobClient(): PolymarketClobClient {

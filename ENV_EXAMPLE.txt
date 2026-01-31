@@ -44,10 +44,18 @@ POLYGON_RPC_URL=https://polygon-rpc.com
 # If you're getting "invalid signature" errors, you likely have the wrong type!
 POLYMARKET_SIGNATURE_TYPE=0
 
-# Funder Address - Usually leave blank (defaults to your wallet address)
-# Only set this if you're using a proxy wallet (signature type 1)
-# and the funder is different from your EOA wallet
-# POLYMARKET_FUNDER_ADDRESS=0x...
+# Funder/Proxy Wallet Address - IMPORTANT FOR BALANCE DISPLAY!
+# This is where Polymarket holds your USDC. To find it:
+# 1. Go to polymarket.com/settings
+# 2. Look for "Proxy Wallet" or "Trading Wallet" address
+# 3. Copy that address here
+# 
+# If you see $0 balance in the dashboard but have funds on Polymarket,
+# you likely need to set this to your proxy wallet address.
+# 
+# You can also find it by going to polygonscan.com with your EOA address
+# and looking for token transfers to your Polymarket account.
+POLYMARKET_FUNDER_ADDRESS=0x_your_proxy_wallet_address_here
 
 # Server configuration
 PORT=3000
