@@ -435,10 +435,40 @@ export class PolymarketClobClient {
   }
 
   /**
-   * Get the wallet address
+   * Get the wallet address (EOA)
+   * If the CLOB client isn't initialized, derive from private key
    */
   getWalletAddress(): string | null {
-    return this.signer?.address || null;
+    // First try the signer if initialized
+    if (this.signer?.address) {
+      return this.signer.address;
+    }
+    
+    // If not initialized, derive from private key in config
+    try {
+      const privateKey = process.env.PRIVATE_KEY || config.privateKey;
+      if (privateKey && privateKey.length === 66 && privateKey.startsWith('0x')) {
+        const wallet = new ethers.Wallet(privateKey);
+        return wallet.address;
+      }
+    } catch (error: any) {
+      console.warn('[CLOB] Could not derive wallet address:', error.message);
+    }
+    
+    return null;
+  }
+
+  /**
+   * Get the funder address (proxy wallet) if configured
+   * This is the address where Polymarket holds your funds
+   */
+  getFunderAddress(): string | null {
+    // Check if POLYMARKET_FUNDER_ADDRESS is set
+    const funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS;
+    if (funderAddress && funderAddress !== this.signer?.address) {
+      return funderAddress;
+    }
+    return null;
   }
 
   /**
@@ -466,5 +496,53 @@ export class PolymarketClobClient {
     }
     // Use cancelOrder method which takes order_id as a string parameter
     return await this.client.cancelOrder(orderId);
+  }
+
+  /**
+   * Get USDC (collateral) balance for the authenticated wallet
+   * Uses Polymarket's internal balance, not raw on-chain USDC
+   * This is the actual trading balance available on Polymarket
+   */
+  async getUsdcBalance(): Promise<number> {
+    if (!this.client) {
+      await this.initialize();
+    }
+    if (!this.client) {
+      throw new Error('CLOB client not initialized');
+    }
+
+    try {
+      // Get balance for COLLATERAL (USDC) asset type
+      console.log(`[CLOB] Fetching USDC balance via getBalanceAllowance...`);
+      const response = await (this.client as any).getBalanceAllowance({
+        asset_type: 'COLLATERAL'
+      });
+      
+      console.log(`[CLOB] getBalanceAllowance response:`, JSON.stringify(response));
+      
+      const balanceStr = response?.balance || '0';
+      const balanceNum = parseFloat(balanceStr);
+      
+      // Determine if balance is in wei (large number) or already human-readable
+      // USDC has 6 decimals, so $4.00 in wei = 4000000
+      // If the number is > 1000, it's likely in wei format
+      let balance: number;
+      if (balanceNum > 1000) {
+        // Balance is in wei (smallest unit), convert to USDC
+        balance = balanceNum / 1_000_000;
+        console.log(`[CLOB] Balance appears to be in wei format, converting: ${balanceStr} -> $${balance.toFixed(2)}`);
+      } else {
+        // Balance is already in human-readable USDC format
+        balance = balanceNum;
+        console.log(`[CLOB] Balance appears to be in USDC format: $${balance.toFixed(2)}`);
+      }
+      
+      console.log(`[CLOB] USDC balance: $${balance.toFixed(2)}`);
+      return balance;
+    } catch (error: any) {
+      console.error('[CLOB] Failed to get USDC balance:', error.message);
+      console.error('[CLOB] Error details:', error);
+      throw error;
+    }
   }
 }

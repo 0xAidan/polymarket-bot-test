@@ -7,24 +7,66 @@
 export type TradeSizingMode = 'fixed' | 'proportional';
 
 /**
+ * Trade side filter options
+ * - 'all': Copy both BUY and SELL trades
+ * - 'buy_only': Only copy BUY trades
+ * - 'sell_only': Only copy SELL trades
+ */
+export type TradeSideFilter = 'all' | 'buy_only' | 'sell_only';
+
+/**
  * Represents a wallet address being tracked
+ * ALL configuration is per-wallet - new wallets start with active=false and no settings
  */
 export interface TrackedWallet {
   address: string;
   addedAt: Date;
-  active: boolean;
+  active: boolean;  // Default: false for new wallets
   lastSeen?: Date;
   label?: string; // User-friendly label/name for the wallet
   
-  // Per-wallet trade configuration (all optional - undefined means use global defaults)
+  // ============================================================
+  // TRADE SIZING MODE (Primary configuration)
+  // ============================================================
   tradeSizingMode?: TradeSizingMode; // undefined = use global size, no filter
   fixedTradeSize?: number;           // USDC amount when mode is 'fixed'
   thresholdEnabled?: boolean;        // Filter small trades (only when mode is 'fixed')
   thresholdPercent?: number;         // Threshold % (only when mode is 'fixed')
+  
+  // ============================================================
+  // TRADE SIDE FILTER
+  // ============================================================
+  tradeSideFilter?: TradeSideFilter; // 'all' | 'buy_only' | 'sell_only'
+  
+  // ============================================================
+  // ADVANCED FILTERS (All per-wallet)
+  // ============================================================
+  
+  // No Repeat Trades - Block repeat trades in same market+side
+  noRepeatEnabled?: boolean;
+  noRepeatPeriodHours?: number; // 0 = forever (until manually cleared)
+  
+  // Price Limits - Only copy trades within this price range
+  priceLimitsMin?: number;  // Default: 0.01
+  priceLimitsMax?: number;  // Default: 0.99
+  
+  // Rate Limiting - Limit trades per hour/day for this wallet
+  rateLimitEnabled?: boolean;
+  rateLimitPerHour?: number;  // Default: 10
+  rateLimitPerDay?: number;   // Default: 50
+  
+  // Trade Value Filter - Filter by detected trade value
+  valueFilterEnabled?: boolean;
+  valueFilterMin?: number | null;  // null = no minimum
+  valueFilterMax?: number | null;  // null = no maximum
+  
+  // Slippage - Per-wallet slippage override
+  slippagePercent?: number;  // Default: 2%
 }
 
 /**
  * Represents a detected trade from a tracked wallet
+ * Carries ALL per-wallet settings for use during trade processing
  */
 export interface DetectedTrade {
   walletAddress: string;
@@ -38,11 +80,31 @@ export interface DetectedTrade {
   tokenId?: string;   // Token ID for CLOB client (asset from positions API)
   negRisk?: boolean;  // Negative risk flag from position data
   
+  // ============================================================
   // Inherited from wallet settings for per-wallet trade configuration
+  // ============================================================
+  
+  // Trade sizing
   tradeSizingMode?: TradeSizingMode;
   fixedTradeSize?: number;
   thresholdEnabled?: boolean;
   thresholdPercent?: number;
+  
+  // Trade side filter
+  tradeSideFilter?: TradeSideFilter;
+  
+  // Advanced filters (all per-wallet)
+  noRepeatEnabled?: boolean;
+  noRepeatPeriodHours?: number;
+  priceLimitsMin?: number;
+  priceLimitsMax?: number;
+  rateLimitEnabled?: boolean;
+  rateLimitPerHour?: number;
+  rateLimitPerDay?: number;
+  valueFilterEnabled?: boolean;
+  valueFilterMin?: number | null;
+  valueFilterMax?: number | null;
+  slippagePercent?: number;
 }
 
 /**
@@ -155,3 +217,116 @@ export interface PerformanceDataPoint {
     success: boolean;
   };
 }
+
+// ============================================================================
+// ADVANCED TRADE FILTER CONFIGURATION TYPES
+// ============================================================================
+
+/**
+ * No repeat trades configuration
+ * Prevents copying trades in markets where you already have a position
+ */
+export interface NoRepeatTradesConfig {
+  enabled: boolean;
+  blockPeriodHours: number; // How long to block repeats (1, 6, 12, 24, 48, 168)
+}
+
+/**
+ * Price limits configuration
+ * Replaces hard-coded MIN/MAX_EXECUTABLE_PRICE
+ */
+export interface PriceLimitsConfig {
+  minPrice: number; // Default: 0.01, Range: 0.01-0.98
+  maxPrice: number; // Default: 0.99, Range: 0.02-0.99
+}
+
+/**
+ * Rate limiting configuration
+ * Prevents excessive trade execution
+ */
+export interface RateLimitingConfig {
+  enabled: boolean;
+  maxTradesPerHour: number;  // Default: 10, Range: 1-100
+  maxTradesPerDay: number;   // Default: 50, Range: 1-500
+}
+
+/**
+ * Trade value filters configuration
+ * Filter trades by USDC value
+ */
+export interface TradeValueFiltersConfig {
+  enabled: boolean;
+  minTradeValueUSD: number | null; // null = no minimum
+  maxTradeValueUSD: number | null; // null = no maximum
+}
+
+/**
+ * Executed position record for no-repeat-trades tracking
+ */
+export interface ExecutedPosition {
+  marketId: string;
+  side: 'YES' | 'NO';
+  timestamp: number;
+  walletAddress: string; // Which tracked wallet triggered this
+}
+
+/**
+ * Configuration conflict detected by the system
+ */
+export interface ConfigConflict {
+  type: 'warning' | 'error';
+  code: string;
+  message: string;
+  affectedSettings: string[];
+  suggestion?: string;
+}
+
+/**
+ * Configuration validation result
+ */
+export interface ConfigValidationResult {
+  valid: boolean;
+  conflicts: ConfigConflict[];
+}
+
+/**
+ * Rate limiting runtime state (in-memory tracking)
+ * Used for both global and per-wallet rate limiting
+ */
+export interface RateLimitState {
+  tradesThisHour: number;
+  tradesThisDay: number;
+  hourStartTime: number;
+  dayStartTime: number;
+}
+
+/**
+ * Per-wallet rate limit states (keyed by wallet address)
+ */
+export type PerWalletRateLimitStates = Map<string, RateLimitState>;
+
+/**
+ * Complete bot configuration (for API responses)
+ */
+export interface BotConfigSummary {
+  // Global trade settings
+  tradeSize: string;
+  slippagePercent: number;
+  
+  // Filters
+  noRepeatTrades: NoRepeatTradesConfig;
+  priceLimits: PriceLimitsConfig;
+  tradeSideFilter: TradeSideFilter;
+  rateLimiting: RateLimitingConfig;
+  tradeValueFilters: TradeValueFiltersConfig;
+  
+  // Stop-loss
+  usageStopLoss: {
+    enabled: boolean;
+    maxCommitmentPercent: number;
+  };
+  
+  // Monitoring
+  monitoringIntervalMs: number;
+}
+

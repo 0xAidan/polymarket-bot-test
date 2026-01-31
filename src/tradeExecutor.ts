@@ -1,6 +1,7 @@
 import { PolymarketApi } from './polymarketApi.js';
 import { PolymarketClobClient } from './clobClient.js';
 import { TradeOrder, TradeResult } from './types.js';
+import { Storage } from './storage.js';
 import { Side } from '@polymarket/clob-client';
 
 /**
@@ -86,14 +87,20 @@ export class TradeExecutor {
       }
       
       // ============================================================
-      // AGGRESSIVE PRICING FOR IMMEDIATE FILLS
+      // AGGRESSIVE PRICING FOR IMMEDIATE FILLS (Configurable Slippage)
       // ============================================================
       // Instead of placing limit orders at the detected price (which wait to fill),
       // we adjust the price to cross the spread and fill immediately:
-      // - BUY orders: Price 2% HIGHER to take from asks
-      // - SELL orders: Price 2% LOWER to hit bids
+      // - BUY orders: Price X% HIGHER to take from asks
+      // - SELL orders: Price X% LOWER to hit bids
       // This ensures trades execute instantly rather than waiting minutes
-      const PRICE_SLIPPAGE = 0.02; // 2% slippage for immediate fills
+      let slippagePercent = 2; // Default 2%
+      try {
+        slippagePercent = await Storage.getSlippagePercent();
+      } catch (slippageError: any) {
+        console.warn(`[Execute] Could not load slippage config (using default 2%): ${slippageError.message}`);
+      }
+      const PRICE_SLIPPAGE = slippagePercent / 100; // Convert percent to decimal
       const originalPrice = price;
       
       if (order.side === 'BUY') {
@@ -106,7 +113,7 @@ export class TradeExecutor {
       
       console.log(`[Execute] ⚡ AGGRESSIVE PRICING for immediate fill:`);
       console.log(`   Original price: $${originalPrice.toFixed(4)}`);
-      console.log(`   Adjusted price: $${price.toFixed(4)} (${order.side === 'BUY' ? '+' : '-'}${(PRICE_SLIPPAGE * 100).toFixed(1)}% slippage)`);
+      console.log(`   Adjusted price: $${price.toFixed(4)} (${order.side === 'BUY' ? '+' : '-'}${slippagePercent.toFixed(1)}% slippage)`);
       
       // CRITICAL FIX: Round price to tick size alignment
       // Polymarket CLOB API requires prices to be exact multiples of tick size
@@ -374,5 +381,19 @@ export class TradeExecutor {
    */
   getWalletAddress(): string | null {
     return this.clobClient.getWalletAddress();
+  }
+
+  /**
+   * Get the funder/proxy wallet address if configured
+   */
+  getFunderAddress(): string | null {
+    return this.clobClient.getFunderAddress();
+  }
+
+  /**
+   * Get the CLOB client instance for direct access
+   */
+  getClobClient(): PolymarketClobClient {
+    return this.clobClient;
   }
 }

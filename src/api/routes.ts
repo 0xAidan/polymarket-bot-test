@@ -346,6 +346,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
 
   // Get user wallet balance with 24h change
+  // Uses CLOB API directly - this is what the builder credentials are for
   router.get('/wallet/balance', async (req: Request, res: Response) => {
     try {
       const eoaAddress = copyTrader.getWalletAddress();
@@ -358,48 +359,35 @@ export function createRoutes(copyTrader: CopyTrader): Router {
           currentBalance: 0,
           change24h: 0,
           balance24hAgo: null,
-          walletAddress: null,
-          proxyWalletAddress: null
+          walletAddress: null
         });
       }
 
-      // Get proxy wallet address (where funds are actually held on Polymarket)
-      console.log(`[API] Fetching proxy wallet address for EOA: ${eoaAddress}...`);
-      const proxyWalletAddress = await copyTrader.getProxyWalletAddress();
-      const balanceAddress = proxyWalletAddress || eoaAddress; // Use proxy if available, otherwise use EOA
+      // Get balance directly from CLOB API - this is what builder credentials are for
+      let currentBalance = 0;
       
-      console.log(`[API] ===== Balance Check Info =====`);
-      console.log(`[API] EOA Address: ${eoaAddress}`);
-      console.log(`[API] Proxy Wallet: ${proxyWalletAddress || 'NOT FOUND'}`);
-      console.log(`[API] Will check balance for: ${balanceAddress}`);
-      console.log(`[API] ==============================`);
-
-      const balanceTracker = copyTrader.getBalanceTracker();
-      
-      // Ensure balance tracker is initialized
       try {
-        // This will initialize if needed
-        await balanceTracker.getBalance(balanceAddress);
-      } catch (initError: any) {
-        console.error('[API] Balance tracker initialization error:', initError);
-        // Continue anyway - getBalanceWithChange will try to initialize again
+        const clobClient = copyTrader.getClobClient();
+        currentBalance = await clobClient.getUsdcBalance();
+        console.log(`[API] ✓ CLOB API balance: $${currentBalance.toFixed(2)} USDC`);
+      } catch (clobError: any) {
+        console.error(`[API] CLOB balance failed:`, clobError.message);
+        // Log full error for debugging
+        console.error(`[API] Full error:`, clobError);
       }
       
-      console.log(`[API] Fetching balance for wallet: ${balanceAddress}`);
-      const balanceData = await balanceTracker.getBalanceWithChange(balanceAddress);
-      console.log(`[API] Balance fetched: ${balanceData.currentBalance} USDC`);
+      console.log(`[API] Final balance: $${currentBalance.toFixed(2)}`)
       
       res.json({ 
         success: true, 
-        ...balanceData,
-        walletAddress: eoaAddress, // Return EOA for display
-        proxyWalletAddress: proxyWalletAddress, // Return proxy for reference
-        balanceCheckedFor: balanceAddress // Show which address we checked
+        currentBalance,
+        change24h: 0,
+        balance24hAgo: null,
+        walletAddress: eoaAddress
       });
     } catch (error: any) {
       console.error('[API] Error fetching wallet balance:', error);
       console.error('[API] Error stack:', error.stack);
-      // Return error but still provide a response so UI can show error state
       res.status(500).json({ 
         success: false, 
         error: error.message || 'Failed to fetch balance',
@@ -473,19 +461,40 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
-  // Get tracked wallet balance with 24h change
+  // Get tracked wallet's full Polymarket portfolio value
+  // Includes: on-chain USDC balance (from proxy wallet) + positions value
   router.get('/wallets/:address/balance', async (req: Request, res: Response) => {
     try {
       const { address } = req.params;
+      const polymarketApi = copyTrader.getPolymarketApi();
       const balanceTracker = copyTrader.getBalanceTracker();
-      const balanceData = await balanceTracker.getBalanceWithChange(address);
+      
+      console.log(`[API] Fetching tracked wallet portfolio for: ${address}`);
+      
+      // Get full portfolio value (USDC + positions)
+      const portfolioData = await polymarketApi.getPortfolioValue(address, balanceTracker);
+      
+      console.log(`[API] Tracked wallet ${address.substring(0, 8)}... portfolio: $${portfolioData.totalValue.toFixed(2)}`);
+      console.log(`[API]   USDC: $${portfolioData.usdcBalance.toFixed(2)}`);
+      console.log(`[API]   Positions: $${portfolioData.positionsValue.toFixed(2)} (${portfolioData.positionCount} positions)`);
       
       res.json({ 
         success: true, 
-        ...balanceData
+        currentBalance: portfolioData.totalValue,
+        usdcBalance: portfolioData.usdcBalance,
+        positionsValue: portfolioData.positionsValue,
+        positionCount: portfolioData.positionCount,
+        walletAddress: address,
+        proxyWallet: portfolioData.proxyWallet,
+        source: 'usdc_plus_positions'
       });
     } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+      console.error(`[API] Error fetching tracked wallet balance:`, error.message);
+      res.status(500).json({ 
+        success: false, 
+        error: error.message,
+        currentBalance: 0
+      });
     }
   });
 
@@ -534,23 +543,30 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
 
 
-  // Update per-wallet trade configuration
-  // Allows setting trade sizing mode and threshold per wallet
-  // - tradeSizingMode: undefined = use global size (no filter), 'fixed' = wallet-specific size + threshold, 'proportional' = match their %
-  // - fixedTradeSize: USDC amount when mode is 'fixed'
-  // - thresholdEnabled: Filter small trades (only when mode is 'fixed')
-  // - thresholdPercent: Threshold % (only when mode is 'fixed')
+  // Update per-wallet trade configuration (ALL settings are per-wallet)
+  // Accepts all filter settings - pass null to clear a value (use default)
   router.patch('/wallets/:address/trade-config', async (req: Request, res: Response) => {
     try {
       const { address } = req.params;
-      const { tradeSizingMode, fixedTradeSize, thresholdEnabled, thresholdPercent } = req.body;
+      const {
+        // Trade sizing
+        tradeSizingMode, fixedTradeSize, thresholdEnabled, thresholdPercent,
+        // Trade side filter
+        tradeSideFilter,
+        // Advanced filters
+        noRepeatEnabled, noRepeatPeriodHours,
+        priceLimitsMin, priceLimitsMax,
+        rateLimitEnabled, rateLimitPerHour, rateLimitPerDay,
+        valueFilterEnabled, valueFilterMin, valueFilterMax,
+        slippagePercent
+      } = req.body;
       
       // Validate tradeSizingMode
       if (tradeSizingMode !== undefined && tradeSizingMode !== null) {
         if (tradeSizingMode !== 'fixed' && tradeSizingMode !== 'proportional') {
           return res.status(400).json({ 
             success: false, 
-            error: 'tradeSizingMode must be "fixed", "proportional", or null (to use global defaults)' 
+            error: 'tradeSizingMode must be "fixed", "proportional", or null' 
           });
         }
       }
@@ -572,37 +588,116 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         if (isNaN(percentNum) || percentNum < 0.1 || percentNum > 100) {
           return res.status(400).json({ 
             success: false, 
-            error: 'thresholdPercent must be a number between 0.1 and 100' 
+            error: 'thresholdPercent must be between 0.1 and 100' 
           });
         }
       }
       
+      // Validate tradeSideFilter
+      if (tradeSideFilter !== undefined && tradeSideFilter !== null) {
+        if (!['all', 'buy_only', 'sell_only'].includes(tradeSideFilter)) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'tradeSideFilter must be "all", "buy_only", or "sell_only"' 
+          });
+        }
+      }
+      
+      // Validate noRepeatPeriodHours (0 = forever, or 1-168 hours)
+      if (noRepeatPeriodHours !== undefined && noRepeatPeriodHours !== null) {
+        const hours = parseInt(noRepeatPeriodHours);
+        const validPeriods = [0, 1, 6, 12, 24, 48, 168]; // 0 = forever
+        if (isNaN(hours) || !validPeriods.includes(hours)) {
+          return res.status(400).json({ 
+            success: false, 
+            error: `noRepeatPeriodHours must be one of: ${validPeriods.join(', ')} (0 = forever)` 
+          });
+        }
+      }
+      
+      // Validate price limits
+      if (priceLimitsMin !== undefined && priceLimitsMin !== null) {
+        const min = parseFloat(priceLimitsMin);
+        if (isNaN(min) || min < 0.01 || min > 0.98) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'priceLimitsMin must be between 0.01 and 0.98' 
+          });
+        }
+      }
+      if (priceLimitsMax !== undefined && priceLimitsMax !== null) {
+        const max = parseFloat(priceLimitsMax);
+        if (isNaN(max) || max < 0.02 || max > 0.99) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'priceLimitsMax must be between 0.02 and 0.99' 
+          });
+        }
+      }
+      
+      // Validate rate limits
+      if (rateLimitPerHour !== undefined && rateLimitPerHour !== null) {
+        const hour = parseInt(rateLimitPerHour);
+        if (isNaN(hour) || hour < 1 || hour > 100) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'rateLimitPerHour must be between 1 and 100' 
+          });
+        }
+      }
+      if (rateLimitPerDay !== undefined && rateLimitPerDay !== null) {
+        const day = parseInt(rateLimitPerDay);
+        if (isNaN(day) || day < 1 || day > 500) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'rateLimitPerDay must be between 1 and 500' 
+          });
+        }
+      }
+      
+      // Validate slippage
+      if (slippagePercent !== undefined && slippagePercent !== null) {
+        const slip = parseFloat(slippagePercent);
+        if (isNaN(slip) || slip < 0.5 || slip > 10) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'slippagePercent must be between 0.5 and 10' 
+          });
+        }
+      }
+      
+      // Helper to convert value: undefined=don't change, null=clear, value=set
+      const parseNum = (v: any) => v !== null && v !== undefined ? parseFloat(v) : (v === null ? null : undefined);
+      const parseInt2 = (v: any) => v !== null && v !== undefined ? parseInt(v) : (v === null ? null : undefined);
+      const parseBool = (v: any) => v === null ? null : (v === undefined ? undefined : Boolean(v));
+      
       const wallet = await Storage.updateWalletTradeConfig(address, {
+        // Trade sizing
         tradeSizingMode: tradeSizingMode,
-        fixedTradeSize: fixedTradeSize !== null ? parseFloat(fixedTradeSize) : null,
-        thresholdEnabled: thresholdEnabled,
-        thresholdPercent: thresholdPercent !== null ? parseFloat(thresholdPercent) : null
+        fixedTradeSize: parseNum(fixedTradeSize),
+        thresholdEnabled: parseBool(thresholdEnabled),
+        thresholdPercent: parseNum(thresholdPercent),
+        // Trade side filter
+        tradeSideFilter: tradeSideFilter,
+        // Advanced filters
+        noRepeatEnabled: parseBool(noRepeatEnabled),
+        noRepeatPeriodHours: parseInt2(noRepeatPeriodHours),
+        priceLimitsMin: parseNum(priceLimitsMin),
+        priceLimitsMax: parseNum(priceLimitsMax),
+        rateLimitEnabled: parseBool(rateLimitEnabled),
+        rateLimitPerHour: parseInt2(rateLimitPerHour),
+        rateLimitPerDay: parseInt2(rateLimitPerDay),
+        valueFilterEnabled: parseBool(valueFilterEnabled),
+        valueFilterMin: parseNum(valueFilterMin),
+        valueFilterMax: parseNum(valueFilterMax),
+        slippagePercent: parseNum(slippagePercent)
       });
       
       await copyTrader.reloadWallets();
       
-      // Build message based on mode
-      let message = 'Wallet trade config updated: ';
-      if (!wallet.tradeSizingMode) {
-        message += 'Using global defaults (copy all trades at global size)';
-      } else if (wallet.tradeSizingMode === 'proportional') {
-        message += 'Proportional mode (match their portfolio %)';
-      } else if (wallet.tradeSizingMode === 'fixed') {
-        message += `Fixed mode ($${wallet.fixedTradeSize || 'global'} USDC`;
-        if (wallet.thresholdEnabled) {
-          message += `, filter trades < ${wallet.thresholdPercent}% of their portfolio`;
-        }
-        message += ')';
-      }
-      
       res.json({ 
         success: true, 
-        message,
+        message: 'Wallet configuration updated',
         wallet 
       });
     } catch (error: any) {
@@ -925,10 +1020,23 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
       await fs.writeFile(envPath, lines.join('\n'));
       
-      // Update in-memory config
-      config.privateKey = privateKey;
+      // Reinitialize all components with the new private key
+      console.log('[API] Reinitializing bot with new private key...');
+      const result = await copyTrader.reinitializeCredentials();
       
-      res.json({ success: true, message: 'Private key updated. Bot restart required.' });
+      if (result.success) {
+        res.json({ 
+          success: true, 
+          message: 'Private key updated and bot reinitialized',
+          walletAddress: result.walletAddress
+        });
+      } else {
+        res.json({ 
+          success: true, 
+          message: 'Private key saved but reinitialization failed: ' + result.error,
+          requiresRestart: true
+        });
+      }
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
@@ -997,12 +1105,685 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
       await fs.writeFile(envPath, lines.join('\n'));
       
-      // Update in-memory config
-      config.polymarketBuilderApiKey = apiKey;
-      config.polymarketBuilderSecret = secret;
-      config.polymarketBuilderPassphrase = passphrase;
+      // Reinitialize all components with the new builder credentials
+      console.log('[API] Reinitializing bot with new builder credentials...');
+      const result = await copyTrader.reinitializeCredentials();
       
-      res.json({ success: true, message: 'Builder credentials updated. Bot restart recommended.' });
+      if (result.success) {
+        res.json({ 
+          success: true, 
+          message: 'Builder credentials updated and bot reinitialized',
+          walletAddress: result.walletAddress
+        });
+      } else {
+        res.json({ 
+          success: true, 
+          message: 'Builder credentials saved but reinitialization failed: ' + result.error,
+          requiresRestart: true
+        });
+      }
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get proxy wallet (funder) address configuration
+  router.get('/config/proxy-wallet', async (req: Request, res: Response) => {
+    try {
+      const funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS || '';
+      const eoaAddress = copyTrader.getWalletAddress();
+      
+      res.json({ 
+        success: true, 
+        proxyWalletAddress: funderAddress,
+        eoaAddress: eoaAddress,
+        configured: !!funderAddress
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Update proxy wallet (funder) address (WARNING: This writes to .env file)
+  // The proxy wallet is where Polymarket holds your USDC
+  router.post('/config/proxy-wallet', async (req: Request, res: Response) => {
+    try {
+      const { proxyWalletAddress } = req.body;
+      
+      if (!proxyWalletAddress || typeof proxyWalletAddress !== 'string') {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Proxy wallet address is required' 
+        });
+      }
+
+      // Validate address format (0x followed by 40 hex chars)
+      const trimmedAddress = proxyWalletAddress.trim();
+      if (!/^0x[a-fA-F0-9]{40}$/.test(trimmedAddress)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Invalid address format (must be 0x followed by 40 hex characters)' 
+        });
+      }
+
+      // Update .env file
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const envPath = path.join(process.cwd(), '.env');
+      
+      let envContent = '';
+      try {
+        envContent = await fs.readFile(envPath, 'utf-8');
+      } catch {
+        // .env doesn't exist, create it
+        envContent = '';
+      }
+
+      // Update or add POLYMARKET_FUNDER_ADDRESS
+      const lines = envContent.split('\n');
+      let found = false;
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith('POLYMARKET_FUNDER_ADDRESS=')) {
+          lines[i] = `POLYMARKET_FUNDER_ADDRESS=${trimmedAddress}`;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        lines.push(`POLYMARKET_FUNDER_ADDRESS=${trimmedAddress}`);
+      }
+
+      await fs.writeFile(envPath, lines.join('\n'));
+      
+      // Update environment variable in memory
+      process.env.POLYMARKET_FUNDER_ADDRESS = trimmedAddress;
+      
+      // Reinitialize to pick up the new proxy wallet
+      console.log('[API] Reinitializing bot with new proxy wallet address...');
+      const result = await copyTrader.reinitializeCredentials();
+      
+      if (result.success) {
+        res.json({ 
+          success: true, 
+          message: 'Proxy wallet address saved and bot reinitialized',
+          proxyWalletAddress: trimmedAddress
+        });
+      } else {
+        res.json({ 
+          success: true, 
+          message: 'Proxy wallet address saved. Balance should update on next refresh.',
+          proxyWalletAddress: trimmedAddress
+        });
+      }
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // ADVANCED TRADE FILTER CONFIGURATION ENDPOINTS
+  // ============================================================================
+
+  // Get no-repeat-trades configuration
+  router.get('/config/no-repeat-trades', async (req: Request, res: Response) => {
+    try {
+      const config = await Storage.getNoRepeatTrades();
+      res.json({ success: true, ...config });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Set no-repeat-trades configuration
+  router.post('/config/no-repeat-trades', async (req: Request, res: Response) => {
+    try {
+      const { enabled, blockPeriodHours } = req.body;
+      
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'enabled must be a boolean' 
+        });
+      }
+
+      const periodNum = parseInt(blockPeriodHours);
+      const validPeriods = [1, 6, 12, 24, 48, 168]; // 1h, 6h, 12h, 24h, 48h, 7 days
+      if (isNaN(periodNum) || !validPeriods.includes(periodNum)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: `blockPeriodHours must be one of: ${validPeriods.join(', ')}` 
+        });
+      }
+
+      await Storage.setNoRepeatTrades(enabled, periodNum);
+      
+      // Cleanup expired positions when enabling or changing period
+      if (enabled) {
+        await Storage.cleanupExpiredPositions(periodNum);
+      }
+      
+      res.json({ 
+        success: true, 
+        message: enabled 
+          ? `No-repeat-trades enabled: Will block repeat trades in same market+side for ${periodNum} hours` 
+          : 'No-repeat-trades disabled',
+        enabled,
+        blockPeriodHours: periodNum
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get no-repeat-trades history (blocked positions)
+  router.get('/config/no-repeat-trades/history', async (req: Request, res: Response) => {
+    try {
+      const positions = await Storage.getExecutedPositions();
+      const config = await Storage.getNoRepeatTrades();
+      const blockPeriodMs = config.blockPeriodHours * 60 * 60 * 1000;
+      const cutoffTime = Date.now() - blockPeriodMs;
+      
+      // Mark which positions are currently blocking
+      const positionsWithStatus = positions.map(p => ({
+        ...p,
+        isBlocking: p.timestamp > cutoffTime,
+        expiresAt: new Date(p.timestamp + blockPeriodMs).toISOString(),
+        age: Math.round((Date.now() - p.timestamp) / (60 * 60 * 1000)) + ' hours'
+      }));
+      
+      res.json({ 
+        success: true, 
+        positions: positionsWithStatus,
+        totalPositions: positions.length,
+        activeBlocks: positionsWithStatus.filter(p => p.isBlocking).length
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Clear no-repeat-trades history
+  router.delete('/config/no-repeat-trades/history', async (req: Request, res: Response) => {
+    try {
+      await Storage.clearExecutedPositions();
+      res.json({ 
+        success: true, 
+        message: 'No-repeat-trades history cleared. All markets are now unblocked.' 
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get price limits configuration
+  router.get('/config/price-limits', async (req: Request, res: Response) => {
+    try {
+      const limits = await Storage.getPriceLimits();
+      res.json({ success: true, ...limits });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Set price limits configuration
+  router.post('/config/price-limits', async (req: Request, res: Response) => {
+    try {
+      const { minPrice, maxPrice } = req.body;
+      
+      const minNum = parseFloat(minPrice);
+      const maxNum = parseFloat(maxPrice);
+      
+      if (isNaN(minNum) || minNum < 0.01 || minNum > 0.98) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'minPrice must be between 0.01 and 0.98' 
+        });
+      }
+      
+      if (isNaN(maxNum) || maxNum < 0.02 || maxNum > 0.99) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'maxPrice must be between 0.02 and 0.99' 
+        });
+      }
+      
+      if (minNum >= maxNum) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'minPrice must be less than maxPrice' 
+        });
+      }
+
+      await Storage.setPriceLimits(minNum, maxNum);
+      res.json({ 
+        success: true, 
+        message: `Price limits updated: Only copy trades between $${minNum.toFixed(2)} and $${maxNum.toFixed(2)}`,
+        minPrice: minNum,
+        maxPrice: maxNum
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get slippage configuration
+  router.get('/config/slippage', async (req: Request, res: Response) => {
+    try {
+      const slippagePercent = await Storage.getSlippagePercent();
+      res.json({ success: true, slippagePercent });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Set slippage configuration
+  router.post('/config/slippage', async (req: Request, res: Response) => {
+    try {
+      const { slippagePercent } = req.body;
+      
+      const percentNum = parseFloat(slippagePercent);
+      if (isNaN(percentNum) || percentNum < 0.5 || percentNum > 10) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'slippagePercent must be between 0.5 and 10' 
+        });
+      }
+
+      await Storage.setSlippagePercent(percentNum);
+      res.json({ 
+        success: true, 
+        message: `Slippage updated to ${percentNum}%`,
+        slippagePercent: percentNum
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get global trade side filter configuration
+  router.get('/config/trade-side-filter', async (req: Request, res: Response) => {
+    try {
+      const tradeSideFilter = await Storage.getTradeSideFilter();
+      res.json({ success: true, tradeSideFilter });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Set global trade side filter configuration
+  router.post('/config/trade-side-filter', async (req: Request, res: Response) => {
+    try {
+      const { tradeSideFilter } = req.body;
+      
+      if (!['all', 'buy_only', 'sell_only'].includes(tradeSideFilter)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'tradeSideFilter must be "all", "buy_only", or "sell_only"' 
+        });
+      }
+
+      await Storage.setTradeSideFilter(tradeSideFilter);
+      
+      const filterLabel = tradeSideFilter === 'buy_only' ? 'BUY trades only' : 
+                          tradeSideFilter === 'sell_only' ? 'SELL trades only' : 'All trades (BUY and SELL)';
+      
+      res.json({ 
+        success: true, 
+        message: `Trade side filter set to: ${filterLabel}`,
+        tradeSideFilter
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get rate limiting configuration
+  router.get('/config/rate-limiting', async (req: Request, res: Response) => {
+    try {
+      const rateLimiting = await Storage.getRateLimiting();
+      res.json({ success: true, ...rateLimiting });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Set rate limiting configuration
+  router.post('/config/rate-limiting', async (req: Request, res: Response) => {
+    try {
+      const { enabled, maxTradesPerHour, maxTradesPerDay } = req.body;
+      
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'enabled must be a boolean' 
+        });
+      }
+
+      const hourNum = parseInt(maxTradesPerHour);
+      if (isNaN(hourNum) || hourNum < 1 || hourNum > 100) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'maxTradesPerHour must be between 1 and 100' 
+        });
+      }
+
+      const dayNum = parseInt(maxTradesPerDay);
+      if (isNaN(dayNum) || dayNum < 1 || dayNum > 500) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'maxTradesPerDay must be between 1 and 500' 
+        });
+      }
+
+      if (hourNum > dayNum) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'maxTradesPerHour cannot exceed maxTradesPerDay' 
+        });
+      }
+
+      await Storage.setRateLimiting(enabled, hourNum, dayNum);
+      res.json({ 
+        success: true, 
+        message: enabled 
+          ? `Rate limiting enabled: Max ${hourNum} trades/hour, ${dayNum} trades/day` 
+          : 'Rate limiting disabled',
+        enabled,
+        maxTradesPerHour: hourNum,
+        maxTradesPerDay: dayNum
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get rate limiting status (current counts) - per-wallet
+  // Optional query param: ?wallet=0x... to get specific wallet's status
+  router.get('/config/rate-limiting/status', async (req: Request, res: Response) => {
+    try {
+      const walletAddress = req.query.wallet as string | undefined;
+      
+      if (walletAddress) {
+        // Get specific wallet's rate limit status
+        const walletRateState = copyTrader.getRateLimitStatus(walletAddress);
+        const wallet = await Storage.getWallet(walletAddress);
+        
+        // Use wallet's rate limit settings or defaults
+        const maxPerHour = wallet?.rateLimitPerHour ?? 10;
+        const maxPerDay = wallet?.rateLimitPerDay ?? 50;
+        const enabled = wallet?.rateLimitEnabled ?? false;
+        
+        // walletRateState is a single RateLimitState when address is provided
+        const state = walletRateState as { tradesThisHour: number; tradesThisDay: number };
+        
+        res.json({ 
+          success: true,
+          wallet: walletAddress,
+          enabled,
+          config: { maxPerHour, maxPerDay },
+          current: state,
+          remainingThisHour: enabled ? Math.max(0, maxPerHour - state.tradesThisHour) : null,
+          remainingThisDay: enabled ? Math.max(0, maxPerDay - state.tradesThisDay) : null
+        });
+      } else {
+        // Get all wallets' rate limit status
+        const allStates = copyTrader.getRateLimitStatus();
+        const wallets = await Storage.loadTrackedWallets();
+        
+        // Convert Map to object for JSON response
+        const perWalletStatus: Record<string, any> = {};
+        
+        if (allStates instanceof Map) {
+          for (const [addr, state] of allStates) {
+            const wallet = wallets.find(w => w.address.toLowerCase() === addr);
+            perWalletStatus[addr] = {
+              enabled: wallet?.rateLimitEnabled ?? false,
+              config: {
+                maxPerHour: wallet?.rateLimitPerHour ?? 10,
+                maxPerDay: wallet?.rateLimitPerDay ?? 50
+              },
+              current: state
+            };
+          }
+        }
+        
+        res.json({ 
+          success: true,
+          perWallet: perWalletStatus,
+          walletsWithRateLimiting: wallets.filter(w => w.rateLimitEnabled).length
+        });
+      }
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get trade value filters configuration
+  router.get('/config/trade-value-filters', async (req: Request, res: Response) => {
+    try {
+      const filters = await Storage.getTradeValueFilters();
+      res.json({ success: true, ...filters });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Set trade value filters configuration
+  router.post('/config/trade-value-filters', async (req: Request, res: Response) => {
+    try {
+      const { enabled, minTradeValueUSD, maxTradeValueUSD } = req.body;
+      
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'enabled must be a boolean' 
+        });
+      }
+
+      let minVal: number | null = null;
+      let maxVal: number | null = null;
+
+      if (minTradeValueUSD !== null && minTradeValueUSD !== undefined) {
+        minVal = parseFloat(minTradeValueUSD);
+        if (isNaN(minVal) || minVal < 0) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'minTradeValueUSD must be a non-negative number or null' 
+          });
+        }
+      }
+
+      if (maxTradeValueUSD !== null && maxTradeValueUSD !== undefined) {
+        maxVal = parseFloat(maxTradeValueUSD);
+        if (isNaN(maxVal) || maxVal < 0) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'maxTradeValueUSD must be a non-negative number or null' 
+          });
+        }
+      }
+
+      if (minVal !== null && maxVal !== null && minVal >= maxVal) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'minTradeValueUSD must be less than maxTradeValueUSD' 
+        });
+      }
+
+      await Storage.setTradeValueFilters(enabled, minVal, maxVal);
+      
+      let message = enabled ? 'Trade value filters enabled: ' : 'Trade value filters disabled';
+      if (enabled) {
+        const parts = [];
+        if (minVal !== null) parts.push(`min $${minVal}`);
+        if (maxVal !== null) parts.push(`max $${maxVal}`);
+        message += parts.length > 0 ? parts.join(', ') : 'no limits set';
+      }
+      
+      res.json({ 
+        success: true, 
+        message,
+        enabled,
+        minTradeValueUSD: minVal,
+        maxTradeValueUSD: maxVal
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get all configuration in one call (for UI)
+  router.get('/config/all', async (req: Request, res: Response) => {
+    try {
+      const [
+        tradeSize,
+        noRepeatTrades,
+        priceLimits,
+        slippagePercent,
+        tradeSideFilter,
+        rateLimiting,
+        tradeValueFilters,
+        usageStopLoss,
+        monitoringInterval
+      ] = await Promise.all([
+        Storage.getTradeSize(),
+        Storage.getNoRepeatTrades(),
+        Storage.getPriceLimits(),
+        Storage.getSlippagePercent(),
+        Storage.getTradeSideFilter(),
+        Storage.getRateLimiting(),
+        Storage.getTradeValueFilters(),
+        Storage.getUsageStopLoss(),
+        Storage.getMonitoringInterval()
+      ]);
+
+      res.json({ 
+        success: true,
+        config: {
+          tradeSize,
+          noRepeatTrades,
+          priceLimits,
+          slippagePercent,
+          tradeSideFilter,
+          rateLimiting,
+          tradeValueFilters,
+          usageStopLoss,
+          monitoringIntervalMs: monitoringInterval
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Validate configuration and detect conflicts
+  router.get('/config/validate', async (req: Request, res: Response) => {
+    try {
+      const [
+        noRepeatTrades,
+        priceLimits,
+        rateLimiting,
+        tradeValueFilters,
+        usageStopLoss,
+        wallets
+      ] = await Promise.all([
+        Storage.getNoRepeatTrades(),
+        Storage.getPriceLimits(),
+        Storage.getRateLimiting(),
+        Storage.getTradeValueFilters(),
+        Storage.getUsageStopLoss(),
+        Storage.loadTrackedWallets()
+      ]);
+
+      const conflicts: Array<{
+        type: 'warning' | 'error';
+        code: string;
+        message: string;
+        affectedSettings: string[];
+        suggestion?: string;
+      }> = [];
+
+      // Check for narrow price range
+      const priceRange = priceLimits.maxPrice - priceLimits.minPrice;
+      if (priceRange < 0.10) {
+        conflicts.push({
+          type: 'warning',
+          code: 'NARROW_PRICE_RANGE',
+          message: `Price range is very narrow (${(priceRange * 100).toFixed(0)}¢). This may skip many valid trades.`,
+          affectedSettings: ['priceLimits'],
+          suggestion: 'Consider widening the price range to at least 0.10'
+        });
+      }
+
+      // Check for very low rate limits
+      if (rateLimiting.enabled && rateLimiting.maxTradesPerHour < 3) {
+        conflicts.push({
+          type: 'warning',
+          code: 'LOW_RATE_LIMIT',
+          message: `Rate limit is very low (${rateLimiting.maxTradesPerHour}/hour). You may miss important trades.`,
+          affectedSettings: ['rateLimiting'],
+          suggestion: 'Consider allowing at least 5 trades per hour'
+        });
+      }
+
+      // Check for stop-loss blocking most trades
+      if (usageStopLoss.enabled && usageStopLoss.maxCommitmentPercent < 10) {
+        conflicts.push({
+          type: 'warning',
+          code: 'AGGRESSIVE_STOP_LOSS',
+          message: `Stop-loss is set very low (${usageStopLoss.maxCommitmentPercent}%). This may block most trades.`,
+          affectedSettings: ['usageStopLoss'],
+          suggestion: 'Consider setting stop-loss to at least 20%'
+        });
+      }
+
+      // Check for trade value filter conflicts
+      if (tradeValueFilters.enabled) {
+        if (tradeValueFilters.minTradeValueUSD !== null && 
+            tradeValueFilters.maxTradeValueUSD !== null &&
+            tradeValueFilters.minTradeValueUSD >= tradeValueFilters.maxTradeValueUSD) {
+          conflicts.push({
+            type: 'error',
+            code: 'INVALID_VALUE_FILTER',
+            message: 'Minimum trade value is greater than or equal to maximum trade value.',
+            affectedSettings: ['tradeValueFilters'],
+            suggestion: 'Set minimum value lower than maximum value'
+          });
+        }
+      }
+
+      // Check for short no-repeat block period
+      if (noRepeatTrades.enabled && noRepeatTrades.blockPeriodHours < 6) {
+        conflicts.push({
+          type: 'warning',
+          code: 'SHORT_BLOCK_PERIOD',
+          message: `No-repeat block period is short (${noRepeatTrades.blockPeriodHours}h). Repeated trades may still occur.`,
+          affectedSettings: ['noRepeatTrades'],
+          suggestion: 'Consider blocking for at least 24 hours'
+        });
+      }
+
+      // Check for per-wallet threshold conflicts
+      const walletsWithThresholdButNoFixedMode = wallets.filter(
+        w => w.thresholdEnabled && w.tradeSizingMode !== 'fixed'
+      );
+      if (walletsWithThresholdButNoFixedMode.length > 0) {
+        conflicts.push({
+          type: 'warning',
+          code: 'THRESHOLD_WITHOUT_FIXED_MODE',
+          message: `${walletsWithThresholdButNoFixedMode.length} wallet(s) have threshold enabled but aren't in 'fixed' sizing mode. Threshold will be ignored.`,
+          affectedSettings: ['perWalletConfig'],
+          suggestion: 'Set tradeSizingMode to "fixed" for wallets where you want threshold filtering'
+        });
+      }
+
+      res.json({ 
+        success: true,
+        valid: conflicts.filter(c => c.type === 'error').length === 0,
+        conflicts,
+        errorCount: conflicts.filter(c => c.type === 'error').length,
+        warningCount: conflicts.filter(c => c.type === 'warning').length
+      });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
@@ -1017,30 +1798,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         tests: []
       };
       
-      // Test 1: Simple unauthenticated request to CLOB API (tick-size endpoint)
       const clobUrl = config.polymarketClobApiUrl || 'https://clob.polymarket.com';
-      try {
-        const tickSizeResponse = await axios.get(`${clobUrl}/tick-size`, { 
-          timeout: 10000,
-          validateStatus: () => true // Don't throw on any status code
-        });
-        results.tests.push({
-          name: 'CLOB tick-size endpoint (unauthenticated)',
-          url: `${clobUrl}/tick-size`,
-          status: tickSizeResponse.status,
-          statusText: tickSizeResponse.statusText,
-          isCloudflareBlock: typeof tickSizeResponse.data === 'string' && tickSizeResponse.data.includes('Cloudflare'),
-          success: tickSizeResponse.status === 200
-        });
-      } catch (e: any) {
-        results.tests.push({
-          name: 'CLOB tick-size endpoint (unauthenticated)',
-          error: e.message,
-          success: false
-        });
-      }
-
-      // Test 2: Check if we can reach the CLOB server endpoint at all
+      
+      // Test 1: CLOB time endpoint - reliable connectivity check
       try {
         const serverTimeResponse = await axios.get(`${clobUrl}/time`, { 
           timeout: 10000,
@@ -1063,7 +1823,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         });
       }
 
-      // Test 3: Check Builder credentials presence
+      // Test 2: Check Builder credentials presence
       results.builderCredentials = {
         apiKeyPresent: !!config.polymarketBuilderApiKey,
         apiKeyLength: config.polymarketBuilderApiKey?.length || 0,
@@ -1073,7 +1833,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         passphraseLength: config.polymarketBuilderPassphrase?.length || 0
       };
 
-      // Test 4: Check signature type configuration
+      // Test 3: Check signature type configuration
       results.signatureType = parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '0', 10);
       results.funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS || 'Not set (using EOA)';
 
@@ -1087,7 +1847,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         diagnosis: anyCloudflareBlocks 
           ? 'CLOUDFLARE BLOCKING DETECTED - Your server IP is blocked by Polymarket. Try running locally or using a different server.'
           : allTestsPassed 
-            ? 'CLOB API is accessible - issue may be with Builder credentials or signature type'
+            ? 'CLOB API is accessible - credentials configured correctly'
             : 'CLOB API unreachable - network or configuration issue'
       };
 

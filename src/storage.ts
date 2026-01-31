@@ -1,10 +1,49 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import { TrackedWallet } from './types.js';
+import { 
+  TrackedWallet, 
+  TradeSideFilter,
+  NoRepeatTradesConfig,
+  PriceLimitsConfig,
+  RateLimitingConfig,
+  TradeValueFiltersConfig,
+  ExecutedPosition
+} from './types.js';
 import { config } from './config.js';
 
 const WALLETS_FILE = path.join(config.dataDir, 'tracked_wallets.json');
 const CONFIG_FILE = path.join(config.dataDir, 'bot_config.json');
+const EXECUTED_POSITIONS_FILE = path.join(config.dataDir, 'executed_positions.json');
+
+// ============================================================================
+// DEFAULT VALUES FOR NEW CONFIGURATION OPTIONS
+// ============================================================================
+
+const DEFAULT_NO_REPEAT_TRADES: NoRepeatTradesConfig = {
+  enabled: false,
+  blockPeriodHours: 24
+};
+
+const DEFAULT_PRICE_LIMITS: PriceLimitsConfig = {
+  minPrice: 0.01,
+  maxPrice: 0.99
+};
+
+const DEFAULT_SLIPPAGE_PERCENT = 2; // 2%
+
+const DEFAULT_TRADE_SIDE_FILTER: TradeSideFilter = 'all';
+
+const DEFAULT_RATE_LIMITING: RateLimitingConfig = {
+  enabled: false,
+  maxTradesPerHour: 10,
+  maxTradesPerDay: 50
+};
+
+const DEFAULT_TRADE_VALUE_FILTERS: TradeValueFiltersConfig = {
+  enabled: false,
+  minTradeValueUSD: null,
+  maxTradeValueUSD: null
+};
 
 /**
  * Storage manager for tracked wallets
@@ -61,8 +100,9 @@ export class Storage {
 
   /**
    * Add a wallet to track
+   * New wallets default to active=false (must be explicitly enabled after configuration)
    */
-  static async addWallet(address: string): Promise<void> {
+  static async addWallet(address: string): Promise<TrackedWallet> {
     const wallets = await this.loadTrackedWallets();
     
     // Check if wallet already exists
@@ -70,13 +110,16 @@ export class Storage {
       throw new Error('Wallet already being tracked');
     }
 
-    wallets.push({
+    const newWallet: TrackedWallet = {
       address: address.toLowerCase(),
       addedAt: new Date(),
-      active: true
-    });
-
+      active: false  // Default to OFF - must configure and enable
+    };
+    
+    wallets.push(newWallet);
     await this.saveTrackedWallets(wallets);
+    
+    return newWallet;
   }
 
   /**
@@ -131,20 +174,33 @@ export class Storage {
   }
 
   /**
-   * Update wallet trade configuration
-   * Allows per-wallet sizing mode and threshold settings
-   * - tradeSizingMode: undefined = use global size (no filter), 'fixed' = wallet-specific size + threshold, 'proportional' = match their %
-   * - fixedTradeSize: USDC amount when mode is 'fixed'
-   * - thresholdEnabled: Filter small trades (only when mode is 'fixed')
-   * - thresholdPercent: Threshold % (only when mode is 'fixed')
+   * Update wallet trade configuration (ALL settings are per-wallet)
+   * Pass null to clear a value (revert to default)
    */
   static async updateWalletTradeConfig(
     address: string,
-    config: {
-      tradeSizingMode?: 'fixed' | 'proportional' | null; // null to clear (use global)
+    walletConfig: {
+      // Trade sizing
+      tradeSizingMode?: 'fixed' | 'proportional' | null;
       fixedTradeSize?: number | null;
       thresholdEnabled?: boolean | null;
       thresholdPercent?: number | null;
+      
+      // Trade side filter
+      tradeSideFilter?: TradeSideFilter | null;
+      
+      // Advanced filters
+      noRepeatEnabled?: boolean | null;
+      noRepeatPeriodHours?: number | null;  // 0 = forever
+      priceLimitsMin?: number | null;
+      priceLimitsMax?: number | null;
+      rateLimitEnabled?: boolean | null;
+      rateLimitPerHour?: number | null;
+      rateLimitPerDay?: number | null;
+      valueFilterEnabled?: boolean | null;
+      valueFilterMin?: number | null;
+      valueFilterMax?: number | null;
+      slippagePercent?: number | null;
     }
   ): Promise<TrackedWallet> {
     const wallets = await this.loadTrackedWallets();
@@ -154,33 +210,60 @@ export class Storage {
       throw new Error('Wallet not found');
     }
 
-    // Update fields - null clears the value (reverts to global/default)
-    if (config.tradeSizingMode !== undefined) {
-      wallet.tradeSizingMode = config.tradeSizingMode === null ? undefined : config.tradeSizingMode;
-    }
-    if (config.fixedTradeSize !== undefined) {
-      wallet.fixedTradeSize = config.fixedTradeSize === null ? undefined : config.fixedTradeSize;
-    }
-    if (config.thresholdEnabled !== undefined) {
-      wallet.thresholdEnabled = config.thresholdEnabled === null ? undefined : config.thresholdEnabled;
-    }
-    if (config.thresholdPercent !== undefined) {
-      wallet.thresholdPercent = config.thresholdPercent === null ? undefined : config.thresholdPercent;
-    }
+    // Helper to update field: undefined = don't change, null = clear, value = set
+    const updateField = <T>(current: T | undefined, newVal: T | null | undefined): T | undefined => {
+      if (newVal === undefined) return current;  // Don't change
+      if (newVal === null) return undefined;     // Clear
+      return newVal;                              // Set new value
+    };
+
+    // Trade sizing
+    wallet.tradeSizingMode = updateField(wallet.tradeSizingMode, walletConfig.tradeSizingMode);
+    wallet.fixedTradeSize = updateField(wallet.fixedTradeSize, walletConfig.fixedTradeSize);
+    wallet.thresholdEnabled = updateField(wallet.thresholdEnabled, walletConfig.thresholdEnabled);
+    wallet.thresholdPercent = updateField(wallet.thresholdPercent, walletConfig.thresholdPercent);
+    
+    // Trade side filter
+    wallet.tradeSideFilter = updateField(wallet.tradeSideFilter, walletConfig.tradeSideFilter);
+    
+    // Advanced filters
+    wallet.noRepeatEnabled = updateField(wallet.noRepeatEnabled, walletConfig.noRepeatEnabled);
+    wallet.noRepeatPeriodHours = updateField(wallet.noRepeatPeriodHours, walletConfig.noRepeatPeriodHours);
+    wallet.priceLimitsMin = updateField(wallet.priceLimitsMin, walletConfig.priceLimitsMin);
+    wallet.priceLimitsMax = updateField(wallet.priceLimitsMax, walletConfig.priceLimitsMax);
+    wallet.rateLimitEnabled = updateField(wallet.rateLimitEnabled, walletConfig.rateLimitEnabled);
+    wallet.rateLimitPerHour = updateField(wallet.rateLimitPerHour, walletConfig.rateLimitPerHour);
+    wallet.rateLimitPerDay = updateField(wallet.rateLimitPerDay, walletConfig.rateLimitPerDay);
+    wallet.valueFilterEnabled = updateField(wallet.valueFilterEnabled, walletConfig.valueFilterEnabled);
+    wallet.valueFilterMin = updateField(wallet.valueFilterMin, walletConfig.valueFilterMin);
+    wallet.valueFilterMax = updateField(wallet.valueFilterMax, walletConfig.valueFilterMax);
+    wallet.slippagePercent = updateField(wallet.slippagePercent, walletConfig.slippagePercent);
 
     await this.saveTrackedWallets(wallets);
     return wallet;
   }
 
   /**
-   * Clear wallet trade configuration (revert to global defaults)
+   * Clear ALL wallet trade configuration (revert to defaults)
    */
   static async clearWalletTradeConfig(address: string): Promise<TrackedWallet> {
     return this.updateWalletTradeConfig(address, {
       tradeSizingMode: null,
       fixedTradeSize: null,
       thresholdEnabled: null,
-      thresholdPercent: null
+      thresholdPercent: null,
+      tradeSideFilter: null,
+      noRepeatEnabled: null,
+      noRepeatPeriodHours: null,
+      priceLimitsMin: null,
+      priceLimitsMax: null,
+      rateLimitEnabled: null,
+      rateLimitPerHour: null,
+      rateLimitPerDay: null,
+      valueFilterEnabled: null,
+      valueFilterMin: null,
+      valueFilterMax: null,
+      slippagePercent: null
     });
   }
 
@@ -299,5 +382,293 @@ export class Storage {
     config.usageStopLossEnabled = enabled;
     config.usageStopLossPercent = maxCommitmentPercent;
     await this.saveConfig(config);
+  }
+
+  // ============================================================================
+  // ADVANCED TRADE FILTER CONFIGURATION METHODS
+  // ============================================================================
+
+  /**
+   * Get no-repeat-trades configuration
+   * When enabled, prevents copying trades in markets where you already have a position
+   */
+  static async getNoRepeatTrades(): Promise<NoRepeatTradesConfig> {
+    const config = await this.loadConfig();
+    return {
+      enabled: config.noRepeatTradesEnabled ?? DEFAULT_NO_REPEAT_TRADES.enabled,
+      blockPeriodHours: config.noRepeatTradesBlockPeriodHours ?? DEFAULT_NO_REPEAT_TRADES.blockPeriodHours
+    };
+  }
+
+  /**
+   * Set no-repeat-trades configuration
+   * @param enabled - Whether no-repeat-trades is enabled
+   * @param blockPeriodHours - How long to block repeats (1, 6, 12, 24, 48, 168)
+   */
+  static async setNoRepeatTrades(enabled: boolean, blockPeriodHours: number): Promise<void> {
+    const config = await this.loadConfig();
+    config.noRepeatTradesEnabled = enabled;
+    config.noRepeatTradesBlockPeriodHours = blockPeriodHours;
+    await this.saveConfig(config);
+  }
+
+  /**
+   * Get price limits configuration
+   * Defines the min/max prices for trade execution
+   */
+  static async getPriceLimits(): Promise<PriceLimitsConfig> {
+    const config = await this.loadConfig();
+    return {
+      minPrice: config.priceLimitsMin ?? DEFAULT_PRICE_LIMITS.minPrice,
+      maxPrice: config.priceLimitsMax ?? DEFAULT_PRICE_LIMITS.maxPrice
+    };
+  }
+
+  /**
+   * Set price limits configuration
+   * @param minPrice - Minimum executable price (0.01-0.98)
+   * @param maxPrice - Maximum executable price (0.02-0.99)
+   */
+  static async setPriceLimits(minPrice: number, maxPrice: number): Promise<void> {
+    const config = await this.loadConfig();
+    config.priceLimitsMin = minPrice;
+    config.priceLimitsMax = maxPrice;
+    await this.saveConfig(config);
+  }
+
+  /**
+   * Get slippage percentage configuration
+   * Used to adjust order prices for immediate fills
+   */
+  static async getSlippagePercent(): Promise<number> {
+    const config = await this.loadConfig();
+    return config.slippagePercent ?? DEFAULT_SLIPPAGE_PERCENT;
+  }
+
+  /**
+   * Set slippage percentage configuration
+   * @param percent - Slippage percentage (0.5-10)
+   */
+  static async setSlippagePercent(percent: number): Promise<void> {
+    const config = await this.loadConfig();
+    config.slippagePercent = percent;
+    await this.saveConfig(config);
+  }
+
+  /**
+   * Get global trade side filter configuration
+   * Determines which trade types to copy (BUY, SELL, or both)
+   */
+  static async getTradeSideFilter(): Promise<TradeSideFilter> {
+    const config = await this.loadConfig();
+    return config.tradeSideFilter ?? DEFAULT_TRADE_SIDE_FILTER;
+  }
+
+  /**
+   * Set global trade side filter configuration
+   * @param filter - 'all' | 'buy_only' | 'sell_only'
+   */
+  static async setTradeSideFilter(filter: TradeSideFilter): Promise<void> {
+    const config = await this.loadConfig();
+    config.tradeSideFilter = filter;
+    await this.saveConfig(config);
+  }
+
+  /**
+   * Get rate limiting configuration
+   * Limits the number of trades per hour/day
+   */
+  static async getRateLimiting(): Promise<RateLimitingConfig> {
+    const config = await this.loadConfig();
+    return {
+      enabled: config.rateLimitingEnabled ?? DEFAULT_RATE_LIMITING.enabled,
+      maxTradesPerHour: config.rateLimitingMaxPerHour ?? DEFAULT_RATE_LIMITING.maxTradesPerHour,
+      maxTradesPerDay: config.rateLimitingMaxPerDay ?? DEFAULT_RATE_LIMITING.maxTradesPerDay
+    };
+  }
+
+  /**
+   * Set rate limiting configuration
+   * @param enabled - Whether rate limiting is enabled
+   * @param maxTradesPerHour - Maximum trades per hour (1-100)
+   * @param maxTradesPerDay - Maximum trades per day (1-500)
+   */
+  static async setRateLimiting(enabled: boolean, maxTradesPerHour: number, maxTradesPerDay: number): Promise<void> {
+    const config = await this.loadConfig();
+    config.rateLimitingEnabled = enabled;
+    config.rateLimitingMaxPerHour = maxTradesPerHour;
+    config.rateLimitingMaxPerDay = maxTradesPerDay;
+    await this.saveConfig(config);
+  }
+
+  /**
+   * Get trade value filters configuration
+   * Filters trades by minimum/maximum USDC value
+   */
+  static async getTradeValueFilters(): Promise<TradeValueFiltersConfig> {
+    const config = await this.loadConfig();
+    return {
+      enabled: config.tradeValueFiltersEnabled ?? DEFAULT_TRADE_VALUE_FILTERS.enabled,
+      minTradeValueUSD: config.tradeValueFiltersMin ?? DEFAULT_TRADE_VALUE_FILTERS.minTradeValueUSD,
+      maxTradeValueUSD: config.tradeValueFiltersMax ?? DEFAULT_TRADE_VALUE_FILTERS.maxTradeValueUSD
+    };
+  }
+
+  /**
+   * Set trade value filters configuration
+   * @param enabled - Whether trade value filters are enabled
+   * @param minTradeValueUSD - Minimum trade value in USDC (null for no minimum)
+   * @param maxTradeValueUSD - Maximum trade value in USDC (null for no maximum)
+   */
+  static async setTradeValueFilters(
+    enabled: boolean, 
+    minTradeValueUSD: number | null, 
+    maxTradeValueUSD: number | null
+  ): Promise<void> {
+    const config = await this.loadConfig();
+    config.tradeValueFiltersEnabled = enabled;
+    config.tradeValueFiltersMin = minTradeValueUSD;
+    config.tradeValueFiltersMax = maxTradeValueUSD;
+    await this.saveConfig(config);
+  }
+
+  // ============================================================================
+  // EXECUTED POSITIONS TRACKING (for no-repeat-trades)
+  // ============================================================================
+
+  /**
+   * Load executed positions from file
+   */
+  static async loadExecutedPositions(): Promise<ExecutedPosition[]> {
+    try {
+      await this.ensureDataDir();
+      const data = await fs.readFile(EXECUTED_POSITIONS_FILE, 'utf-8');
+      return JSON.parse(data);
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        // File doesn't exist yet, return empty array
+        return [];
+      }
+      console.error('Failed to load executed positions:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Save executed positions to file
+   */
+  static async saveExecutedPositions(positions: ExecutedPosition[]): Promise<void> {
+    try {
+      await this.ensureDataDir();
+      await fs.writeFile(EXECUTED_POSITIONS_FILE, JSON.stringify(positions, null, 2));
+    } catch (error) {
+      console.error('Failed to save executed positions:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Add an executed position record
+   * Used for no-repeat-trades tracking
+   */
+  static async addExecutedPosition(
+    marketId: string, 
+    side: 'YES' | 'NO', 
+    walletAddress: string
+  ): Promise<void> {
+    const positions = await this.loadExecutedPositions();
+    
+    // Check if we already have this market+side (avoid duplicates)
+    const existing = positions.find(
+      p => p.marketId === marketId && p.side === side
+    );
+    
+    if (!existing) {
+      positions.push({
+        marketId,
+        side,
+        timestamp: Date.now(),
+        walletAddress: walletAddress.toLowerCase()
+      });
+      await this.saveExecutedPositions(positions);
+    }
+  }
+
+  /**
+   * Check if a market+side position has been executed within the block period
+   * @param blockPeriodHours - Hours to block (0 = forever until manually cleared)
+   * @returns true if the position exists and is within the block period (should be blocked)
+   */
+  static async isPositionBlocked(
+    marketId: string, 
+    side: 'YES' | 'NO', 
+    blockPeriodHours: number
+  ): Promise<boolean> {
+    const positions = await this.loadExecutedPositions();
+    
+    // 0 = forever - any existing position blocks
+    if (blockPeriodHours === 0) {
+      return positions.some(
+        p => p.marketId === marketId && p.side === side
+      );
+    }
+    
+    // Time-based blocking
+    const blockPeriodMs = blockPeriodHours * 60 * 60 * 1000;
+    const cutoffTime = Date.now() - blockPeriodMs;
+    
+    return positions.some(
+      p => p.marketId === marketId && 
+           p.side === side && 
+           p.timestamp > cutoffTime
+    );
+  }
+
+  /**
+   * Get all executed positions (for UI display)
+   */
+  static async getExecutedPositions(): Promise<ExecutedPosition[]> {
+    return this.loadExecutedPositions();
+  }
+
+  /**
+   * Clear all executed positions history
+   */
+  static async clearExecutedPositions(): Promise<void> {
+    await this.saveExecutedPositions([]);
+  }
+
+  /**
+   * Cleanup expired executed positions
+   * Removes positions older than the specified block period
+   * @param blockPeriodHours - Hours after which positions expire (0 = never expire)
+   */
+  static async cleanupExpiredPositions(blockPeriodHours: number): Promise<number> {
+    // If blockPeriodHours is 0 (forever), don't clean up anything
+    if (blockPeriodHours === 0) {
+      return 0;
+    }
+    
+    const positions = await this.loadExecutedPositions();
+    const blockPeriodMs = blockPeriodHours * 60 * 60 * 1000;
+    const cutoffTime = Date.now() - blockPeriodMs;
+    
+    const validPositions = positions.filter(p => p.timestamp > cutoffTime);
+    const removedCount = positions.length - validPositions.length;
+    
+    if (removedCount > 0) {
+      await this.saveExecutedPositions(validPositions);
+      console.log(`Cleaned up ${removedCount} expired executed position records`);
+    }
+    
+    return removedCount;
+  }
+
+  /**
+   * Get a specific wallet by address
+   */
+  static async getWallet(address: string): Promise<TrackedWallet | null> {
+    const wallets = await this.loadTrackedWallets();
+    return wallets.find(w => w.address.toLowerCase() === address.toLowerCase()) || null;
   }
 }
