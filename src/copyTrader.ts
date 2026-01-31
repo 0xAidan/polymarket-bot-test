@@ -3,7 +3,7 @@ import { WebSocketMonitor } from './websocketMonitor.js';
 import { TradeExecutor } from './tradeExecutor.js';
 import { PerformanceTracker } from './performanceTracker.js';
 import { BalanceTracker } from './balanceTracker.js';
-import { DetectedTrade, TradeOrder, TradeResult, RateLimitState, TradeSideFilter } from './types.js';
+import { DetectedTrade, TradeOrder, TradeResult, RateLimitState, TradeSideFilter, PerWalletRateLimitStates } from './types.js';
 import { Storage } from './storage.js';
 import { config } from './config.js';
 
@@ -22,13 +22,8 @@ export class CopyTrader {
   private processedTrades = new Map<string, number>(); // Track processed trades by tx hash to prevent duplicates
   private processedCompoundKeys = new Map<string, number>(); // Track by compound key (wallet-market-outcome-side-timeWindow) to catch same trade with different hashes
   
-  // Rate limiting state (in-memory)
-  private rateLimitState: RateLimitState = {
-    tradesThisHour: 0,
-    tradesThisDay: 0,
-    hourStartTime: Date.now(),
-    dayStartTime: Date.now()
-  };
+  // Per-wallet rate limiting state (in-memory, keyed by wallet address)
+  private perWalletRateLimits: PerWalletRateLimitStates = new Map();
 
   constructor() {
     this.monitor = new WalletMonitor();
@@ -60,12 +55,19 @@ export class CopyTrader {
       }
       
       // Cleanup expired executed positions (for no-repeat-trades feature)
+      // Find the shortest non-zero block period from all wallets to determine cleanup threshold
       try {
-        const noRepeatConfig = await Storage.getNoRepeatTrades();
-        if (noRepeatConfig.enabled) {
-          const removed = await Storage.cleanupExpiredPositions(noRepeatConfig.blockPeriodHours);
+        const wallets = await Storage.loadTrackedWallets();
+        const blockPeriods = wallets
+          .filter(w => w.noRepeatEnabled && w.noRepeatPeriodHours !== 0) // Skip 'forever' (0)
+          .map(w => w.noRepeatPeriodHours ?? 24);
+        
+        if (blockPeriods.length > 0) {
+          // Use the longest block period to avoid removing positions that are still valid
+          const maxBlockPeriod = Math.max(...blockPeriods);
+          const removed = await Storage.cleanupExpiredPositions(maxBlockPeriod);
           if (removed > 0) {
-            console.log(`[CopyTrader] Cleaned up ${removed} expired no-repeat-trades entries`);
+            console.log(`[CopyTrader] Cleaned up ${removed} expired no-repeat-trades entries (older than ${maxBlockPeriod}h)`);
           }
         }
       } catch (cleanupError: any) {
@@ -337,80 +339,72 @@ export class CopyTrader {
     }
     
     // ============================================================
-    // TRADE SIDE FILTER (Global + Per-Wallet)
+    // TRADE SIDE FILTER (Per-Wallet)
     // ============================================================
-    // Check if we should copy this trade based on side filter
-    try {
-      const globalSideFilter = await Storage.getTradeSideFilter();
-      // Per-wallet setting overrides global (if set)
-      const effectiveSideFilter: TradeSideFilter = trade.tradeSideFilter || globalSideFilter;
-      
-      if (effectiveSideFilter === 'buy_only' && trade.side === 'SELL') {
-        console.log(`\n⏭️  [CopyTrader] FILTERED - Trade side filter (BUY only mode)`);
-        console.log(`   Trade: ${trade.side} ${trade.outcome}`);
-        console.log(`   Filter: ${trade.tradeSideFilter ? 'Per-wallet' : 'Global'} = ${effectiveSideFilter}`);
-        console.log(`   💡 This SELL trade is blocked by your side filter settings.\n`);
-        return;
-      }
-      
-      if (effectiveSideFilter === 'sell_only' && trade.side === 'BUY') {
-        console.log(`\n⏭️  [CopyTrader] FILTERED - Trade side filter (SELL only mode)`);
-        console.log(`   Trade: ${trade.side} ${trade.outcome}`);
-        console.log(`   Filter: ${trade.tradeSideFilter ? 'Per-wallet' : 'Global'} = ${effectiveSideFilter}`);
-        console.log(`   💡 This BUY trade is blocked by your side filter settings.\n`);
-        return;
-      }
-    } catch (sideFilterError: any) {
-      console.warn(`[CopyTrader] Side filter check error (proceeding with trade): ${sideFilterError.message}`);
-    }
-
-    // ============================================================
-    // CONFIGURABLE PRICE LIMITS (replaces hard-coded 0.01-0.99)
-    // ============================================================
-    // Skip trades where price is outside configured limits
-    let priceLimits = { minPrice: 0.01, maxPrice: 0.99 }; // Defaults
-    try {
-      priceLimits = await Storage.getPriceLimits();
-    } catch (priceLimitsError: any) {
-      console.warn(`[CopyTrader] Could not load price limits (using defaults): ${priceLimitsError.message}`);
-    }
+    // Check if we should copy this trade based on wallet's side filter
+    const walletSideFilter: TradeSideFilter = trade.tradeSideFilter || 'all';
     
-    if (priceNum < priceLimits.minPrice) {
-      console.log(`\n⏭️  [CopyTrader] FILTERED - Price below minimum`);
-      console.log(`   Price: $${trade.price} (configured minimum: $${priceLimits.minPrice})`);
-      console.log(`   Market: ${trade.marketId}`);
-      console.log(`   Outcome: ${trade.outcome}`);
-      console.log(`   💡 Adjust price limits in settings if you want to copy low-price trades.\n`);
+    if (walletSideFilter === 'buy_only' && trade.side === 'SELL') {
+      console.log(`\n⏭️  [CopyTrader] FILTERED - Trade side filter (BUY only mode)`);
+      console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
+      console.log(`   Trade: ${trade.side} ${trade.outcome}`);
+      console.log(`   💡 This SELL trade is blocked by this wallet's side filter settings.\n`);
       return;
     }
     
-    if (priceNum > priceLimits.maxPrice) {
-      console.log(`\n⏭️  [CopyTrader] FILTERED - Price above maximum`);
-      console.log(`   Price: $${trade.price} (configured maximum: $${priceLimits.maxPrice})`);
-      console.log(`   Market: ${trade.marketId}`);
-      console.log(`   Outcome: ${trade.outcome}`);
-      console.log(`   💡 Adjust price limits in settings if you want to copy high-price trades.\n`);
+    if (walletSideFilter === 'sell_only' && trade.side === 'BUY') {
+      console.log(`\n⏭️  [CopyTrader] FILTERED - Trade side filter (SELL only mode)`);
+      console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
+      console.log(`   Trade: ${trade.side} ${trade.outcome}`);
+      console.log(`   💡 This BUY trade is blocked by this wallet's side filter settings.\n`);
       return;
     }
 
     // ============================================================
-    // NO-REPEAT-TRADES FILTER
+    // PRICE LIMITS (Per-Wallet)
     // ============================================================
-    // Check if we've already traded this market+side within the block period
-    try {
-      const noRepeatConfig = await Storage.getNoRepeatTrades();
-      if (noRepeatConfig.enabled) {
+    // Skip trades where price is outside wallet's configured limits
+    const minPrice = trade.priceLimitsMin ?? 0.01;  // Default: 0.01
+    const maxPrice = trade.priceLimitsMax ?? 0.99;  // Default: 0.99
+    
+    if (priceNum < minPrice) {
+      console.log(`\n⏭️  [CopyTrader] FILTERED - Price below wallet minimum`);
+      console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
+      console.log(`   Price: $${trade.price} (wallet minimum: $${minPrice})`);
+      console.log(`   Market: ${trade.marketId}`);
+      console.log(`   💡 Adjust this wallet's price limits to copy low-price trades.\n`);
+      return;
+    }
+    
+    if (priceNum > maxPrice) {
+      console.log(`\n⏭️  [CopyTrader] FILTERED - Price above wallet maximum`);
+      console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
+      console.log(`   Price: $${trade.price} (wallet maximum: $${maxPrice})`);
+      console.log(`   Market: ${trade.marketId}`);
+      console.log(`   💡 Adjust this wallet's price limits to copy high-price trades.\n`);
+      return;
+    }
+
+    // ============================================================
+    // NO-REPEAT-TRADES FILTER (Per-Wallet)
+    // ============================================================
+    // Check if we've already traded this market+side within the wallet's block period
+    if (trade.noRepeatEnabled) {
+      try {
+        const blockPeriod = trade.noRepeatPeriodHours ?? 24;  // Default: 24 hours
         const isBlocked = await Storage.isPositionBlocked(
           trade.marketId,
           trade.outcome,
-          noRepeatConfig.blockPeriodHours
+          blockPeriod
         );
         
         if (isBlocked) {
+          const periodLabel = blockPeriod === 0 ? 'forever' : `${blockPeriod}h`;
           console.log(`\n⏭️  [CopyTrader] FILTERED - No-repeat-trades (already have position)`);
+          console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
           console.log(`   Market: ${trade.marketId}`);
           console.log(`   Side: ${trade.outcome}`);
-          console.log(`   Block period: ${noRepeatConfig.blockPeriodHours} hours`);
+          console.log(`   Block period: ${periodLabel}`);
           console.log(`   💡 You already have a ${trade.outcome} position in this market. Skipping repeat trade.\n`);
           
           await this.performanceTracker.recordTrade({
@@ -423,118 +417,128 @@ export class CopyTrader {
             success: false,
             status: 'rejected',
             executionTimeMs: 0,
-            error: `No-repeat-trades: Already have ${trade.outcome} position in this market (blocked for ${noRepeatConfig.blockPeriodHours}h)`,
+            error: `No-repeat-trades: Already have ${trade.outcome} position in this market (blocked ${periodLabel})`,
             detectedTxHash: trade.transactionHash,
             tokenId: trade.tokenId
           });
           
           return;
         }
+      } catch (noRepeatError: any) {
+        console.warn(`[CopyTrader] No-repeat check error (proceeding with trade): ${noRepeatError.message}`);
       }
-    } catch (noRepeatError: any) {
-      console.warn(`[CopyTrader] No-repeat check error (proceeding with trade): ${noRepeatError.message}`);
     }
 
     // ============================================================
-    // TRADE VALUE FILTER
+    // TRADE VALUE FILTER (Per-Wallet)
     // ============================================================
-    // Check if the detected trade value is within configured limits
-    try {
-      const valueFilters = await Storage.getTradeValueFilters();
-      if (valueFilters.enabled) {
-        const detectedTradeValue = amountNum * priceNum;
-        
-        if (valueFilters.minTradeValueUSD !== null && detectedTradeValue < valueFilters.minTradeValueUSD) {
-          console.log(`\n⏭️  [CopyTrader] FILTERED - Trade value below minimum`);
-          console.log(`   Detected trade value: $${detectedTradeValue.toFixed(2)}`);
-          console.log(`   Configured minimum: $${valueFilters.minTradeValueUSD}`);
-          console.log(`   💡 This trade is too small based on your value filter settings.\n`);
-          return;
-        }
-        
-        if (valueFilters.maxTradeValueUSD !== null && detectedTradeValue > valueFilters.maxTradeValueUSD) {
-          console.log(`\n⏭️  [CopyTrader] FILTERED - Trade value above maximum`);
-          console.log(`   Detected trade value: $${detectedTradeValue.toFixed(2)}`);
-          console.log(`   Configured maximum: $${valueFilters.maxTradeValueUSD}`);
-          console.log(`   💡 This trade is too large based on your value filter settings.\n`);
-          return;
-        }
+    // Check if the detected trade value is within wallet's configured limits
+    if (trade.valueFilterEnabled) {
+      const detectedTradeValue = amountNum * priceNum;
+      
+      if (trade.valueFilterMin !== null && trade.valueFilterMin !== undefined && detectedTradeValue < trade.valueFilterMin) {
+        console.log(`\n⏭️  [CopyTrader] FILTERED - Trade value below wallet minimum`);
+        console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
+        console.log(`   Detected trade value: $${detectedTradeValue.toFixed(2)}`);
+        console.log(`   Wallet minimum: $${trade.valueFilterMin}`);
+        console.log(`   💡 This trade is too small based on this wallet's value filter.\n`);
+        return;
       }
-    } catch (valueFilterError: any) {
-      console.warn(`[CopyTrader] Value filter check error (proceeding with trade): ${valueFilterError.message}`);
+      
+      if (trade.valueFilterMax !== null && trade.valueFilterMax !== undefined && detectedTradeValue > trade.valueFilterMax) {
+        console.log(`\n⏭️  [CopyTrader] FILTERED - Trade value above wallet maximum`);
+        console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
+        console.log(`   Detected trade value: $${detectedTradeValue.toFixed(2)}`);
+        console.log(`   Wallet maximum: $${trade.valueFilterMax}`);
+        console.log(`   💡 This trade is too large based on this wallet's value filter.\n`);
+        return;
+      }
     }
 
     // ============================================================
-    // RATE LIMITING CHECK
+    // RATE LIMITING CHECK (Per-Wallet)
     // ============================================================
-    // Check if we've exceeded the configured rate limits
-    try {
-      const rateLimitConfig = await Storage.getRateLimiting();
-      if (rateLimitConfig.enabled) {
-        // Update rate limit state (reset counters if window has passed)
-        const now = Date.now();
-        const hourMs = 60 * 60 * 1000;
-        const dayMs = 24 * 60 * 60 * 1000;
-        
-        if (now - this.rateLimitState.hourStartTime > hourMs) {
-          this.rateLimitState.tradesThisHour = 0;
-          this.rateLimitState.hourStartTime = now;
-        }
-        
-        if (now - this.rateLimitState.dayStartTime > dayMs) {
-          this.rateLimitState.tradesThisDay = 0;
-          this.rateLimitState.dayStartTime = now;
-        }
-        
-        // Check limits
-        if (this.rateLimitState.tradesThisHour >= rateLimitConfig.maxTradesPerHour) {
-          console.log(`\n⏭️  [CopyTrader] RATE LIMITED - Max trades per hour reached`);
-          console.log(`   Trades this hour: ${this.rateLimitState.tradesThisHour}/${rateLimitConfig.maxTradesPerHour}`);
-          console.log(`   💡 Increase rate limit in settings or wait for the next hour.\n`);
-          
-          await this.performanceTracker.recordTrade({
-            timestamp: new Date(),
-            walletAddress: trade.walletAddress,
-            marketId: trade.marketId,
-            outcome: trade.outcome,
-            amount: trade.amount,
-            price: trade.price,
-            success: false,
-            status: 'rejected',
-            executionTimeMs: 0,
-            error: `Rate limited: ${this.rateLimitState.tradesThisHour}/${rateLimitConfig.maxTradesPerHour} trades this hour`,
-            detectedTxHash: trade.transactionHash,
-            tokenId: trade.tokenId
-          });
-          
-          return;
-        }
-        
-        if (this.rateLimitState.tradesThisDay >= rateLimitConfig.maxTradesPerDay) {
-          console.log(`\n⏭️  [CopyTrader] RATE LIMITED - Max trades per day reached`);
-          console.log(`   Trades today: ${this.rateLimitState.tradesThisDay}/${rateLimitConfig.maxTradesPerDay}`);
-          console.log(`   💡 Increase rate limit in settings or wait until tomorrow.\n`);
-          
-          await this.performanceTracker.recordTrade({
-            timestamp: new Date(),
-            walletAddress: trade.walletAddress,
-            marketId: trade.marketId,
-            outcome: trade.outcome,
-            amount: trade.amount,
-            price: trade.price,
-            success: false,
-            status: 'rejected',
-            executionTimeMs: 0,
-            error: `Rate limited: ${this.rateLimitState.tradesThisDay}/${rateLimitConfig.maxTradesPerDay} trades today`,
-            detectedTxHash: trade.transactionHash,
-            tokenId: trade.tokenId
-          });
-          
-          return;
-        }
+    // Check if we've exceeded the wallet's configured rate limits
+    if (trade.rateLimitEnabled) {
+      const walletAddress = trade.walletAddress.toLowerCase();
+      const maxPerHour = trade.rateLimitPerHour ?? 10;   // Default: 10
+      const maxPerDay = trade.rateLimitPerDay ?? 50;     // Default: 50
+      
+      // Get or create rate limit state for this wallet
+      let walletRateState = this.perWalletRateLimits.get(walletAddress);
+      if (!walletRateState) {
+        walletRateState = {
+          tradesThisHour: 0,
+          tradesThisDay: 0,
+          hourStartTime: Date.now(),
+          dayStartTime: Date.now()
+        };
+        this.perWalletRateLimits.set(walletAddress, walletRateState);
       }
-    } catch (rateLimitError: any) {
-      console.warn(`[CopyTrader] Rate limit check error (proceeding with trade): ${rateLimitError.message}`);
+      
+      // Update rate limit state (reset counters if window has passed)
+      const now = Date.now();
+      const hourMs = 60 * 60 * 1000;
+      const dayMs = 24 * 60 * 60 * 1000;
+      
+      if (now - walletRateState.hourStartTime > hourMs) {
+        walletRateState.tradesThisHour = 0;
+        walletRateState.hourStartTime = now;
+      }
+      
+      if (now - walletRateState.dayStartTime > dayMs) {
+        walletRateState.tradesThisDay = 0;
+        walletRateState.dayStartTime = now;
+      }
+      
+      // Check limits
+      if (walletRateState.tradesThisHour >= maxPerHour) {
+        console.log(`\n⏭️  [CopyTrader] RATE LIMITED - Max trades per hour for wallet`);
+        console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
+        console.log(`   Trades this hour: ${walletRateState.tradesThisHour}/${maxPerHour}`);
+        console.log(`   💡 Adjust this wallet's rate limit or wait for the next hour.\n`);
+        
+        await this.performanceTracker.recordTrade({
+          timestamp: new Date(),
+          walletAddress: trade.walletAddress,
+          marketId: trade.marketId,
+          outcome: trade.outcome,
+          amount: trade.amount,
+          price: trade.price,
+          success: false,
+          status: 'rejected',
+          executionTimeMs: 0,
+          error: `Rate limited: ${walletRateState.tradesThisHour}/${maxPerHour} trades this hour for this wallet`,
+          detectedTxHash: trade.transactionHash,
+          tokenId: trade.tokenId
+        });
+        
+        return;
+      }
+      
+      if (walletRateState.tradesThisDay >= maxPerDay) {
+        console.log(`\n⏭️  [CopyTrader] RATE LIMITED - Max trades per day for wallet`);
+        console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
+        console.log(`   Trades today: ${walletRateState.tradesThisDay}/${maxPerDay}`);
+        console.log(`   💡 Adjust this wallet's rate limit or wait until tomorrow.\n`);
+        
+        await this.performanceTracker.recordTrade({
+          timestamp: new Date(),
+          walletAddress: trade.walletAddress,
+          marketId: trade.marketId,
+          outcome: trade.outcome,
+          amount: trade.amount,
+          price: trade.price,
+          success: false,
+          status: 'rejected',
+          executionTimeMs: 0,
+          error: `Rate limited: ${walletRateState.tradesThisDay}/${maxPerDay} trades today for this wallet`,
+          detectedTxHash: trade.transactionHash,
+          tokenId: trade.tokenId
+        });
+        
+        return;
+      }
     }
     
     if (!trade.side || (trade.side !== 'BUY' && trade.side !== 'SELL')) {
@@ -916,19 +920,23 @@ export class CopyTrader {
         console.log(`${'='.repeat(60)}\n`);
         this.executedTrades.add(trade.transactionHash);
         
-        // Increment rate limit counters
-        this.rateLimitState.tradesThisHour++;
-        this.rateLimitState.tradesThisDay++;
+        // Increment per-wallet rate limit counters (if rate limiting was enabled for this wallet)
+        if (trade.rateLimitEnabled) {
+          const walletRateState = this.perWalletRateLimits.get(trade.walletAddress.toLowerCase());
+          if (walletRateState) {
+            walletRateState.tradesThisHour++;
+            walletRateState.tradesThisDay++;
+          }
+        }
         
-        // Record executed position for no-repeat-trades feature
-        try {
-          const noRepeatConfig = await Storage.getNoRepeatTrades();
-          if (noRepeatConfig.enabled) {
+        // Record executed position for no-repeat-trades feature (per-wallet)
+        if (trade.noRepeatEnabled) {
+          try {
             await Storage.addExecutedPosition(trade.marketId, trade.outcome, trade.walletAddress);
             console.log(`[CopyTrader] Recorded position for no-repeat-trades: ${trade.marketId} ${trade.outcome}`);
+          } catch (recordError: any) {
+            console.warn(`[CopyTrader] Failed to record executed position: ${recordError.message}`);
           }
-        } catch (recordError: any) {
-          console.warn(`[CopyTrader] Failed to record executed position: ${recordError.message}`);
         }
       } else {
         // Check if this is a "market closed" error (expected behavior, not a failure)
@@ -1157,23 +1165,53 @@ export class CopyTrader {
 
   /**
    * Get current rate limit status (for API)
+   * @param walletAddress - Optional wallet address for per-wallet status. If omitted, returns aggregated status.
    */
-  getRateLimitStatus(): RateLimitState {
-    // Update state first (reset counters if window has passed)
+  getRateLimitStatus(walletAddress?: string): RateLimitState | Map<string, RateLimitState> {
     const now = Date.now();
     const hourMs = 60 * 60 * 1000;
     const dayMs = 24 * 60 * 60 * 1000;
     
-    if (now - this.rateLimitState.hourStartTime > hourMs) {
-      this.rateLimitState.tradesThisHour = 0;
-      this.rateLimitState.hourStartTime = now;
+    // If specific wallet requested
+    if (walletAddress) {
+      const walletRateState = this.perWalletRateLimits.get(walletAddress.toLowerCase());
+      if (!walletRateState) {
+        // No rate limit state exists for this wallet (never had rate limiting enabled or no trades)
+        return {
+          tradesThisHour: 0,
+          tradesThisDay: 0,
+          hourStartTime: now,
+          dayStartTime: now
+        };
+      }
+      
+      // Update state first (reset counters if window has passed)
+      if (now - walletRateState.hourStartTime > hourMs) {
+        walletRateState.tradesThisHour = 0;
+        walletRateState.hourStartTime = now;
+      }
+      if (now - walletRateState.dayStartTime > dayMs) {
+        walletRateState.tradesThisDay = 0;
+        walletRateState.dayStartTime = now;
+      }
+      
+      return { ...walletRateState };
     }
     
-    if (now - this.rateLimitState.dayStartTime > dayMs) {
-      this.rateLimitState.tradesThisDay = 0;
-      this.rateLimitState.dayStartTime = now;
+    // Return all wallets' rate limit states (for aggregated view)
+    // Update all states and return a copy
+    const result = new Map<string, RateLimitState>();
+    for (const [addr, state] of this.perWalletRateLimits) {
+      if (now - state.hourStartTime > hourMs) {
+        state.tradesThisHour = 0;
+        state.hourStartTime = now;
+      }
+      if (now - state.dayStartTime > dayMs) {
+        state.tradesThisDay = 0;
+        state.dayStartTime = now;
+      }
+      result.set(addr, { ...state });
     }
-    
-    return { ...this.rateLimitState };
+    return result;
   }
 }
