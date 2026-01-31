@@ -1,14 +1,9 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { config } from './config.js';
 import { createRoutes } from './api/routes.js';
 import { CopyTrader } from './copyTrader.js';
-
-// Get directory name for ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 /**
  * Create and configure the Express server
@@ -21,7 +16,8 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   app.use(express.json());
 
   // Serve static files from public directory
-  const publicPath = path.join(__dirname, '..', 'public');
+  // Note: Using process.cwd() since the app runs from project root
+  const publicPath = path.join(process.cwd(), 'public');
   app.use(express.static(publicPath));
 
   // API routes
