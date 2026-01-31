@@ -534,24 +534,30 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
 
 
-  // Update per-wallet trade configuration
-  // Allows setting trade sizing mode, threshold, and side filter per wallet
-  // - tradeSizingMode: undefined = use global size (no filter), 'fixed' = wallet-specific size + threshold, 'proportional' = match their %
-  // - fixedTradeSize: USDC amount when mode is 'fixed'
-  // - thresholdEnabled: Filter small trades (only when mode is 'fixed')
-  // - thresholdPercent: Threshold % (only when mode is 'fixed')
-  // - tradeSideFilter: 'all' | 'buy_only' | 'sell_only' | null (null = use global)
+  // Update per-wallet trade configuration (ALL settings are per-wallet)
+  // Accepts all filter settings - pass null to clear a value (use default)
   router.patch('/wallets/:address/trade-config', async (req: Request, res: Response) => {
     try {
       const { address } = req.params;
-      const { tradeSizingMode, fixedTradeSize, thresholdEnabled, thresholdPercent, tradeSideFilter } = req.body;
+      const {
+        // Trade sizing
+        tradeSizingMode, fixedTradeSize, thresholdEnabled, thresholdPercent,
+        // Trade side filter
+        tradeSideFilter,
+        // Advanced filters
+        noRepeatEnabled, noRepeatPeriodHours,
+        priceLimitsMin, priceLimitsMax,
+        rateLimitEnabled, rateLimitPerHour, rateLimitPerDay,
+        valueFilterEnabled, valueFilterMin, valueFilterMax,
+        slippagePercent
+      } = req.body;
       
       // Validate tradeSizingMode
       if (tradeSizingMode !== undefined && tradeSizingMode !== null) {
         if (tradeSizingMode !== 'fixed' && tradeSizingMode !== 'proportional') {
           return res.status(400).json({ 
             success: false, 
-            error: 'tradeSizingMode must be "fixed", "proportional", or null (to use global defaults)' 
+            error: 'tradeSizingMode must be "fixed", "proportional", or null' 
           });
         }
       }
@@ -573,7 +579,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         if (isNaN(percentNum) || percentNum < 0.1 || percentNum > 100) {
           return res.status(400).json({ 
             success: false, 
-            error: 'thresholdPercent must be a number between 0.1 and 100' 
+            error: 'thresholdPercent must be between 0.1 and 100' 
           });
         }
       }
@@ -583,45 +589,106 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         if (!['all', 'buy_only', 'sell_only'].includes(tradeSideFilter)) {
           return res.status(400).json({ 
             success: false, 
-            error: 'tradeSideFilter must be "all", "buy_only", "sell_only", or null (to use global)' 
+            error: 'tradeSideFilter must be "all", "buy_only", or "sell_only"' 
           });
         }
       }
       
+      // Validate noRepeatPeriodHours (0 = forever, or 1-168 hours)
+      if (noRepeatPeriodHours !== undefined && noRepeatPeriodHours !== null) {
+        const hours = parseInt(noRepeatPeriodHours);
+        const validPeriods = [0, 1, 6, 12, 24, 48, 168]; // 0 = forever
+        if (isNaN(hours) || !validPeriods.includes(hours)) {
+          return res.status(400).json({ 
+            success: false, 
+            error: `noRepeatPeriodHours must be one of: ${validPeriods.join(', ')} (0 = forever)` 
+          });
+        }
+      }
+      
+      // Validate price limits
+      if (priceLimitsMin !== undefined && priceLimitsMin !== null) {
+        const min = parseFloat(priceLimitsMin);
+        if (isNaN(min) || min < 0.01 || min > 0.98) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'priceLimitsMin must be between 0.01 and 0.98' 
+          });
+        }
+      }
+      if (priceLimitsMax !== undefined && priceLimitsMax !== null) {
+        const max = parseFloat(priceLimitsMax);
+        if (isNaN(max) || max < 0.02 || max > 0.99) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'priceLimitsMax must be between 0.02 and 0.99' 
+          });
+        }
+      }
+      
+      // Validate rate limits
+      if (rateLimitPerHour !== undefined && rateLimitPerHour !== null) {
+        const hour = parseInt(rateLimitPerHour);
+        if (isNaN(hour) || hour < 1 || hour > 100) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'rateLimitPerHour must be between 1 and 100' 
+          });
+        }
+      }
+      if (rateLimitPerDay !== undefined && rateLimitPerDay !== null) {
+        const day = parseInt(rateLimitPerDay);
+        if (isNaN(day) || day < 1 || day > 500) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'rateLimitPerDay must be between 1 and 500' 
+          });
+        }
+      }
+      
+      // Validate slippage
+      if (slippagePercent !== undefined && slippagePercent !== null) {
+        const slip = parseFloat(slippagePercent);
+        if (isNaN(slip) || slip < 0.5 || slip > 10) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'slippagePercent must be between 0.5 and 10' 
+          });
+        }
+      }
+      
+      // Helper to convert value: undefined=don't change, null=clear, value=set
+      const parseNum = (v: any) => v !== null && v !== undefined ? parseFloat(v) : (v === null ? null : undefined);
+      const parseInt2 = (v: any) => v !== null && v !== undefined ? parseInt(v) : (v === null ? null : undefined);
+      const parseBool = (v: any) => v === null ? null : (v === undefined ? undefined : Boolean(v));
+      
       const wallet = await Storage.updateWalletTradeConfig(address, {
+        // Trade sizing
         tradeSizingMode: tradeSizingMode,
-        fixedTradeSize: fixedTradeSize !== null && fixedTradeSize !== undefined ? parseFloat(fixedTradeSize) : (fixedTradeSize === null ? null : undefined),
-        thresholdEnabled: thresholdEnabled,
-        thresholdPercent: thresholdPercent !== null && thresholdPercent !== undefined ? parseFloat(thresholdPercent) : (thresholdPercent === null ? null : undefined),
-        tradeSideFilter: tradeSideFilter
+        fixedTradeSize: parseNum(fixedTradeSize),
+        thresholdEnabled: parseBool(thresholdEnabled),
+        thresholdPercent: parseNum(thresholdPercent),
+        // Trade side filter
+        tradeSideFilter: tradeSideFilter,
+        // Advanced filters
+        noRepeatEnabled: parseBool(noRepeatEnabled),
+        noRepeatPeriodHours: parseInt2(noRepeatPeriodHours),
+        priceLimitsMin: parseNum(priceLimitsMin),
+        priceLimitsMax: parseNum(priceLimitsMax),
+        rateLimitEnabled: parseBool(rateLimitEnabled),
+        rateLimitPerHour: parseInt2(rateLimitPerHour),
+        rateLimitPerDay: parseInt2(rateLimitPerDay),
+        valueFilterEnabled: parseBool(valueFilterEnabled),
+        valueFilterMin: parseNum(valueFilterMin),
+        valueFilterMax: parseNum(valueFilterMax),
+        slippagePercent: parseNum(slippagePercent)
       });
       
       await copyTrader.reloadWallets();
       
-      // Build message based on mode
-      let message = 'Wallet trade config updated: ';
-      if (!wallet.tradeSizingMode) {
-        message += 'Using global defaults (copy all trades at global size)';
-      } else if (wallet.tradeSizingMode === 'proportional') {
-        message += 'Proportional mode (match their portfolio %)';
-      } else if (wallet.tradeSizingMode === 'fixed') {
-        message += `Fixed mode ($${wallet.fixedTradeSize || 'global'} USDC`;
-        if (wallet.thresholdEnabled) {
-          message += `, filter trades < ${wallet.thresholdPercent}% of their portfolio`;
-        }
-        message += ')';
-      }
-      
-      // Add trade side filter info
-      if (wallet.tradeSideFilter) {
-        const sideLabel = wallet.tradeSideFilter === 'buy_only' ? 'BUY only' : 
-                          wallet.tradeSideFilter === 'sell_only' ? 'SELL only' : 'All trades';
-        message += ` | Side filter: ${sideLabel}`;
-      }
-      
       res.json({ 
         success: true, 
-        message,
+        message: 'Wallet configuration updated',
         wallet 
       });
     } catch (error: any) {
@@ -1304,19 +1371,62 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
-  // Get rate limiting status (current counts)
+  // Get rate limiting status (current counts) - per-wallet
+  // Optional query param: ?wallet=0x... to get specific wallet's status
   router.get('/config/rate-limiting/status', async (req: Request, res: Response) => {
     try {
-      const rateLimiting = await Storage.getRateLimiting();
-      const status = copyTrader.getRateLimitStatus();
+      const walletAddress = req.query.wallet as string | undefined;
       
-      res.json({ 
-        success: true, 
-        config: rateLimiting,
-        current: status,
-        remainingThisHour: rateLimiting.enabled ? Math.max(0, rateLimiting.maxTradesPerHour - status.tradesThisHour) : null,
-        remainingThisDay: rateLimiting.enabled ? Math.max(0, rateLimiting.maxTradesPerDay - status.tradesThisDay) : null
-      });
+      if (walletAddress) {
+        // Get specific wallet's rate limit status
+        const walletRateState = copyTrader.getRateLimitStatus(walletAddress);
+        const wallet = await Storage.getWallet(walletAddress);
+        
+        // Use wallet's rate limit settings or defaults
+        const maxPerHour = wallet?.rateLimitPerHour ?? 10;
+        const maxPerDay = wallet?.rateLimitPerDay ?? 50;
+        const enabled = wallet?.rateLimitEnabled ?? false;
+        
+        // walletRateState is a single RateLimitState when address is provided
+        const state = walletRateState as { tradesThisHour: number; tradesThisDay: number };
+        
+        res.json({ 
+          success: true,
+          wallet: walletAddress,
+          enabled,
+          config: { maxPerHour, maxPerDay },
+          current: state,
+          remainingThisHour: enabled ? Math.max(0, maxPerHour - state.tradesThisHour) : null,
+          remainingThisDay: enabled ? Math.max(0, maxPerDay - state.tradesThisDay) : null
+        });
+      } else {
+        // Get all wallets' rate limit status
+        const allStates = copyTrader.getRateLimitStatus();
+        const wallets = await Storage.loadTrackedWallets();
+        
+        // Convert Map to object for JSON response
+        const perWalletStatus: Record<string, any> = {};
+        
+        if (allStates instanceof Map) {
+          for (const [addr, state] of allStates) {
+            const wallet = wallets.find(w => w.address.toLowerCase() === addr);
+            perWalletStatus[addr] = {
+              enabled: wallet?.rateLimitEnabled ?? false,
+              config: {
+                maxPerHour: wallet?.rateLimitPerHour ?? 10,
+                maxPerDay: wallet?.rateLimitPerDay ?? 50
+              },
+              current: state
+            };
+          }
+        }
+        
+        res.json({ 
+          success: true,
+          perWallet: perWalletStatus,
+          walletsWithRateLimiting: wallets.filter(w => w.rateLimitEnabled).length
+        });
+      }
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
