@@ -124,10 +124,19 @@ export class PositionMirror {
     console.log(`[Mirror] Tracked wallet: ${theirPositions.length} positions, $${theirPortfolio.totalValue.toFixed(2)} total`);
     
     // Step 2: Get user's positions and portfolio value
-    const userAddress = this.clobClient.getWalletAddress();
-    if (!userAddress) {
+    // CRITICAL: Must use the proxy/funder address, not the EOA!
+    // Polymarket stores positions under the proxy wallet, not the signing wallet
+    const eoaAddress = this.clobClient.getWalletAddress();
+    if (!eoaAddress) {
       throw new Error('User wallet not configured');
     }
+    
+    // Check for proxy wallet - try funder address first, then resolve via API
+    const funderAddress = this.clobClient.getFunderAddress();
+    const proxyAddress = funderAddress || await this.polymarketApi.getProxyWalletAddress(eoaAddress);
+    const userAddress = proxyAddress || eoaAddress;
+    
+    console.log(`[Mirror] Your wallet: EOA=${eoaAddress.substring(0, 10)}..., Proxy=${proxyAddress ? proxyAddress.substring(0, 10) + '...' : 'none'}, Using=${userAddress.substring(0, 10)}...`);
     
     const yourPositions = await this.polymarketApi.getUserPositions(userAddress);
     const yourUsdcBalance = await this.clobClient.getUsdcBalance();
