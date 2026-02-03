@@ -1003,48 +1003,97 @@ function renderMirrorTrades(trades) {
     return;
   }
   
-  tbody.innerHTML = trades.map((trade, index) => {
-    const actionClass = trade.action === 'BUY' ? 'action-buy' : (trade.action === 'SELL' ? 'action-sell' : 'action-skip');
-    const rowClass = trade.status === 'skipped' ? 'row-skipped' : (trade.status === 'warning' ? 'row-warning' : '');
-    const statusClass = trade.status === 'ready' ? 'status-ready' : (trade.status === 'warning' ? 'status-warning' : 'status-skipped');
-    
-    const checkbox = trade.status !== 'skipped' 
-      ? `<input type="checkbox" ${trade.selected ? 'checked' : ''} onchange="toggleMirrorTrade(${index}, this.checked)">`
-      : '';
-    
-    const priceWarning = trade.priceDeviationPercent && trade.priceDeviationPercent > 0
-      ? `<span class="price-deviation" title="Price moved ${trade.priceDeviationPercent}% from their entry">&#9888; ${trade.priceDeviationPercent > 5 ? '+' : ''}${trade.priceDeviationPercent.toFixed(0)}%</span>`
-      : '';
-    
-    const tradeDetails = trade.action === 'SKIP' 
-      ? '-'
-      : `${trade.action === 'BUY' ? '+' : '-'}${trade.sharesToTrade.toFixed(1)} shares<br><span class="trade-cost">${trade.action === 'BUY' ? '-' : '+'}$${Math.abs(trade.estimatedCost).toFixed(2)}</span>`;
-    
-    return `
-      <tr class="${rowClass}">
-        <td>${checkbox}</td>
-        <td class="market-cell">
-          <div class="market-title">${trade.marketTitle.slice(0, 30)}${trade.marketTitle.length > 30 ? '...' : ''}</div>
-          <div class="market-outcome">${trade.outcome}</div>
+  // Separate actionable trades from skipped ones
+  const actionableTrades = [];
+  const skippedTrades = [];
+  
+  trades.forEach((trade, index) => {
+    trade._originalIndex = index; // Preserve original index for toggle
+    if (trade.status === 'skipped' || trade.action === 'SKIP') {
+      skippedTrades.push(trade);
+    } else {
+      actionableTrades.push(trade);
+    }
+  });
+  
+  // Render actionable trades
+  let html = actionableTrades.map(trade => renderTradeRow(trade, false)).join('');
+  
+  // Add skipped trades in accordion if any exist
+  if (skippedTrades.length > 0) {
+    html += `
+      <tr class="skipped-accordion-row">
+        <td colspan="8">
+          <div class="skipped-accordion" onclick="toggleSkippedAccordion()">
+            <span class="accordion-icon" id="skippedAccordionIcon">&#9658;</span>
+            <span class="accordion-label">Skipped positions (${skippedTrades.length})</span>
+            <span class="accordion-hint">Resolved markets, below minimum size, etc.</span>
+          </div>
         </td>
-        <td>
-          <div>${trade.theirShares.toFixed(1)} shares</div>
-          <div class="allocation-percent">${trade.theirAllocationPercent.toFixed(1)}%</div>
-        </td>
-        <td>
-          <div>${trade.yourShares.toFixed(1)} shares</div>
-          <div class="allocation-percent">${trade.yourAllocationPercent.toFixed(1)}%</div>
-        </td>
-        <td><span class="action-badge ${actionClass}">${trade.action}</span></td>
-        <td>${tradeDetails}</td>
-        <td>
-          <div>$${trade.currentPrice.toFixed(2)}</div>
-          ${priceWarning}
-        </td>
-        <td><span class="status-badge ${statusClass}">${trade.status}${trade.warning ? ` - ${trade.warning.slice(0, 20)}` : ''}</span></td>
       </tr>
     `;
-  }).join('');
+    html += `<tbody id="skippedTradesContainer" style="display: none;">`;
+    html += skippedTrades.map(trade => renderTradeRow(trade, true)).join('');
+    html += `</tbody>`;
+  }
+  
+  tbody.innerHTML = html;
+}
+
+function renderTradeRow(trade, isSkipped) {
+  const actionClass = trade.action === 'BUY' ? 'action-buy' : (trade.action === 'SELL' ? 'action-sell' : 'action-skip');
+  const rowClass = isSkipped ? 'row-skipped' : (trade.status === 'warning' ? 'row-warning' : '');
+  const statusClass = trade.status === 'ready' ? 'status-ready' : (trade.status === 'warning' ? 'status-warning' : 'status-skipped');
+  
+  const checkbox = !isSkipped 
+    ? `<input type="checkbox" ${trade.selected ? 'checked' : ''} onchange="toggleMirrorTrade(${trade._originalIndex}, this.checked)">`
+    : '<span class="skip-icon">-</span>';
+  
+  const priceWarning = trade.priceDeviationPercent && trade.priceDeviationPercent > 0
+    ? `<span class="price-deviation" title="Price moved ${trade.priceDeviationPercent}% from their entry">&#9888; ${trade.priceDeviationPercent > 5 ? '+' : ''}${trade.priceDeviationPercent.toFixed(0)}%</span>`
+    : '';
+  
+  const tradeDetails = trade.action === 'SKIP' 
+    ? '-'
+    : `${trade.action === 'BUY' ? '+' : '-'}${trade.sharesToTrade.toFixed(1)} shares<br><span class="trade-cost">${trade.action === 'BUY' ? '-' : '+'}$${Math.abs(trade.estimatedCost).toFixed(2)}</span>`;
+  
+  return `
+    <tr class="${rowClass}">
+      <td>${checkbox}</td>
+      <td class="market-cell">
+        <div class="market-title">${trade.marketTitle.slice(0, 30)}${trade.marketTitle.length > 30 ? '...' : ''}</div>
+        <div class="market-outcome">${trade.outcome}</div>
+      </td>
+      <td>
+        <div>${trade.theirShares.toFixed(1)} shares</div>
+        <div class="allocation-percent">${trade.theirAllocationPercent.toFixed(1)}%</div>
+      </td>
+      <td>
+        <div>${trade.yourShares.toFixed(1)} shares</div>
+        <div class="allocation-percent">${trade.yourAllocationPercent.toFixed(1)}%</div>
+      </td>
+      <td><span class="action-badge ${actionClass}">${trade.action}</span></td>
+      <td>${tradeDetails}</td>
+      <td>
+        <div>$${trade.currentPrice.toFixed(2)}</div>
+        ${priceWarning}
+      </td>
+      <td><span class="status-badge ${statusClass}">${isSkipped ? trade.warning || 'Skipped' : trade.status}</span></td>
+    </tr>
+  `;
+}
+
+function toggleSkippedAccordion() {
+  const container = document.getElementById('skippedTradesContainer');
+  const icon = document.getElementById('skippedAccordionIcon');
+  
+  if (container.style.display === 'none') {
+    container.style.display = 'table-row-group';
+    icon.innerHTML = '&#9660;'; // Down arrow
+  } else {
+    container.style.display = 'none';
+    icon.innerHTML = '&#9658;'; // Right arrow
+  }
 }
 
 function toggleMirrorTrade(index, selected) {

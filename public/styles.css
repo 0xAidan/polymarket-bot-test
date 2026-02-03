@@ -1471,3 +1471,55 @@ body {
   color: var(--text-muted);
   font-size: 12px;
 }
+
+/* Skipped trades accordion */
+.skipped-accordion-row {
+  background: var(--surface) !important;
+}
+
+.skipped-accordion-row:hover {
+  background: var(--surface) !important;
+}
+
+.skipped-accordion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 13px;
+  user-select: none;
+}
+
+.skipped-accordion:hover {
+  color: var(--text);
+}
+
+.accordion-icon {
+  font-size: 10px;
+  transition: transform 0.2s;
+}
+
+.accordion-label {
+  font-weight: 500;
+}
+
+.accordion-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.skip-icon {
+  color: var(--text-muted);
+  font-size: 16px;
+}
+
+#skippedTradesContainer tr {
+  opacity: 0.6;
+}
+
+#skippedTradesContainer tr:hover {
+  opacity: 0.8;
+}
