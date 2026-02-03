@@ -954,6 +954,7 @@ async function loadFailedTrades() {
 
 let currentMirrorWallet = null;
 let currentMirrorTrades = [];
+let currentMirrorPreview = null;  // Store full preview for balance calculations
 
 async function openMirrorModal(address) {
   currentMirrorWallet = address;
@@ -962,6 +963,7 @@ async function openMirrorModal(address) {
   document.getElementById('mirrorModalTitle').textContent = 'Loading Mirror Preview...';
   document.getElementById('mirrorTradesBody').innerHTML = '<tr><td colspan="8" class="empty-state">Loading positions...</td></tr>';
   document.getElementById('mirrorExecuteBtn').disabled = true;
+  document.getElementById('mirrorBalanceWarning').style.display = 'none';
   document.getElementById('mirrorModal').style.display = 'flex';
   
   try {
@@ -974,9 +976,11 @@ async function openMirrorModal(address) {
     
     // Get mirror preview
     const preview = await API.getMirrorPreview(address, 10);
+    currentMirrorPreview = preview;  // Store full preview
     
     // Update portfolio values
     document.getElementById('mirrorYourPortfolio').textContent = `$${formatNumber(preview.yourPortfolioValue)}`;
+    document.getElementById('mirrorYourUsdc').textContent = `$${formatNumber(preview.yourUsdcBalance || 0)}`;
     document.getElementById('mirrorTheirPortfolio').textContent = `$${formatNumber(preview.theirPortfolioValue)}`;
     
     // Store trades for execution
@@ -985,7 +989,7 @@ async function openMirrorModal(address) {
     // Render trades table
     renderMirrorTrades(preview.trades);
     
-    // Update summary
+    // Update summary and balance warning
     updateMirrorSummary();
     
   } catch (error) {
@@ -1129,6 +1133,39 @@ function updateMirrorSummary() {
   
   document.getElementById('mirrorSummaryText').innerHTML = summaryText;
   document.getElementById('mirrorExecuteBtn').disabled = selectedTrades.length === 0;
+  
+  // Update balance warning based on current selections
+  updateBalanceWarning(buyCost, sellProceeds);
+}
+
+function updateBalanceWarning(buyCost, sellProceeds) {
+  const warningEl = document.getElementById('mirrorBalanceWarning');
+  const warningDetails = document.getElementById('mirrorWarningDetails');
+  
+  if (!currentMirrorPreview || buyCost === 0) {
+    warningEl.style.display = 'none';
+    return;
+  }
+  
+  const currentUsdc = currentMirrorPreview.yourUsdcBalance || 0;
+  const projectedBalance = currentUsdc + sellProceeds;
+  const shortfall = buyCost - projectedBalance;
+  
+  if (shortfall > 0) {
+    // Not enough balance - show critical warning
+    warningEl.style.display = 'flex';
+    warningEl.className = 'balance-warning critical';
+    warningDetails.innerHTML = `Your USDC ($${currentUsdc.toFixed(2)}) + expected sell proceeds ($${sellProceeds.toFixed(2)}) = <strong>$${projectedBalance.toFixed(2)}</strong><br>
+      This is <strong>$${shortfall.toFixed(2)} short</strong> of the $${buyCost.toFixed(2)} needed for BUY orders. Some buys may fail.`;
+  } else if (projectedBalance < buyCost * 1.05) {
+    // Close but should work - show soft warning
+    warningEl.style.display = 'flex';
+    warningEl.className = 'balance-warning';
+    warningDetails.innerHTML = `Your USDC ($${currentUsdc.toFixed(2)}) + expected sell proceeds ($${sellProceeds.toFixed(2)}) = <strong>$${projectedBalance.toFixed(2)}</strong><br>
+      This is tight for the $${buyCost.toFixed(2)} in BUY orders. Slippage could cause issues.`;
+  } else {
+    warningEl.style.display = 'none';
+  }
 }
 
 async function executeMirrorTrades() {
@@ -1185,6 +1222,8 @@ async function executeMirrorTrades() {
 
 function closeMirrorModal() {
   document.getElementById('mirrorModal').style.display = 'none';
+  document.getElementById('mirrorBalanceWarning').style.display = 'none';
   currentMirrorWallet = null;
   currentMirrorTrades = [];
+  currentMirrorPreview = null;
 }

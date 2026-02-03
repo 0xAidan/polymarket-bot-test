@@ -57,6 +57,7 @@ export interface MirrorPreview {
   
   // Portfolio values
   yourPortfolioValue: number;
+  yourUsdcBalance: number;  // Available USDC for trading
   theirPortfolioValue: number;
   
   // Trades breakdown
@@ -70,6 +71,15 @@ export interface MirrorPreview {
     totalWarnings: number;
     estimatedBuyCost: number;
     estimatedSellProceeds: number;
+  };
+  
+  // Balance warning
+  balanceWarning?: {
+    hasWarning: boolean;
+    currentUsdc: number;
+    afterSells: number;
+    buyCost: number;
+    shortfall: number;
   };
   
   // Settings used
@@ -208,9 +218,24 @@ export class PositionMirror {
       totalSellTrades: trades.filter(t => t.action === 'SELL' && t.status !== 'skipped').length,
       totalSkipped: trades.filter(t => t.status === 'skipped').length,
       totalWarnings: trades.filter(t => t.status === 'warning').length,
-      estimatedBuyCost: trades.filter(t => t.action === 'BUY').reduce((sum, t) => sum + t.estimatedCost, 0),
-      estimatedSellProceeds: Math.abs(trades.filter(t => t.action === 'SELL').reduce((sum, t) => sum + t.estimatedCost, 0))
+      estimatedBuyCost: trades.filter(t => t.action === 'BUY' && t.selected).reduce((sum, t) => sum + t.estimatedCost, 0),
+      estimatedSellProceeds: Math.abs(trades.filter(t => t.action === 'SELL' && t.selected).reduce((sum, t) => sum + t.estimatedCost, 0))
     };
+    
+    // Step 6: Calculate balance warning
+    const projectedBalance = yourUsdcBalance + summary.estimatedSellProceeds;
+    const shortfall = summary.estimatedBuyCost - projectedBalance;
+    const balanceWarning = shortfall > 0 ? {
+      hasWarning: true,
+      currentUsdc: yourUsdcBalance,
+      afterSells: projectedBalance,
+      buyCost: summary.estimatedBuyCost,
+      shortfall: shortfall
+    } : undefined;
+    
+    if (balanceWarning) {
+      console.log(`[Mirror] ⚠️ Balance warning: Need $${summary.estimatedBuyCost.toFixed(2)} but will only have $${projectedBalance.toFixed(2)} (shortfall: $${shortfall.toFixed(2)})`);
+    }
     
     console.log(`[Mirror] Preview calculated: ${summary.totalBuyTrades} buys, ${summary.totalSellTrades} sells, ${summary.totalSkipped} skipped`);
     
@@ -218,9 +243,11 @@ export class PositionMirror {
       trackedWalletAddress,
       trackedWalletLabel: trackedWallet?.label,
       yourPortfolioValue,
+      yourUsdcBalance,
       theirPortfolioValue: theirPortfolio.totalValue,
       trades,
       summary,
+      balanceWarning,
       slippageTolerance: slippageTolerancePercent
     };
   }
