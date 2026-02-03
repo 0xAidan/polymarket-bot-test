@@ -802,11 +802,17 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
   // Execute mirror trades - executes the selected trades from the preview
   router.post('/wallets/:address/mirror-execute', async (req: Request, res: Response) => {
+    console.log(`[API] Mirror execute request received for ${req.params.address}`);
+    console.log(`[API] Request body keys:`, Object.keys(req.body || {}));
+    
     try {
       const { address } = req.params;
       const { trades, slippagePercent } = req.body;
       
+      console.log(`[API] trades is array: ${Array.isArray(trades)}, count: ${trades?.length || 0}`);
+      
       if (!trades || !Array.isArray(trades)) {
+        console.log(`[API] Invalid trades param`);
         return res.status(400).json({ 
           success: false, 
           error: 'trades array is required' 
