@@ -1186,7 +1186,18 @@ async function executeMirrorTrades() {
   btn.textContent = 'Executing...';
   
   try {
-    const result = await API.executeMirrorTrades(currentMirrorWallet, currentMirrorTrades, 2);
+    // Only send selected trades with minimal fields needed for execution
+    const tradesToSend = selectedTrades.map(t => ({
+      tokenId: t.tokenId,
+      marketTitle: t.marketTitle.slice(0, 50), // Truncate title to save space
+      action: t.action,
+      sharesToTrade: t.sharesToTrade,
+      currentPrice: t.currentPrice,
+      negRisk: t.negRisk,
+      selected: true
+    }));
+    
+    const result = await API.executeMirrorTrades(currentMirrorWallet, tradesToSend, 2);
     
     // Build detailed result message
     let message = '';
