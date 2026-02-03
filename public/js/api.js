@@ -274,6 +274,18 @@ const API = {
 
   async testClobConnectivity() {
     return this.get('/test/clob-connectivity');
+  },
+
+  // ============================================================
+  // MIRROR POSITIONS
+  // ============================================================
+
+  async getMirrorPreview(address, slippageTolerance = 10) {
+    return this.post(`/wallets/${address}/mirror-preview`, { slippageTolerance });
+  },
+
+  async executeMirrorTrades(address, trades, slippagePercent = 2) {
+    return this.post(`/wallets/${address}/mirror-execute`, { trades, slippagePercent });
   }
 };
 

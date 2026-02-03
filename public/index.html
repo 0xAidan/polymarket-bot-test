@@ -220,6 +220,59 @@
     </div>
   </div>
 
+  <!-- Mirror Positions Preview Modal -->
+  <div id="mirrorModal" class="modal" style="display:none;">
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h2 id="mirrorModalTitle">Mirror Positions Preview</h2>
+        <button class="modal-close" onclick="closeMirrorModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="mirrorModalBody">
+        <!-- Portfolio Summary -->
+        <div class="mirror-summary">
+          <div class="summary-item">
+            <span class="summary-label">Your Portfolio:</span>
+            <span class="summary-value" id="mirrorYourPortfolio">$0.00</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">Their Portfolio:</span>
+            <span class="summary-value" id="mirrorTheirPortfolio">$0.00</span>
+          </div>
+        </div>
+
+        <!-- Trades Table -->
+        <div class="mirror-trades-container">
+          <table class="mirror-table" id="mirrorTradesTable">
+            <thead>
+              <tr>
+                <th style="width: 40px;"></th>
+                <th>Market</th>
+                <th>Their Position</th>
+                <th>Your Position</th>
+                <th>Action</th>
+                <th>Trade</th>
+                <th>Current Price</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="mirrorTradesBody">
+              <tr><td colspan="8" class="empty-state">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Execution Summary -->
+        <div class="mirror-execution-summary" id="mirrorExecutionSummary">
+          <span id="mirrorSummaryText">No trades selected</span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeMirrorModal()">Cancel</button>
+        <button class="btn btn-primary" id="mirrorExecuteBtn" onclick="executeMirrorTrades()" disabled>Execute Selected</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Wallet Configuration Modal (Full Per-Wallet Settings) -->
   <div id="walletModal" class="modal" style="display:none;">
     <div class="modal-content modal-large">

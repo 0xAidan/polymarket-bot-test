@@ -3,6 +3,7 @@ import { WebSocketMonitor } from './websocketMonitor.js';
 import { TradeExecutor } from './tradeExecutor.js';
 import { PerformanceTracker } from './performanceTracker.js';
 import { BalanceTracker } from './balanceTracker.js';
+import { PositionMirror } from './positionMirror.js';
 import { DetectedTrade, TradeOrder, TradeResult, RateLimitState, TradeSideFilter, PerWalletRateLimitStates } from './types.js';
 import { Storage } from './storage.js';
 import { config } from './config.js';
@@ -1289,5 +1290,16 @@ export class CopyTrader {
       result.set(addr, { ...state });
     }
     return result;
+  }
+
+  /**
+   * Get Position Mirror instance for mirroring tracked wallet positions
+   * Creates a new instance each time (stateless operation)
+   */
+  getPositionMirror(): PositionMirror {
+    return new PositionMirror(
+      this.getPolymarketApi(),
+      this.getClobClient()
+    );
   }
 }
