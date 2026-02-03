@@ -285,7 +285,27 @@ const API = {
   },
 
   async executeMirrorTrades(address, trades, slippagePercent = 2) {
-    return this.post(`/wallets/${address}/mirror-execute`, { trades, slippagePercent });
+    // Special handling: don't throw on success:false because partial execution is valid
+    // We want to show the user what succeeded and what failed
+    try {
+      const response = await fetch(`/api/wallets/${address}/mirror-execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trades, slippagePercent })
+      });
+      
+      const data = await response.json();
+      
+      // Only throw on actual HTTP errors, not partial execution failures
+      if (!response.ok) {
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+      
+      return data;  // Return even if success:false - frontend will handle it
+    } catch (error) {
+      console.error('Mirror execute error:', error);
+      throw error;
+    }
   }
 };
 
