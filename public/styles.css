@@ -1299,3 +1299,266 @@ body {
     gap: 12px;
   }
 }
+
+/* ============================================================
+   MIRROR POSITIONS MODAL STYLES
+   ============================================================ */
+
+.mirror-summary {
+  display: flex;
+  gap: 24px;
+  padding: 16px;
+  background: var(--surface);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.summary-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.summary-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.mirror-trades-container {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.mirror-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.mirror-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  padding: 12px 8px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.mirror-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.mirror-table tr:hover {
+  background: var(--surface-light);
+}
+
+.mirror-table tr.row-skipped {
+  opacity: 0.5;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.mirror-table tr.row-warning {
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.market-cell {
+  max-width: 180px;
+}
+
+.market-title {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.market-outcome {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.allocation-percent {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.action-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.action-badge.action-buy {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--success);
+}
+
+.action-badge.action-sell {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--danger);
+}
+
+.action-badge.action-skip {
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.trade-cost {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.price-deviation {
+  display: block;
+  font-size: 11px;
+  color: var(--warning);
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.status-badge.status-ready {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--success);
+}
+
+.status-badge.status-warning {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--warning);
+}
+
+.status-badge.status-skipped {
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.mirror-execution-summary {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.mirror-execution-summary .buy-summary {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.mirror-execution-summary .sell-summary {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.mirror-execution-summary .excluded-note {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* Skipped trades accordion */
+.skipped-accordion-row {
+  background: var(--surface) !important;
+}
+
+.skipped-accordion-row:hover {
+  background: var(--surface) !important;
+}
+
+.skipped-accordion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 13px;
+  user-select: none;
+}
+
+.skipped-accordion:hover {
+  color: var(--text);
+}
+
+.accordion-icon {
+  font-size: 10px;
+  transition: transform 0.2s;
+}
+
+.accordion-label {
+  font-weight: 500;
+}
+
+.accordion-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.skip-icon {
+  color: var(--text-muted);
+  font-size: 16px;
+}
+
+#skippedTradesContainer tr {
+  opacity: 0.6;
+}
+
+#skippedTradesContainer tr:hover {
+  opacity: 0.8;
+}
+
+/* Balance warning banner */
+.balance-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  margin: 12px 0;
+  background: rgba(255, 152, 0, 0.15);
+  border: 1px solid rgba(255, 152, 0, 0.4);
+  border-radius: 8px;
+  color: #ff9800;
+}
+
+.balance-warning.critical {
+  background: rgba(244, 67, 54, 0.15);
+  border-color: rgba(244, 67, 54, 0.4);
+  color: #f44336;
+}
+
+.balance-warning .warning-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.balance-warning .warning-text {
+  flex: 1;
+}
+
+.balance-warning .warning-text strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.balance-warning .warning-text p {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.9;
+}

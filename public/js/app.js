@@ -244,6 +244,7 @@ async function loadWallets() {
               <input type="checkbox" ${isActive ? 'checked' : ''} onchange="toggleWallet('${wallet.address}', this.checked)">
               <span class="toggle-slider"></span>
             </label>
+            <button class="btn btn-sm btn-primary" onclick="openMirrorModal('${wallet.address}')">Mirror Positions</button>
             <button class="btn btn-sm btn-outline" onclick="openWalletModal('${wallet.address}')">Configure</button>
             <button class="btn btn-sm btn-danger" onclick="removeWallet('${wallet.address}')">Remove</button>
           </div>
@@ -945,4 +946,295 @@ async function loadFailedTrades() {
   } catch (error) {
     container.innerHTML = `<div class="empty-state">Failed to load: ${error.message}</div>`;
   }
+}
+
+// ============================================================
+// MIRROR POSITIONS
+// ============================================================
+
+let currentMirrorWallet = null;
+let currentMirrorTrades = [];
+let currentMirrorPreview = null;  // Store full preview for balance calculations
+
+async function openMirrorModal(address) {
+  currentMirrorWallet = address;
+  
+  // Show modal with loading state
+  document.getElementById('mirrorModalTitle').textContent = 'Loading Mirror Preview...';
+  document.getElementById('mirrorTradesBody').innerHTML = '<tr><td colspan="8" class="empty-state">Loading positions...</td></tr>';
+  document.getElementById('mirrorExecuteBtn').disabled = true;
+  document.getElementById('mirrorBalanceWarning').style.display = 'none';
+  document.getElementById('mirrorModal').style.display = 'flex';
+  
+  try {
+    // Get wallet label
+    const walletsData = await API.getWallets();
+    const wallet = walletsData.wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
+    const walletLabel = wallet?.label || address.slice(0, 10) + '...';
+    
+    document.getElementById('mirrorModalTitle').textContent = `Mirror Positions: ${walletLabel}`;
+    
+    // Get mirror preview
+    const preview = await API.getMirrorPreview(address, 10);
+    currentMirrorPreview = preview;  // Store full preview
+    
+    // Update portfolio values
+    document.getElementById('mirrorYourPortfolio').textContent = `$${formatNumber(preview.yourPortfolioValue)}`;
+    document.getElementById('mirrorYourUsdc').textContent = `$${formatNumber(preview.yourUsdcBalance || 0)}`;
+    document.getElementById('mirrorTheirPortfolio').textContent = `$${formatNumber(preview.theirPortfolioValue)}`;
+    
+    // Store trades for execution
+    currentMirrorTrades = preview.trades;
+    
+    // Render trades table
+    renderMirrorTrades(preview.trades);
+    
+    // Update summary and balance warning
+    updateMirrorSummary();
+    
+  } catch (error) {
+    console.error('Error loading mirror preview:', error);
+    document.getElementById('mirrorTradesBody').innerHTML = 
+      `<tr><td colspan="8" class="empty-state">Error: ${error.message}</td></tr>`;
+  }
+}
+
+function renderMirrorTrades(trades) {
+  const tbody = document.getElementById('mirrorTradesBody');
+  
+  if (!trades || trades.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No positions to mirror</td></tr>';
+    return;
+  }
+  
+  // Separate actionable trades from skipped ones
+  const actionableTrades = [];
+  const skippedTrades = [];
+  
+  trades.forEach((trade, index) => {
+    trade._originalIndex = index; // Preserve original index for toggle
+    if (trade.status === 'skipped' || trade.action === 'SKIP') {
+      skippedTrades.push(trade);
+    } else {
+      actionableTrades.push(trade);
+    }
+  });
+  
+  // Render actionable trades
+  let html = actionableTrades.map(trade => renderTradeRow(trade, false)).join('');
+  
+  // Add skipped trades in accordion if any exist
+  if (skippedTrades.length > 0) {
+    html += `
+      <tr class="skipped-accordion-row">
+        <td colspan="8">
+          <div class="skipped-accordion" onclick="toggleSkippedAccordion()">
+            <span class="accordion-icon" id="skippedAccordionIcon">&#9658;</span>
+            <span class="accordion-label">Skipped positions (${skippedTrades.length})</span>
+            <span class="accordion-hint">Resolved markets, below minimum size, etc.</span>
+          </div>
+        </td>
+      </tr>
+    `;
+    html += `<tbody id="skippedTradesContainer" style="display: none;">`;
+    html += skippedTrades.map(trade => renderTradeRow(trade, true)).join('');
+    html += `</tbody>`;
+  }
+  
+  tbody.innerHTML = html;
+}
+
+function renderTradeRow(trade, isSkipped) {
+  const actionClass = trade.action === 'BUY' ? 'action-buy' : (trade.action === 'SELL' ? 'action-sell' : 'action-skip');
+  const rowClass = isSkipped ? 'row-skipped' : (trade.status === 'warning' ? 'row-warning' : '');
+  const statusClass = trade.status === 'ready' ? 'status-ready' : (trade.status === 'warning' ? 'status-warning' : 'status-skipped');
+  
+  const checkbox = !isSkipped 
+    ? `<input type="checkbox" ${trade.selected ? 'checked' : ''} onchange="toggleMirrorTrade(${trade._originalIndex}, this.checked)">`
+    : '<span class="skip-icon">-</span>';
+  
+  const priceWarning = trade.priceDeviationPercent && trade.priceDeviationPercent > 0
+    ? `<span class="price-deviation" title="Price moved ${trade.priceDeviationPercent}% from their entry">&#9888; ${trade.priceDeviationPercent > 5 ? '+' : ''}${trade.priceDeviationPercent.toFixed(0)}%</span>`
+    : '';
+  
+  const tradeDetails = trade.action === 'SKIP' 
+    ? '-'
+    : `${trade.action === 'BUY' ? '+' : '-'}${trade.sharesToTrade.toFixed(1)} shares<br><span class="trade-cost">${trade.action === 'BUY' ? '-' : '+'}$${Math.abs(trade.estimatedCost).toFixed(2)}</span>`;
+  
+  return `
+    <tr class="${rowClass}">
+      <td>${checkbox}</td>
+      <td class="market-cell">
+        <div class="market-title">${trade.marketTitle.slice(0, 30)}${trade.marketTitle.length > 30 ? '...' : ''}</div>
+        <div class="market-outcome">${trade.outcome}</div>
+      </td>
+      <td>
+        <div>${trade.theirShares.toFixed(1)} shares</div>
+        <div class="allocation-percent">${trade.theirAllocationPercent.toFixed(1)}%</div>
+      </td>
+      <td>
+        <div>${trade.yourShares.toFixed(1)} shares</div>
+        <div class="allocation-percent">${trade.yourAllocationPercent.toFixed(1)}%</div>
+      </td>
+      <td><span class="action-badge ${actionClass}">${trade.action}</span></td>
+      <td>${tradeDetails}</td>
+      <td>
+        <div>$${trade.currentPrice.toFixed(2)}</div>
+        ${priceWarning}
+      </td>
+      <td><span class="status-badge ${statusClass}">${isSkipped ? trade.warning || 'Skipped' : trade.status}</span></td>
+    </tr>
+  `;
+}
+
+function toggleSkippedAccordion() {
+  const container = document.getElementById('skippedTradesContainer');
+  const icon = document.getElementById('skippedAccordionIcon');
+  
+  if (container.style.display === 'none') {
+    container.style.display = 'table-row-group';
+    icon.innerHTML = '&#9660;'; // Down arrow
+  } else {
+    container.style.display = 'none';
+    icon.innerHTML = '&#9658;'; // Right arrow
+  }
+}
+
+function toggleMirrorTrade(index, selected) {
+  if (currentMirrorTrades[index]) {
+    currentMirrorTrades[index].selected = selected;
+    updateMirrorSummary();
+  }
+}
+
+function updateMirrorSummary() {
+  const selectedTrades = currentMirrorTrades.filter(t => t.selected && t.action !== 'SKIP');
+  const buyTrades = selectedTrades.filter(t => t.action === 'BUY');
+  const sellTrades = selectedTrades.filter(t => t.action === 'SELL');
+  
+  const buyCost = buyTrades.reduce((sum, t) => sum + t.estimatedCost, 0);
+  const sellProceeds = Math.abs(sellTrades.reduce((sum, t) => sum + t.estimatedCost, 0));
+  
+  const excludedCount = currentMirrorTrades.filter(t => !t.selected && t.status !== 'skipped' && t.action !== 'SKIP').length;
+  
+  let summaryText = `Selected: `;
+  const parts = [];
+  if (buyTrades.length > 0) parts.push(`<span class="buy-summary">${buyTrades.length} BUY ($${buyCost.toFixed(2)})</span>`);
+  if (sellTrades.length > 0) parts.push(`<span class="sell-summary">${sellTrades.length} SELL (+$${sellProceeds.toFixed(2)})</span>`);
+  
+  if (parts.length === 0) {
+    summaryText = 'No trades selected';
+  } else {
+    summaryText = `Selected: ${parts.join(' | ')}`;
+    if (excludedCount > 0) {
+      summaryText += ` <span class="excluded-note">(${excludedCount} excluded - kept as USDC)</span>`;
+    }
+  }
+  
+  document.getElementById('mirrorSummaryText').innerHTML = summaryText;
+  document.getElementById('mirrorExecuteBtn').disabled = selectedTrades.length === 0;
+  
+  // Update balance warning based on current selections
+  updateBalanceWarning(buyCost, sellProceeds);
+}
+
+function updateBalanceWarning(buyCost, sellProceeds) {
+  const warningEl = document.getElementById('mirrorBalanceWarning');
+  const warningDetails = document.getElementById('mirrorWarningDetails');
+  
+  if (!currentMirrorPreview || buyCost === 0) {
+    warningEl.style.display = 'none';
+    return;
+  }
+  
+  const currentUsdc = currentMirrorPreview.yourUsdcBalance || 0;
+  const projectedBalance = currentUsdc + sellProceeds;
+  const shortfall = buyCost - projectedBalance;
+  
+  if (shortfall > 0) {
+    // Not enough balance - show critical warning
+    warningEl.style.display = 'flex';
+    warningEl.className = 'balance-warning critical';
+    warningDetails.innerHTML = `Your USDC ($${currentUsdc.toFixed(2)}) + expected sell proceeds ($${sellProceeds.toFixed(2)}) = <strong>$${projectedBalance.toFixed(2)}</strong><br>
+      This is <strong>$${shortfall.toFixed(2)} short</strong> of the $${buyCost.toFixed(2)} needed for BUY orders. Some buys may fail.`;
+  } else if (projectedBalance < buyCost * 1.05) {
+    // Close but should work - show soft warning
+    warningEl.style.display = 'flex';
+    warningEl.className = 'balance-warning';
+    warningDetails.innerHTML = `Your USDC ($${currentUsdc.toFixed(2)}) + expected sell proceeds ($${sellProceeds.toFixed(2)}) = <strong>$${projectedBalance.toFixed(2)}</strong><br>
+      This is tight for the $${buyCost.toFixed(2)} in BUY orders. Slippage could cause issues.`;
+  } else {
+    warningEl.style.display = 'none';
+  }
+}
+
+async function executeMirrorTrades() {
+  const selectedTrades = currentMirrorTrades.filter(t => t.selected && t.action !== 'SKIP');
+  
+  if (selectedTrades.length === 0) {
+    alert('No trades selected');
+    return;
+  }
+  
+  if (!confirm(`Execute ${selectedTrades.length} trade(s)? This will place real orders on Polymarket.`)) {
+    return;
+  }
+  
+  // Disable button and show loading
+  const btn = document.getElementById('mirrorExecuteBtn');
+  btn.disabled = true;
+  btn.textContent = 'Executing...';
+  
+  try {
+    // Only send selected trades with minimal fields needed for execution
+    const tradesToSend = selectedTrades.map(t => ({
+      tokenId: t.tokenId,
+      marketTitle: t.marketTitle.slice(0, 50), // Truncate title to save space
+      action: t.action,
+      sharesToTrade: t.sharesToTrade,
+      currentPrice: t.currentPrice,
+      negRisk: t.negRisk,
+      selected: true
+    }));
+    
+    const result = await API.executeMirrorTrades(currentMirrorWallet, tradesToSend, 2);
+    
+    // Build detailed result message
+    let message = '';
+    
+    if (result.summary) {
+      message += `SELL Phase: ${result.summary.sellsSucceeded}/${result.summary.sellsAttempted} succeeded\n`;
+      message += `BUY Phase: ${result.summary.buysSucceeded}/${result.summary.buysAttempted} succeeded\n\n`;
+    }
+    
+    if (result.success) {
+      message = `✓ All ${result.executedTrades} trade(s) executed successfully!\n\n` + message;
+      alert(message);
+    } else {
+      message = `⚠️ Partial execution: ${result.executedTrades} succeeded, ${result.failedTrades} failed\n\n` + message;
+      
+      if (result.results) {
+        const failures = result.results.filter(r => !r.success);
+        if (failures.length > 0) {
+          message += 'Failed trades:\n' + failures.map(f => `• ${f.marketTitle} (${f.action}): ${f.error}`).join('\n');
+        }
+      }
+      alert(message);
+    }
+    
+    closeMirrorModal();
+    
+  } catch (error) {
+    alert(`Execution failed: ${error.message}`);
+    btn.disabled = false;
+    btn.textContent = 'Execute Selected';
+  }
+}
+
+function closeMirrorModal() {
+  document.getElementById('mirrorModal').style.display = 'none';
+  document.getElementById('mirrorBalanceWarning').style.display = 'none';
+  currentMirrorWallet = null;
+  currentMirrorTrades = [];
+  currentMirrorPreview = null;
 }

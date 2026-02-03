@@ -1,6 +1,7 @@
 {
   "name": "polymarket-copytrade-bot",
   "version": "1.0.0",
+  "type": "module",
   "description": "Bot to copy trades from tracked wallets on Polymarket",
   "main": "dist/index.js",
   "scripts": {

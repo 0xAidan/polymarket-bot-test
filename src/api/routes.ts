@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Storage } from '../storage.js';
 import { CopyTrader } from '../copyTrader.js';
 import { config } from '../config.js';
+import { MirrorTrade } from '../positionMirror.js';
 
 /**
  * API routes for managing the bot
@@ -748,6 +749,106 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       res.json({ success: true, trades: walletTrades });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // MIRROR POSITIONS ENDPOINTS
+  // Allows one-click portfolio sync with a tracked wallet
+  // ============================================================================
+
+  // Get mirror preview - calculates what trades are needed to match a tracked wallet's positions
+  router.post('/wallets/:address/mirror-preview', async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      const { slippageTolerance } = req.body;
+      
+      // Validate wallet is being tracked
+      const wallets = await Storage.loadTrackedWallets();
+      const wallet = wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
+      
+      if (!wallet) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Wallet not found in tracked wallets' 
+        });
+      }
+      
+      // Get the position mirror and calculate preview
+      const positionMirror = copyTrader.getPositionMirror();
+      const tolerance = slippageTolerance !== undefined ? parseFloat(slippageTolerance) : 10;
+      
+      if (isNaN(tolerance) || tolerance < 0 || tolerance > 100) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'slippageTolerance must be a number between 0 and 100' 
+        });
+      }
+      
+      const preview = await positionMirror.calculateMirrorPreview(address, tolerance);
+      
+      res.json({ 
+        success: true,
+        ...preview
+      });
+    } catch (error: any) {
+      console.error('[API] Mirror preview error:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: error.message 
+      });
+    }
+  });
+
+  // Execute mirror trades - executes the selected trades from the preview
+  router.post('/wallets/:address/mirror-execute', async (req: Request, res: Response) => {
+    console.log(`[API] Mirror execute request received for ${req.params.address}`);
+    console.log(`[API] Request body keys:`, Object.keys(req.body || {}));
+    
+    try {
+      const { address } = req.params;
+      const { trades, slippagePercent } = req.body;
+      
+      console.log(`[API] trades is array: ${Array.isArray(trades)}, count: ${trades?.length || 0}`);
+      
+      if (!trades || !Array.isArray(trades)) {
+        console.log(`[API] Invalid trades param`);
+        return res.status(400).json({ 
+          success: false, 
+          error: 'trades array is required' 
+        });
+      }
+      
+      // Filter to only selected trades
+      const selectedTrades = trades.filter((t: MirrorTrade) => t.selected && t.action !== 'SKIP');
+      
+      if (selectedTrades.length === 0) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'No trades selected for execution' 
+        });
+      }
+      
+      // Validate slippage
+      const slippage = slippagePercent !== undefined ? parseFloat(slippagePercent) : 2;
+      if (isNaN(slippage) || slippage < 0.5 || slippage > 10) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'slippagePercent must be between 0.5 and 10' 
+        });
+      }
+      
+      // Execute the trades
+      const positionMirror = copyTrader.getPositionMirror();
+      const result = await positionMirror.executeMirrorTrades(selectedTrades, slippage);
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error('[API] Mirror execute error:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: error.message 
+      });
     }
   });
 
