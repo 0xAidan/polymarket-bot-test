@@ -1151,14 +1151,24 @@ async function executeMirrorTrades() {
   try {
     const result = await API.executeMirrorTrades(currentMirrorWallet, currentMirrorTrades, 2);
     
+    // Build detailed result message
+    let message = '';
+    
+    if (result.summary) {
+      message += `SELL Phase: ${result.summary.sellsSucceeded}/${result.summary.sellsAttempted} succeeded\n`;
+      message += `BUY Phase: ${result.summary.buysSucceeded}/${result.summary.buysAttempted} succeeded\n\n`;
+    }
+    
     if (result.success) {
-      alert(`Successfully executed ${result.executedTrades} trade(s)!`);
+      message = `✓ All ${result.executedTrades} trade(s) executed successfully!\n\n` + message;
+      alert(message);
     } else {
-      let message = `Completed: ${result.executedTrades} succeeded, ${result.failedTrades} failed.`;
+      message = `⚠️ Partial execution: ${result.executedTrades} succeeded, ${result.failedTrades} failed\n\n` + message;
+      
       if (result.results) {
         const failures = result.results.filter(r => !r.success);
         if (failures.length > 0) {
-          message += '\n\nFailed trades:\n' + failures.map(f => `- ${f.marketTitle}: ${f.error}`).join('\n');
+          message += 'Failed trades:\n' + failures.map(f => `• ${f.marketTitle} (${f.action}): ${f.error}`).join('\n');
         }
       }
       alert(message);

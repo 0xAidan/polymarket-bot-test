@@ -90,6 +90,12 @@ export interface MirrorExecutionResult {
     orderId?: string;
     error?: string;
   }>;
+  summary?: {
+    sellsAttempted: number;
+    sellsSucceeded: number;
+    buysAttempted: number;
+    buysSucceeded: number;
+  };
 }
 
 /**
@@ -417,81 +423,160 @@ export class PositionMirror {
   
   /**
    * Execute selected mirror trades
+   * CRITICAL: Sells execute FIRST to free up capital for buys
    */
   async executeMirrorTrades(
     trades: MirrorTrade[],
     slippagePercent: number = 2
   ): Promise<MirrorExecutionResult> {
-    console.log(`[Mirror] Executing ${trades.length} mirror trades...`);
+    // Filter to only selected, actionable trades
+    const activeTrades = trades.filter(t => 
+      t.selected && t.action !== 'SKIP' && t.status !== 'skipped'
+    );
+    
+    console.log(`[Mirror] Executing ${activeTrades.length} mirror trades...`);
+    
+    // CRITICAL: Sort trades - SELLs first, then BUYs
+    // This frees up capital before we try to spend it
+    const sortedTrades = [...activeTrades].sort((a, b) => {
+      if (a.action === 'SELL' && b.action === 'BUY') return -1;
+      if (a.action === 'BUY' && b.action === 'SELL') return 1;
+      return 0;
+    });
+    
+    const sellTrades = sortedTrades.filter(t => t.action === 'SELL');
+    const buyTrades = sortedTrades.filter(t => t.action === 'BUY');
+    
+    console.log(`[Mirror] Execution order: ${sellTrades.length} SELLs first, then ${buyTrades.length} BUYs`);
+    
+    // Pre-execution balance check
+    const currentBalance = await this.clobClient.getUsdcBalance();
+    const totalSellProceeds = sellTrades.reduce((sum, t) => sum + Math.abs(t.estimatedCost), 0);
+    const totalBuyCost = buyTrades.reduce((sum, t) => sum + t.estimatedCost, 0);
+    const projectedBalance = currentBalance + totalSellProceeds;
+    
+    console.log(`[Mirror] Balance check:`);
+    console.log(`[Mirror]   Current USDC: $${currentBalance.toFixed(2)}`);
+    console.log(`[Mirror]   Expected from SELLs: +$${totalSellProceeds.toFixed(2)}`);
+    console.log(`[Mirror]   Projected after SELLs: $${projectedBalance.toFixed(2)}`);
+    console.log(`[Mirror]   BUY cost: $${totalBuyCost.toFixed(2)}`);
+    console.log(`[Mirror]   Estimated remaining: $${(projectedBalance - totalBuyCost).toFixed(2)}`);
+    
+    if (projectedBalance < totalBuyCost * 0.95) { // 5% buffer for slippage
+      console.warn(`[Mirror] ⚠️ WARNING: May not have enough balance after sells!`);
+    }
     
     const results: MirrorExecutionResult['results'] = [];
     let executedCount = 0;
     let failedCount = 0;
+    let sellsCompleted = 0;
+    let buysCompleted = 0;
     
-    // Execute trades sequentially to avoid rate limiting
-    for (const trade of trades) {
-      if (trade.action === 'SKIP' || trade.status === 'skipped') {
-        continue;
-      }
-      
-      console.log(`[Mirror] Executing ${trade.action} ${trade.sharesToTrade} shares of ${trade.marketTitle}...`);
-      
-      try {
-        // Calculate price with slippage
-        let price = trade.currentPrice;
-        if (trade.action === 'BUY') {
-          price = Math.min(price * (1 + slippagePercent / 100), 0.99);
-        } else {
-          price = Math.max(price * (1 - slippagePercent / 100), 0.01);
-        }
-        price = parseFloat(price.toFixed(2));
-        
-        // Place order
-        const response = await this.clobClient.createAndPostOrder({
-          tokenID: trade.tokenId,
-          side: trade.action === 'BUY' ? Side.BUY : Side.SELL,
-          size: trade.sharesToTrade,
-          price: price,
-          negRisk: trade.negRisk
-        });
-        
-        const orderId = response?.orderID || response?.orderId || response?.id;
-        
-        if (orderId) {
-          results.push({
-            marketTitle: trade.marketTitle,
-            action: trade.action,
-            success: true,
-            orderId: String(orderId)
-          });
-          executedCount++;
-          console.log(`[Mirror] ✓ ${trade.action} executed: ${orderId}`);
-        } else {
-          throw new Error('No order ID returned');
-        }
-        
-        // Small delay between trades to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-      } catch (error: any) {
-        results.push({
-          marketTitle: trade.marketTitle,
-          action: trade.action,
-          success: false,
-          error: error.message
-        });
+    // Execute SELLs first
+    console.log(`[Mirror] === PHASE 1: Executing ${sellTrades.length} SELL orders ===`);
+    for (const trade of sellTrades) {
+      const result = await this.executeSingleTrade(trade, slippagePercent);
+      results.push(result);
+      if (result.success) {
+        executedCount++;
+        sellsCompleted++;
+      } else {
         failedCount++;
-        console.error(`[Mirror] ✗ ${trade.action} failed: ${error.message}`);
       }
     }
     
+    console.log(`[Mirror] SELLs complete: ${sellsCompleted}/${sellTrades.length} succeeded`);
+    
+    // Brief pause between phases to let balance settle
+    if (sellTrades.length > 0 && buyTrades.length > 0) {
+      console.log(`[Mirror] Waiting 1s for balance to update...`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    // Execute BUYs second
+    console.log(`[Mirror] === PHASE 2: Executing ${buyTrades.length} BUY orders ===`);
+    for (const trade of buyTrades) {
+      const result = await this.executeSingleTrade(trade, slippagePercent);
+      results.push(result);
+      if (result.success) {
+        executedCount++;
+        buysCompleted++;
+      } else {
+        failedCount++;
+      }
+    }
+    
+    console.log(`[Mirror] BUYs complete: ${buysCompleted}/${buyTrades.length} succeeded`);
     console.log(`[Mirror] Execution complete: ${executedCount} succeeded, ${failedCount} failed`);
     
     return {
       success: failedCount === 0,
       executedTrades: executedCount,
       failedTrades: failedCount,
-      results
+      results,
+      summary: {
+        sellsAttempted: sellTrades.length,
+        sellsSucceeded: sellsCompleted,
+        buysAttempted: buyTrades.length,
+        buysSucceeded: buysCompleted
+      }
     };
+  }
+  
+  /**
+   * Execute a single trade with proper error handling
+   */
+  private async executeSingleTrade(
+    trade: MirrorTrade,
+    slippagePercent: number
+  ): Promise<MirrorExecutionResult['results'][0]> {
+    console.log(`[Mirror] Executing ${trade.action} ${trade.sharesToTrade} shares of ${trade.marketTitle}...`);
+    
+    try {
+      // Calculate price with slippage
+      let price = trade.currentPrice;
+      if (trade.action === 'BUY') {
+        // Pay slightly more to ensure fill
+        price = Math.min(price * (1 + slippagePercent / 100), 0.99);
+      } else {
+        // Accept slightly less to ensure fill
+        price = Math.max(price * (1 - slippagePercent / 100), 0.01);
+      }
+      price = parseFloat(price.toFixed(2));
+      
+      // Place order
+      const response = await this.clobClient.createAndPostOrder({
+        tokenID: trade.tokenId,
+        side: trade.action === 'BUY' ? Side.BUY : Side.SELL,
+        size: trade.sharesToTrade,
+        price: price,
+        negRisk: trade.negRisk
+      });
+      
+      const orderId = response?.orderID || response?.orderId || response?.id;
+      
+      if (orderId) {
+        console.log(`[Mirror] ✓ ${trade.action} executed: ${orderId}`);
+        return {
+          marketTitle: trade.marketTitle,
+          action: trade.action,
+          success: true,
+          orderId: String(orderId)
+        };
+      } else {
+        throw new Error('No order ID returned');
+      }
+    } catch (error: any) {
+      console.error(`[Mirror] ✗ ${trade.action} failed: ${error.message}`);
+      return {
+        marketTitle: trade.marketTitle,
+        action: trade.action,
+        success: false,
+        error: error.message
+      };
+    } finally {
+      // Small delay between trades to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
   }
 }
