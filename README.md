@@ -441,6 +441,11 @@ The bot includes a web dashboard where you can:
 - Verify your credentials are correct at https://polymarket.com/settings?tab=builder
 - Make sure your wallet has enough funds
 
+**Another common cause:** Stop-loss is currently active.
+- Open dashboard settings and check **USDC usage stop-loss**.
+- If your committed percentage is already above the limit, the bot will detect trades but skip execution by design.
+- Either disable stop-loss or increase the limit to allow new trades.
+
 ### Problem: "Port 3001 is already in use"
 
 **Solution:** Something else is using port 3001.
