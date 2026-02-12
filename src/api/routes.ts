@@ -3,6 +3,7 @@ import { Storage } from '../storage.js';
 import { CopyTrader } from '../copyTrader.js';
 import { config } from '../config.js';
 import { MirrorTrade } from '../positionMirror.js';
+import { parseNullableBooleanInput } from '../utils/booleanParsing.js';
 
 /**
  * API routes for managing the bot
@@ -670,7 +671,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       // Helper to convert value: undefined=don't change, null=clear, value=set
       const parseNum = (v: any) => v !== null && v !== undefined ? parseFloat(v) : (v === null ? null : undefined);
       const parseInt2 = (v: any) => v !== null && v !== undefined ? parseInt(v) : (v === null ? null : undefined);
-      const parseBool = (v: any) => v === null ? null : (v === undefined ? undefined : Boolean(v));
+      const parseBool = (v: any): boolean | null | undefined => parseNullableBooleanInput(v);
       
       const wallet = await Storage.updateWalletTradeConfig(address, {
         // Trade sizing
@@ -1804,6 +1805,18 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         suggestion?: string;
       }> = [];
 
+      // Runtime safety: if stop-loss is currently active, copy trading is blocked by design.
+      const stopLossStatus = await copyTrader.getUsageStopLossStatus();
+      if (stopLossStatus.enabled && stopLossStatus.active) {
+        conflicts.push({
+          type: 'warning',
+          code: 'STOP_LOSS_CURRENTLY_BLOCKING',
+          message: `Stop-loss is currently blocking new trades (${stopLossStatus.commitmentPercent?.toFixed(2)}% committed >= ${stopLossStatus.maxCommitmentPercent}%).`,
+          affectedSettings: ['usageStopLoss'],
+          suggestion: 'Disable stop-loss or raise maxCommitmentPercent if you want new trades to execute'
+        });
+      }
+
       // Check for narrow price range
       const priceRange = priceLimits.maxPrice - priceLimits.minPrice;
       if (priceRange < 0.10) {
@@ -1883,7 +1896,10 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         valid: conflicts.filter(c => c.type === 'error').length === 0,
         conflicts,
         errorCount: conflicts.filter(c => c.type === 'error').length,
-        warningCount: conflicts.filter(c => c.type === 'warning').length
+        warningCount: conflicts.filter(c => c.type === 'warning').length,
+        runtime: {
+          stopLoss: stopLossStatus
+        }
       });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });

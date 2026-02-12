@@ -338,10 +338,6 @@ export class CopyTrader {
       return;
     }
     
-    // Mark as processed using both keys
-    this.processedTrades.set(tradeKey, now);
-    this.processedCompoundKeys.set(compoundKey, now);
-
     console.log(`\n${'='.repeat(60)}`);
     console.log(`🔔 TRADE DETECTED`);
     console.log(`${'='.repeat(60)}`);
@@ -648,6 +644,12 @@ export class CopyTrader {
       // Don't block trade if stop-loss check fails
       console.warn(`[CopyTrader] Stop-loss check error (proceeding with trade): ${stopLossError.message}`);
     }
+
+    // Mark as processed ONLY after passing all pre-execution filters.
+    // This avoids "poisoning" dedupe state when a trade is rejected
+    // by filters like stop-loss, threshold, or price limits.
+    this.processedTrades.set(tradeKey, now);
+    this.processedCompoundKeys.set(compoundKey, now);
 
     const executionStart = Date.now();
 
@@ -1178,10 +1180,29 @@ export class CopyTrader {
    * Returns true if stop-loss should prevent new trades
    */
   async checkUsageStopLoss(): Promise<boolean> {
+    const status = await this.getUsageStopLossStatus();
+    return status.active;
+  }
+
+  /**
+   * Get detailed stop-loss runtime status for diagnostics/API visibility.
+   */
+  async getUsageStopLossStatus(): Promise<{
+    enabled: boolean;
+    maxCommitmentPercent: number;
+    commitmentPercent: number | null;
+    active: boolean;
+    error?: string;
+  }> {
     try {
       const stopLossConfig = await Storage.getUsageStopLoss();
       if (!stopLossConfig.enabled) {
-        return false; // Stop-loss not enabled
+        return {
+          enabled: false,
+          maxCommitmentPercent: stopLossConfig.maxCommitmentPercent,
+          commitmentPercent: null,
+          active: false
+        };
       }
 
       // Get our wallet address
@@ -1191,7 +1212,13 @@ export class CopyTrader {
       
       if (!walletToCheck) {
         console.warn(`[CopyTrader] Cannot check stop-loss: wallet address not available`);
-        return false; // Can't check, allow trade
+        return {
+          enabled: true,
+          maxCommitmentPercent: stopLossConfig.maxCommitmentPercent,
+          commitmentPercent: null,
+          active: false,
+          error: 'Wallet address not available'
+        };
       }
 
       // Get our current USDC balance from Polymarket CLOB API (free USDC for trading)
@@ -1201,7 +1228,13 @@ export class CopyTrader {
         freeUsdc = await clobClient.getUsdcBalance();
       } catch (error: any) {
         console.warn(`[CopyTrader] Cannot fetch USDC balance for stop-loss check: ${error.message}`);
-        return false; // Can't check, allow trade
+        return {
+          enabled: true,
+          maxCommitmentPercent: stopLossConfig.maxCommitmentPercent,
+          commitmentPercent: null,
+          active: false,
+          error: `Cannot fetch USDC balance: ${error.message}`
+        };
       }
 
       // Get our open positions and calculate their total value
@@ -1215,28 +1248,50 @@ export class CopyTrader {
         }
       } catch (error: any) {
         console.warn(`[CopyTrader] Cannot fetch positions for stop-loss check: ${error.message}`);
-        return false; // Can't check, allow trade
+        return {
+          enabled: true,
+          maxCommitmentPercent: stopLossConfig.maxCommitmentPercent,
+          commitmentPercent: null,
+          active: false,
+          error: `Cannot fetch positions: ${error.message}`
+        };
       }
 
       // Calculate commitment percentage
       const totalValue = freeUsdc + positionsValue;
       if (totalValue <= 0) {
-        return false; // No value, allow trade
+        return {
+          enabled: true,
+          maxCommitmentPercent: stopLossConfig.maxCommitmentPercent,
+          commitmentPercent: 0,
+          active: false
+        };
       }
 
       const commitmentPercent = (positionsValue / totalValue) * 100;
       
       console.log(`[CopyTrader] Stop-loss check: ${commitmentPercent.toFixed(2)}% committed ($${positionsValue.toFixed(2)} in positions / $${totalValue.toFixed(2)} total), limit: ${stopLossConfig.maxCommitmentPercent}%`);
 
-      if (commitmentPercent >= stopLossConfig.maxCommitmentPercent) {
+      const active = commitmentPercent >= stopLossConfig.maxCommitmentPercent;
+      if (active) {
         console.log(`[CopyTrader] ⚠️ STOP-LOSS ACTIVE: ${commitmentPercent.toFixed(2)}% >= ${stopLossConfig.maxCommitmentPercent}%`);
-        return true; // Stop-loss active, block trade
       }
 
-      return false; // Under limit, allow trade
+      return {
+        enabled: true,
+        maxCommitmentPercent: stopLossConfig.maxCommitmentPercent,
+        commitmentPercent,
+        active
+      };
     } catch (error: any) {
       console.warn(`[CopyTrader] Stop-loss check error: ${error.message}`);
-      return false; // Error, allow trade to proceed
+      return {
+        enabled: false,
+        maxCommitmentPercent: 0,
+        commitmentPercent: null,
+        active: false,
+        error: error.message
+      };
     }
   }
 

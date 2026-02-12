@@ -9,6 +9,7 @@
     "dev": "node start.js",
     "dev:watch": "tsx watch src/index.ts",
     "build": "tsc",
+    "test": "node --test --import tsx tests/**/*.test.ts",
     "start": "node dist/index.js",
     "lint": "eslint src --ext .ts"
   },
