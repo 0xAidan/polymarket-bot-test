@@ -41,6 +41,9 @@ export const config = {
   // Data directory
   dataDir: process.env.DATA_DIR || './data',
 
+  // Storage backend (sqlite | json) allows rollback if sqlite init fails
+  storageBackend: (process.env.STORAGE_BACKEND || 'sqlite').toLowerCase(),
+
   // Monitoring configuration
   // REDUCED from 15s to 5s for faster trade detection when copy trading
   monitoringIntervalMs: parseInt(process.env.MONITORING_INTERVAL_MS || '5000', 10), // 5 seconds default for faster copy trading
