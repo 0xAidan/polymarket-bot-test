@@ -1,5 +1,4 @@
 import { promises as fs } from 'fs';
-import path from 'path';
 import { 
   TrackedWallet, 
   TradeSideFilter,
@@ -10,10 +9,9 @@ import {
   ExecutedPosition
 } from './types.js';
 import { config } from './config.js';
+import { getDatabase } from './database.js';
 
-const WALLETS_FILE = path.join(config.dataDir, 'tracked_wallets.json');
-const CONFIG_FILE = path.join(config.dataDir, 'bot_config.json');
-const EXECUTED_POSITIONS_FILE = path.join(config.dataDir, 'executed_positions.json');
+const database = getDatabase();
 
 // ============================================================================
 // DEFAULT VALUES FOR NEW CONFIGURATION OPTIONS
@@ -45,6 +43,60 @@ const DEFAULT_TRADE_VALUE_FILTERS: TradeValueFiltersConfig = {
   maxTradeValueUSD: null
 };
 
+interface WalletRow {
+  address: string;
+  added_at: string;
+  active: number;
+  last_seen: string | null;
+  label: string | null;
+  settings_json: string | null;
+}
+
+interface ExecutedPositionRow {
+  market_id: string;
+  side: 'YES' | 'NO';
+  timestamp: number;
+  wallet_address: string;
+}
+
+const deserializeWalletRow = (row: WalletRow): TrackedWallet => {
+  const settings = row.settings_json ? JSON.parse(row.settings_json) : {};
+  return {
+    address: row.address,
+    addedAt: new Date(row.added_at),
+    active: Boolean(row.active),
+    lastSeen: row.last_seen ? new Date(row.last_seen) : undefined,
+    label: row.label ?? undefined,
+    ...(settings as Partial<TrackedWallet>)
+  };
+};
+
+const serializeWallet = (wallet: TrackedWallet) => {
+  const { address, addedAt, active, lastSeen, label, ...settings } = wallet;
+  const cleanedSettings: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(settings)) {
+    if (value !== undefined) {
+      cleanedSettings[key] = value;
+    }
+  }
+
+  return {
+    address: address.toLowerCase(),
+    added_at: (addedAt ?? new Date()).toISOString(),
+    active: active ? 1 : 0,
+    last_seen: lastSeen ? lastSeen.toISOString() : null,
+    label: label ?? null,
+    settings_json: JSON.stringify(cleanedSettings)
+  };
+};
+
+const deserializeExecutedPositionRow = (row: ExecutedPositionRow): ExecutedPosition => ({
+  marketId: row.market_id,
+  side: row.side,
+  timestamp: row.timestamp,
+  walletAddress: row.wallet_address
+});
+
 /**
  * Storage manager for tracked wallets
  */
@@ -62,22 +114,20 @@ export class Storage {
   }
 
   /**
-   * Load tracked wallets from file
+   * Load tracked wallets from the SQLite store
    */
   static async loadTrackedWallets(): Promise<TrackedWallet[]> {
     try {
       await this.ensureDataDir();
-      const data = await fs.readFile(WALLETS_FILE, 'utf-8');
-      const wallets = JSON.parse(data);
-      // Convert date strings back to Date objects
-      return wallets.map((w: any) => ({
-        ...w,
-        addedAt: new Date(w.addedAt),
-        lastSeen: w.lastSeen ? new Date(w.lastSeen) : undefined
-      }));
+      const rows = database.prepare(
+        `SELECT address, added_at, active, last_seen, label, settings_json
+         FROM tracked_wallets
+         ORDER BY datetime(added_at) ASC`
+      ).all() as WalletRow[];
+
+      return rows.map(deserializeWalletRow);
     } catch (error: any) {
       if (error.code === 'ENOENT') {
-        // File doesn't exist yet, return empty array
         return [];
       }
       console.error('Failed to load tracked wallets:', error);
@@ -86,12 +136,25 @@ export class Storage {
   }
 
   /**
-   * Save tracked wallets to file
+   * Persist tracked wallets back to the SQLite store
    */
   static async saveTrackedWallets(wallets: TrackedWallet[]): Promise<void> {
     try {
       await this.ensureDataDir();
-      await fs.writeFile(WALLETS_FILE, JSON.stringify(wallets, null, 2));
+      const deleteStmt = database.prepare('DELETE FROM tracked_wallets');
+      const insertStmt = database.prepare(`
+        INSERT INTO tracked_wallets (address, added_at, active, last_seen, label, settings_json)
+        VALUES (@address, @added_at, @active, @last_seen, @label, @settings_json)
+      `);
+
+      const tx = database.transaction((items: TrackedWallet[]) => {
+        deleteStmt.run();
+        for (const item of items) {
+          insertStmt.run(serializeWallet(item));
+        }
+      });
+
+      tx(wallets);
     } catch (error) {
       console.error('Failed to save tracked wallets:', error);
       throw error;
@@ -273,16 +336,15 @@ export class Storage {
   static async loadConfig(): Promise<any> {
     try {
       await this.ensureDataDir();
-      const data = await fs.readFile(CONFIG_FILE, 'utf-8');
-      return JSON.parse(data);
-    } catch (error: any) {
-      if (error.code === 'ENOENT') {
-        // File doesn't exist yet, return default config
-        return { 
-          tradeSize: '2', // Default trade size in USDC
-          monitoringIntervalMs: 15000 // Default 15 seconds (matches config.ts default)
+      const row = database.prepare('SELECT data FROM bot_config WHERE id = 1').get() as { data: string } | undefined;
+      if (!row) {
+        return {
+          tradeSize: '2',
+          monitoringIntervalMs: 15000
         };
       }
+      return JSON.parse(row.data);
+    } catch (error) {
       console.error('Failed to load bot config:', error);
       throw error;
     }
@@ -294,7 +356,10 @@ export class Storage {
   static async saveConfig(configData: any): Promise<void> {
     try {
       await this.ensureDataDir();
-      await fs.writeFile(CONFIG_FILE, JSON.stringify(configData, null, 2));
+      database.prepare(`
+        INSERT INTO bot_config (id, data) VALUES (1, @data)
+        ON CONFLICT(id) DO UPDATE SET data = excluded.data
+      `).run({ data: JSON.stringify(configData) });
     } catch (error) {
       console.error('Failed to save bot config:', error);
       throw error;
@@ -537,30 +602,46 @@ export class Storage {
   // ============================================================================
 
   /**
-   * Load executed positions from file
+   * Load executed positions from the SQLite store
    */
   static async loadExecutedPositions(): Promise<ExecutedPosition[]> {
     try {
       await this.ensureDataDir();
-      const data = await fs.readFile(EXECUTED_POSITIONS_FILE, 'utf-8');
-      return JSON.parse(data);
-    } catch (error: any) {
-      if (error.code === 'ENOENT') {
-        // File doesn't exist yet, return empty array
-        return [];
-      }
+      const rows = database.prepare(
+        'SELECT market_id, side, timestamp, wallet_address FROM executed_positions ORDER BY timestamp DESC'
+      ).all() as ExecutedPositionRow[];
+      return rows.map(deserializeExecutedPositionRow);
+    } catch (error) {
       console.error('Failed to load executed positions:', error);
       throw error;
     }
   }
 
   /**
-   * Save executed positions to file
+   * Save executed positions to the SQLite store
    */
   static async saveExecutedPositions(positions: ExecutedPosition[]): Promise<void> {
     try {
       await this.ensureDataDir();
-      await fs.writeFile(EXECUTED_POSITIONS_FILE, JSON.stringify(positions, null, 2));
+      const deleteStmt = database.prepare('DELETE FROM executed_positions');
+      const insertStmt = database.prepare(`
+        INSERT INTO executed_positions (market_id, side, timestamp, wallet_address)
+        VALUES (@market_id, @side, @timestamp, @wallet_address)
+      `);
+
+      const tx = database.transaction((rows: ExecutedPosition[]) => {
+        deleteStmt.run();
+        for (const row of rows) {
+          insertStmt.run({
+            market_id: row.marketId,
+            side: row.side,
+            timestamp: row.timestamp,
+            wallet_address: row.walletAddress.toLowerCase()
+          });
+        }
+      });
+
+      tx(positions);
     } catch (error) {
       console.error('Failed to save executed positions:', error);
       throw error;
