@@ -8,6 +8,9 @@ import { PositionLifecycleManager } from '../positionLifecycle.js';
 import { ArbScanner } from '../arbScanner.js';
 import { EntityManager } from '../entityManager.js';
 import { HedgeCalculator } from '../hedgeCalculator.js';
+import { LadderExitManager } from '../ladderExitManager.js';
+import { SmartStopLossManager } from '../smartStopLoss.js';
+import { PriceMonitor } from '../priceMonitor.js';
 import {
   initWalletManager,
   addTradingWallet,
@@ -35,6 +38,23 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   const entityManager = new EntityManager();
   entityManager.init().catch(err => console.error('[Routes] EntityManager init failed:', err.message));
   const hedgeCalculator = new HedgeCalculator();
+
+  // Ladder exits + stop-loss
+  const ladderManager = new LadderExitManager();
+  ladderManager.init().catch(err => console.error('[Routes] LadderExit init failed:', err.message));
+  const stopLossManager = new SmartStopLossManager();
+  stopLossManager.init().catch(err => console.error('[Routes] StopLoss init failed:', err.message));
+  const priceMonitor = new PriceMonitor(ladderManager, stopLossManager);
+
+  // Wire up ladder and stop-loss trigger events for logging
+  priceMonitor.on('ladder-trigger', (data: any) => {
+    console.log(`[PriceMonitor] Ladder sell: ${data.ladder.marketTitle} step ${data.stepIndex + 1}, ${data.sharesToSell} shares`);
+    // Mark step as executed (paper mode — no actual trade yet)
+    ladderManager.markStepExecuted(data.ladder.id, data.stepIndex, data.currentPrice, data.sharesToSell);
+  });
+  priceMonitor.on('stoploss-trigger', (data: any) => {
+    console.log(`[PriceMonitor] Stop-loss sell: ${data.order.marketTitle} ${data.order.outcome}, ${data.order.shares} shares`);
+  });
 
   // Get all tracked wallets
   router.get('/wallets', async (req: Request, res: Response) => {
@@ -520,6 +540,122 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // Get execution history
   router.get('/hedge/history', (req: Request, res: Response) => {
     res.json({ success: true, history: hedgeCalculator.getExecutionHistory() });
+  });
+
+  // ============================================================================
+  // LADDER EXIT
+  // ============================================================================
+
+  router.get('/ladder/status', (req: Request, res: Response) => {
+    res.json({ success: true, ...ladderManager.getStatus() });
+  });
+
+  router.get('/ladder/all', (req: Request, res: Response) => {
+    const activeOnly = req.query.active === 'true';
+    res.json({ success: true, ladders: ladderManager.getLadders(activeOnly) });
+  });
+
+  router.post('/ladder/create', (req: Request, res: Response) => {
+    try {
+      const { tokenId, conditionId, marketTitle, outcome, entryPrice, totalShares, steps } = req.body;
+      if (!tokenId || !entryPrice || !totalShares) {
+        return res.status(400).json({ success: false, error: 'tokenId, entryPrice, totalShares required' });
+      }
+      const ladder = ladderManager.createLadder(
+        tokenId, conditionId || '', marketTitle || '', outcome || 'YES',
+        parseFloat(entryPrice), parseFloat(totalShares), steps
+      );
+      res.json({ success: true, ladder });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  router.post('/ladder/cancel/:id', (req: Request, res: Response) => {
+    ladderManager.cancelLadder(req.params.id);
+    res.json({ success: true });
+  });
+
+  router.post('/ladder/config', async (req: Request, res: Response) => {
+    try {
+      await ladderManager.updateConfig(req.body);
+      res.json({ success: true, config: ladderManager.getConfig() });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // SMART STOP-LOSS
+  // ============================================================================
+
+  router.get('/stoploss/status', (req: Request, res: Response) => {
+    res.json({ success: true, ...stopLossManager.getStatus() });
+  });
+
+  router.get('/stoploss/orders', (req: Request, res: Response) => {
+    const activeOnly = req.query.active === 'true';
+    res.json({ success: true, orders: stopLossManager.getOrders(activeOnly) });
+  });
+
+  router.post('/stoploss/create', (req: Request, res: Response) => {
+    try {
+      const { tokenId, conditionId, marketTitle, outcome, entryPrice, shares, initialStopPrice, trailingPercent, profitLockThreshold } = req.body;
+      if (!tokenId || !entryPrice || !shares) {
+        return res.status(400).json({ success: false, error: 'tokenId, entryPrice, shares required' });
+      }
+      const order = stopLossManager.createStopLoss(
+        tokenId, conditionId || '', marketTitle || '', outcome || 'YES',
+        parseFloat(entryPrice), parseFloat(shares),
+        { initialStopPrice: initialStopPrice ? parseFloat(initialStopPrice) : undefined,
+          trailingPercent: trailingPercent ? parseFloat(trailingPercent) : undefined,
+          profitLockThreshold: profitLockThreshold ? parseFloat(profitLockThreshold) : undefined }
+      );
+      res.json({ success: true, order });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  router.post('/stoploss/cancel/:id', (req: Request, res: Response) => {
+    stopLossManager.cancelStopLoss(req.params.id);
+    res.json({ success: true });
+  });
+
+  router.post('/stoploss/config', async (req: Request, res: Response) => {
+    try {
+      await stopLossManager.updateConfig(req.body);
+      res.json({ success: true, config: stopLossManager.getConfig() });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // PRICE MONITOR
+  // ============================================================================
+
+  router.get('/pricemonitor/status', (req: Request, res: Response) => {
+    res.json({ success: true, ...priceMonitor.getStatus() });
+  });
+
+  router.post('/pricemonitor/start', (req: Request, res: Response) => {
+    priceMonitor.start();
+    res.json({ success: true, message: 'Price monitor started' });
+  });
+
+  router.post('/pricemonitor/stop', (req: Request, res: Response) => {
+    priceMonitor.stop();
+    res.json({ success: true, message: 'Price monitor stopped' });
+  });
+
+  router.post('/pricemonitor/config', (req: Request, res: Response) => {
+    try {
+      priceMonitor.updateConfig(req.body);
+      res.json({ success: true, status: priceMonitor.getStatus() });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
   });
 
   // Get bot status
