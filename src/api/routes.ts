@@ -7,6 +7,7 @@ import { parseNullableBooleanInput } from '../utils/booleanParsing.js';
 import { PositionLifecycleManager } from '../positionLifecycle.js';
 import { ArbScanner } from '../arbScanner.js';
 import { EntityManager } from '../entityManager.js';
+import { HedgeCalculator } from '../hedgeCalculator.js';
 import {
   initWalletManager,
   addTradingWallet,
@@ -33,6 +34,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   const arbScanner = new ArbScanner();
   const entityManager = new EntityManager();
   entityManager.init().catch(err => console.error('[Routes] EntityManager init failed:', err.message));
+  const hedgeCalculator = new HedgeCalculator();
 
   // Get all tracked wallets
   router.get('/wallets', async (req: Request, res: Response) => {
@@ -455,6 +457,69 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.get('/entities/lookup/:address', (req: Request, res: Response) => {
     const entity = entityManager.findEntityForWallet(req.params.address);
     res.json({ success: true, entity: entity || null });
+  });
+
+  // ============================================================================
+  // HEDGE CALCULATOR + RECOMMENDATIONS
+  // ============================================================================
+
+  // Get hedge calculator status
+  router.get('/hedge/status', (req: Request, res: Response) => {
+    res.json({ success: true, ...hedgeCalculator.getStatus() });
+  });
+
+  // Get current recommendations
+  router.get('/hedge/recommendations', (req: Request, res: Response) => {
+    res.json({ success: true, recommendations: hedgeCalculator.getRecommendations() });
+  });
+
+  // Generate hedge recommendations from current hedges
+  router.post('/hedge/generate', async (req: Request, res: Response) => {
+    try {
+      const hedges = entityManager.getHedges();
+      const arbOpps = arbScanner.getOpportunities();
+
+      const hedgeRecs = hedgeCalculator.generateHedgeRecommendations(hedges);
+      const arbRecs = hedgeCalculator.generateArbRecommendations(arbOpps);
+      const allRecs = [...hedgeRecs, ...arbRecs];
+
+      res.json({
+        success: true,
+        recommendations: allRecs,
+        hedgeCount: hedgeRecs.length,
+        arbCount: arbRecs.length,
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Execute a recommendation (one-click)
+  router.post('/hedge/execute/:id', async (req: Request, res: Response) => {
+    try {
+      const rec = hedgeCalculator.getRecommendations().find(r => r.id === req.params.id);
+      if (!rec) return res.status(404).json({ success: false, error: 'Recommendation not found' });
+
+      const result = await hedgeCalculator.executeRecommendation(rec);
+      res.json({ success: true, result });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Update hedge config
+  router.post('/hedge/config', (req: Request, res: Response) => {
+    try {
+      hedgeCalculator.updateConfig(req.body);
+      res.json({ success: true, config: hedgeCalculator.getConfig() });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get execution history
+  router.get('/hedge/history', (req: Request, res: Response) => {
+    res.json({ success: true, history: hedgeCalculator.getExecutionHistory() });
   });
 
   // Get bot status
