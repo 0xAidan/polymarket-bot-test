@@ -5,6 +5,7 @@ import { config } from '../config.js';
 import { MirrorTrade } from '../positionMirror.js';
 import { parseNullableBooleanInput } from '../utils/booleanParsing.js';
 import { PositionLifecycleManager } from '../positionLifecycle.js';
+import { ArbScanner } from '../arbScanner.js';
 import {
   initWalletManager,
   addTradingWallet,
@@ -28,6 +29,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   const router = Router();
   const performanceTracker = copyTrader.getPerformanceTracker();
   const lifecycleManager = new PositionLifecycleManager();
+  const arbScanner = new ArbScanner();
 
   // Get all tracked wallets
   router.get('/wallets', async (req: Request, res: Response) => {
@@ -311,6 +313,61 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         results,
         summary: { total: results.length, succeeded, totalRecovered },
       });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // ARBITRAGE SCANNER
+  // ============================================================================
+
+  // Get arb scanner status
+  router.get('/arb/status', (req: Request, res: Response) => {
+    res.json({ success: true, ...arbScanner.getStatus() });
+  });
+
+  // Get current opportunities
+  router.get('/arb/opportunities', (req: Request, res: Response) => {
+    res.json({ success: true, opportunities: arbScanner.getOpportunities() });
+  });
+
+  // Get matched markets
+  router.get('/arb/matched-markets', (req: Request, res: Response) => {
+    res.json({ success: true, markets: arbScanner.getMatchedMarkets() });
+  });
+
+  // Update arb scanner config
+  router.post('/arb/config', async (req: Request, res: Response) => {
+    try {
+      await arbScanner.updateConfig(req.body);
+      res.json({ success: true, config: arbScanner.getStatus().config });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Start arb scanner
+  router.post('/arb/start', async (req: Request, res: Response) => {
+    try {
+      await arbScanner.start();
+      res.json({ success: true, status: arbScanner.getStatus() });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Stop arb scanner
+  router.post('/arb/stop', (req: Request, res: Response) => {
+    arbScanner.stop();
+    res.json({ success: true });
+  });
+
+  // Trigger manual scan
+  router.post('/arb/scan', async (req: Request, res: Response) => {
+    try {
+      const opportunities = await arbScanner.scan();
+      res.json({ success: true, opportunities });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
