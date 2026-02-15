@@ -1,25 +1,7 @@
 import { ClobClient, Side, OrderType } from '@polymarket/clob-client';
 import { BuilderConfig } from '@polymarket/builder-signing-sdk';
 import * as ethers from 'ethers';
-import axios from 'axios';
 import { config } from './config.js';
-
-// Add axios interceptor to log all requests (for debugging Builder headers)
-axios.interceptors.request.use((request) => {
-  if (request.url?.includes('clob.polymarket.com') || request.url?.includes('order')) {
-    console.log(`[AXIOS DEBUG] ===== OUTGOING REQUEST =====`);
-    console.log(`[AXIOS DEBUG] URL: ${request.url}`);
-    console.log(`[AXIOS DEBUG] Method: ${request.method}`);
-    console.log(`[AXIOS DEBUG] Headers: ${JSON.stringify(request.headers, null, 2)}`);
-    // Check for Builder headers specifically
-    const builderHeaders = Object.keys(request.headers || {}).filter(h => h.toLowerCase().includes('poly') || h.toLowerCase().includes('builder'));
-    console.log(`[AXIOS DEBUG] Builder-related headers found: ${builderHeaders.length > 0 ? builderHeaders.join(', ') : 'NONE!'}`);
-    console.log(`[AXIOS DEBUG] ================================`);
-  }
-  return request;
-}, (error) => {
-  return Promise.reject(error);
-});
 
 /**
  * Wrapper for Polymarket CLOB client with proper L2 authentication
@@ -49,14 +31,11 @@ export class PolymarketClobClient {
       const HOST = config.polymarketClobApiUrl || 'https://clob.polymarket.com';
       const CHAIN_ID = 137; // Polygon mainnet
       
-      console.log(`[DEBUG] CLOB Host: ${HOST}`);
       
       // Create wallet signer using ethers v5 (required by @polymarket/clob-client)
       const provider = new (ethers as any).providers.JsonRpcProvider(config.polygonRpcUrl);
       this.signer = new ethers.Wallet(config.privateKey, provider);
       
-      console.log(`[DEBUG] Wallet address (EOA): ${this.signer.address}`);
-      console.log(`[DEBUG] About to call createOrDeriveApiKey...`);
 
       // STEP 1: Create temporary client with ONLY the signer to derive API credentials
       // Per Polymarket docs: https://docs.polymarket.com/developers/CLOB/authentication
@@ -64,20 +43,10 @@ export class PolymarketClobClient {
       const tempClient = new ClobClient(HOST, CHAIN_ID, this.signer);
       let apiCreds;
       try {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:initialize',message:'About to derive API key',data:{walletAddress:this.signer.address.substring(0,8),host:HOST},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
-        // #endregion
         apiCreds = await tempClient.createOrDeriveApiKey();
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:initialize',message:'API key derived successfully',data:{walletAddress:this.signer.address.substring(0,8),hasKey:!!(apiCreds as any)?.key,hasSecret:!!(apiCreds as any)?.secret,hasPassphrase:!!(apiCreds as any)?.passphrase},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
-        // #endregion
         console.log('✓ Derived User API credentials for L2 authentication');
         // The CLOB client returns credentials with properties: key, secret, passphrase
-        console.log(`[DEBUG] API Creds received: ${JSON.stringify({hasKey: !!(apiCreds as any)?.key, hasSecret: !!(apiCreds as any)?.secret, hasPassphrase: !!(apiCreds as any)?.passphrase})}`);
       } catch (apiKeyError: any) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:initialize',message:'API key derivation failed',data:{walletAddress:this.signer.address.substring(0,8),errorMsg:apiKeyError.message,errorStack:apiKeyError.stack?.substring(0,500)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
-        // #endregion
         console.error(`❌ CRITICAL: Failed to create/derive API key: ${apiKeyError.message}`);
         throw new Error(`Cannot trade without L2 API credentials. Error: ${apiKeyError.message}. Make sure your wallet has been used on Polymarket before.`);
       }
@@ -110,19 +79,11 @@ export class PolymarketClobClient {
       // For proxy (type 1 or 2): the proxy wallet address shown in Polymarket settings
       const funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS || this.signer.address;
       
-      console.log(`[DEBUG] Signature Type: ${signatureType} (0=EOA, 1=MagicLink, 2=BrowserWallet+Proxy)`);
-      console.log(`[DEBUG] Funder Address: ${funderAddress}`);
-      console.log(`[DEBUG] Signer Address: ${this.signer.address}`);
 
       // Create BuilderConfig with Builder API credentials (REQUIRED for authenticated trading)
       // Without this, requests get blocked by Cloudflare as unauthorized bot traffic
       let builderConfig: BuilderConfig | undefined;
       
-      // DEBUG: Log builder credential presence
-      console.log(`[DEBUG] Checking builder credentials...`);
-      console.log(`[DEBUG] POLYMARKET_BUILDER_API_KEY present: ${!!config.polymarketBuilderApiKey} (length: ${config.polymarketBuilderApiKey?.length || 0})`);
-      console.log(`[DEBUG] POLYMARKET_BUILDER_SECRET present: ${!!config.polymarketBuilderSecret} (length: ${config.polymarketBuilderSecret?.length || 0})`);
-      console.log(`[DEBUG] POLYMARKET_BUILDER_PASSPHRASE present: ${!!config.polymarketBuilderPassphrase} (length: ${config.polymarketBuilderPassphrase?.length || 0})`);
       
       if (config.polymarketBuilderApiKey && 
           config.polymarketBuilderSecret && 
@@ -136,11 +97,7 @@ export class PolymarketClobClient {
           }
         });
         console.log('✓ Builder API credentials configured for authenticated trading');
-        console.log(`[DEBUG] BuilderConfig created successfully`);
         // Log partial credentials for debugging (first 8 chars only for security)
-        console.log(`[DEBUG] Builder API Key starts with: ${config.polymarketBuilderApiKey.substring(0, 8)}...`);
-        console.log(`[DEBUG] Builder Secret length: ${config.polymarketBuilderSecret.length} chars`);
-        console.log(`[DEBUG] Builder Passphrase length: ${config.polymarketBuilderPassphrase.length} chars`);
       } else {
         console.error('❌ Builder API credentials NOT configured!');
         console.error('   Orders WILL BE BLOCKED by Cloudflare without Builder authentication.');
@@ -274,12 +231,6 @@ export class PolymarketClobClient {
     try {
       console.log(`[CLOB] Placing order: tokenID=${params.tokenID}, originalPrice=${params.price}, size=${params.size}, side=${params.side}, tickSize=${tickSize}`);
       
-      // DEBUG: Log builder config status
-      console.log(`[DEBUG] Builder credentials configured: key=${!!config.polymarketBuilderApiKey}, secret=${!!config.polymarketBuilderSecret}, passphrase=${!!config.polymarketBuilderPassphrase}`);
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:createAndPostOrder',message:'Placing order',data:{tokenID:params.tokenID,originalPrice:params.price,finalPrice,size:params.size,side:params.side,tickSize,negRisk,clobUrl:config.polymarketClobApiUrl},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
-      // #endregion
       
       let response: any;
       try {
@@ -324,10 +275,6 @@ export class PolymarketClobClient {
             errorDetails = JSON.stringify(responseData);
           }
           
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'clobClient.ts:400error',message:'CLOB API 400 ERROR DETAILS',data:{errorDetails:errorDetails,tokenID:params.tokenID?.substring(0,30),originalPrice:params.price,finalPrice,size:params.size,side:params.side,tickSize,negRisk,isMinSizeError:errorDetails.includes('minimum'),isBalanceError:errorDetails.includes('balance'),isOrderbookError:errorDetails.includes('orderbook')},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H2,H3'})}).catch(()=>{});
-          // #endregion
-          
           const enhancedMessage = `CLOB API returned HTTP 400 - ${errorDetails || 'request was rejected'}. Params: tokenID=${params.tokenID}, originalPrice=${params.price}, finalPrice=${finalPrice}, size=${params.size}, side=${params.side}, tickSize=${tickSize}, negRisk=${negRisk}. Check: tokenID validity, price/size format, market status, or balance.`;
           enhancedError = new Error(enhancedMessage);
           (enhancedError as any).originalError = innerError;
@@ -339,17 +286,8 @@ export class PolymarketClobClient {
         throw enhancedError;
       }
 
-      // DEBUG: Log the EXACT response for diagnosis
-      console.log(`[DEBUG] CLOB response type: ${typeof response}`);
-      console.log(`[DEBUG] CLOB response isNull: ${response === null}`);
-      console.log(`[DEBUG] CLOB response isUndefined: ${response === undefined}`);
       if (response && typeof response === 'object') {
-        console.log(`[DEBUG] CLOB response keys: ${Object.keys(response).join(', ')}`);
-        console.log(`[DEBUG] CLOB response.orderID: ${response.orderID} (type: ${typeof response.orderID})`);
-        console.log(`[DEBUG] CLOB response.status: ${response.status} (type: ${typeof response.status})`);
-        console.log(`[DEBUG] CLOB response.error: ${response.error}`);
       }
-      console.log(`[DEBUG] Full CLOB response: ${JSON.stringify(response)}`);
 
       // CRITICAL: Check for HTTP error status FIRST (handles both string and number)
       const statusCode = response?.status;

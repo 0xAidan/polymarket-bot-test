@@ -5,20 +5,15 @@ import { Storage } from './storage.js';
 import { config } from './config.js';
 
 /**
- * WebSocket-based monitor for real-time Polymarket trade detection
- * Connects to Polymarket's WebSocket API for instant trade notifications
+ * @deprecated Will be replaced by DomeWebSocketMonitor in Phase 1A.
  * 
- * ⚠️ IMPORTANT LIMITATION:
+ * WebSocket-based monitor for real-time Polymarket trade detection.
+ * Connects to Polymarket's WebSocket API for instant trade notifications.
+ * 
+ * IMPORTANT LIMITATION:
  * The Polymarket WebSocket "User Channel" only works for YOUR OWN authenticated trades,
  * NOT for monitoring other wallets' trades. This is a Polymarket API limitation.
- * 
- * For copy trading purposes, the WebSocket monitor is a SECONDARY method that only
- * works for detecting your own trades. The PRIMARY method for detecting other wallets'
- * trades is the polling-based WalletMonitor which uses the Data API.
- * 
- * This WebSocket monitor is kept for:
- * 1. Faster detection of your own trades (for logging/UI purposes)
- * 2. Potential future use if Polymarket adds public trade streams
+ * Dome WebSocket (Phase 1A) removes this limitation entirely.
  */
 export class WebSocketMonitor {
   private api: PolymarketApi;
@@ -77,9 +72,6 @@ export class WebSocketMonitor {
     this.eoaToProxyMap.clear();
 
     console.log(`[WebSocket] Loading ${wallets.length} tracked wallet(s)...`);
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:loadTrackedWallets',message:'Loading tracked wallets',data:{walletsCount:wallets.length,walletAddresses:wallets.map(w=>w.address.substring(0,8))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
-    // #endregion
 
     for (const wallet of wallets) {
       try {
@@ -127,10 +119,6 @@ export class WebSocketMonitor {
       // Try different endpoint variations
       const wsUrl = 'wss://ws-subscriptions-clob.polymarket.com/ws/market';
       console.log(`[WebSocket] Connecting to ${wsUrl}...`);
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:connect',message:'Attempting WebSocket connection',data:{wsUrl,hasBuilderCreds:!!(config.polymarketBuilderApiKey && config.polymarketBuilderSecret)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
 
       this.ws = new WebSocket(wsUrl);
 
@@ -140,10 +128,6 @@ export class WebSocketMonitor {
         this.lastConnectionTime = new Date();
         this.reconnectAttempts = 0;
         this.reconnectDelay = 5000; // Reset reconnect delay
-        
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:connect:open',message:'WebSocket connected successfully',data:{wsUrl:'wss://ws-subscriptions-clob.polymarket.com/ws/market',trackedWallets:this.trackedWallets.size},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
 
         // Start ping interval to keep connection alive (every 30 seconds)
         this.pingInterval = setInterval(() => {
@@ -168,9 +152,6 @@ export class WebSocketMonitor {
       this.ws.on('error', (error: Error) => {
         console.error('[WebSocket] ❌ Connection error:', error.message);
         this.isConnected = false;
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:connect:error',message:'WebSocket connection error',data:{error:error.message,wsUrl:'wss://ws-subscriptions-clob.polymarket.com/ws/market'},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
       });
 
       this.ws.on('close', (code: number, reason: Buffer) => {
@@ -221,10 +202,6 @@ export class WebSocketMonitor {
       const hasAuth = config.polymarketBuilderApiKey && 
                       config.polymarketBuilderSecret && 
                       config.polymarketBuilderPassphrase;
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:subscribeToTrades',message:'Subscribing to trades',data:{hasAuth,trackedWalletsCount:this.trackedWallets.size,apiKeyLength:config.polymarketBuilderApiKey?.length||0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
 
       if (hasAuth) {
         // Authenticated subscription with Builder credentials
@@ -242,10 +219,6 @@ export class WebSocketMonitor {
         this.ws.send(JSON.stringify(subscribeMessage));
         console.log(`[WebSocket] 📡 Sent authenticated subscription for user trades`);
         console.log(`[WebSocket]    Auth: API key configured (${config.polymarketBuilderApiKey.substring(0, 8)}...)`);
-        
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:subscribeToTrades',message:'Sent authenticated subscription',data:{messageType:'user',hasAuth:true,apiKeyPrefix:config.polymarketBuilderApiKey.substring(0,8)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
       } else {
         // Fallback: try unauthenticated subscription (will likely fail for user channel)
         console.warn(`[WebSocket] ⚠️ No Builder API credentials - trying unauthenticated subscription`);
@@ -257,10 +230,6 @@ export class WebSocketMonitor {
         };
 
         this.ws.send(JSON.stringify(subscribeMessage));
-        
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:subscribeToTrades',message:'Sent unauthenticated subscription (fallback)',data:{messageType:'user',hasAuth:false},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
       }
       
       console.log(`[WebSocket] 📡 Monitoring ${this.trackedWallets.size} wallet(s) for trades:`);
@@ -269,9 +238,6 @@ export class WebSocketMonitor {
       }
     } catch (error: any) {
       console.error(`[WebSocket] Error subscribing to trades:`, error.message);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:subscribeToTrades',message:'Subscription error',data:{error:error.message},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
     }
   }
 
@@ -360,27 +326,18 @@ export class WebSocketMonitor {
         walletAddress = maker;
         isFromTrackedWallet = true;
         console.log(`[WebSocket] ✓ Maker ${maker.substring(0, 8)}... is tracked`);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:processTradeEvent',message:'Maker wallet matched',data:{maker:maker.substring(0,8),trackedWalletsCount:this.trackedWallets.size,trackedWallets:Array.from(this.trackedWallets).map(w=>w.substring(0,8))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
-        // #endregion
       }
       // Check if taker is one of our tracked wallets
       else if (taker && this.trackedWallets.has(taker)) {
         walletAddress = taker;
         isFromTrackedWallet = true;
         console.log(`[WebSocket] ✓ Taker ${taker.substring(0, 8)}... is tracked`);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:processTradeEvent',message:'Taker wallet matched',data:{taker:taker.substring(0,8),trackedWalletsCount:this.trackedWallets.size,trackedWallets:Array.from(this.trackedWallets).map(w=>w.substring(0,8))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
-        // #endregion
       }
 
       // If not found in tracked wallets, skip this trade
       if (!isFromTrackedWallet || !walletAddress) {
         console.log(`[WebSocket] ⏭️  Trade not from tracked wallet. Maker: ${maker || '(none)'}, Taker: ${taker || '(none)'}`);
         console.log(`[WebSocket]    Tracked wallets: ${Array.from(this.trackedWallets).map(w => w.substring(0, 8) + '...').join(', ')}`);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocketMonitor.ts:processTradeEvent',message:'Trade rejected: not from tracked wallet',data:{maker:maker?.substring(0,8),taker:taker?.substring(0,8),trackedWalletsCount:this.trackedWallets.size,trackedWallets:Array.from(this.trackedWallets).map(w=>w.substring(0,8))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
-        // #endregion
         return;
       }
 

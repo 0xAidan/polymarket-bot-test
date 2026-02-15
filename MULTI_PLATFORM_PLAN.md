@@ -1,184 +1,240 @@
-# Multi-Platform Prediction Market Bot — Feature Expansion Plan
+# Multi-Platform Prediction Market Bot — Expansion Plan v2.0
 
-**Version:** 1.0  
-**Date:** February 2026  
-**Status:** Proposal / Planning  
-**Audience:** Engineering team, stakeholders
+**Version:** 2.0  
+**Date:** February 15, 2026  
+**Status:** Active — Ready for implementation  
+**Branch:** `feature/advanced-trade-filters` (current working branch)  
+**Audience:** Engineering team, collaborators
 
 ---
 
 ## Table of Contents
 
 1. [Executive Summary](#1-executive-summary)
-2. [Current System Overview](#2-current-system-overview)
-3. [Dome API Integration Strategy](#3-dome-api-integration-strategy)
-4. [Feature 1: WebSocket Real-Time Monitoring](#4-feature-1-websocket-real-time-monitoring)
-5. [Feature 2: Wallet Entity Linking](#5-feature-2-wallet-entity-linking)
-6. [Feature 3: Cross-Platform Arbitrage Detection & Auto-Execute](#6-feature-3-cross-platform-arbitrage-detection--auto-execute)
-7. [Feature 4: One-Click Hedge Execution](#7-feature-4-one-click-hedge-execution)
-8. [Feature 5: Ladder Exit Strategy](#8-feature-5-ladder-exit-strategy)
-9. [Feature 6: Smart Stop-Loss](#9-feature-6-smart-stop-loss)
-10. [UI Mockups](#10-ui-mockups)
-11. [Implementation Phases & Timeline](#11-implementation-phases--timeline)
-12. [Technical Dependencies](#12-technical-dependencies)
-13. [Risk Assessment](#13-risk-assessment)
-14. [Open Questions](#14-open-questions)
+2. [Lessons Learned from v1 Attempt](#2-lessons-learned-from-v1-attempt)
+3. [Non-Negotiable Rules](#3-non-negotiable-rules)
+4. [Current System Snapshot](#4-current-system-snapshot)
+5. [Dome API — What It Is and What We Use](#5-dome-api--what-it-is-and-what-we-use)
+6. [Phase 0: Infrastructure Hardening](#6-phase-0-infrastructure-hardening)
+7. [Phase 1: Dome Integration + WebSocket Real-Time](#7-phase-1-dome-integration--websocket-real-time)
+8. [Phase 2: Cross-Platform Data + Arbitrage Detection](#8-phase-2-cross-platform-data--arbitrage-detection)
+9. [Phase 3: Wallet Entity Linking + Hedge Detection](#9-phase-3-wallet-entity-linking--hedge-detection)
+10. [Phase 4: One-Click Hedge + Auto-Execute Arbitrage](#10-phase-4-one-click-hedge--auto-execute-arbitrage)
+11. [Phase 5: Ladder Exit Strategy + Smart Stop-Loss](#11-phase-5-ladder-exit-strategy--smart-stop-loss)
+12. [UI Change Summary — What Changes, What Doesn't](#12-ui-change-summary--what-changes-what-doesnt)
+13. [Full Dashboard Mockups](#13-full-dashboard-mockups)
+14. [Master Timeline](#14-master-timeline)
+15. [Technical Reference](#15-technical-reference)
+16. [Risk Register](#16-risk-register)
+17. [Open Decisions](#17-open-decisions)
 
 ---
 
 ## 1. Executive Summary
 
-We are expanding our Polymarket Copytrade Bot to support **multiple prediction market platforms** (starting with Polymarket + Kalshi) using the **Dome API** as our unified data layer. The existing UI, core copy-trading engine, and wallet management system stay intact — we are adding capabilities on top of what already works.
+We are extending our working Polymarket copy-trading bot to:
+- **Monitor trades in real-time** via Dome WebSocket (replacing 5-second polling)
+- **See cross-platform data** from Polymarket + Kalshi via Dome API
+- **Detect arbitrage opportunities** when the same event has different prices across platforms
+- **Auto-execute arbitrage trades** when spread exceeds a configurable threshold
+- **Link wallets into entities** to see if the same person is hedging across platforms
+- **One-click hedge** any position across platforms
+- **Automated ladder exits** for profit-taking at multiple price levels
+- **Smart stop-loss** with recovery-based calculations and trailing stops
 
-**Key additions:**
-- Real-time WebSocket monitoring via Dome (replacing our 5-second polling)
-- Cross-platform arbitrage detection with optional auto-execution
-- One-click hedge execution across Polymarket and Kalshi
-- Wallet entity linking to detect when the same person operates across platforms
-- Automated ladder exit strategies for profit-taking
-- Recovery-based smart stop-loss calculations
+### Design Principles
 
-**What is NOT changing:**
-- The existing dashboard layout and tab structure
-- Core copy-trading logic (walletMonitor → copyTrader → tradeExecutor)
-- Per-wallet configuration system
-- JSON file-based storage (migration to DB is a separate future initiative)
-- The existing Polymarket CLOB authentication flow
-
----
-
-## 2. Current System Overview
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    CURRENT ARCHITECTURE                   │
-│                                                           │
-│  ┌──────────────┐    ┌───────────────┐    ┌───────────┐  │
-│  │ WalletMonitor│───▶│  CopyTrader   │───▶│  Trade    │  │
-│  │ (5s polling) │    │  (orchestrator)│    │  Executor │  │
-│  └──────────────┘    └───────────────┘    └───────────┘  │
-│         │                    │                    │        │
-│         ▼                    ▼                    ▼        │
-│  Polymarket Data API   Per-wallet filters   Polymarket    │
-│  (positions endpoint)  Rate limiting        CLOB API      │
-│                        Deduplication                      │
-│                                                           │
-│  ┌──────────────┐    ┌───────────────┐                   │
-│  │   Express     │    │  JSON Storage │                   │
-│  │   Dashboard   │    │  (file-based) │                   │
-│  └──────────────┘    └───────────────┘                   │
-└─────────────────────────────────────────────────────────┘
-```
-
-**Platforms supported:** Polymarket only  
-**Monitoring method:** Polling every 5 seconds via Polymarket Data API  
-**Execution method:** Polymarket CLOB Client SDK  
-**UI:** Vanilla JS dashboard with 4 tabs (Dashboard, Wallets, Settings, Diagnostics)
+1. **Additive, not destructive.** Every feature is added alongside existing code. Nothing that works today should break.
+2. **Paper mode first.** Any feature that touches real money launches in paper/simulation mode and must be explicitly enabled for live trading.
+3. **One PR per phase.** Each phase is a standalone PR that can be reviewed, tested, and merged independently.
+4. **No silent regressions.** Every PR must pass `npm run build`. Every changed behavior must be intentional and documented.
 
 ---
 
-## 3. Dome API Integration Strategy
+## 2. Lessons Learned from v1 Attempt
 
-### What is Dome?
+A previous attempt at Phase 0 (SQLite migration, branch `feature/sqlite-storage`) was stopped due to several issues. These are documented here so they are not repeated.
 
-Dome API is a prediction market aggregator providing unified access to **Polymarket** and **Kalshi** data through a single API. It offers:
+### What Went Wrong
 
-| Capability | What it gives us |
-|---|---|
-| **REST API** | Markets, positions, trade history, wallet PnL for both platforms |
-| **WebSocket** | Real-time order events for any wallet on Polymarket (not just our own) |
-| **Order Router** | Server-side order execution on Polymarket with builder attribution |
-| **Matching Markets** | Cross-platform market matching (same event on Poly + Kalshi) |
-| **Wallet Analytics** | Wallet info, PnL, positions lookup |
-
-### Integration Approach: Additive, Not Replacement
-
-We are **not** ripping out the Polymarket CLOB client. Instead:
-
-1. **Dome REST API** supplements our existing data layer — adds Kalshi data and cross-platform matching
-2. **Dome WebSocket** replaces our polling-based `walletMonitor.ts` — faster detection for tracked wallets
-3. **Dome Order Router** becomes an alternative execution path alongside our existing `tradeExecutor.ts`
-4. **Existing CLOB client** remains the primary trade execution path (already working, battle-tested)
-
-### Dome API Tier Requirements
-
-| Feature | Min Tier | Why |
+| Issue | What Happened | Rule Going Forward |
 |---|---|---|
-| Basic market data | Free (1 QPS) | Sufficient for UI display |
-| WebSocket monitoring | **Dev ($?)** | Need >2 subscriptions, >5 wallets |
-| Arbitrage scanning | **Dev** | Need 100 QPS for cross-platform price checks |
-| Order Router | Dev | For server-side execution |
+| **Deleted working code** | `booleanParsing.ts` was deleted, breaking config parsing | NEVER delete existing utility files unless their callers are also updated in the same PR |
+| **Removed diagnostics** | `getUsageStopLossStatus()` was flattened to a simple boolean, removing the detailed status object the API returns | NEVER simplify a public API method's return type — if it returns rich data, keep it |
+| **Moved dedup timing** | Trade dedup marking was moved to before execution (from after filters), meaning rejected trades would be marked as "processed" | NEVER change the order of operations in `copyTrader.ts` trade processing without explicit approval |
+| **No JSON fallback** | Config flag `storageBackend` was added but never wired — SQLite was the only path | Feature flags MUST be functional from the first commit |
+| **Tests failed** | Data directory wasn't created before SQLite tried to init | Every new module must work with `ensureDataDir()` called first |
+| **Scope creep in routes.ts** | Stop-loss conflict detection was silently removed from config validation endpoint | Routes changes must be explicitly listed and justified in PR description |
 
-**Action item:** Sign up at https://dashboard.domeapi.io/ and evaluate Dev tier pricing.
+### Salvageable Work
 
-### New Environment Variables Required
+The `database.ts` schema design from clawd's branch is reasonable. The table structure can be reused:
 
-```env
-# Dome API
-DOME_API_KEY=your_dome_api_key
+```sql
+-- Good schema from previous attempt:
+CREATE TABLE tracked_wallets (
+  address TEXT PRIMARY KEY,
+  added_at TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 0,
+  last_seen TEXT,
+  label TEXT,
+  settings_json TEXT NOT NULL DEFAULT '{}'
+);
 
-# Kalshi (if direct API access needed later)
-KALSHI_API_KEY=optional_for_future
+CREATE TABLE bot_config (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  data TEXT NOT NULL
+);
+
+CREATE TABLE executed_positions (
+  market_id TEXT NOT NULL,
+  side TEXT NOT NULL,
+  timestamp INTEGER NOT NULL,
+  wallet_address TEXT NOT NULL,
+  PRIMARY KEY (market_id, side)
+);
+```
+
+The serialization/deserialization helpers (`serializeWallet`, `deserializeWalletRow`) were also well-done and can be reused.
+
+---
+
+## 3. Non-Negotiable Rules
+
+These apply to every phase and every PR:
+
+### Code Safety
+- `npm run build` must pass before any PR is opened
+- Existing tests must pass (or pre-existing failures must be documented)
+- No file deletions without updating all callers
+- No changes to the order of operations in `copyTrader.ts` trade processing pipeline
+- No changes to `clobClient.ts` authentication flow
+- No changes to `.env` format that would break existing setups (new vars are additive only)
+
+### Review Process
+- Every phase = one draft PR
+- PR description must list: files changed, new files, deleted files, behavior changes, new env vars
+- No PR merges without Aidan's explicit approval
+- PRs should be mergeable independently (no cross-PR dependencies)
+
+### Feature Safety
+- Any feature that places real trades must launch in **paper mode** first
+- Paper mode = log what we WOULD do, without actually doing it
+- Explicit user opt-in to switch from paper → live
+- All automated trading features (auto-arb, ladder exits, smart stop-loss) default to OFF
+
+### What Must Never Change (Without Explicit Approval)
+- The `CopyTrader` → `TradeExecutor` execution pipeline
+- The Polymarket CLOB client authentication flow
+- The existing wallet add/remove/configure UI behavior
+- The `DetectedTrade` → dedup → filter → execute order of operations
+- Per-wallet config fields and their defaults
+
+---
+
+## 4. Current System Snapshot
+
+### Architecture
+```
+┌───────────────────────────────────────────────────────────┐
+│                    CURRENT ARCHITECTURE                     │
+│                                                             │
+│  Monitoring          Orchestration         Execution        │
+│  ┌──────────────┐    ┌───────────────┐    ┌─────────────┐  │
+│  │ WalletMonitor │───▶│  CopyTrader   │───▶│ Trade       │  │
+│  │ (5s polling)  │    │  (filters,    │    │ Executor    │  │
+│  └──────────────┘    │   dedup,      │    │ (CLOB SDK)  │  │
+│                      │   sizing)     │    └─────────────┘  │
+│  ┌──────────────┐    └───────────────┘                     │
+│  │ WebSocket    │                                          │
+│  │ (own trades  │    Storage           UI                  │
+│  │  only)       │    ┌───────────┐    ┌─────────────┐      │
+│  └──────────────┘    │ JSON files │    │ Express +   │      │
+│                      │ (flat)     │    │ Vanilla JS  │      │
+│                      └───────────┘    └─────────────┘      │
+└───────────────────────────────────────────────────────────┘
+```
+
+### Key Stats
+- **Platform:** Polymarket only
+- **Detection latency:** ~5 seconds (polling)
+- **Storage:** JSON files (`tracked_wallets.json`, `bot_config.json`, `executed_positions.json`)
+- **UI tabs:** Dashboard, Wallets, Settings, Diagnostics
+- **Trade sizing:** Fixed, proportional, or global default (per-wallet)
+- **Risk controls:** Price limits, rate limiting, value filters, no-repeat trades, usage stop-loss
+
+### Key Source Files
+
+| File | Lines | Purpose |
+|---|---|---|
+| `src/copyTrader.ts` | ~1,360 | Main orchestrator — DO NOT modify order of operations |
+| `src/walletMonitor.ts` | ~300 | Polling-based trade detection |
+| `src/tradeExecutor.ts` | ~200 | Polymarket CLOB trade execution |
+| `src/storage.ts` | ~675 | JSON file-based persistence |
+| `src/api/routes.ts` | ~2,000 | REST API endpoints |
+| `src/polymarketApi.ts` | ~400 | Polymarket API client |
+| `src/config.ts` | ~73 | Environment config |
+| `src/types.ts` | ~333 | TypeScript type definitions |
+| `public/index.html` | ~587 | Dashboard UI |
+| `public/js/app.js` | ~800 | Frontend logic |
+| `public/styles.css` | ~1,565 | Styling |
+
+### Current Dependencies (package.json)
+```
+@polymarket/clob-client, @polymarket/builder-signing-sdk,
+ethers, axios, express, ws, chart.js, date-fns, dotenv, cors
 ```
 
 ---
 
-## 4. Feature 1: WebSocket Real-Time Monitoring
+## 5. Dome API — What It Is and What We Use
 
-### Problem
-Our current `walletMonitor.ts` polls the Polymarket positions API every 5 seconds. This means:
-- Up to 5 seconds of latency before we detect a trade
-- Wasted API calls when no trades happen
-- Can miss rapid trades within the same polling window
+### Overview
 
-### Solution
-Replace polling with **Dome WebSocket** (`wss://ws.domeapi.io/<API_KEY>`), which pushes order events in real-time for any wallet address.
+[Dome API](https://docs.domeapi.io/) is a prediction market aggregator. It provides a unified API for data from Polymarket and Kalshi, plus real-time WebSocket feeds and an order router.
 
-### How It Works
+### What Dome Gives Us
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     NEW MONITORING FLOW                       │
-│                                                               │
-│  Dome WebSocket Server                                        │
-│  wss://ws.domeapi.io/<key>                                    │
-│         │                                                     │
-│         │  subscribe: { users: [wallet1, wallet2, ...] }      │
-│         │                                                     │
-│         ▼                                                     │
-│  ┌─────────────────┐                                          │
-│  │ DomeWSMonitor   │  ◀── NEW file: src/domeWebSocket.ts      │
-│  │ (event-driven)  │                                          │
-│  └────────┬────────┘                                          │
-│           │                                                   │
-│           │  on trade event: { token_id, side, price,         │
-│           │    shares, user, tx_hash, market_slug, ... }      │
-│           │                                                   │
-│           ▼                                                   │
-│  ┌─────────────────┐                                          │
-│  │   CopyTrader    │  ◀── existing, unchanged                 │
-│  │  (orchestrator) │                                          │
-│  └─────────────────┘                                          │
-│                                                               │
-│  ┌─────────────────┐                                          │
-│  │ WalletMonitor   │  ◀── kept as FALLBACK (polling)          │
-│  │ (5s polling)    │      activates if WS disconnects         │
-│  └─────────────────┘                                          │
-└─────────────────────────────────────────────────────────────┘
+| Capability | Dome Endpoint | What We Use It For |
+|---|---|---|
+| **Polymarket market data** | `GET /polymarket/markets` | Market search/display |
+| **Polymarket positions** | `GET /polymarket/positions/wallet/{addr}` | Cross-reference wallet holdings |
+| **Polymarket wallet PnL** | `GET /polymarket/wallet/pnl/{addr}` | Track entity-level performance |
+| **Polymarket wallet info** | `GET /polymarket/wallet` | Resolve EOA ↔ proxy mapping |
+| **Polymarket market price** | `GET /polymarket/market-price` | Live prices for arb detection |
+| **Kalshi markets** | `GET /kalshi/markets` | Browse Kalshi markets |
+| **Kalshi market price** | `GET /kalshi/market-price` | Live prices for arb detection |
+| **Kalshi trade history** | `GET /kalshi/trades` | Kalshi trade data |
+| **Matching Markets** | `GET /matching-markets/sports` | Find same event across platforms |
+| **WebSocket** | `wss://ws.domeapi.io/<key>` | Real-time order events for ANY wallet |
+| **Order Router** | `POST /polymarket/placeOrder` | Server-side Polymarket execution |
+
+### Dome WebSocket — Key Details
+
+The WebSocket is the most impactful feature for us. Unlike our current Polymarket WebSocket (which only monitors our own authenticated wallet), Dome's WebSocket can monitor **any wallet address**.
+
+**Connection:** `wss://ws.domeapi.io/<API_KEY>`
+
+**Subscribe to wallets:**
+```json
+{
+  "action": "subscribe",
+  "platform": "polymarket",
+  "version": 1,
+  "type": "orders",
+  "filters": {
+    "users": ["0x6031b6eed1c97e853c6e0f03ad3ce3529351f96d"]
+  }
+}
 ```
 
-### Key Design Decisions
-- **Polling stays as fallback.** If the WebSocket disconnects, we auto-switch back to polling and log a warning.
-- **Subscription management.** When wallets are added/removed in the UI, we send subscribe/unsubscribe messages to update the live connection.
-- **Deduplication still applies.** The existing tx_hash + compound key dedup logic in `copyTrader.ts` prevents double-execution.
-
-### Dome WebSocket Event Format (what we receive)
+**Event received when tracked wallet trades:**
 ```json
 {
   "type": "event",
   "subscription_id": "sub_gq5c3resmrq",
   "data": {
-    "token_id": "80311845198...",
+    "token_id": "80311845198420617...",
     "token_label": "No",
     "side": "BUY",
     "market_slug": "btc-updown-15m-1762479900",
@@ -195,608 +251,856 @@ Replace polling with **Dome WebSocket** (`wss://ws.domeapi.io/<API_KEY>`), which
 }
 ```
 
-### Actionable Steps
+### Dome Order Router — Key Details
 
-| # | Task | Effort | Owner |
-|---|---|---|---|
-| 1.1 | Install `@dome-api/sdk` and `ws` dependency (ws already installed) | 1 hr | — |
-| 1.2 | Create `src/domeWebSocket.ts` — WebSocket connection manager with auto-reconnect | 4 hrs | — |
-| 1.3 | Map Dome event format → existing `DetectedTrade` type | 2 hrs | — |
-| 1.4 | Wire `domeWebSocket.ts` into `copyTrader.ts` as primary monitor | 3 hrs | — |
-| 1.5 | Add fallback logic: WS disconnect → activate polling, WS reconnect → deactivate polling | 2 hrs | — |
-| 1.6 | Add "Monitoring Mode" indicator to Dashboard (WS vs Polling) | 1 hr | — |
-| 1.7 | Update wallet add/remove to send subscribe/unsubscribe messages | 2 hrs | — |
-| 1.8 | Add WS connection health to Diagnostics tab | 1 hr | — |
+The Order Router lets us place Polymarket orders server-side with builder attribution. Orders are signed locally and executed via Dome's infrastructure.
 
-**Total estimate:** ~16 hours  
-**Goal:** Reduce trade detection latency from ~5 seconds to **<500ms**.
+```typescript
+const router = new PolymarketRouter({
+  chainId: 137,
+  apiKey: process.env.DOME_API_KEY,
+});
+
+// One-time: link user
+const credentials = await router.linkUser({ userId: 'user-123', signer });
+
+// Place order (no wallet popup needed after link)
+const order = await router.placeOrder({
+  userId: 'user-123',
+  marketId: '10417355721474...',
+  side: 'buy',
+  size: 100,
+  price: 0.50,
+  orderType: 'FOK', // Fill or Kill for instant fills
+  signer,
+}, credentials);
+```
+
+### Tier Requirements
+
+| Feature | Min Tier | Limits |
+|---|---|---|
+| REST API (market data) | Free | 1 QPS, 10/10s |
+| WebSocket (wallet monitoring) | **Dev** | 500 subscriptions, 500 wallets/sub |
+| Order Router | Dev | Included |
+| High-frequency arb scanning | **Dev** | 100 QPS needed |
+
+**Action required:** Sign up at https://dashboard.domeapi.io/ and get a Dev tier API key.
 
 ---
 
-## 5. Feature 2: Wallet Entity Linking
+## 6. Phase 0: Infrastructure Hardening
 
-### Problem
-A sophisticated trader may operate multiple wallets across Polymarket and even hold positions on Kalshi. Currently, we track each Polymarket wallet independently with no awareness that:
-- `0xABC...` and `0xDEF...` might be the same person
-- That person might also be active on Kalshi
-- They might be hedging across platforms (buying YES on Polymarket, NO on Kalshi for the same event)
+**Goal:** Migrate from JSON files to SQLite for data integrity. Add structured logging. Validate environment config. This is the foundation everything else builds on.
 
-### Solution
-Introduce an **Entity** concept that groups wallets under a single identity.
+**Branch:** `feature/phase0-sqlite-infra`  
+**Estimated effort:** 20 hours  
+**Depends on:** Nothing (starts from current `feature/advanced-trade-filters`)
 
-### Data Model
+### Why This Comes First
 
+- JSON files have no transactional safety — a crash mid-write corrupts state
+- New features (arb history, ladder state, entity links) need queryable storage
+- The previous SQLite attempt proved the migration path works but needs guard rails
+- Structured logging is required before we add complex async features (WS, arb scanner)
+
+### 0.1 — SQLite Persistence Layer
+
+**New file: `src/database.ts`**
+
+```typescript
+// Responsibilities:
+// 1. Initialize SQLite database (bot.sqlite in data/ dir)
+// 2. Create schema tables
+// 3. Migrate legacy JSON files → SQLite (one-time, on first run)
+// 4. Archive (rename) JSON files after migration (don't delete)
+// 5. Export getDatabase() singleton
+
+// Schema (same tables as before, plus new ones for future phases):
+// - tracked_wallets (address PK, added_at, active, last_seen, label, settings_json)
+// - bot_config (id=1 singleton, data JSON)
+// - executed_positions (market_id + side PK, timestamp, wallet_address)
+// - trade_metrics (id auto, timestamp, wallet, market, side, amount, status, latency, etc.)
+// - system_issues (id auto, timestamp, type, message, resolved)
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    ENTITY MODEL                          │
-│                                                          │
-│  Entity: "Whale_42"                                      │
-│  ├── Polymarket Wallet: 0xABC... (label: "Main")        │
-│  ├── Polymarket Wallet: 0xDEF... (label: "Alt")         │
-│  └── Kalshi Username: "bigtrader99" (read-only/observe)  │
-│                                                          │
-│  Aggregated view:                                        │
-│  - Combined positions across all wallets                 │
-│  - Net exposure per market (are they hedging?)           │
-│  - Total portfolio value across platforms                │
-│  - Cross-platform activity timeline                      │
-└─────────────────────────────────────────────────────────┘
-```
 
-### Storage (extends `tracked_wallets.json`)
+**Modified file: `src/storage.ts`**
 
-```json
-{
-  "entities": [
-    {
-      "id": "entity_001",
-      "label": "Whale 42",
-      "wallets": [
-        {
-          "address": "0xABC...",
-          "platform": "polymarket",
-          "active": true,
-          "label": "Main wallet"
-        },
-        {
-          "address": "0xDEF...",
-          "platform": "polymarket",
-          "active": true,
-          "label": "Alt wallet"
-        }
-      ],
-      "notes": "Suspected same entity — similar trading patterns on BTC markets"
-    }
-  ]
+```typescript
+// Changes:
+// 1. Add import of getDatabase from database.ts
+// 2. Add storageBackend check: if config.storageBackend === 'sqlite', use DB; else use JSON
+// 3. ALL existing method signatures stay identical
+// 4. ALL existing return types stay identical
+// 5. JSON fallback path is the EXISTING code, unchanged
+// 6. SQLite path calls database.ts prepared statements
+
+// Example pattern:
+static async loadTrackedWallets(): Promise<TrackedWallet[]> {
+  if (config.storageBackend === 'sqlite') {
+    return this._loadTrackedWalletsSqlite();
+  }
+  return this._loadTrackedWalletsJson(); // existing code, moved to private method
 }
 ```
 
-### Hedge Detection Logic
+**Modified file: `src/config.ts`**
 
-```
-For each entity:
-  1. Fetch all positions across all linked wallets
-     - Polymarket: via Dome GET /polymarket/positions/wallet/{addr}
-     - Kalshi: manual observation (no wallet-level position API yet)
-
-  2. Use Dome Matching Markets API to find cross-platform equivalents
-     - GET /matching-markets/sports?polymarket_market_slug=X
-     - Returns Kalshi event_ticker for the same event
-
-  3. Compare positions:
-     - If Entity holds YES on Polymarket AND NO on Kalshi for same event → HEDGING
-     - If Entity holds YES on both → DOUBLING DOWN
-     - If Entity holds opposing sides on same platform → REDUCING EXPOSURE
-
-  4. Display net exposure in the UI per entity
+```typescript
+// Add ONE line:
+storageBackend: (process.env.STORAGE_BACKEND || 'json').toLowerCase(),
+// NOTE: defaults to 'json' not 'sqlite' — opt-in only
+// User sets STORAGE_BACKEND=sqlite in .env to enable
 ```
 
-### UI Changes (Wallets Tab Extension)
+**New dependency: `better-sqlite3`**
 
-The existing Wallets tab gets a new section at the top: **Entity Groups**. Individual wallets that aren't assigned to an entity continue to appear in the existing wallet list below, unchanged.
-
-```
-┌──────────────────────────────────────────────────────┐
-│  WALLETS TAB                                          │
-│                                                       │
-│  ┌────────────────────────────────────────────────┐   │
-│  │  Entity Groups                    [+ New Group] │  │
-│  │                                                 │  │
-│  │  ┌─────────────────────────────────────────┐    │  │
-│  │  │ 👤 Whale 42              ▼ expand       │    │  │
-│  │  │  Wallets: 0xABC..(Main), 0xDEF..(Alt)  │    │  │
-│  │  │  Net Exposure: +$2,400 YES on BTC>100k  │    │  │
-│  │  │  Hedge Alert: ⚠ Opposing position on    │    │  │
-│  │  │               Kalshi KXBTC-100K         │    │  │
-│  │  └─────────────────────────────────────────┘    │  │
-│  │                                                 │  │
-│  │  ┌─────────────────────────────────────────┐    │  │
-│  │  │ 👤 Sports Bettor         ▼ expand       │    │  │
-│  │  │  Wallets: 0x123..(NFL focus)            │    │  │
-│  │  │  Net Exposure: $800 across 3 NFL games  │    │  │
-│  │  └─────────────────────────────────────────┘    │  │
-│  └────────────────────────────────────────────────┘   │
-│                                                       │
-│  ── Ungrouped Wallets ──────────────────────────────  │
-│  (existing wallet list, unchanged)                    │
-│                                                       │
-└──────────────────────────────────────────────────────┘
+```bash
+npm install better-sqlite3
+npm install -D @types/better-sqlite3
 ```
 
-### Actionable Steps
+### 0.2 — JSON Fallback (Feature Flag)
 
-| # | Task | Effort | Owner |
-|---|---|---|---|
-| 2.1 | Design entity data model, extend `types.ts` | 2 hrs | — |
-| 2.2 | Add entity CRUD to `storage.ts` (new file: `data/entities.json`) | 3 hrs | — |
-| 2.3 | Build entity API endpoints (CRUD + "link wallet to entity") | 4 hrs | — |
-| 2.4 | Integrate Dome Matching Markets API for cross-platform lookups | 3 hrs | — |
-| 2.5 | Build hedge detection logic (compare positions across entity wallets) | 4 hrs | — |
-| 2.6 | Add Entity Groups section to Wallets tab UI | 4 hrs | — |
-| 2.7 | Add "assign to entity" option on each individual wallet card | 1 hr | — |
-| 2.8 | Display net exposure and hedge alerts per entity | 3 hrs | — |
+The `STORAGE_BACKEND` env var controls which path is used:
+- `json` (default) — existing behavior, zero risk
+- `sqlite` — new SQLite path
 
-**Total estimate:** ~24 hours  
-**Goal:** Identify when tracked wallets are the same person and detect cross-platform hedging.
+If `sqlite` is set but initialization fails, we log a warning and fall back to `json` automatically.
+
+### 0.3 — Legacy Migration
+
+When SQLite initializes for the first time:
+1. Check if `tracked_wallets.json` exists → import rows → rename to `tracked_wallets.legacy.json`
+2. Check if `bot_config.json` exists → import row → rename to `bot_config.legacy.json`
+3. Check if `executed_positions.json` exists → import rows → rename to `executed_positions.legacy.json`
+
+Legacy files are NEVER deleted, only renamed.
+
+### 0.4 — Structured Logging (Optional, Recommended)
+
+**New dependency: `pino`** (fast JSON logger)
+
+Replace `console.log` / `console.error` / `console.warn` with structured logger in new files only. Existing files keep their console calls for now (retrofit in a later pass).
+
+### Acceptance Criteria
+
+- [ ] `npm run build` passes
+- [ ] `npm run test` passes (existing tests)
+- [ ] Bot starts and works identically with `STORAGE_BACKEND=json` (default)
+- [ ] Bot starts and works identically with `STORAGE_BACKEND=sqlite`
+- [ ] Legacy JSON files are migrated and renamed on first SQLite run
+- [ ] If SQLite init fails, bot falls back to JSON and logs a warning
+- [ ] `getUsageStopLossStatus()` still returns the full status object (NOT simplified)
+- [ ] `booleanParsing.ts` still exists and is still used
+- [ ] No changes to `copyTrader.ts` trade processing order
+- [ ] PR description lists every file changed with a one-line justification
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `src/database.ts` | **NEW** — SQLite schema, init, migration |
+| `src/storage.ts` | **MODIFIED** — Add SQLite path alongside existing JSON path |
+| `src/config.ts` | **MODIFIED** — Add `storageBackend` field (1 line) |
+| `package.json` | **MODIFIED** — Add `better-sqlite3` dependency |
+| `tests/storage.test.ts` | **NEW** — Test both JSON and SQLite paths |
+
+### Files NOT Changed
+
+| File | Why |
+|---|---|
+| `src/copyTrader.ts` | No storage changes affect trade logic |
+| `src/api/routes.ts` | Storage interface is unchanged, routes don't care |
+| `src/utils/booleanParsing.ts` | Stays as-is |
+| `public/*` | No UI changes |
 
 ---
 
-## 6. Feature 3: Cross-Platform Arbitrage Detection & Auto-Execute
+## 7. Phase 1: Dome Integration + WebSocket Real-Time
 
-### Problem
-The same event can have different prices on Polymarket vs Kalshi. For example:
-- "Chiefs win Super Bowl" — YES at $0.52 on Polymarket, YES at $0.48 on Kalshi
-- That's a 4-cent spread — a potential arbitrage opportunity
+**Goal:** Replace 5-second polling with Dome WebSocket for sub-second trade detection. Keep polling as automatic fallback.
 
-Currently, we have no way to detect or act on these opportunities.
-
-### Solution
-A background scanner that:
-1. Uses **Dome Matching Markets** to find equivalent events across platforms
-2. Compares prices using **Dome Market Price** endpoints for both platforms
-3. Calculates arbitrage opportunity (spread, potential profit, risk level)
-4. Optionally **auto-executes** when spread exceeds a configurable threshold
+**Branch:** `feature/phase1-dome-websocket`  
+**Estimated effort:** 20 hours  
+**Depends on:** Phase 0 merged (for structured storage of WS state)
 
 ### Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                   ARBITRAGE ENGINE                            │
-│                                                               │
-│  ┌──────────────────┐     ┌───────────────────┐              │
-│  │ ArbScanner        │────▶│ Dome Matching     │              │
-│  │ (runs every 30s)  │     │ Markets API       │              │
-│  └──────┬───────────┘     └───────────────────┘              │
-│         │                                                     │
-│         │ For each matched pair:                              │
-│         │                                                     │
-│         ▼                                                     │
-│  ┌──────────────────┐     ┌───────────────────┐              │
-│  │ Price Comparator  │────▶│ Dome Price APIs   │              │
-│  │                   │     │ Polymarket + Kalshi│             │
-│  └──────┬───────────┘     └───────────────────┘              │
-│         │                                                     │
-│         │ If spread > threshold:                              │
-│         │                                                     │
-│         ▼                                                     │
-│  ┌──────────────────┐                                         │
-│  │ ArbOpportunity   │──▶ Dashboard notification               │
-│  │ {                │──▶ Auto-execute (if enabled)             │
-│  │  market, polyPx, │                                         │
-│  │  kalshiPx, spread│                                         │
-│  │  direction, size │                                         │
-│  │ }                │                                         │
-│  └──────────────────┘                                         │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│                   PHASE 1: MONITORING UPGRADE                  │
+│                                                                │
+│  PRIMARY: Dome WebSocket                                       │
+│  ┌─────────────────────┐                                       │
+│  │ DomeWebSocketMonitor│◀── wss://ws.domeapi.io/<API_KEY>      │
+│  │                     │                                       │
+│  │ - Subscribe to all  │    On event:                          │
+│  │   tracked wallets   │    ┌─────────────────────┐            │
+│  │ - Auto-reconnect    │───▶│ Map Dome event      │            │
+│  │ - Heartbeat check   │    │ → DetectedTrade     │            │
+│  └─────────────────────┘    └──────────┬──────────┘            │
+│                                        │                       │
+│  FALLBACK: Existing Polling            │                       │
+│  ┌─────────────────────┐               ▼                       │
+│  │ WalletMonitor       │    ┌─────────────────────┐            │
+│  │ (5s polling)        │───▶│ CopyTrader          │ UNCHANGED  │
+│  │ (activates if WS    │    │ (dedup, filter, exec)│           │
+│  │  disconnects)       │    └─────────────────────┘            │
+│  └─────────────────────┘                                       │
+└───────────────────────────────────────────────────────────────┘
 ```
 
-### Arbitrage Calculation
+### New Files
+
+**`src/domeClient.ts`** — Shared Dome REST API wrapper
+```typescript
+// Thin wrapper around @dome-api/sdk
+// Configured via DOME_API_KEY env var
+// Methods:
+//   getPolymarketMarketPrice(tokenId)
+//   getKalshiMarketPrice(ticker)
+//   getMatchingMarkets(slugs)
+//   getWalletPositions(address)
+//   getWalletPnL(address, granularity)
+// All methods have retry logic + rate limit awareness
+```
+
+**`src/domeWebSocket.ts`** — WebSocket connection manager
+```typescript
+// Manages the Dome WebSocket connection lifecycle
+// 
+// Constructor: DomeWebSocketMonitor(apiKey, onTrade callback)
+//
+// Key methods:
+//   start(walletAddresses[]) — connect + subscribe
+//   stop() — clean disconnect
+//   addWallet(address) — subscribe to new wallet (live update)
+//   removeWallet(address) — unsubscribe from wallet
+//   getStatus() — { connected, uptime, subscriptionId, lastEventAt, walletCount }
+//
+// Internal:
+//   Auto-reconnect with exponential backoff (1s, 2s, 4s, 8s, max 30s)
+//   Heartbeat ping every 30s to detect dead connections
+//   On disconnect: emit 'disconnected' event → CopyTrader activates polling fallback
+//   On reconnect: emit 'reconnected' event → CopyTrader deactivates polling
+//
+// Event mapping:
+//   Dome event.data → DetectedTrade:
+//     walletAddress = event.data.user
+//     marketId = event.data.condition_id
+//     outcome = event.data.token_label (YES/NO)
+//     side = event.data.side (BUY/SELL)
+//     price = event.data.price.toString()
+//     amount = event.data.shares_normalized.toString()
+//     timestamp = new Date(event.data.timestamp * 1000)
+//     transactionHash = event.data.tx_hash
+//     tokenId = event.data.token_id
+//     marketSlug = event.data.market_slug
+//     marketTitle = event.data.title
+```
+
+### Modified Files
+
+**`src/copyTrader.ts`** — Minimal changes only:
+```typescript
+// ADD: Import DomeWebSocketMonitor
+// ADD: In start(), if DOME_API_KEY is set:
+//   1. Create DomeWebSocketMonitor instance
+//   2. Pass wallet addresses from tracked wallets
+//   3. Set onTrade callback → this.handleDetectedTrade() (existing method)
+//   4. Set onDisconnect → activate walletMonitor polling
+//   5. Set onReconnect → deactivate walletMonitor polling
+// ADD: In stop(), call domeWsMonitor.stop()
+// ADD: When wallet added/removed, call domeWsMonitor.addWallet/removeWallet
+//
+// DO NOT change: handleDetectedTrade, dedup logic, filter logic, sizing logic
+```
+
+**`src/config.ts`**:
+```typescript
+// ADD:
+domeApiKey: process.env.DOME_API_KEY || '',
+```
+
+**`src/api/routes.ts`**:
+```typescript
+// ADD: GET /api/dome/status — returns Dome WS connection status
+// ADD: Include monitoring mode (ws/polling) in GET /api/status response
+```
+
+**`public/index.html`**:
+```
+// ADD: "Monitoring: 🟢 WebSocket (Dome)" or "Monitoring: 🟡 Polling (5s)"
+//      in the Trading Wallet card on Dashboard tab
+// ADD: "Dome API Health" section in Diagnostics tab
+```
+
+### Acceptance Criteria
+
+- [ ] `npm run build` passes
+- [ ] With no `DOME_API_KEY`, bot works exactly as before (polling only)
+- [ ] With `DOME_API_KEY` set, bot connects to Dome WebSocket and receives trade events
+- [ ] Trade events from Dome WS are correctly mapped to `DetectedTrade` and processed by existing pipeline
+- [ ] If Dome WS disconnects, polling automatically resumes within 5 seconds
+- [ ] If Dome WS reconnects, polling automatically stops
+- [ ] Dashboard shows current monitoring mode (WS or Polling)
+- [ ] Diagnostics tab shows Dome API health
+- [ ] No changes to CopyTrader dedup/filter/sizing logic
+
+---
+
+## 8. Phase 2: Cross-Platform Data + Arbitrage Detection
+
+**Goal:** Surface arbitrage opportunities between Polymarket and Kalshi. Detection only — no execution yet.
+
+**Branch:** `feature/phase2-arb-detection`  
+**Estimated effort:** 25 hours  
+**Depends on:** Phase 1 merged (for `domeClient.ts`)
+
+### Architecture
 
 ```
-Example: "Chiefs win Super Bowl"
-  Polymarket YES: $0.52
-  Kalshi YES:     $0.48 (= 48 cents per contract)
+┌───────────────────────────────────────────────────────────────┐
+│                   ARB SCANNER (read-only)                       │
+│                                                                │
+│  Periodic loop (every 30–60s):                                 │
+│                                                                │
+│  1. GET /matching-markets/sports → list of cross-platform pairs│
+│  2. For each pair:                                             │
+│     GET /polymarket/market-price → Poly price                  │
+│     GET /kalshi/market-price → Kalshi price                    │
+│  3. Calculate spread = |YES_poly + YES_kalshi - 1|             │
+│     (if YES_poly + YES_kalshi < 1 → arb exists)               │
+│  4. If spread > min_threshold → store as ArbOpportunity        │
+│  5. Push to dashboard via API                                  │
+│                                                                │
+│  NO TRADES PLACED. Display only.                               │
+└───────────────────────────────────────────────────────────────┘
+```
 
-  Arbitrage play:
-    Buy YES on Kalshi @ $0.48
-    Buy NO on Polymarket @ $0.48 (= 1 - 0.52)
+### Arbitrage Math
 
-  Cost: $0.48 + $0.48 = $0.96 per contract pair
+```
+Same event on two platforms:
+  Polymarket: "Chiefs win" YES = $0.52, NO = $0.48
+  Kalshi:     "Chiefs win" YES = $0.48, NO = $0.52
+
+Arb play: Buy YES on Kalshi ($0.48) + Buy NO on Polymarket ($0.48)
+  Total cost: $0.96
   Guaranteed payout: $1.00 (one side always wins)
-  Profit: $0.04 per contract (4.2% return)
+  Profit: $0.04 per pair (4.2% return)
+  
+  At $500 deployed: ~$20.83 profit
 
-  At 100 contracts: $4.00 profit, $96 cost
+Fee-adjusted:
+  Polymarket fee: ~2% of profit
+  Kalshi fee: varies by market
+  Must show NET profit after fees
 ```
 
-### Settings (added to Settings tab)
+### New Files
+
+**`src/arbScanner.ts`**
+```typescript
+// ArbScanner class
+// 
+// Constructor: ArbScanner(domeClient, storage)
+// 
+// Methods:
+//   start() — begin periodic scanning
+//   stop() — stop scanning
+//   getOpportunities() — return current list
+//   getStatus() — { running, lastScanAt, marketsScanned, opportunitiesFound }
+//
+// ArbOpportunity type:
+// {
+//   id: string,
+//   matchKey: string (e.g., "nfl-ari-den-2025-08-16"),
+//   polymarketSlug: string,
+//   kalshiTicker: string,
+//   title: string,
+//   polyYesPrice: number,
+//   kalshiYesPrice: number,
+//   spread: number (percentage),
+//   direction: 'buy_poly_no_kalshi_yes' | 'buy_poly_yes_kalshi_no',
+//   estimatedProfit: number (per $100),
+//   estimatedProfitAfterFees: number,
+//   detectedAt: Date,
+//   lastSeenAt: Date,
+//   status: 'active' | 'expired'
+// }
+```
+
+### New Settings (added to bot_config)
+
+```json
+{
+  "arbScanner": {
+    "enabled": false,
+    "scanIntervalSeconds": 60,
+    "minSpreadPercent": 3,
+    "maxOpportunitiesToShow": 20
+  }
+}
+```
+
+### UI Changes
+
+**Dashboard tab** — New "Arbitrage Opportunities" card below Recent Trades:
 
 ```
-┌──────────────────────────────────────────────────────┐
-│  ARBITRAGE SETTINGS (new section in Settings tab)     │
-│                                                       │
-│  ☑ Enable Arbitrage Scanner                           │
-│                                                       │
-│  Scan Interval:        [ 30 ] seconds                 │
-│  Min Spread Threshold: [ 3  ] %                       │
-│  Max Position Size:    [ 500 ] USDC                   │
-│                                                       │
-│  ☐ Auto-Execute Trades (when spread > threshold)      │
-│    └─ Requires Kalshi API credentials                 │
-│                                                       │
-│  Notification: ☑ Dashboard Alert  ☐ Webhook           │
-└──────────────────────────────────────────────────────┘
+┌─ Arbitrage Opportunities ──────────────────── 🔴 LIVE ─────┐
+│                                                              │
+│ Market             Polymarket  Kalshi  Spread  Est. Profit   │
+│ ──────────────────────────────────────────────────────────── │
+│ Chiefs SB YES      $0.52       $0.48   4.0%    $4.17/100    │
+│ BTC>100k YES       $0.61       $0.58   3.1%    $3.23/100    │
+│ NYC Mayor DEM      $0.89       $0.86   3.0%    $3.09/100    │
+│                                                              │
+│ Scanning 24 matched markets • Last scan: 45s ago             │
+│ Min spread: 3% • Auto-execute: OFF                           │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-### Important Limitation: Kalshi Execution
+**Settings tab** — New "Arbitrage Scanner" section:
 
-Dome's Order Router currently supports **Polymarket only**. For Kalshi, execution options are:
+```
+┌─ Arbitrage Scanner ──────────────────────────────────────────┐
+│                                                               │
+│ ☑ Enable Arbitrage Scanner                                    │
+│                                                               │
+│ Scan Interval:     [ 60 ] seconds                             │
+│ Min Spread:        [ 3  ] %                                   │
+│ Show Top:          [ 20 ] opportunities                       │
+│                                                               │
+│ ☐ Auto-Execute (Phase 4 — not yet available)                  │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
+```
 
-| Option | Status |
+### Acceptance Criteria
+
+- [ ] Arb scanner runs periodically and finds matching markets via Dome API
+- [ ] Spread is calculated correctly including fee estimates
+- [ ] Opportunities display on dashboard with live prices
+- [ ] Scanner can be enabled/disabled from Settings
+- [ ] No trades are placed (display only)
+- [ ] Scanner gracefully handles Dome API errors and rate limits
+- [ ] With `DOME_API_KEY` missing, arb scanner section shows "Configure Dome API to enable"
+
+---
+
+## 9. Phase 3: Wallet Entity Linking + Hedge Detection
+
+**Goal:** Let users group wallets into entities and detect when an entity is hedging across platforms or wallets.
+
+**Branch:** `feature/phase3-entity-linking`  
+**Estimated effort:** 24 hours  
+**Depends on:** Phase 1 merged (for `domeClient.ts`)
+
+### Data Model
+
+```typescript
+interface WalletEntity {
+  id: string;                    // e.g., "entity_001"
+  label: string;                 // e.g., "Whale 42"
+  wallets: EntityWallet[];
+  notes?: string;
+  createdAt: Date;
+}
+
+interface EntityWallet {
+  address: string;               // Wallet address (Polymarket) or username (Kalshi)
+  platform: 'polymarket' | 'kalshi';
+  label?: string;                // e.g., "Main wallet"
+  active: boolean;
+}
+
+interface EntityExposure {
+  entityId: string;
+  markets: MarketExposure[];     // Net position per matched market
+  totalValue: number;
+  hedgeAlerts: HedgeAlert[];
+}
+
+interface HedgeAlert {
+  matchKey: string;              // Dome matching market key
+  title: string;
+  polymarketPosition: { side: string; shares: number; value: number };
+  kalshiPosition: { side: string; contracts: number; value: number };
+  type: 'hedging' | 'doubling_down' | 'reducing';
+}
+```
+
+### How Hedge Detection Works
+
+```
+For each entity with wallets on multiple platforms:
+
+1. Fetch Polymarket positions for each Poly wallet
+   → via Dome GET /polymarket/positions/wallet/{addr}
+
+2. For each position, check if there's a matching Kalshi market
+   → via Dome GET /matching-markets/sports?polymarket_market_slug=X
+
+3. If matched, compare:
+   - Entity holds YES on Polymarket AND YES on Kalshi → DOUBLING DOWN
+   - Entity holds YES on Polymarket AND NO on Kalshi  → HEDGING
+   - Same entity, two Poly wallets, opposite sides     → REDUCING EXPOSURE
+
+4. Generate HedgeAlerts for the UI
+```
+
+### Storage
+
+New SQLite table (if Phase 0 SQLite is active):
+```sql
+CREATE TABLE entities (
+  id TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  notes TEXT,
+  created_at TEXT NOT NULL,
+  wallets_json TEXT NOT NULL DEFAULT '[]'
+);
+```
+
+JSON fallback: `data/entities.json`
+
+### UI Changes
+
+**Wallets tab** — New "Entity Groups" section at TOP of page:
+
+```
+┌─ Entity Groups ─────────────────────────── [+ New Group] ───┐
+│                                                              │
+│ ┌ Whale 42 ──────────────────────────── [Edit] [Delete] ──┐ │
+│ │ Wallets: 0xABC.. (Main), 0xDEF.. (Alt)                  │ │
+│ │ Combined Value: $2,847 across 2 wallets                  │ │
+│ │ Net Exposure: +$2,400 YES on BTC>100k                    │ │
+│ │ ⚠ HEDGE DETECTED: Opposing positions on Kalshi           │ │
+│ └──────────────────────────────────────────────────────────┘ │
+│                                                              │
+│ ┌ Sports Bettor ─────────────────────── [Edit] [Delete] ──┐ │
+│ │ Wallets: 0x123.. (NFL focus)                             │ │
+│ │ Combined Value: $1,200                                   │ │
+│ │ Active in 3 NFL markets • No hedging detected            │ │
+│ └──────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────┘
+
+── Tracked Wallets ─────────────────────── [+ Add Wallet] ────
+(existing wallet list, unchanged)
+Each wallet card gets: [Assign to Group ▼] dropdown
+```
+
+### API Endpoints
+
+```
+GET    /api/entities                    — List all entities
+POST   /api/entities                    — Create entity
+PUT    /api/entities/:id                — Update entity (label, notes, wallets)
+DELETE /api/entities/:id                — Delete entity
+GET    /api/entities/:id/exposure       — Get net exposure + hedge alerts
+POST   /api/entities/:id/wallets       — Add wallet to entity
+DELETE /api/entities/:id/wallets/:addr  — Remove wallet from entity
+```
+
+### Acceptance Criteria
+
+- [ ] Users can create/edit/delete entity groups
+- [ ] Users can assign existing tracked wallets to entities
+- [ ] Entity cards show combined position value
+- [ ] Hedge detection correctly identifies opposing positions across platforms
+- [ ] Entity section appears above existing wallet list (wallet list unchanged)
+- [ ] Entities persist across bot restarts (JSON or SQLite)
+- [ ] With no Dome API key, entities still work for grouping Polymarket-only wallets
+
+---
+
+## 10. Phase 4: One-Click Hedge + Auto-Execute Arbitrage
+
+**Goal:** Enable actual trade execution for hedging and arbitrage. Both launch in **paper mode** first.
+
+**Branch:** `feature/phase4-hedge-and-autoarb`  
+**Estimated effort:** 30 hours  
+**Depends on:** Phase 2 (arb scanner) and Phase 3 (entity linking) merged
+
+### 4A: Auto-Execute Arbitrage
+
+Extends the arb scanner from Phase 2 with execution capability.
+
+**Paper mode (default):**
+```
+Arb opportunity detected: Chiefs SB, spread 4.0%
+PAPER TRADE: Would buy NO on Polymarket @ $0.48, 100 shares ($48)
+PAPER TRADE: Would buy YES on Kalshi @ $0.48, 100 contracts ($48)
+Total cost: $96 → Guaranteed payout: $100 → Profit: $4
+[Logged to trade history with tag "ARB_PAPER"]
+```
+
+**Live mode (opt-in, requires explicit toggle):**
+- Polymarket side: executed via existing CLOB client OR Dome Order Router
+- Kalshi side: **alert only** (no Kalshi execution API yet) with link/instructions
+
+**New settings:**
+```json
+{
+  "arbScanner": {
+    "autoExecute": false,
+    "autoExecuteMode": "paper",
+    "maxPositionSizeUSDC": 100,
+    "executionSide": "polymarket_only"
+  }
+}
+```
+
+### 4B: One-Click Hedge Execution
+
+**New file: `src/hedgeCalculator.ts`**
+
+When user clicks [Hedge] on a position, a modal shows:
+
+```
+┌─ HEDGE PREVIEW ──────────────────────────────────────────────┐
+│                                                               │
+│ Position: 100 shares YES on "Chiefs SB" @ $0.52 (Polymarket) │
+│ Exposure: $52.00                                              │
+│                                                               │
+│ Hedge Option              Cost     Max Loss   Guaranteed      │
+│ ──────────────────────────────────────────────────────────── │
+│ ○ Full Hedge (100%)                                          │
+│   Buy 100 NO on Kalshi    $51.00   $3.00      $-3 to +$48   │
+│                                                               │
+│ ○ Partial Hedge (50%)                                        │
+│   Buy 50 NO on Kalshi     $25.50   —          Reduced exp.   │
+│                                                               │
+│ ○ Same-Platform Reduce                                       │
+│   Sell 50 YES on Poly     +$26.00  —          50% exposure   │
+│                                                               │
+│ ⚠ Kalshi execution not yet supported.                        │
+│   Instructions will be shown after Polymarket side executes.  │
+│                                                               │
+│ [Cancel]                              [Execute] [Paper Only]  │
+└───────────────────────────────────────────────────────────────┘
+```
+
+**Execution flow:**
+1. Polymarket side → existing `TradeExecutor` (already works)
+2. Kalshi side → show manual instructions with pre-filled details
+3. Log both sides as linked hedge pair in trade history
+
+### UI Changes
+
+**Recent Trades table** — Add [H] (Hedge) button on active BUY positions:
+```
+Time    Wallet    Market          Side   Amt    Health  Action
+14:32   0xABC..   Chiefs SB YES   BUY    $52    🟢     [H]
+14:28   0xDEF..   BTC>100k YES    BUY    $120   🟡     [H]
+```
+
+**Trades from arb/hedge get tagged:**
+```
+14:02   [ARB]     Chiefs SB NO    BUY    $48    —      —
+13:55   [HEDGE]   BTC>100k NO     BUY    $60    —      —
+```
+
+### Acceptance Criteria
+
+- [ ] Arb auto-execute defaults to paper mode (logs only, no real trades)
+- [ ] Paper mode trades appear in trade history tagged as `ARB_PAPER`
+- [ ] Live arb execution only triggers after explicit Settings toggle
+- [ ] One-click hedge modal shows accurate cost/profit calculations
+- [ ] Hedge execution on Polymarket works via existing CLOB client
+- [ ] Kalshi instructions shown clearly when cross-platform hedge selected
+- [ ] Hedge pairs are linked in trade history
+- [ ] All execution features respect existing rate limits and stop-loss
+
+---
+
+## 11. Phase 5: Ladder Exit Strategy + Smart Stop-Loss
+
+**Goal:** Automated position management. Both features launch in paper mode.
+
+**Branch:** `feature/phase5-position-management`  
+**Estimated effort:** 40 hours  
+**Depends on:** Phase 1 merged (for Dome price monitoring)
+
+### 5A: Ladder Exit Strategy
+
+**New file: `src/ladderExitManager.ts`**
+
+```
+Position: 100 shares YES @ $0.50
+
+Ladder (Even Split preset):
+  Level 1: Sell 25 @ $0.60 (20% gain) → $2.50 profit
+  Level 2: Sell 25 @ $0.70 (40% gain) → $5.00 profit
+  Level 3: Sell 25 @ $0.80 (60% gain) → $7.50 profit
+  Level 4: Sell 25 @ $0.90 (80% gain) → $10.00 profit
+
+Total expected profit if all levels hit: $25.00 (50% return)
+```
+
+**Price monitoring:** Shared infrastructure — polls Dome Market Price API every 10 seconds for all positions with active ladders or stop-losses. One loop, not per-position.
+
+**Paper mode:** Logs "LADDER_PAPER: Would sell 25 shares @ $0.60" without placing orders.
+
+**UI — Ladder setup modal** (click on a position):
+
+```
+┌─ EXIT LADDER ─── Chiefs SB YES (100 shares @ $0.50) ────────┐
+│                                                               │
+│ ☑ Enable Ladder Exit                                         │
+│                                                               │
+│ Preset: [ Even Split (4 levels) ▼ ]                          │
+│                                                               │
+│ Level   Trigger    Shares    Est. Profit   Status             │
+│ ──────────────────────────────────────────────────────────── │
+│ 1       [ $0.60 ]  [ 25 ]   $2.50         ⏳ Waiting         │
+│ 2       [ $0.70 ]  [ 25 ]   $5.00         ⏳ Waiting         │
+│ 3       [ $0.80 ]  [ 25 ]   $7.50         ⏳ Waiting         │
+│ 4       [ $0.90 ]  [ 25 ]   $10.00        ⏳ Waiting         │
+│                              [+ Add Level]                    │
+│                                                               │
+│ Total: 100/100 shares • Expected avg exit: $0.75             │
+│ Expected total profit: $25.00 (50% return)                   │
+│                                                               │
+│ Mode: ( ○ Paper  ● Live )                                    │
+│                                                               │
+│ [Cancel]                              [Activate Ladder]       │
+└───────────────────────────────────────────────────────────────┘
+```
+
+**Presets:**
+| Preset | Levels | Description |
+|---|---|---|
+| Even Split (4) | +20%, +40%, +60%, +80% | Equal portions at each level |
+| Aggressive (2) | +30%, +60% | Quick profit-taking |
+| Conservative (6) | +10% through +60% | Gradual exits |
+| Custom | User-defined | Full manual control |
+
+### 5B: Smart Stop-Loss
+
+**New file: `src/smartStopLoss.ts`**
+
+```
+Recovery-based calculation:
+
+  entry = $0.50, current = $0.42
+  loss = (0.50 - 0.42) / 0.50 = 16%
+  recovery_needed = 0.16 / (1 - 0.16) = 19%
+  
+  If recovery_needed > 50% → TRIGGER STOP (unlikely to recover)
+
+Trailing stop:
+  Position hits +20% profit → stop moves to break-even
+  Position hits +40% profit → stop moves to +20%
+  Position hits +60% profit → stop moves to +40%
+  
+  Stop trails 10% below peak price
+```
+
+**Settings (new section in Settings tab):**
+```
+┌─ Smart Stop-Loss ────────────────────────────────────────────┐
+│                                                               │
+│ ☑ Enable Smart Stop-Loss         Mode: ( ○ Paper  ● Live )   │
+│                                                               │
+│ Scope: ( ○ Global  ● Per-Position )                           │
+│                                                               │
+│ Max Recovery Threshold:    [ 50 ] %                           │
+│ (Stop if this much gain needed to break even)                 │
+│                                                               │
+│ ☑ Trailing Stop                                               │
+│   Activation:   [ 20 ] % profit from entry                    │
+│   Trail:        [ 10 ] % below peak price                     │
+│                                                               │
+│ ☑ Lock-In Levels                                              │
+│   +20% profit → lock break-even                               │
+│   +40% profit → lock +20%                                     │
+│   +60% profit → lock +40%                                     │
+│                                                               │
+│ Daily Loss Limit: [ $100 ] (pause ALL trading if exceeded)    │
+└───────────────────────────────────────────────────────────────┘
+```
+
+**Dashboard — Health indicators on positions:**
+```
+Time    Market          Side   Entry  Current  Health   Stop
+14:32   Chiefs SB YES   BUY    $0.52  $0.58    🟢 +12%  $0.52
+14:28   BTC>100k YES    BUY    $0.61  $0.55    🟡 -10%  $0.48
+14:15   NYC Mayor DEM   BUY    $0.88  $0.71    🔴 -19%  $0.65
+
+🟢 = In profit or <10% loss
+🟡 = 10-25% recovery needed
+🔴 = >25% recovery needed
+```
+
+### Shared Price Monitor
+
+Both ladder exits and smart stop-loss need current prices. Rather than duplicate:
+
+**New file: `src/priceMonitor.ts`**
+```typescript
+// Polls Dome Market Price API every 10s for all active positions
+// Shares results with both LadderExitManager and SmartStopLoss
+// Single API call per token, deduplicated across consumers
+```
+
+### Acceptance Criteria
+
+- [ ] Ladder exits default to paper mode (log only)
+- [ ] Smart stop-loss defaults to paper mode (log only)
+- [ ] Paper mode trades tagged `LADDER_PAPER` / `STOP_PAPER` in history
+- [ ] Explicit toggle to switch each feature to live mode
+- [ ] Price monitor runs ONE shared loop, not per-feature
+- [ ] Health indicators appear on Dashboard positions table
+- [ ] Ladder levels can be configured with presets or custom values
+- [ ] Trailing stop correctly tracks peak price and adjusts stop level
+- [ ] Daily loss limit pauses all trading (not just stop-loss positions)
+- [ ] All position management respects existing rate limits
+
+---
+
+## 12. UI Change Summary — What Changes, What Doesn't
+
+### UNCHANGED (Do Not Touch)
+
+| Element | Location |
 |---|---|
-| Dome Order Router (Polymarket side) | Available now |
-| Kalshi Direct API | Requires separate Kalshi API integration |
-| Manual execution with alert | Available now (alert only) |
+| Header layout (title, status badge, start/stop) | Header |
+| Tab names and order (Dashboard, Wallets, Settings, Diagnostics) | Nav |
+| Wallet Balance Card design | Dashboard |
+| Metrics Grid (6 cards) | Dashboard |
+| Existing wallet list and per-wallet config UI | Wallets |
+| General Settings form (trade size, interval, slippage) | Settings |
+| Existing diagnostics (API, RPC, config validation) | Diagnostics |
 
-**Recommendation for Phase 1:** Alert-only for Kalshi side. Auto-execute on Polymarket side only via Dome Order Router or existing CLOB client. Add Kalshi execution in a later phase.
+### ADDED (Appended to Existing Tabs)
 
-### Dashboard UI — New "Arbitrage" Panel
-
-Added as a card on the existing Dashboard tab, below the metrics grid:
-
-```
-┌──────────────────────────────────────────────────────┐
-│  DASHBOARD TAB (existing layout)                      │
-│                                                       │
-│  [Wallet Balance Card]                                │
-│  [Metrics Grid - 6 cards]                             │
-│  [Recent Trades Table]                                │
-│                                                       │
-│  ── NEW: Arbitrage Opportunities ────────────────── ▼ │
-│                                                       │
-│  ┌────────────────────────────────────────────────┐   │
-│  │  🔴 LIVE  Scanning 24 matched markets          │   │
-│  │                                                 │  │
-│  │  Market           Poly   Kalshi  Spread  Action │  │
-│  │  ─────────────────────────────────────────────  │  │
-│  │  Chiefs SB YES    $0.52  $0.48   4.0%   [Arb]  │  │
-│  │  BTC>100k YES     $0.61  $0.58   3.1%   [Arb]  │  │
-│  │  NYC Mayor DEM    $0.89  $0.86   3.0%   [Arb]  │  │
-│  │                                                 │  │
-│  │  Showing opportunities with spread > 3%         │  │
-│  └────────────────────────────────────────────────┘   │
-│                                                       │
-└──────────────────────────────────────────────────────┘
-```
-
-### Actionable Steps
-
-| # | Task | Effort | Owner |
-|---|---|---|---|
-| 3.1 | Create `src/arbScanner.ts` — periodic cross-platform price scanner | 6 hrs | — |
-| 3.2 | Integrate Dome Matching Markets + Market Price APIs | 4 hrs | — |
-| 3.3 | Build arbitrage calculation engine (spread, direction, profit) | 4 hrs | — |
-| 3.4 | Add arb opportunity storage (`data/arb_opportunities.json`) | 2 hrs | — |
-| 3.5 | Create API endpoints for arb data + settings | 3 hrs | — |
-| 3.6 | Build Arbitrage Opportunities card on Dashboard | 4 hrs | — |
-| 3.7 | Add Arbitrage Settings section to Settings tab | 2 hrs | — |
-| 3.8 | Implement auto-execute for Polymarket side (via existing CLOB or Dome Router) | 6 hrs | — |
-| 3.9 | Add arb execution history to trade log | 2 hrs | — |
-
-**Total estimate:** ~33 hours  
-**Goal:** Surface arbitrage opportunities between Polymarket and Kalshi, with optional one-click or auto-execution on Polymarket side.
+| Element | Location | Phase |
+|---|---|---|
+| "Monitoring: WS/Polling" indicator | Dashboard → Wallet Card | 1 |
+| "Dome API Health" section | Diagnostics tab | 1 |
+| "Arbitrage Opportunities" card | Dashboard → below Recent Trades | 2 |
+| "Arbitrage Scanner" settings | Settings tab → new section | 2 |
+| "Entity Groups" section | Wallets tab → above wallet list | 3 |
+| [Assign to Group] dropdown on wallet cards | Wallets tab → each wallet | 3 |
+| [Hedge] button on positions | Dashboard → Recent Trades table | 4 |
+| Hedge preview modal | Dashboard → modal overlay | 4 |
+| Trade tags (ARB, HEDGE, LADDER, STOP) | Dashboard → Recent Trades table | 4-5 |
+| "Active Ladders" card | Dashboard → below Arb Opportunities | 5 |
+| Health indicators (🟢🟡🔴) | Dashboard → Recent Trades table | 5 |
+| Ladder setup modal | Dashboard → modal overlay | 5 |
+| "Smart Stop-Loss" settings | Settings tab → new section | 5 |
+| "Ladder Defaults" settings | Settings tab → new section | 5 |
+| "Active Managers" section | Diagnostics tab | 5 |
 
 ---
 
-## 7. Feature 4: One-Click Hedge Execution
+## 13. Full Dashboard Mockups
 
-### Problem
-When a tracked wallet takes a large position, we may want to hedge our risk by simultaneously taking the opposite position on another platform. Currently this requires manually going to another platform and placing a trade.
-
-### Solution
-A **"Hedge This"** button that appears on any active position, which:
-1. Finds the equivalent market on the other platform (via Dome Matching Markets)
-2. Shows the hedge price and cost
-3. Executes trades on BOTH platforms with a single click
-
-### How It Works
-
-```
-User sees position: YES on "Chiefs SB" @ $0.52 (100 shares) on Polymarket
-                            ↓
-Clicks [Hedge] button
-                            ↓
-┌───────────────────────────────────────────────┐
-│  HEDGE PREVIEW MODAL                           │
-│                                                │
-│  Current Position:                             │
-│    Polymarket: 100 shares YES @ $0.52          │
-│    Exposure: $52.00                            │
-│                                                │
-│  Hedge Options:                                │
-│  ┌───────────────────────────────────────────┐ │
-│  │ ○ Full Hedge (100%)                       │ │
-│  │   Buy 100 NO on Kalshi @ $0.51            │ │
-│  │   Cost: $51.00  |  Max Loss: $3.00        │ │
-│  │   Guaranteed Profit: $-3 to +$48          │ │
-│  ├───────────────────────────────────────────┤ │
-│  │ ○ Partial Hedge (50%)                     │ │
-│  │   Buy 50 NO on Kalshi @ $0.51             │ │
-│  │   Cost: $25.50  |  Reduced exposure       │ │
-│  ├───────────────────────────────────────────┤ │
-│  │ ○ Cross-Platform Hedge                    │ │
-│  │   Sell 50 YES on Polymarket @ $0.52       │ │
-│  │   Buy 50 NO on Kalshi @ $0.51             │ │
-│  │   Net cost: ~$0.50                        │ │
-│  └───────────────────────────────────────────┘ │
-│                                                │
-│  [Cancel]                    [Execute Hedge]   │
-└───────────────────────────────────────────────┘
-```
-
-### Execution Flow
-
-```
-User clicks [Execute Hedge]
-        │
-        ├──▶ Polymarket trade (if needed): via existing CLOB client
-        │    or Dome Order Router
-        │
-        └──▶ Kalshi trade: via Kalshi API (Phase 2)
-             or alert user to place manually (Phase 1)
-
-Both trades fire in parallel where possible.
-Result shown in trade log with "HEDGE" tag.
-```
-
-### Where It Appears in the UI
-
-The Hedge button shows up in two places (no new tabs needed):
-
-1. **Recent Trades table** — a small [Hedge] button in the Action column for active positions
-2. **Position Mirror preview** — alongside the existing mirror functionality
-
-```
-  Recent Trades
-  ──────────────────────────────────────────────────────────
-  Time     Wallet     Market          Side   Amount  Status   Action
-  14:32    0xABC..    Chiefs SB YES   BUY    $52     ✓ Done   [Hedge]
-  14:28    0xDEF..    BTC>100k YES    BUY    $120    ✓ Done   [Hedge]
-  14:15    0xABC..    NYC Mayor       SELL   $30     ✓ Done   —
-```
-
-### Actionable Steps
-
-| # | Task | Effort | Owner |
-|---|---|---|---|
-| 4.1 | Build hedge calculation engine (`src/hedgeCalculator.ts`) | 4 hrs | — |
-| 4.2 | Integrate Dome Matching Markets for finding equivalent markets | 2 hrs | — |
-| 4.3 | Build hedge preview API endpoint (`POST /api/hedge/preview`) | 3 hrs | — |
-| 4.4 | Build hedge execution API endpoint (`POST /api/hedge/execute`) | 4 hrs | — |
-| 4.5 | Create hedge preview modal in UI (vanilla JS modal) | 4 hrs | — |
-| 4.6 | Add [Hedge] button to recent trades table + position mirror | 2 hrs | — |
-| 4.7 | Track hedge pairs in storage (link original trade to hedge trade) | 2 hrs | — |
-| 4.8 | Add "HEDGE" tag to trade log entries | 1 hr | — |
-
-**Total estimate:** ~22 hours  
-**Goal:** Allow users to hedge any position across platforms with a single click, seeing full cost/profit breakdown before executing.
-
----
-
-## 8. Feature 5: Ladder Exit Strategy
-
-### Problem
-When a copied position moves into profit, there's no automated way to take profits at multiple price levels. The user has to manually monitor and sell. This leads to either selling too early or riding profits back down.
-
-### Solution
-An automated **ladder exit** system that places sell orders at ascending price levels.
-
-### How It Works
-
-```
-Example: Bought 100 shares YES @ $0.50
-
-Ladder Configuration:
-  Level 1: Sell 25 shares when price hits $0.60 (20% gain)
-  Level 2: Sell 25 shares when price hits $0.70 (40% gain)  
-  Level 3: Sell 25 shares when price hits $0.80 (60% gain)
-  Level 4: Sell 25 shares when price hits $0.90 (80% gain)
-
-As each price level is reached, the system automatically places a sell order.
-```
-
-### Architecture
-
-```
-┌──────────────────────────────────────────────────────────┐
-│                   LADDER EXIT MANAGER                     │
-│                                                           │
-│  ┌──────────────┐                                         │
-│  │ Price Monitor │  ◀── Uses Dome Market Price API        │
-│  │ (every 10s)  │      or Dome WebSocket price feed       │
-│  └──────┬───────┘                                         │
-│         │                                                 │
-│         │ Check each active ladder:                       │
-│         │   current_price >= level_N_trigger?             │
-│         │                                                 │
-│         ▼                                                 │
-│  ┌──────────────┐     ┌──────────────┐                    │
-│  │ Level Hit!   │────▶│ Trade        │                    │
-│  │ Sell X shares│     │ Executor     │                    │
-│  └──────────────┘     └──────────────┘                    │
-│                                                           │
-│  Status tracking per ladder:                              │
-│    Level 1: ✓ FILLED @ $0.60 — sold 25, profit $2.50     │
-│    Level 2: ✓ FILLED @ $0.70 — sold 25, profit $5.00     │
-│    Level 3: ⏳ WAITING (current: $0.67)                   │
-│    Level 4: ⏳ WAITING                                    │
-└──────────────────────────────────────────────────────────┘
-```
-
-### UI — Ladder Setup (appears on each position)
-
-When the user clicks on an active position in the trades table, they can configure an exit ladder:
-
-```
-┌──────────────────────────────────────────────────────┐
-│  EXIT LADDER — Chiefs SB YES (100 shares @ $0.50)     │
-│                                                       │
-│  ☑ Enable Ladder Exit                                 │
-│                                                       │
-│  Preset: [ Even Split (4 levels) ▼ ]                  │
-│                                                       │
-│  Level   Trigger Price   Shares to Sell   Status      │
-│  ─────────────────────────────────────────────────    │
-│  1       [ $0.60 ]       [ 25 ]           ⏳ Waiting  │
-│  2       [ $0.70 ]       [ 25 ]           ⏳ Waiting  │
-│  3       [ $0.80 ]       [ 25 ]           ⏳ Waiting  │
-│  4       [ $0.90 ]       [ 25 ]           ⏳ Waiting  │
-│                                   [+ Add Level]       │
-│                                                       │
-│  Total shares in ladder: 100/100                      │
-│  Expected avg exit price: $0.75                       │
-│  Expected profit: $25.00 (50% return)                 │
-│                                                       │
-│  [Cancel]                         [Activate Ladder]   │
-└──────────────────────────────────────────────────────┘
-```
-
-### Presets
-
-| Preset | Description |
-|---|---|
-| Even Split (4 levels) | Equal shares at +20%, +40%, +60%, +80% from entry |
-| Aggressive (2 levels) | 50% at +30%, 50% at +60% |
-| Conservative (6 levels) | Small sells every +10% from entry |
-| Custom | User defines all levels manually |
-
-### Actionable Steps
-
-| # | Task | Effort | Owner |
-|---|---|---|---|
-| 5.1 | Create `src/ladderExitManager.ts` — core ladder logic | 6 hrs | — |
-| 5.2 | Build price monitoring loop using Dome Market Price API | 3 hrs | — |
-| 5.3 | Connect ladder trigger to existing trade executor for sell orders | 3 hrs | — |
-| 5.4 | Add ladder storage (`data/active_ladders.json`) | 2 hrs | — |
-| 5.5 | Create API endpoints for ladder CRUD | 3 hrs | — |
-| 5.6 | Build ladder setup UI (modal on position click) | 5 hrs | — |
-| 5.7 | Add ladder status indicators to trades table | 2 hrs | — |
-| 5.8 | Implement preset configurations | 2 hrs | — |
-| 5.9 | Add ladder execution events to trade log with "LADDER" tag | 1 hr | — |
-
-**Total estimate:** ~27 hours  
-**Goal:** Automated profit-taking at configurable price levels, reducing the need for manual position monitoring.
-
----
-
-## 9. Feature 6: Smart Stop-Loss
-
-### Problem
-The current stop-loss is a simple "max USDC committed" check — it blocks new trades when too much capital is deployed. It doesn't:
-- Adapt based on position performance
-- Calculate optimal exit points based on entry price and market conditions
-- Allow per-position stop-losses (only global)
-
-### Solution
-A **recovery-based smart stop-loss** that calculates dynamic stop levels per position based on entry price, current price, and configurable recovery parameters.
-
-### How It Works
-
-```
-Traditional stop-loss: "Sell if price drops below $X"
-
-Smart stop-loss: "Sell if my expected recovery drops below threshold"
-
-Calculation:
-  entry_price = $0.50
-  current_price = $0.42
-  loss_so_far = ($0.50 - $0.42) / $0.50 = 16%
-  
-  recovery_needed = loss / (1 - loss) = 0.16 / 0.84 = 19%
-  (need 19% gain from current price to break even)
-  
-  If recovery_needed > max_recovery_threshold (e.g., 25%):
-    → Allow, position is still recoverable
-  
-  If recovery_needed > critical_threshold (e.g., 50%):
-    → TRIGGER STOP LOSS — recovery is unlikely
-
-Dynamic trailing:
-  If position reaches +20% profit from entry:
-    → Move stop-loss to break-even (lock in entry price)
-  If position reaches +40% profit:
-    → Move stop-loss to +20% (lock in partial profit)
-```
-
-### Configuration (per-wallet or global)
-
-```
-┌──────────────────────────────────────────────────────┐
-│  SMART STOP-LOSS (new section in Settings tab)        │
-│                                                       │
-│  ☑ Enable Smart Stop-Loss                             │
-│                                                       │
-│  Mode: ( ○ Global  ● Per-Position )                   │
-│                                                       │
-│  Max Recovery Threshold: [ 50 ] %                     │
-│  (trigger stop if recovery needed exceeds this)       │
-│                                                       │
-│  ☑ Enable Trailing Stop                               │
-│    Activation:  [ 20 ] % profit from entry            │
-│    Trail Size:  [ 10 ] % below peak                   │
-│                                                       │
-│  ☑ Lock-In Levels                                     │
-│    At +20% profit → stop moves to break-even          │
-│    At +40% profit → stop moves to +20%                │
-│    At +60% profit → stop moves to +40%                │
-│                                                       │
-│  Daily Loss Limit: [ 100 ] USDC                       │
-│  (pause all trading if daily losses exceed this)      │
-│                                                       │
-└──────────────────────────────────────────────────────┘
-```
-
-### Dashboard — Position Health Indicators
-
-Each position in the trades table gets a small visual indicator:
-
-```
-  Recent Trades
-  ──────────────────────────────────────────────────────────────
-  Time     Market          Side   Entry  Current  Health   Stop
-  14:32    Chiefs SB YES   BUY    $0.52  $0.58    🟢 +12%  $0.52
-  14:28    BTC>100k YES    BUY    $0.61  $0.55    🟡 -10%  $0.48
-  14:15    NYC Mayor DEM   BUY    $0.88  $0.71    🔴 -19%  $0.65
-```
-
-- 🟢 Green: In profit or within 10% of entry
-- 🟡 Yellow: 10-25% recovery needed
-- 🔴 Red: >25% recovery needed, approaching stop trigger
-
-### Actionable Steps
-
-| # | Task | Effort | Owner |
-|---|---|---|---|
-| 6.1 | Create `src/smartStopLoss.ts` — recovery-based stop calculation engine | 5 hrs | — |
-| 6.2 | Build trailing stop logic (track peak price per position) | 3 hrs | — |
-| 6.3 | Build lock-in level manager (move stops up as profit grows) | 3 hrs | — |
-| 6.4 | Integrate with price monitoring (shared with ladder exit) | 2 hrs | — |
-| 6.5 | Add stop-loss trigger → sell execution path | 3 hrs | — |
-| 6.6 | Add per-position stop data to storage | 2 hrs | — |
-| 6.7 | Build Smart Stop-Loss settings UI section | 3 hrs | — |
-| 6.8 | Add health indicators to trades table | 2 hrs | — |
-| 6.9 | Add daily loss limit with auto-pause | 2 hrs | — |
-| 6.10 | Add stop-loss events to trade log with "STOP" tag | 1 hr | — |
-
-**Total estimate:** ~26 hours  
-**Goal:** Dynamic, intelligent stop-loss that adapts to position performance instead of using static limits.
-
----
-
-## 10. UI Mockups
-
-### 10.1 Updated Dashboard Tab
-
-The dashboard keeps its existing layout. New elements are appended below the existing content.
+### Dashboard Tab (All Phases Complete)
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -808,7 +1112,7 @@ The dashboard keeps its existing layout. New elements are appended below the exi
 │  ┌─ Trading Wallet ──────────────────────────────────────┐   │
 │  │  0x2D43...3010                                        │   │
 │  │  USDC Balance: $1,247.53        +$23.41 (24h)         │   │
-│  │  Monitoring: 🟢 WebSocket (Dome)  Latency: <100ms     │   │ ◀── NEW
+│  │  Monitoring: 🟢 WebSocket (Dome)  Latency: <100ms     │   │
 │  └───────────────────────────────────────────────────────┘   │
 │                                                              │
 │  ┌────┐  ┌────┐  ┌────┐  ┌────┐  ┌────┐  ┌────┐            │
@@ -817,72 +1121,68 @@ The dashboard keeps its existing layout. New elements are appended below the exi
 │  └────┘  └────┘  └────┘  └────┘  └────┘  └────┘            │
 │                                                              │
 │  ┌─ Recent Trades ───────────────────────────────────────┐   │
-│  │ Time   Wallet   Market        Side  Amt    Hlth  Act  │   │
-│  │ 14:32  0xABC..  Chiefs YES    BUY   $52    🟢    [H]  │   │ ◀── Health + Hedge btn
-│  │ 14:28  0xDEF..  BTC>100k YES  BUY   $120   🟡    [H]  │   │
-│  │ 14:15  0xABC..  NYC Mayor     SELL  $30    —     —    │   │
-│  │ 14:02  [ARB]    Chiefs YES    BUY   $96    —     —    │   │ ◀── Arb trade tagged
-│  │ 13:55  [LADDER] BTC>80k YES   SELL  $25    —     —    │   │ ◀── Ladder exit tagged
-│  │ 13:41  [STOP]   ETH>5k YES   SELL  $80    —     —    │   │ ◀── Stop-loss tagged
+│  │ Time   Source   Market        Side  Amt   Hlth   Act  │   │
+│  │ 14:32  0xABC..  Chiefs YES    BUY   $52   🟢+12% [H]  │   │
+│  │ 14:28  0xDEF..  BTC>100k     BUY   $120  🟡-10% [H]  │   │
+│  │ 14:15  0xABC..  NYC Mayor    SELL  $30   —      —    │   │
+│  │ 14:02  [ARB]    Chiefs NO    BUY   $48   —      —    │   │
+│  │ 13:55  [LADDER] BTC>80k     SELL  $25   —      —    │   │
+│  │ 13:41  [STOP]   ETH>5k     SELL  $80   —      —    │   │
 │  └───────────────────────────────────────────────────────┘   │
 │                                                              │
-│  ┌─ Arbitrage Opportunities ──────────────── 🔴 LIVE ────┐   │ ◀── NEW section
-│  │ Market           Polymarket  Kalshi  Spread  Action    │   │
-│  │ Chiefs SB YES    $0.52       $0.48   4.0%    [Arb]     │   │
-│  │ BTC>100k YES     $0.61       $0.58   3.1%    [Arb]     │   │
-│  │ NYC Mayor DEM    $0.89       $0.86   3.0%    [Arb]     │   │
-│  │                                                        │   │
-│  │ Scanning 24 matched markets • Last scan: 12s ago       │   │
-│  └────────────────────────────────────────────────────────┘   │
+│  ┌─ Arbitrage Opportunities ────────── 🔴 LIVE ──────────┐   │
+│  │ Market           Poly    Kalshi  Spread  Profit/100   │   │
+│  │ Chiefs SB YES    $0.52   $0.48   4.0%    $4.17        │   │
+│  │ BTC>100k YES     $0.61   $0.58   3.1%    $3.23        │   │
+│  │ NYC Mayor DEM    $0.89   $0.86   3.0%    $3.09        │   │
+│  │                                                       │   │
+│  │ 24 markets scanned • Last: 12s ago                    │   │
+│  └───────────────────────────────────────────────────────┘   │
 │                                                              │
-│  ┌─ Active Ladders ──────────────────────────────────────┐   │ ◀── NEW section
-│  │ Position           Entry   Current  Next Level  Prog  │   │
-│  │ BTC>100k YES       $0.50   $0.67    $0.70 (L3)  ██░  │   │
-│  │ Chiefs SB YES      $0.40   $0.52    $0.55 (L2)  █░░  │   │
+│  ┌─ Active Ladders ──────────────────────────────────────┐   │
+│  │ Position         Entry  Current  Next Level     Prog  │   │
+│  │ BTC>100k YES     $0.50  $0.67    $0.70 (L3)    ██░░  │   │
+│  │ Chiefs SB YES    $0.40  $0.52    $0.55 (L2)    █░░░  │   │
 │  │                                                       │   │
 │  │ 2 active ladders • 5 levels filled today              │   │
 │  └───────────────────────────────────────────────────────┘   │
 │                                                              │
 │  ┌─ Performance Chart ───────────────────────────────────┐   │
-│  │ (existing Chart.js chart, unchanged)                  │   │
+│  │ (existing Chart.js chart — unchanged)                 │   │
 │  └───────────────────────────────────────────────────────┘   │
-│                                                              │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### 10.2 Updated Wallets Tab
+### Wallets Tab
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  Dashboard | Wallets | Settings | Diagnostics                │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
-│  ┌─ Entity Groups ───────────────────── [+ New Group] ───┐   │ ◀── NEW section
-│  │                                                        │   │
-│  │  ┌ 👤 Whale 42 ──────────────────── [Edit] [Delete] ┐ │   │
-│  │  │ Wallets: 0xABC.. (Main), 0xDEF.. (Alt)            │ │   │
-│  │  │ Combined Value: $2,847                             │ │   │
-│  │  │ Net Exposure: +$2,400 YES on BTC>100k              │ │   │
-│  │  │ ⚠ HEDGE DETECTED: Opposing position on Kalshi      │ │   │
-│  │  │   Kalshi KXBTC-100K-YES vs Poly BTC>100k-NO       │ │   │
-│  │  └────────────────────────────────────────────────────┘ │   │
-│  │                                                        │   │
-│  │  ┌ 👤 Sports Bettor ──────────────── [Edit] [Delete] ┐ │   │
-│  │  │ Wallets: 0x123.. (NFL focus)                       │ │   │
-│  │  │ Combined Value: $1,200                             │ │   │
-│  │  │ Active in 3 NFL markets                            │ │   │
-│  │  └────────────────────────────────────────────────────┘ │   │
-│  └────────────────────────────────────────────────────────┘   │
+│  ┌─ Entity Groups ──────────────────── [+ New Group] ────┐   │
+│  │                                                        │  │
+│  │  ┌ Whale 42 ─────────────────── [Edit] [Delete] ────┐ │  │
+│  │  │ Wallets: 0xABC.. (Main), 0xDEF.. (Alt)           │ │  │
+│  │  │ Combined: $2,847 • 5 active positions             │ │  │
+│  │  │ ⚠ HEDGE: Opposing Kalshi position on BTC>100k     │ │  │
+│  │  └───────────────────────────────────────────────────┘ │  │
+│  │                                                        │  │
+│  │  ┌ Sports Bettor ───────────── [Edit] [Delete] ────┐  │  │
+│  │  │ Wallets: 0x123.. (NFL focus)                     │  │  │
+│  │  │ Combined: $1,200 • 3 NFL markets                 │  │  │
+│  │  └──────────────────────────────────────────────────┘  │  │
+│  └────────────────────────────────────────────────────────┘  │
 │                                                              │
-│  ── Tracked Wallets ──────────────────── [+ Add Wallet] ──   │
+│  ── Tracked Wallets ───────────────── [+ Add Wallet] ────── │
 │                                                              │
-│  (existing wallet list, completely unchanged)                 │
-│  Each wallet card now has: [Assign to Group ▼] option        │ ◀── Small addition
+│  (existing wallet list — completely unchanged)               │
+│  Each card gains: [Assign to Group ▼]                        │
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### 10.3 Updated Settings Tab
+### Settings Tab
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -890,71 +1190,54 @@ The dashboard keeps its existing layout. New elements are appended below the exi
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
 │  ┌─ General Settings ────────────────────────────────────┐   │
-│  │ (existing: trade size, interval, slippage, etc.)      │   │
-│  │ (UNCHANGED)                                           │   │
+│  │ (existing — unchanged)                                │   │
 │  └───────────────────────────────────────────────────────┘   │
 │                                                              │
-│  ┌─ Dome API ────────────────────────────────────────────┐   │ ◀── NEW
-│  │ API Key: [••••••••••••••••]          Status: 🟢 Active │   │
-│  │ Tier: Dev (100 QPS)                                   │   │
-│  │ WebSocket: [● Connected]  Subscriptions: 5/500        │   │
+│  ┌─ Dome API ────────────────────────────────────────────┐   │
+│  │ API Key: [••••••••••]            Status: 🟢 Connected  │   │
+│  │ Tier: Dev (100 QPS) • WS: Connected • Subs: 5/500    │   │
 │  └───────────────────────────────────────────────────────┘   │
 │                                                              │
-│  ┌─ Arbitrage Settings ──────────────────────────────────┐   │ ◀── NEW
-│  │ ☑ Enable Arbitrage Scanner                            │   │
-│  │ Scan Interval: [30]s  |  Min Spread: [3]%            │   │
-│  │ Max Position: [$500]  |  ☐ Auto-Execute               │   │
+│  ┌─ Arbitrage Scanner ───────────────────────────────────┐   │
+│  │ ☑ Enable Scanner    Interval: [60]s    Spread: [3]%   │   │
+│  │ ☐ Auto-Execute  Mode: (○ Paper  ○ Live)  Max: [$100]  │   │
 │  └───────────────────────────────────────────────────────┘   │
 │                                                              │
-│  ┌─ Smart Stop-Loss ────────────────────────────────────┐   │ ◀── NEW
-│  │ ☑ Enable Smart Stop-Loss                              │   │
-│  │ Mode: (○ Global  ● Per-Position)                      │   │
-│  │ Max Recovery: [50]%  |  ☑ Trailing Stop               │   │
-│  │ Trail Activation: [20]% profit                        │   │
-│  │ Trail Size: [10]% below peak                          │   │
+│  ┌─ Smart Stop-Loss ────────────────────────────────────┐   │
+│  │ ☐ Enable    Mode: (○ Paper  ○ Live)                   │   │
+│  │ Max Recovery: [50]%  |  ☑ Trailing: [10]% below peak  │   │
 │  │ Daily Loss Limit: [$100]                              │   │
 │  └───────────────────────────────────────────────────────┘   │
 │                                                              │
-│  ┌─ Ladder Defaults ────────────────────────────────────┐   │ ◀── NEW
-│  │ ☐ Auto-create ladder on every copied trade            │   │
-│  │ Default Preset: [Even Split (4 levels) ▼]             │   │
-│  │ Default first level: [+20]% from entry                │   │
+│  ┌─ Ladder Defaults ────────────────────────────────────┐   │
+│  │ ☐ Auto-create on copied trades                        │   │
+│  │ Default: [Even Split (4 levels) ▼]  Mode: (○P  ○L)    │   │
 │  └───────────────────────────────────────────────────────┘   │
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### 10.4 Updated Diagnostics Tab
+### Diagnostics Tab
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  Dashboard | Wallets | Settings | Diagnostics                │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
-│  (existing diagnostics: API status, RPC, config, rate limit) │
-│  (UNCHANGED)                                                 │
+│  (existing diagnostics sections — unchanged)                 │
 │                                                              │
-│  ┌─ Dome API Health ────────────────────────────────────┐   │ ◀── NEW
-│  │ REST API:    🟢 Connected  (latency: 45ms)            │   │
-│  │ WebSocket:   🟢 Connected  (uptime: 4h 32m)           │   │
-│  │ Subscriptions: 5 active / 500 limit                   │   │
-│  │ QPS Used:    23 / 100 limit                           │   │
-│  │ Last Event:  2 seconds ago                            │   │
-│  │                                                       │   │
+│  ┌─ Dome API Health ────────────────────────────────────┐   │
+│  │ REST:      🟢 Connected (45ms latency)                │   │
+│  │ WebSocket: 🟢 Connected (uptime 4h 32m)               │   │
+│  │ Subs: 5/500 • QPS: 23/100 • Last event: 2s ago       │   │
 │  │ Order Router: 🟢 Available                             │   │
-│  │ Matching Markets Cache: 24 pairs (updated 2m ago)     │   │
 │  └───────────────────────────────────────────────────────┘   │
 │                                                              │
-│  ┌─ Arb Scanner Status ─────────────────────────────────┐   │ ◀── NEW
-│  │ Status: 🟢 Running  |  Last Scan: 12s ago             │   │
-│  │ Markets Scanned: 24  |  Opportunities Found: 3        │   │
-│  │ Auto-Execute: Disabled                                │   │
-│  └───────────────────────────────────────────────────────┘   │
-│                                                              │
-│  ┌─ Active Managers ────────────────────────────────────┐   │ ◀── NEW
-│  │ Ladder Exit Manager: 🟢 2 active ladders              │   │
-│  │ Smart Stop-Loss: 🟢 Monitoring 5 positions            │   │
-│  │ Next price check: 3s                                  │   │
+│  ┌─ Feature Status ─────────────────────────────────────┐   │
+│  │ Arb Scanner:  🟢 Running • 24 markets • 3 opps found  │   │
+│  │ Ladder Mgr:   🟢 2 active ladders                     │   │
+│  │ Smart Stop:   🟢 Monitoring 5 positions                │   │
+│  │ Price Monitor: Next check in 3s                       │   │
 │  └───────────────────────────────────────────────────────┘   │
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
@@ -962,193 +1245,218 @@ The dashboard keeps its existing layout. New elements are appended below the exi
 
 ---
 
-## 11. Implementation Phases & Timeline
-
-### Phase 1: Foundation (Weeks 1-2)
-**Goal:** Get Dome integrated and real-time monitoring working.
-
-| Task | Feature | Est. Hours |
-|---|---|---|
-| Set up Dome API account and SDK | All | 2 |
-| Create `src/domeClient.ts` — shared Dome API wrapper | All | 4 |
-| Feature 1: WebSocket Real-Time Monitoring | WS | 16 |
-| **Phase 1 Total** | | **22 hrs** |
-
-**Deliverable:** Bot uses Dome WebSocket for sub-second trade detection. Polling is fallback. Dome API health visible in Diagnostics.
-
----
-
-### Phase 2: Intelligence (Weeks 3-4)
-**Goal:** Cross-platform awareness and entity linking.
-
-| Task | Feature | Est. Hours |
-|---|---|---|
-| Feature 2: Wallet Entity Linking | Entity | 24 |
-| Feature 3: Arb Scanner (detection only, no auto-exec) | Arb | 20 |
-| **Phase 2 Total** | | **44 hrs** |
-
-**Deliverable:** Users can group wallets into entities. Arbitrage opportunities between Polymarket and Kalshi surface on the dashboard. Hedge alerts appear when entity wallets take opposing positions.
-
----
-
-### Phase 3: Execution (Weeks 5-6)
-**Goal:** Automated trading features.
-
-| Task | Feature | Est. Hours |
-|---|---|---|
-| Feature 3 continued: Auto-execute arbitrage | Arb | 13 |
-| Feature 4: One-Click Hedge Execution | Hedge | 22 |
-| **Phase 3 Total** | | **35 hrs** |
-
-**Deliverable:** One-click hedging works for Polymarket side. Arb trades can auto-execute on Polymarket. Kalshi side shows manual instructions (Kalshi API integration is Phase 4+).
-
----
-
-### Phase 4: Position Management (Weeks 7-8)
-**Goal:** Automated exit strategies and risk management.
-
-| Task | Feature | Est. Hours |
-|---|---|---|
-| Feature 5: Ladder Exit Strategy | Ladder | 27 |
-| Feature 6: Smart Stop-Loss | Stop-Loss | 26 |
-| Shared price monitoring infrastructure | Both | 4 |
-| **Phase 4 Total** | | **57 hrs** |
-
-**Deliverable:** Full position lifecycle management — from copy trade entry, through ladder profit-taking, to smart stop-loss exit.
-
----
-
-### Summary
-
-| Phase | Duration | Hours | Features |
-|---|---|---|---|
-| Phase 1: Foundation | Weeks 1-2 | 22 hrs | Dome integration, WebSocket monitoring |
-| Phase 2: Intelligence | Weeks 3-4 | 44 hrs | Entity linking, arb detection |
-| Phase 3: Execution | Weeks 5-6 | 35 hrs | Auto-arb, one-click hedge |
-| Phase 4: Position Mgmt | Weeks 7-8 | 57 hrs | Ladder exits, smart stop-loss |
-| **TOTAL** | **~8 weeks** | **~158 hrs** | All 6 features |
-
----
-
-## 12. Technical Dependencies
-
-### New NPM Packages
-
-| Package | Purpose | Status |
-|---|---|---|
-| `@dome-api/sdk` | Dome REST API + Order Router | Install needed |
-| `ws` | WebSocket client | Already installed |
-
-### External Services
-
-| Service | Purpose | Action Required |
-|---|---|---|
-| Dome API (Dev tier) | All cross-platform features | Sign up, get API key, evaluate pricing |
-| Kalshi API | Direct Kalshi execution (Phase 4+) | Future investigation |
-
-### New Source Files
+## 14. Master Timeline
 
 ```
-src/
-├── domeClient.ts           ◀── Shared Dome API wrapper (REST)
-├── domeWebSocket.ts        ◀── Dome WebSocket connection manager
-├── arbScanner.ts           ◀── Cross-platform arbitrage scanner
-├── hedgeCalculator.ts      ◀── Hedge calculation and execution
-├── ladderExitManager.ts    ◀── Ladder exit strategy manager
-├── smartStopLoss.ts        ◀── Recovery-based stop-loss engine
-└── entityManager.ts        ◀── Wallet entity linking logic
-
-data/
-├── entities.json           ◀── Entity groups
-├── arb_opportunities.json  ◀── Current arb opportunities
-├── active_ladders.json     ◀── Active exit ladders
-└── stop_loss_config.json   ◀── Per-position stop-loss state
+WEEK  1  │  2  │  3  │  4  │  5  │  6  │  7  │  8  │  9  │ 10
+──────────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┼────
+Phase 0   █████│     │     │     │     │     │     │     │     │
+SQLite    ░░░░░│     │     │     │     │     │     │     │     │
+(20 hrs)       │     │     │     │     │     │     │     │     │
+               │     │     │     │     │     │     │     │     │
+Phase 1        █████│█████│     │     │     │     │     │     │
+Dome + WS      ░░░░░│░░░░░│     │     │     │     │     │     │
+(20 hrs)             │     │     │     │     │     │     │     │
+                     │     │     │     │     │     │     │     │
+Phase 2              │█████│█████│     │     │     │     │     │
+Arb Detect           │░░░░░│░░░░░│     │     │     │     │     │
+(25 hrs)             │     │     │     │     │     │     │     │
+                     │     │     │     │     │     │     │     │
+Phase 3              │     │█████│█████│     │     │     │     │
+Entities             │     │░░░░░│░░░░░│     │     │     │     │
+(24 hrs)             │     │     │     │     │     │     │     │
+                     │     │     │     │     │     │     │     │
+Phase 4              │     │     │     │█████│█████│     │     │
+Hedge+Arb Exec       │     │     │     │░░░░░│░░░░░│     │     │
+(30 hrs)             │     │     │     │     │     │     │     │
+                     │     │     │     │     │     │     │     │
+Phase 5              │     │     │     │     │     │█████│█████│█████
+Ladder+Stop          │     │     │     │     │     │░░░░░│░░░░░│░░░░░
+(40 hrs)             │     │     │     │     │     │     │     │
 ```
 
-### Modified Existing Files
+### Phase Summary
 
-| File | Changes |
-|---|---|
-| `src/types.ts` | New types: Entity, ArbOpportunity, LadderConfig, StopLossConfig |
-| `src/copyTrader.ts` | Wire in DomeWSMonitor as primary, auto-create ladders if configured |
-| `src/api/routes.ts` | New endpoints for entities, arb, hedge, ladder, stop-loss |
-| `src/config.ts` | New config fields for Dome, arb, ladder, stop-loss settings |
-| `src/storage.ts` | Entity CRUD, ladder/stop-loss persistence |
-| `public/index.html` | New dashboard sections, hedge modal, ladder modal |
-| `public/js/app.js` | New UI logic for all features |
-| `public/styles.css` | Styling for new components |
-| `.env` | DOME_API_KEY |
+| Phase | Name | Hours | Key Deliverable | Depends On |
+|---|---|---|---|---|
+| **0** | Infrastructure Hardening | 20 | SQLite + JSON fallback, env validation | Nothing |
+| **1** | Dome + WebSocket | 20 | Sub-second trade detection, Dome health in UI | Phase 0 |
+| **2** | Arb Detection | 25 | Cross-platform price comparison, arb dashboard card | Phase 1 |
+| **3** | Entity Linking | 24 | Wallet grouping, hedge detection alerts | Phase 1 |
+| **4** | Hedge + Auto-Arb | 30 | One-click hedging, auto-arb (paper → live) | Phases 2+3 |
+| **5** | Ladder + Stop-Loss | 40 | Automated exits, trailing stops (paper → live) | Phase 1 |
+| **TOTAL** | | **~159 hrs** | | ~10 weeks |
+
+### Notes on Parallelism
+- Phases 2 and 3 can run in parallel (different people or staggered starts) since they both depend only on Phase 1
+- Phase 5 only depends on Phase 1 (price monitoring via Dome) so it could theoretically start earlier, but it's safer to have the arb/hedge execution patterns established first
 
 ---
 
-## 13. Risk Assessment
+## 15. Technical Reference
 
-| Risk | Impact | Likelihood | Mitigation |
+### New NPM Dependencies
+
+| Package | Version | Purpose | Phase |
 |---|---|---|---|
-| Dome API goes down | WS monitoring fails | Medium | Polling fallback (existing walletMonitor) |
-| Dome API tier costs too high | Feature gating | Low | Free tier works for basic features, only WS + arb need Dev |
-| Kalshi API changes or access restricted | Can't execute on Kalshi | Medium | Phase 1-3 are Polymarket-only execution. Kalshi is read-only initially |
-| Arbitrage spreads too thin after fees | Arb not profitable | Medium | Min spread threshold is configurable. Show fee-adjusted profits |
-| Matching Markets coverage incomplete | Some events not matched | Medium | Matching Markets API currently supports sports. Non-sports matching may need manual mapping |
-| Smart stop-loss triggers too aggressively | Premature exits | Low | Conservative defaults. Per-position overrides. Easy to disable |
-| WebSocket message volume too high | Performance issues | Low | Dome Dev tier limits (500 subscriptions). Message batching in our handler |
+| `better-sqlite3` | latest | SQLite persistence | 0 |
+| `@types/better-sqlite3` | latest | TypeScript types | 0 |
+| `@dome-api/sdk` | latest | Dome REST API + Order Router | 1 |
+| `pino` | latest | Structured logging (optional) | 0 |
+
+### New Source Files (by Phase)
+
+```
+Phase 0:
+  src/database.ts              — SQLite schema, init, migration
+  tests/storage.test.ts        — Storage tests for both backends
+
+Phase 1:
+  src/domeClient.ts            — Shared Dome REST API wrapper
+  src/domeWebSocket.ts         — Dome WebSocket connection manager
+
+Phase 2:
+  src/arbScanner.ts            — Cross-platform arbitrage scanner
+
+Phase 3:
+  src/entityManager.ts         — Wallet entity CRUD + hedge detection
+
+Phase 4:
+  src/hedgeCalculator.ts       — Hedge cost/profit calculation + execution
+
+Phase 5:
+  src/ladderExitManager.ts     — Ladder exit strategy engine
+  src/smartStopLoss.ts         — Recovery-based stop-loss engine
+  src/priceMonitor.ts          — Shared price polling for ladders + stops
+```
+
+### Modified Files (by Phase)
+
+| Phase | File | Change Summary |
+|---|---|---|
+| 0 | `src/storage.ts` | Add SQLite path alongside JSON (dual-backend) |
+| 0 | `src/config.ts` | Add `storageBackend` env var |
+| 0 | `package.json` | Add `better-sqlite3` |
+| 1 | `src/config.ts` | Add `domeApiKey` env var |
+| 1 | `src/copyTrader.ts` | Wire DomeWSMonitor as primary (minimal change) |
+| 1 | `src/api/routes.ts` | Add `/api/dome/status` endpoint |
+| 1 | `public/index.html` | Monitoring indicator, Dome diagnostics |
+| 2 | `src/api/routes.ts` | Add arb endpoints |
+| 2 | `public/index.html` | Arb opportunities card, arb settings |
+| 3 | `src/api/routes.ts` | Add entity endpoints |
+| 3 | `public/index.html` | Entity groups section on Wallets tab |
+| 4 | `src/api/routes.ts` | Add hedge endpoints |
+| 4 | `public/index.html` | Hedge modal, trade tags, [H] button |
+| 5 | `src/api/routes.ts` | Add ladder + stop-loss endpoints |
+| 5 | `public/index.html` | Ladder modal, health indicators, active ladders card |
+
+### New API Endpoints (by Phase)
+
+```
+Phase 1:
+  GET  /api/dome/status                      — Dome WS + REST health
+
+Phase 2:
+  GET  /api/arb/opportunities                — Current arb list
+  GET  /api/arb/status                       — Scanner status
+  PUT  /api/arb/settings                     — Update arb config
+
+Phase 3:
+  GET  /api/entities                         — List entities
+  POST /api/entities                         — Create entity
+  PUT  /api/entities/:id                     — Update entity
+  DEL  /api/entities/:id                     — Delete entity
+  GET  /api/entities/:id/exposure            — Net exposure + alerts
+
+Phase 4:
+  POST /api/hedge/preview                    — Calculate hedge options
+  POST /api/hedge/execute                    — Execute hedge trade
+  POST /api/arb/execute                      — Manually trigger arb trade
+
+Phase 5:
+  GET  /api/ladders                          — Active ladders
+  POST /api/ladders                          — Create ladder for position
+  DEL  /api/ladders/:id                      — Cancel ladder
+  PUT  /api/stoploss/settings                — Update stop-loss config
+  GET  /api/positions/health                 — Position health indicators
+```
+
+### New Environment Variables
+
+```env
+# Phase 0
+STORAGE_BACKEND=json              # 'json' (default) or 'sqlite'
+
+# Phase 1
+DOME_API_KEY=your_dome_api_key    # Required for all Dome features
+```
 
 ---
 
-## 14. Open Questions
+## 16. Risk Register
 
-1. **Dome API Pricing:** What does the Dev tier cost? Need this before committing to WebSocket and arb features.
-
-2. **Kalshi Direct Execution:** Dome Order Router only supports Polymarket currently. When will Kalshi support be added? Do we integrate Kalshi's API directly in the meantime?
-
-3. **Matching Markets Beyond Sports:** The Dome matching markets API currently covers sports. How do we match political, crypto, and other markets? Options:
-   - Wait for Dome to expand matching
-   - Build our own matching logic (string similarity on market titles)
-   - Manual mapping by users
-
-4. **Database Migration:** JSON files will struggle with arb opportunity history and ladder state at scale. Should we plan a SQLite migration alongside this work?
-
-5. **Multi-User Support:** Current system is single-user. Entity linking and hedge execution imply richer state. Is multi-user support on the roadmap?
-
-6. **Notification System:** Should arb alerts and stop-loss triggers send notifications beyond the dashboard? (Telegram, Discord, email, webhook?)
+| # | Risk | Impact | Likelihood | Mitigation |
+|---|---|---|---|---|
+| R1 | SQLite migration corrupts data | HIGH | Low | JSON fallback always available. Legacy files preserved. |
+| R2 | Dome API downtime | Medium | Medium | Polling fallback auto-activates. All Dome features degrade gracefully. |
+| R3 | Dome tier costs prohibitive | Medium | Low | Free tier supports basic market data. Evaluate Dev tier before Phase 1. |
+| R4 | Arb spreads too thin after fees | Low | Medium | Show fee-adjusted profits. Configurable min spread. Paper mode first. |
+| R5 | Matching Markets limited to sports | Medium | High | Sports only for now. Note in UI. Build custom matching later if needed. |
+| R6 | Ladder/stop-loss triggers wrong price | HIGH | Low | Paper mode first. Conservative defaults. Shared price monitor for consistency. |
+| R7 | Auto-execute places unintended trades | HIGH | Low | Paper mode default. Explicit opt-in. Rate limits apply. |
+| R8 | WebSocket volume overwhelms bot | Medium | Low | Dev tier has 500 sub limit. Event handler is async with queue. |
+| R9 | Kalshi execution not available via Dome | Medium | High | Alert-only for Kalshi. Show manual instructions. Plan for Kalshi API later. |
+| R10 | Regression in copy-trading pipeline | HIGH | Medium | Non-negotiable rules. No changes to CopyTrader order of operations. |
 
 ---
 
-## Appendix A: Dome API Endpoint Reference
+## 17. Open Decisions
+
+These need answers before or during implementation:
+
+| # | Question | Who Decides | Needed By |
+|---|---|---|---|
+| D1 | Dome API tier pricing — is Dev tier affordable? | Aidan | Before Phase 1 |
+| D2 | Should we add structured logging (pino) in Phase 0 or defer? | Team | Phase 0 |
+| D3 | Matching markets beyond sports — wait for Dome or build custom? | Aidan | Phase 2 |
+| D4 | Kalshi direct API integration — separate Phase 6 or fold into Phase 4? | Team | Phase 4 |
+| D5 | Notifications (Telegram/Discord/webhook) for arb/stop alerts? | Aidan | Phase 2+ |
+| D6 | Should paper mode trades be visible in main trade history or separate tab? | Team | Phase 4 |
+| D7 | Multi-user support — is this on the roadmap? Entity linking implies it. | Aidan | Phase 3 |
+
+---
+
+## Appendix A: Dome API Quick Reference
 
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/polymarket/markets` | GET | Search/list Polymarket markets |
-| `/polymarket/positions/wallet/{addr}` | GET | Get wallet positions |
-| `/polymarket/wallet/pnl/{addr}` | GET | Wallet profit and loss |
+| `/polymarket/markets` | GET | Search Polymarket markets |
+| `/polymarket/positions/wallet/{addr}` | GET | Wallet positions |
+| `/polymarket/wallet/pnl/{addr}` | GET | Wallet PnL |
 | `/polymarket/market-price` | GET | Current market price |
-| `/polymarket/trade-history` | GET | Historical trades |
-| `/polymarket/candlestick` | GET | OHLC candlestick data |
-| `/polymarket/activity` | GET | Market activity feed |
-| `/polymarket/orderbook-history` | GET | Orderbook snapshots |
-| `/polymarket/wallet` | GET | Wallet info (EOA, proxy, handle) |
-| `/polymarket/events` | GET | Event listings |
-| `/kalshi/markets` | GET | Search/list Kalshi markets |
-| `/kalshi/trades` | GET | Kalshi trade history |
+| `/polymarket/trade-history` | GET | Trade history |
+| `/polymarket/candlestick` | GET | OHLC data |
+| `/polymarket/wallet` | GET | Wallet info (EOA/proxy) |
+| `/kalshi/markets` | GET | Search Kalshi markets |
 | `/kalshi/market-price` | GET | Kalshi market price |
-| `/kalshi/orderbook-history` | GET | Kalshi orderbook |
-| `/matching-markets/sports` | GET | Cross-platform market matching |
-| `/matching-markets/sports/{sport}` | GET | Match by sport and date |
-| `/polymarket/placeOrder` | POST | Execute order via Order Router |
+| `/kalshi/trades` | GET | Kalshi trade history |
+| `/matching-markets/sports` | GET | Cross-platform matching |
+| `/polymarket/placeOrder` | POST | Order Router execution |
 | `wss://ws.domeapi.io/<key>` | WS | Real-time order events |
 
 ## Appendix B: Glossary
 
 | Term | Definition |
 |---|---|
-| **EOA** | Externally Owned Account — your MetaMask/Rabby wallet address |
-| **Proxy Wallet** | Polymarket's smart contract wallet created for each user |
-| **Entity** | A group of wallets believed to belong to the same person/org |
-| **Arbitrage (Arb)** | Exploiting price differences for the same event across platforms |
-| **Hedge** | Taking an opposing position to reduce risk on an existing position |
-| **Ladder Exit** | Selling shares in increments at ascending price levels |
-| **Recovery-Based Stop** | Stop-loss calculated on how much gain is needed to recover losses |
-| **Trailing Stop** | Stop-loss that moves up as price increases, locking in profits |
-| **Dome** | Third-party API aggregating Polymarket + Kalshi data |
-| **CLOB** | Central Limit Order Book — Polymarket's order matching system |
-| **Matching Markets** | Same real-world event listed on multiple prediction platforms |
+| **EOA** | Externally Owned Account (MetaMask/Rabby address) |
+| **Proxy Wallet** | Polymarket smart contract wallet per user |
+| **Entity** | Group of wallets believed to be same person/org |
+| **Arbitrage** | Exploiting price differences across platforms |
+| **Hedge** | Opposing position to reduce risk |
+| **Ladder Exit** | Selling in increments at ascending price levels |
+| **Recovery-Based Stop** | Stop-loss based on gain needed to break even |
+| **Trailing Stop** | Stop that moves up as price increases |
+| **Paper Mode** | Simulation — logs what would happen without real trades |
+| **Dome** | Third-party API aggregating Polymarket + Kalshi |
+| **CLOB** | Central Limit Order Book (Polymarket's system) |
+| **Matching Markets** | Same event listed on multiple platforms |
