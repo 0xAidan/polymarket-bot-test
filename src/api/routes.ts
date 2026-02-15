@@ -11,6 +11,7 @@ import { HedgeCalculator } from '../hedgeCalculator.js';
 import { LadderExitManager } from '../ladderExitManager.js';
 import { SmartStopLossManager } from '../smartStopLoss.js';
 import { PriceMonitor } from '../priceMonitor.js';
+import { getAllPlatformStatuses, getAdapter, getConfiguredAdapters } from '../platform/platformRegistry.js';
 import {
   initWalletManager,
   addTradingWallet,
@@ -54,6 +55,34 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
   priceMonitor.on('stoploss-trigger', (data: any) => {
     console.log(`[PriceMonitor] Stop-loss sell: ${data.order.marketTitle} ${data.order.outcome}, ${data.order.shares} shares`);
+  });
+
+  // ============================================================================
+  // PLATFORM STATUS
+  // ============================================================================
+
+  router.get('/platforms', (req: Request, res: Response) => {
+    res.json({ success: true, platforms: getAllPlatformStatuses() });
+  });
+
+  router.get('/platforms/:platform/balance', async (req: Request, res: Response) => {
+    try {
+      const adapter = getAdapter(req.params.platform as any);
+      const balance = await adapter.getBalance();
+      res.json({ success: true, platform: req.params.platform, balance });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  router.get('/platforms/:platform/positions/:identifier', async (req: Request, res: Response) => {
+    try {
+      const adapter = getAdapter(req.params.platform as any);
+      const positions = await adapter.getPositions(req.params.identifier);
+      res.json({ success: true, platform: req.params.platform, positions });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
   });
 
   // Get all tracked wallets

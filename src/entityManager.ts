@@ -1,6 +1,8 @@
 import { Storage } from './storage.js';
 import { PolymarketApi } from './polymarketApi.js';
 import { domeGetPositions, isDomeConfigured } from './domeClient.js';
+import { getAdapter, getConfiguredAdapters } from './platform/platformRegistry.js';
+import type { NormalizedPosition } from './platform/types.js';
 
 // ============================================================================
 // TYPES

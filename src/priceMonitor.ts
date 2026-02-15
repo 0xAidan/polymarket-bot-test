@@ -1,5 +1,6 @@
 import { domeGetMarketPrice, isDomeConfigured } from './domeClient.js';
 import { PolymarketApi } from './polymarketApi.js';
+import { getAdapter } from './platform/platformRegistry.js';
 import { LadderExitManager } from './ladderExitManager.js';
 import { SmartStopLossManager } from './smartStopLoss.js';
 import { EventEmitter } from 'events';
