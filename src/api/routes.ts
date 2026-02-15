@@ -4,6 +4,7 @@ import { CopyTrader } from '../copyTrader.js';
 import { config } from '../config.js';
 import { MirrorTrade } from '../positionMirror.js';
 import { parseNullableBooleanInput } from '../utils/booleanParsing.js';
+import { PositionLifecycleManager } from '../positionLifecycle.js';
 import {
   initWalletManager,
   addTradingWallet,
@@ -26,6 +27,7 @@ import {
 export function createRoutes(copyTrader: CopyTrader): Router {
   const router = Router();
   const performanceTracker = copyTrader.getPerformanceTracker();
+  const lifecycleManager = new PositionLifecycleManager();
 
   // Get all tracked wallets
   router.get('/wallets', async (req: Request, res: Response) => {
@@ -240,6 +242,77 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       res.json({ success: true });
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // POSITION LIFECYCLE (Auto-Redeem / Auto-Merge)
+  // ============================================================================
+
+  // Get lifecycle status
+  router.get('/lifecycle/status', (req: Request, res: Response) => {
+    res.json({ success: true, ...lifecycleManager.getStatus() });
+  });
+
+  // Update lifecycle config
+  router.post('/lifecycle/config', async (req: Request, res: Response) => {
+    try {
+      await lifecycleManager.updateConfig(req.body);
+      res.json({ success: true, config: lifecycleManager.getStatus().config });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Start lifecycle manager
+  router.post('/lifecycle/start', async (req: Request, res: Response) => {
+    try {
+      await lifecycleManager.start();
+      res.json({ success: true, status: lifecycleManager.getStatus() });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Stop lifecycle manager
+  router.post('/lifecycle/stop', (req: Request, res: Response) => {
+    lifecycleManager.stop();
+    res.json({ success: true });
+  });
+
+  // Get redeemable positions
+  router.get('/lifecycle/redeemable', async (req: Request, res: Response) => {
+    try {
+      const positions = await lifecycleManager.getRedeemablePositions();
+      res.json({ success: true, positions });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Manually trigger check and process
+  router.post('/lifecycle/check', async (req: Request, res: Response) => {
+    try {
+      const results = await lifecycleManager.checkAndProcess();
+      res.json({ success: true, results });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Redeem all eligible positions manually
+  router.post('/lifecycle/redeem-all', async (req: Request, res: Response) => {
+    try {
+      const results = await lifecycleManager.redeemAll();
+      const succeeded = results.filter(r => r.success).length;
+      const totalRecovered = results.filter(r => r.success).reduce((s, r) => s + r.amountRecovered, 0);
+      res.json({
+        success: true,
+        results,
+        summary: { total: results.length, succeeded, totalRecovered },
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
     }
   });
 
