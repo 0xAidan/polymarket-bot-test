@@ -13,6 +13,7 @@ import { SmartStopLossManager } from '../smartStopLoss.js';
 import { PriceMonitor } from '../priceMonitor.js';
 import { getAllPlatformStatuses, getAdapter, getConfiguredAdapters } from '../platform/platformRegistry.js';
 import { CrossPlatformExecutor } from '../crossPlatformExecutor.js';
+import { CrossPlatformPnlTracker } from '../crossPlatformPnl.js';
 import {
   initWalletManager,
   addTradingWallet,
@@ -42,6 +43,8 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   const hedgeCalculator = new HedgeCalculator();
   const crossPlatformExecutor = new CrossPlatformExecutor();
   crossPlatformExecutor.init().catch(err => console.error('[Routes] CrossPlatformExecutor init failed:', err.message));
+  const pnlTracker = new CrossPlatformPnlTracker();
+  pnlTracker.init().catch(err => console.error('[Routes] PnlTracker init failed:', err.message));
 
   // Ladder exits + stop-loss
   const ladderManager = new LadderExitManager();
@@ -602,6 +605,48 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
+  });
+
+  // ============================================================================
+  // CROSS-PLATFORM P&L + SMART ROUTING
+  // ============================================================================
+
+  router.get('/pnl/status', (req: Request, res: Response) => {
+    res.json({ success: true, ...pnlTracker.getStatus() });
+  });
+
+  router.post('/pnl/calculate', async (req: Request, res: Response) => {
+    try {
+      const { walletsByPlatform } = req.body;
+      if (!walletsByPlatform) {
+        return res.status(400).json({ success: false, error: 'walletsByPlatform required (e.g. {"polymarket": ["0x..."], "kalshi": ["acct1"]})' });
+      }
+      const result = await pnlTracker.calculatePnl(walletsByPlatform);
+      res.json({ success: true, pnl: result });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  router.get('/pnl/history', (req: Request, res: Response) => {
+    res.json({ success: true, history: pnlTracker.getPnlHistory() });
+  });
+
+  router.post('/smart-route', async (req: Request, res: Response) => {
+    try {
+      const { side, action, matchedMarket } = req.body;
+      if (!side || !action || !matchedMarket) {
+        return res.status(400).json({ success: false, error: 'side, action, and matchedMarket required' });
+      }
+      const route = await pnlTracker.smartRoute({ side, action, matchedMarket });
+      res.json({ success: true, route });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  router.get('/matched-markets', (req: Request, res: Response) => {
+    res.json({ success: true, markets: pnlTracker.getMatchedMarkets() });
   });
 
   // ============================================================================

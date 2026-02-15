@@ -440,6 +440,30 @@ const API = {
 
   async generateHedgeRecommendations() {
     return this.post('/hedge/generate-recommendations');
+  },
+
+  // ============================================================
+  // CROSS-PLATFORM P&L
+  // ============================================================
+
+  async getPnlStatus() {
+    return this.get('/pnl/status');
+  },
+
+  async calculatePnl(walletsByPlatform) {
+    return this.post('/pnl/calculate', { walletsByPlatform });
+  },
+
+  async getPnlHistory() {
+    return this.get('/pnl/history');
+  },
+
+  async smartRoute(params) {
+    return this.post('/smart-route', params);
+  },
+
+  async getMatchedMarkets() {
+    return this.get('/matched-markets');
   }
 };
 
