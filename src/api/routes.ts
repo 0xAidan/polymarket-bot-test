@@ -509,6 +509,50 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
 
   // ============================================================================
+  // PLATFORM WALLETS (entity-level cross-platform wallet management)
+  // ============================================================================
+
+  router.post('/entities/:id/platform-wallet', async (req: Request, res: Response) => {
+    try {
+      const { platform, identifier, label } = req.body;
+      if (!platform || !identifier) {
+        return res.status(400).json({ success: false, error: 'platform and identifier required' });
+      }
+      const entity = await entityManager.addPlatformWallet(req.params.id, { platform, identifier, label });
+      res.json({ success: true, entity });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  router.delete('/entities/:id/platform-wallet/:platform/:identifier', async (req: Request, res: Response) => {
+    try {
+      const entity = await entityManager.removePlatformWallet(
+        req.params.id,
+        req.params.platform as any,
+        req.params.identifier
+      );
+      res.json({ success: true, entity });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Cross-platform hedge detection
+  router.post('/entities/cross-platform-hedges', async (req: Request, res: Response) => {
+    try {
+      const hedges = await entityManager.detectCrossPlatformHedges();
+      res.json({ success: true, hedges, count: hedges.length });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  router.get('/entities/cross-platform-hedges', (req: Request, res: Response) => {
+    res.json({ success: true, hedges: entityManager.getCrossPlatformHedges() });
+  });
+
+  // ============================================================================
   // HEDGE CALCULATOR + RECOMMENDATIONS
   // ============================================================================
 
