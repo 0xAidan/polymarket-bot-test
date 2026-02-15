@@ -305,6 +305,37 @@ export interface RateLimitState {
  */
 export type PerWalletRateLimitStates = Map<string, RateLimitState>;
 
+// ============================================================================
+// MULTI-WALLET TYPES
+// ============================================================================
+
+/**
+ * A trading wallet managed by the bot.
+ * Each wallet has its own private key (stored encrypted), address, and config.
+ */
+export interface TradingWallet {
+  id: string;                    // Unique ID (e.g. 'main', 'arb', 'test')
+  label: string;                 // User-friendly name
+  address: string;               // EOA address (derived from private key)
+  proxyAddress?: string;         // Polymarket proxy wallet address
+  isActive: boolean;             // Whether this wallet is enabled for trading
+  createdAt: string;             // ISO timestamp
+
+  // Dome Order Router credentials (stored encrypted in SQLite)
+  domeUserId?: string;           // Dome userId for this wallet
+  hasCredentials: boolean;       // Whether CLOB API creds are stored
+}
+
+/**
+ * Copy assignment: which trading wallet(s) should receive copies
+ * from a given tracked (monitored) wallet.
+ */
+export interface CopyAssignment {
+  trackedWalletAddress: string;  // The monitored wallet
+  tradingWalletId: string;       // Which of our trading wallets to copy to
+  useOwnConfig: boolean;         // true = use trading wallet's config, false = inherit from tracked wallet
+}
+
 /**
  * Complete bot configuration (for API responses)
  */

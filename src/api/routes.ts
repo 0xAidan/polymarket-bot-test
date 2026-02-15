@@ -4,6 +4,21 @@ import { CopyTrader } from '../copyTrader.js';
 import { config } from '../config.js';
 import { MirrorTrade } from '../positionMirror.js';
 import { parseNullableBooleanInput } from '../utils/booleanParsing.js';
+import {
+  initWalletManager,
+  addTradingWallet,
+  removeTradingWallet,
+  toggleTradingWallet,
+  updateTradingWalletLabel,
+  getTradingWallets,
+  getActiveTradingWallets,
+  addCopyAssignment,
+  removeCopyAssignment,
+  getCopyAssignments,
+  unlockWallets,
+  isWalletUnlocked,
+  listStoredWalletIds,
+} from '../walletManager.js';
 
 /**
  * API routes for managing the bot
@@ -103,6 +118,129 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         trackedWallets: domeWs.trackedWallets,
       } : null,
     });
+  });
+
+  // ============================================================================
+  // MULTI-WALLET MANAGEMENT
+  // ============================================================================
+
+  // Unlock wallets with master password
+  router.post('/wallets/unlock', async (req: Request, res: Response) => {
+    try {
+      const { masterPassword } = req.body;
+      if (!masterPassword) {
+        return res.status(400).json({ success: false, error: 'masterPassword is required' });
+      }
+      const result = await unlockWallets(masterPassword);
+      res.json({ success: true, ...result });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Check wallet lock status
+  router.get('/wallets/lock-status', async (req: Request, res: Response) => {
+    const storedIds = await listStoredWalletIds();
+    res.json({
+      success: true,
+      unlocked: isWalletUnlocked(),
+      storedWalletCount: storedIds.length,
+      storedWalletIds: storedIds,
+    });
+  });
+
+  // Get all trading wallets
+  router.get('/trading-wallets', (req: Request, res: Response) => {
+    res.json({ success: true, wallets: getTradingWallets() });
+  });
+
+  // Add a trading wallet
+  router.post('/trading-wallets', async (req: Request, res: Response) => {
+    try {
+      const { id, label, privateKey, masterPassword } = req.body;
+      if (!id || !label || !privateKey || !masterPassword) {
+        return res.status(400).json({
+          success: false,
+          error: 'id, label, privateKey, and masterPassword are required'
+        });
+      }
+      const wallet = await addTradingWallet(id, label, privateKey, masterPassword);
+      res.json({ success: true, wallet });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Remove a trading wallet
+  router.delete('/trading-wallets/:id', async (req: Request, res: Response) => {
+    try {
+      await removeTradingWallet(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Toggle trading wallet active state
+  router.patch('/trading-wallets/:id/toggle', async (req: Request, res: Response) => {
+    try {
+      const { active } = req.body;
+      const wallet = await toggleTradingWallet(req.params.id, active);
+      res.json({ success: true, wallet });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Update trading wallet label
+  router.patch('/trading-wallets/:id/label', async (req: Request, res: Response) => {
+    try {
+      const { label } = req.body;
+      if (!label) return res.status(400).json({ success: false, error: 'label is required' });
+      const wallet = await updateTradingWalletLabel(req.params.id, label);
+      res.json({ success: true, wallet });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get copy assignments
+  router.get('/copy-assignments', (req: Request, res: Response) => {
+    res.json({ success: true, assignments: getCopyAssignments() });
+  });
+
+  // Add copy assignment
+  router.post('/copy-assignments', async (req: Request, res: Response) => {
+    try {
+      const { trackedWalletAddress, tradingWalletId, useOwnConfig } = req.body;
+      if (!trackedWalletAddress || !tradingWalletId) {
+        return res.status(400).json({
+          success: false,
+          error: 'trackedWalletAddress and tradingWalletId are required'
+        });
+      }
+      const assignment = await addCopyAssignment(trackedWalletAddress, tradingWalletId, useOwnConfig ?? false);
+      res.json({ success: true, assignment });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Remove copy assignment
+  router.delete('/copy-assignments', async (req: Request, res: Response) => {
+    try {
+      const { trackedWalletAddress, tradingWalletId } = req.body;
+      if (!trackedWalletAddress || !tradingWalletId) {
+        return res.status(400).json({
+          success: false,
+          error: 'trackedWalletAddress and tradingWalletId are required'
+        });
+      }
+      await removeCopyAssignment(trackedWalletAddress, tradingWalletId);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
   });
 
   // Get bot status
