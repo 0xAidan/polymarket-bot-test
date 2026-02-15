@@ -6,6 +6,7 @@ import { MirrorTrade } from '../positionMirror.js';
 import { parseNullableBooleanInput } from '../utils/booleanParsing.js';
 import { PositionLifecycleManager } from '../positionLifecycle.js';
 import { ArbScanner } from '../arbScanner.js';
+import { EntityManager } from '../entityManager.js';
 import {
   initWalletManager,
   addTradingWallet,
@@ -30,6 +31,8 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   const performanceTracker = copyTrader.getPerformanceTracker();
   const lifecycleManager = new PositionLifecycleManager();
   const arbScanner = new ArbScanner();
+  const entityManager = new EntityManager();
+  entityManager.init().catch(err => console.error('[Routes] EntityManager init failed:', err.message));
 
   // Get all tracked wallets
   router.get('/wallets', async (req: Request, res: Response) => {
@@ -371,6 +374,87 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
+  });
+
+  // ============================================================================
+  // ENTITY LINKING + HEDGE DETECTION
+  // ============================================================================
+
+  // Get entity manager status
+  router.get('/entities/status', (req: Request, res: Response) => {
+    res.json({ success: true, ...entityManager.getStatus() });
+  });
+
+  // Get all entities
+  router.get('/entities', (req: Request, res: Response) => {
+    res.json({ success: true, entities: entityManager.getEntities() });
+  });
+
+  // Create entity
+  router.post('/entities', async (req: Request, res: Response) => {
+    try {
+      const { id, label, walletAddresses, notes } = req.body;
+      if (!id || !label || !walletAddresses || !Array.isArray(walletAddresses)) {
+        return res.status(400).json({ success: false, error: 'id, label, and walletAddresses[] are required' });
+      }
+      const entity = await entityManager.createEntity(id, label, walletAddresses, notes);
+      res.json({ success: true, entity });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Remove entity
+  router.delete('/entities/:id', async (req: Request, res: Response) => {
+    try {
+      await entityManager.removeEntity(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Add wallet to entity
+  router.post('/entities/:id/wallets', async (req: Request, res: Response) => {
+    try {
+      const { walletAddress } = req.body;
+      if (!walletAddress) return res.status(400).json({ success: false, error: 'walletAddress is required' });
+      const entity = await entityManager.addWalletToEntity(req.params.id, walletAddress);
+      res.json({ success: true, entity });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Remove wallet from entity
+  router.delete('/entities/:id/wallets/:address', async (req: Request, res: Response) => {
+    try {
+      const entity = await entityManager.removeWalletFromEntity(req.params.id, req.params.address);
+      res.json({ success: true, entity });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Analyze hedges across all entities
+  router.post('/entities/analyze-hedges', async (req: Request, res: Response) => {
+    try {
+      const hedges = await entityManager.analyzeHedges();
+      res.json({ success: true, hedges, count: hedges.length });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get detected hedges
+  router.get('/entities/hedges', (req: Request, res: Response) => {
+    res.json({ success: true, hedges: entityManager.getHedges() });
+  });
+
+  // Find which entity a wallet belongs to
+  router.get('/entities/lookup/:address', (req: Request, res: Response) => {
+    const entity = entityManager.findEntityForWallet(req.params.address);
+    res.json({ success: true, entity: entity || null });
   });
 
   // Get bot status
