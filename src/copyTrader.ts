@@ -222,9 +222,6 @@ export class CopyTrader {
    * Handle a detected trade from a tracked wallet
    */
   private async handleDetectedTrade(trade: DetectedTrade): Promise<void> {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'handleDetectedTrade entry',data:{walletAddress:trade.walletAddress.substring(0,8),marketId:trade.marketId?.substring(0,20),price:trade.price,amount:trade.amount,side:trade.side,txHash:trade.transactionHash?.substring(0,20)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     console.log(`\n${'='.repeat(60)}`);
     console.log(`🔔 [CopyTrader] HANDLE_DETECTED_TRADE CALLED`);
     console.log(`${'='.repeat(60)}`);
@@ -265,22 +262,9 @@ export class CopyTrader {
       return;
     }
     
-    // #region agent log
-    const isSyntheticHash = trade.transactionHash?.startsWith('pos-') || trade.transactionHash?.startsWith('trade-') || trade.transactionHash?.startsWith('ws-');
-    const executedTradesSize = this.executedTrades.size;
-    const processedTradesSize = this.processedTrades.size;
-    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:dedupeCheck',message:'DEDUP CHECK - incoming trade',data:{txHash:trade.transactionHash?.substring(0,40),isSyntheticHash,alreadyInExecutedTrades:this.executedTrades.has(trade.transactionHash),executedTradesSize,processedTradesSize,walletAddress:trade.walletAddress.substring(0,8),marketId:trade.marketId?.substring(0,20)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2-H5'})}).catch(()=>{});
-    // #endregion
-    
     // Prevent duplicate execution using transaction hash
     if (this.executedTrades.has(trade.transactionHash)) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Duplicate trade skipped',data:{txHash:trade.transactionHash?.substring(0,20)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       console.log(`[CopyTrader] ⏭️  Trade ${trade.transactionHash} already executed, skipping`);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-dupeTx',message:'Skipping - duplicate txHash',data:{txHash:trade.transactionHash?.substring(0,30)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
       return;
     }
     
@@ -314,27 +298,15 @@ export class CopyTrader {
       }
     }
     
-    // #region agent log
-    const alreadyProcessedByTxHash = this.processedTrades.has(tradeKey);
-    const alreadyProcessedByCompoundKey = this.processedCompoundKeys.has(compoundKey);
-    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:dedupeCheck',message:'DEDUP CHECK - compound key',data:{txHash:tradeKey?.substring(0,40),compoundKey,alreadyProcessedByTxHash,alreadyProcessedByCompoundKey,isSyntheticHash:tradeKey?.startsWith('pos-')||tradeKey?.startsWith('trade-')},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'FIX'})}).catch(()=>{});
-    // #endregion
-    
     // CHECK 1: By transaction hash (exact duplicate)
     if (this.processedTrades.has(tradeKey)) {
       console.log(`[CopyTrader] ⏭️  Trade already processed (txHash: ${tradeKey?.substring(0,20)}...), skipping duplicate`);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-dupeKey',message:'Skipping - trade already processed (txHash)',data:{txHash:tradeKey?.substring(0,30)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
       return;
     }
     
     // CHECK 2: By compound key (same trade detected with different hash - e.g., position vs trade history)
     if (this.processedCompoundKeys.has(compoundKey)) {
       console.log(`[CopyTrader] ⏭️  Trade already processed (compound key: ${compoundKey.substring(0, 30)}...), skipping duplicate detection`);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-dupeCompound',message:'Skipping - trade already processed (compound key)',data:{compoundKey,txHash:tradeKey?.substring(0,30)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'FIX'})}).catch(()=>{});
-      // #endregion
       return;
     }
     
@@ -354,18 +326,8 @@ export class CopyTrader {
     const priceNum = parseFloat(trade.price || '0');
     const amountNum = parseFloat(trade.amount || '0');
     
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation start',data:{marketId:trade.marketId,price:trade.price,priceNum,amount:trade.amount,amountNum,side:trade.side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
-    // #endregion
-    
     if (!trade.marketId || trade.marketId === 'unknown') {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation failed: marketId',data:{marketId:trade.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
-      // #endregion
       console.error(`❌ Invalid marketId (${trade.marketId}), cannot execute trade`);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-invalidMarket',message:'Skipping - invalid marketId',data:{marketId:trade.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
       await this.performanceTracker.logIssue(
         'error',
         'trade_execution',
@@ -376,13 +338,7 @@ export class CopyTrader {
     }
     
     if (!trade.price || trade.price === '0' || isNaN(priceNum) || priceNum <= 0 || priceNum > 1) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation failed: price',data:{price:trade.price,priceNum},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
-      // #endregion
       console.error(`❌ Invalid price (${trade.price}), cannot execute trade`);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-invalidPrice',message:'Skipping - invalid price',data:{price:trade.price,priceNum:priceNum},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
       await this.performanceTracker.logIssue(
         'error',
         'trade_execution',
@@ -596,9 +552,6 @@ export class CopyTrader {
     }
     
     if (!trade.side || (trade.side !== 'BUY' && trade.side !== 'SELL')) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation failed: side',data:{side:trade.side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
-      // #endregion
       console.error(`❌ Invalid side (${trade.side}), cannot execute trade`);
       await this.performanceTracker.logIssue(
         'error',
@@ -608,10 +561,6 @@ export class CopyTrader {
       );
       return;
     }
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Validation passed',data:{marketId:trade.marketId,price:trade.price,side:trade.side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
-    // #endregion
 
     // ============================================================
     // USDC COMMITMENT STOP-LOSS CHECK
@@ -823,10 +772,6 @@ export class CopyTrader {
         }
       }
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:sharesCalc',message:'SHARES CALCULATION - CHECKING MINIMUM',data:{tradeSizeUsdc:tradeSizeUsdcNum,pricePerShare:priceNum,rawShares:sharesAmount,roundedShares:sharesAmountRounded,marketMinShares:marketMinShares,isBelowMinimum:sharesAmountRounded<marketMinShares,suggestedMinUsdc:(marketMinShares*priceNum).toFixed(2)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H5'})}).catch(()=>{});
-      // #endregion
-      
       // Check if calculated shares are below market minimum
       let finalCalculatedShares = sharesAmountRounded;
       if (sharesAmountRounded < marketMinShares) {
@@ -838,9 +783,6 @@ export class CopyTrader {
         console.log(`   Your configured trade size: $${tradeSizeUsdcNum.toFixed(2)} USDC`);
         console.log(`   Minimum USDC needed at this price: $${minUsdcRequired.toFixed(2)}`);
         console.log(`   💡 Increase trade size to at least $${Math.ceil(minUsdcRequired)} USDC in settings\n`);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:minSizeReject',message:'ORDER REJECTED - BELOW MINIMUM',data:{calculatedShares:sharesAmountRounded,marketMinShares:marketMinShares,configuredUsdc:tradeSizeUsdcNum,minUsdcNeeded:minUsdcRequired,pricePerShare:priceNum,marketId:trade.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
         await this.performanceTracker.recordTrade({
           timestamp: new Date(),
           walletAddress: trade.walletAddress,
@@ -935,23 +877,9 @@ export class CopyTrader {
       console.log(`   Price: ${order.price}`);
       console.log(`   Time: ${new Date().toISOString()}`);
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-execute',message:'EXECUTING TRADE NOW',data:{side:order.side,amount:order.amount,price:order.price,marketId:order.marketId?.substring(0,30),tokenId:order.tokenId?.substring(0,30),outcome:order.outcome},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
-      
       // Execute the trade
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'About to execute trade',data:{marketId:order.marketId,price:order.price,amount:order.amount,side:order.side,tokenId:order.tokenId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
-      // #endregion
       const result: TradeResult = await this.executor.executeTrade(order);
       const executionTime = Date.now() - executionStart;
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Trade execution result',data:{success:result.success,error:result.error,orderId:result.orderId,executionTime},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
-      // #endregion
-
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade',message:'Recording trade result',data:{success:result.success,orderId:result.orderId,txHash:result.transactionHash?.substring(0,20),error:result.error?.substring(0,100),marketId:order.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
       
       // Record metrics
       // NOTE: result.success is now only true if order was actually executed (not just placed)
@@ -973,10 +901,6 @@ export class CopyTrader {
         executedAmount: order.amount, // Store actual executed amount (configured trade size)
         executedPrice: order.price // Store price used
       });
-
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'copyTrader.ts:handleDetectedTrade-result',message:'Trade execution result',data:{success:result.success,orderId:result.orderId,error:result.error,executionTimeMs:executionTime},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
       
       if (result.success) {
         console.log(`\n${'='.repeat(60)}`);

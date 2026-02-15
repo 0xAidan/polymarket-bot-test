@@ -162,10 +162,6 @@ export class TradeExecutor {
       console.log(`   Raw price: ${rawPrice} -> Rounded: ${price} (tick size: ${tickSize})`);
       console.log(`   Raw size: ${rawSize} -> Rounded: ${size}`);
 
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade-afterRounding',message:'Final order values AFTER rounding',data:{tokenId:tokenId,tokenIdLength:tokenId?.length,rawPrice:rawPrice,roundedPrice:price,priceDecimalPlaces:(price.toString().split('.')[1]||'').length,rawSize:rawSize,roundedSize:size,tickSize:tickSize,negRisk:negRisk,side:order.side,marketId:order.marketId,outcome:order.outcome},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H2,H3,H4'})}).catch(()=>{});
-      // #endregion
-
       // Round price to match tick size (critical for CLOB API)
       // Most Polymarket markets use 0.01 tick size, but we'll round to 4 decimal places as a safe default
       // The CLOB client will handle further rounding based on actual market tick size
@@ -182,10 +178,6 @@ export class TradeExecutor {
       // Place order via CLOB client
       console.log(`\n📤 Placing order via CLOB client...`);
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade-preClobCall',message:'CALLING clobClient.createAndPostOrder NOW',data:{tokenID:tokenId,tokenIDpreview:tokenId?.substring(0,40),side:side,sideRaw:order.side,size:size,price:price,tickSize:tickSize,negRisk:negRisk},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H2,H3,H4,H5'})}).catch(()=>{});
-      // #endregion
-      
       let orderResponse: any;
       try {
         orderResponse = await this.clobClient.createAndPostOrder({
@@ -200,18 +192,12 @@ export class TradeExecutor {
         // CLOB client threw an error - this is expected for failures
         console.error(`[Execute] CLOB client threw error:`, clobError.message);
         
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade-clobError',message:'CLOB client threw error',data:{errorMessage:clobError.message,errorName:clobError.name,httpStatus:clobError.response?.status,responseData:JSON.stringify(clobError.response?.data)?.substring(0,500),tokenID:tokenId,price:price,size:size,side:side,tickSize:tickSize,negRisk:negRisk},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H2,H3,H4,H5'})}).catch(()=>{});
-        // #endregion
-        
         throw clobError;
       }
 
       const executionTime = Date.now() - executionStart;
 
       // DEBUG: Log the exact response we got
-      console.log(`[DEBUG] orderResponse type: ${typeof orderResponse}`);
-      console.log(`[DEBUG] orderResponse: ${JSON.stringify(orderResponse)}`);
 
       // CRITICAL: Check for HTTP error status FIRST (handles both string and number)
       const responseStatus = orderResponse?.status;
@@ -264,10 +250,6 @@ export class TradeExecutor {
                                  hasExecutionAmounts || 
                                  (orderStatus && orderStatus.toLowerCase() !== 'live' && orderStatus.toLowerCase() !== 'pending');
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade',message:'Order response validation',data:{orderId:String(orderId),hasTxHash:hasTransactionHash,txHash:txHash?.substring(0,20),responseStatus,orderStatus,takingAmount,makingAmount,hasExecutionAmounts,isActuallyExecuted,responseKeys:Object.keys(orderResponse||{}),fullResponse:JSON.stringify(orderResponse).substring(0,500)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
-      
       if (!isActuallyExecuted) {
         // Order was accepted but not executed - it's a pending limit order
         console.warn(`\n⚠️  [Execute] ORDER PLACED BUT NOT EXECUTED YET`);
@@ -278,9 +260,6 @@ export class TradeExecutor {
         console.warn(`   Transaction Hash: ${txHash || 'None (order not executed yet)'}`);
         console.warn(`   Taking Amount: ${takingAmount || 'None'}`);
         console.warn(`   Making Amount: ${makingAmount || 'None'}\n`);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2ec20c9e-d2d7-47da-832d-03660ee4883b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tradeExecutor.ts:executeTrade',message:'Order placed but not executed',data:{orderId:String(orderId),orderStatus,responseStatus,marketId:order.marketId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
-        // #endregion
         
         // Return pending status - order was placed but not executed yet
         return {
