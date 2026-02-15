@@ -9,6 +9,7 @@ import { PositionMirror } from './positionMirror.js';
 import { DetectedTrade, TradeOrder, TradeResult, RateLimitState, TradeSideFilter, PerWalletRateLimitStates } from './types.js';
 import { Storage } from './storage.js';
 import { config } from './config.js';
+import { initWalletManager } from './walletManager.js';
 
 /**
  * Main copy trading engine that coordinates monitoring and execution
@@ -48,6 +49,9 @@ export class CopyTrader {
       await this.websocketMonitor.initialize();
       await this.executor.authenticate();
       await this.balanceTracker.initialize();
+      
+      // Initialize multi-wallet manager
+      await initWalletManager();
       
       // Initialize Dome WebSocket if API key is configured
       if (isDomeConfigured()) {
