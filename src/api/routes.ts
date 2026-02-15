@@ -12,6 +12,7 @@ import { LadderExitManager } from '../ladderExitManager.js';
 import { SmartStopLossManager } from '../smartStopLoss.js';
 import { PriceMonitor } from '../priceMonitor.js';
 import { getAllPlatformStatuses, getAdapter, getConfiguredAdapters } from '../platform/platformRegistry.js';
+import { CrossPlatformExecutor } from '../crossPlatformExecutor.js';
 import {
   initWalletManager,
   addTradingWallet,
@@ -39,6 +40,8 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   const entityManager = new EntityManager();
   entityManager.init().catch(err => console.error('[Routes] EntityManager init failed:', err.message));
   const hedgeCalculator = new HedgeCalculator();
+  const crossPlatformExecutor = new CrossPlatformExecutor();
+  crossPlatformExecutor.init().catch(err => console.error('[Routes] CrossPlatformExecutor init failed:', err.message));
 
   // Ladder exits + stop-loss
   const ladderManager = new LadderExitManager();
@@ -550,6 +553,55 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
   router.get('/entities/cross-platform-hedges', (req: Request, res: Response) => {
     res.json({ success: true, hedges: entityManager.getCrossPlatformHedges() });
+  });
+
+  // ============================================================================
+  // CROSS-PLATFORM EXECUTOR (one-click arb + hedge execution)
+  // ============================================================================
+
+  router.get('/executor/status', (req: Request, res: Response) => {
+    res.json({ success: true, ...crossPlatformExecutor.getStatus() });
+  });
+
+  router.get('/executor/history', (req: Request, res: Response) => {
+    res.json({ success: true, history: crossPlatformExecutor.getHistory() });
+  });
+
+  router.get('/executor/config', (req: Request, res: Response) => {
+    res.json({ success: true, config: crossPlatformExecutor.getConfig() });
+  });
+
+  router.post('/executor/config', async (req: Request, res: Response) => {
+    try {
+      const config = await crossPlatformExecutor.updateConfig(req.body);
+      res.json({ success: true, config });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Execute an arbitrage pair trade
+  router.post('/executor/arb', async (req: Request, res: Response) => {
+    try {
+      const result = await crossPlatformExecutor.executeArbPair(req.body);
+      res.json({ success: true, result });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Execute a hedge on a specific platform
+  router.post('/executor/hedge', async (req: Request, res: Response) => {
+    try {
+      const { platform, marketId, side, action, size, price } = req.body;
+      if (!platform || !marketId || !side || !action || !size || !price) {
+        return res.status(400).json({ success: false, error: 'Missing required fields: platform, marketId, side, action, size, price' });
+      }
+      const result = await crossPlatformExecutor.executeHedge({ platform, marketId, side, action, size, price });
+      res.json({ success: true, result });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
   });
 
   // ============================================================================
