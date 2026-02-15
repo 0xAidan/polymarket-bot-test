@@ -285,8 +285,6 @@ const API = {
   },
 
   async executeMirrorTrades(address, trades, slippagePercent = 2) {
-    // Special handling: don't throw on success:false because partial execution is valid
-    // We want to show the user what succeeded and what failed
     try {
       const response = await fetch(`/api/wallets/${address}/mirror-execute`, {
         method: 'POST',
@@ -295,17 +293,57 @@ const API = {
       });
       
       const data = await response.json();
-      
-      // Only throw on actual HTTP errors, not partial execution failures
       if (!response.ok) {
         throw new Error(data.error || `HTTP ${response.status}`);
       }
-      
-      return data;  // Return even if success:false - frontend will handle it
+      return data;
     } catch (error) {
       console.error('Mirror execute error:', error);
       throw error;
     }
+  },
+
+  // ============================================================
+  // MULTI-WALLET (Trading Wallets)
+  // ============================================================
+
+  async unlockWallets(masterPassword) {
+    return this.post('/wallets/unlock', { masterPassword });
+  },
+
+  async getLockStatus() {
+    return this.get('/wallets/lock-status');
+  },
+
+  async getTradingWallets() {
+    return this.get('/trading-wallets');
+  },
+
+  async addTradingWallet(id, label, privateKey, masterPassword) {
+    return this.post('/trading-wallets', { id, label, privateKey, masterPassword });
+  },
+
+  async removeTradingWallet(id) {
+    return this.delete(`/trading-wallets/${id}`);
+  },
+
+  async toggleTradingWallet(id, active) {
+    return this.patch(`/trading-wallets/${id}/toggle`, { active });
+  },
+
+  async getCopyAssignments() {
+    return this.get('/copy-assignments');
+  },
+
+  async addCopyAssignment(trackedWalletAddress, tradingWalletId, useOwnConfig = false) {
+    return this.post('/copy-assignments', { trackedWalletAddress, tradingWalletId, useOwnConfig });
+  },
+
+  async removeCopyAssignment(trackedWalletAddress, tradingWalletId) {
+    return this.fetch('/copy-assignments', {
+      method: 'DELETE',
+      body: JSON.stringify({ trackedWalletAddress, tradingWalletId })
+    });
   }
 };
 
