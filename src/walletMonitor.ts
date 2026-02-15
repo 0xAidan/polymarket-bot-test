@@ -107,6 +107,29 @@ export class WalletMonitor {
   }
 
   /**
+   * Pause polling (e.g. when Dome WebSocket is connected).
+   * Does NOT re-initialize positions; just clears the timer.
+   */
+  pausePolling(): void {
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
+      this.pollingInterval = null;
+      console.log('[Monitor] Polling paused');
+    }
+  }
+
+  /**
+   * Resume polling (e.g. when Dome WebSocket disconnects).
+   * Re-starts the timer without re-initializing positions.
+   */
+  resumePolling(): void {
+    if (!this.isMonitoring || !this.onTradeDetectedCallback) return;
+    if (this.pollingInterval) return; // Already running
+    this.startPolling();
+    console.log('[Monitor] Polling resumed');
+  }
+
+  /**
    * Update the monitoring interval (takes effect immediately if monitoring is active)
    */
   async updateMonitoringInterval(intervalMs: number): Promise<void> {

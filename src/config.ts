@@ -48,6 +48,9 @@ export const config = {
   // Storage backend: 'json' (file-based, default) or 'sqlite'
   storageBackend: (process.env.STORAGE_BACKEND || 'json').toLowerCase() as 'json' | 'sqlite',
 
+  // Dome API (prediction market aggregator)
+  domeApiKey: process.env.DOME_API_KEY || '',
+
   // Validate required configuration
   validate(): void {
     if (!this.privateKey) {

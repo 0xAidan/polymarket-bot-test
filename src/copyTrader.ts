@@ -1,5 +1,7 @@
 import { WalletMonitor } from './walletMonitor.js';
 import { WebSocketMonitor } from './websocketMonitor.js';
+import { DomeWebSocketMonitor } from './domeWebSocket.js';
+import { isDomeConfigured } from './domeClient.js';
 import { TradeExecutor } from './tradeExecutor.js';
 import { PerformanceTracker } from './performanceTracker.js';
 import { BalanceTracker } from './balanceTracker.js';
@@ -15,10 +17,12 @@ import { config } from './config.js';
 export class CopyTrader {
   private monitor: WalletMonitor;
   private websocketMonitor: WebSocketMonitor;
+  private domeWsMonitor: DomeWebSocketMonitor | null = null;
   private executor: TradeExecutor;
   private performanceTracker: PerformanceTracker;
   private balanceTracker: BalanceTracker;
   private isRunning = false;
+  private monitoringMode: 'polling' | 'websocket' = 'polling';
   private executedTrades = new Set<string>(); // Track executed trades by tx hash
   private processedTrades = new Map<string, number>(); // Track processed trades by tx hash to prevent duplicates
   private processedCompoundKeys = new Map<string, number>(); // Track by compound key (wallet-market-outcome-side-timeWindow) to catch same trade with different hashes
@@ -44,6 +48,12 @@ export class CopyTrader {
       await this.websocketMonitor.initialize();
       await this.executor.authenticate();
       await this.balanceTracker.initialize();
+      
+      // Initialize Dome WebSocket if API key is configured
+      if (isDomeConfigured()) {
+        this.domeWsMonitor = new DomeWebSocketMonitor();
+        console.log('[CopyTrader] Dome API key detected — WebSocket monitoring available');
+      }
       
       // Record initial balance for user wallet only (not tracked wallets to reduce RPC calls)
       const userWallet = this.getWalletAddress();
@@ -127,19 +137,67 @@ export class CopyTrader {
       console.log('⚠️ Continuing with polling-based monitoring (this is fine)');
     }
 
+    // Start Dome WebSocket monitoring if available (replaces polling as primary)
+    if (this.domeWsMonitor) {
+      console.log('📡 Starting Dome WebSocket monitoring (PRIMARY)...');
+      try {
+        // Wire up Dome WS events
+        this.domeWsMonitor.on('connected', () => {
+          this.monitoringMode = 'websocket';
+          this.monitor.pausePolling();
+          console.log('[DomeWS] Connected — polling paused (WebSocket is primary)');
+        });
+
+        this.domeWsMonitor.on('disconnected', () => {
+          this.monitoringMode = 'polling';
+          this.monitor.resumePolling();
+          console.log('[DomeWS] Disconnected — polling resumed as fallback');
+        });
+
+        this.domeWsMonitor.on('reconnected', () => {
+          this.monitoringMode = 'websocket';
+          this.monitor.pausePolling();
+          console.log('[DomeWS] Reconnected — polling paused again');
+        });
+
+        this.domeWsMonitor.on('trade', async (trade: DetectedTrade) => {
+          console.log(`[CopyTrader] 📥 Dome WS trade detected:`, JSON.stringify({
+            wallet: trade.walletAddress,
+            market: trade.marketId,
+            side: trade.side,
+            price: trade.price,
+          }));
+          await this.handleDetectedTrade(trade);
+        });
+
+        this.domeWsMonitor.on('error', (err: any) => {
+          console.error('[DomeWS] Error:', err?.message || err);
+        });
+
+        await this.domeWsMonitor.start();
+      } catch (error: any) {
+        console.error('[DomeWS] Failed to start Dome WebSocket:', error.message);
+        console.log('⚠️ Continuing with polling-based monitoring');
+      }
+    }
+
     // Start balance tracking for user wallet only (reduces RPC calls significantly)
     const userWallet = this.getWalletAddress();
     if (userWallet) {
       await this.balanceTracker.startTracking([userWallet]);
     }
 
+    const domeWsStatus = this.domeWsMonitor?.getStatus();
     console.log('\n' + '='.repeat(60));
     console.log('✅ COPY TRADING BOT IS RUNNING');
     console.log('='.repeat(60));
     console.log(`📊 Monitoring Methods:`);
-    console.log(`   🔄 Polling: ✅ ACTIVE (Primary - checks every ${config.monitoringIntervalMs / 1000}s)`);
+    if (domeWsStatus) {
+      console.log(`   🌐 Dome WebSocket: ${domeWsStatus.connected ? '✅ CONNECTED (PRIMARY)' : '⏳ CONNECTING...'} — ${domeWsStatus.trackedWallets} wallets`);
+    }
+    console.log(`   🔄 Polling: ✅ ${this.monitoringMode === 'websocket' ? 'STANDBY (fallback)' : 'ACTIVE (Primary)'} — every ${config.monitoringIntervalMs / 1000}s`);
     const wsStatus = this.websocketMonitor.getStatus();
-    console.log(`   📡 WebSocket: ${wsStatus.isConnected ? '✅ CONNECTED' : '⚠️  DISCONNECTED'} (Secondary - your trades only)`);
+    console.log(`   📡 Legacy WS: ${wsStatus.isConnected ? '✅ CONNECTED' : '⚠️  DISCONNECTED'} (your trades only)`);
     console.log(`\n💡 The bot will automatically detect and copy trades from tracked wallets.`);
     console.log(`   Check the logs above for trade detection and execution.`);
     console.log('='.repeat(60) + '\n');
@@ -155,6 +213,14 @@ export class CopyTrader {
 
     console.log('Stopping copy trading bot...');
     this.isRunning = false;
+    
+    // Stop Dome WebSocket if running
+    if (this.domeWsMonitor) {
+      this.domeWsMonitor.stop().catch(err => 
+        console.error('[DomeWS] Error during stop:', err)
+      );
+    }
+    
     this.websocketMonitor.stopMonitoring();
     this.monitor.stopMonitoring();
     this.balanceTracker.stopTracking();
@@ -1000,12 +1066,23 @@ export class CopyTrader {
     running: boolean; 
     executedTradesCount: number;
     websocketStatus: ReturnType<WebSocketMonitor['getStatus']>;
+    monitoringMode: 'polling' | 'websocket';
+    domeWs: { connected: boolean; subscriptionId: string | null; trackedWallets: number } | null;
   } {
     return {
       running: this.isRunning,
       executedTradesCount: this.executedTrades.size,
-      websocketStatus: this.websocketMonitor.getStatus()
+      websocketStatus: this.websocketMonitor.getStatus(),
+      monitoringMode: this.monitoringMode,
+      domeWs: this.domeWsMonitor?.getStatus() ?? null,
     };
+  }
+
+  /**
+   * Get the Dome WebSocket monitor (for API routes).
+   */
+  getDomeWsMonitor(): DomeWebSocketMonitor | null {
+    return this.domeWsMonitor;
   }
 
   /**
