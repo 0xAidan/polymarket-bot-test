@@ -1,1564 +1,1138 @@
-/* CSS Variables */
+/* ============================================================
+   WIN95 COPYTRADE BOT - RETRO CSS THEME
+   ============================================================ */
+
+/* --- Fonts --- */
+@import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
 :root {
-  --primary: #6366f1;
-  --primary-dark: #4f46e5;
-  --success: #10b981;
-  --danger: #ef4444;
-  --warning: #f59e0b;
-  --info: #3b82f6;
-  --bg: #0f172a;
-  --surface: #1e293b;
-  --surface-light: #334155;
-  --text: #f1f5f9;
-  --text-muted: #94a3b8;
-  --border: #334155;
-  --shadow: rgba(0, 0, 0, 0.3);
+  /* Win95 system colors */
+  --win-bg: #008080;
+  --win-surface: #c0c0c0;
+  --win-dark: #808080;
+  --win-darker: #404040;
+  --win-light: #dfdfdf;
+  --win-white: #ffffff;
+  --win-black: #000000;
+  --win-blue: #000080;
+  --win-title-active: #000080;
+  --win-title-inactive: #808080;
+  --win-title-text: #ffffff;
+  --win-field-bg: #ffffff;
+  --win-field-border: #808080;
+  --win-selection: #000080;
+  --win-selected-text: #ffffff;
+  --win-highlight: #0a246a;
+  
+  /* Status colors */
+  --success: #008000;
+  --danger: #cc0000;
+  --warning: #808000;
+  --info: #000080;
+  
+  /* Pixel font */
+  --font-system: 'VT323', 'MS Sans Serif', 'Tahoma', 'Arial', sans-serif;
+  --font-mono: 'Courier New', monospace;
 }
 
 /* Reset */
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: var(--bg);
-  color: var(--text);
+  font-family: var(--font-system);
+  font-size: 16px;
+  background: var(--win-bg);
+  color: var(--win-black);
   min-height: 100vh;
-  padding: 24px;
-  line-height: 1.6;
+  overflow-x: hidden;
+  letter-spacing: 0.02em;
 }
 
-/* Dashboard Container */
-.dashboard {
-  max-width: 1400px;
+/* ============================================================
+   WIN95 TASKBAR
+   ============================================================ */
+.taskbar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 36px;
+  background: var(--win-surface);
+  border-top: 2px solid var(--win-white);
+  display: flex;
+  align-items: center;
+  padding: 2px 4px;
+  z-index: 9999;
+  gap: 4px;
+}
+
+.start-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  height: 28px;
+  font-family: var(--font-system);
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  background: var(--win-surface);
+  border: 2px outset var(--win-surface);
+  color: var(--win-black);
+}
+
+.start-btn:active {
+  border-style: inset;
+}
+
+.start-btn .start-logo {
+  width: 16px;
+  height: 16px;
+  background: linear-gradient(135deg, #ff0000 25%, #00ff00 25%, #00ff00 50%, #0000ff 50%, #0000ff 75%, #ffff00 75%);
+}
+
+.taskbar-divider {
+  width: 2px;
+  height: 24px;
+  border-left: 1px solid var(--win-dark);
+  border-right: 1px solid var(--win-white);
+  margin: 0 2px;
+}
+
+.taskbar-items {
+  flex: 1;
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+}
+
+.taskbar-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  height: 24px;
+  font-family: var(--font-system);
+  font-size: 14px;
+  background: var(--win-surface);
+  border: 2px outset var(--win-surface);
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.taskbar-item.active {
+  border-style: inset;
+  background: var(--win-light);
+}
+
+.taskbar-clock {
+  display: flex;
+  align-items: center;
+  padding: 2px 8px;
+  height: 24px;
+  font-family: var(--font-system);
+  font-size: 14px;
+  border: 2px inset var(--win-surface);
+  background: var(--win-surface);
+  min-width: 70px;
+  justify-content: center;
+}
+
+.taskbar-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  height: 24px;
+  border: 2px inset var(--win-surface);
+  font-size: 12px;
+}
+
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.status-indicator.running { background: #00ff00; }
+.status-indicator.stopped { background: #ff0000; }
+
+/* ============================================================
+   WIN95 DESKTOP
+   ============================================================ */
+.desktop {
+  padding: 8px;
+  padding-bottom: 44px;
+  min-height: 100vh;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 8px;
+}
+
+/* ============================================================
+   WIN95 WINDOW
+   ============================================================ */
+.win-window {
+  background: var(--win-surface);
+  border: 2px solid;
+  border-color: var(--win-light) var(--win-darker) var(--win-darker) var(--win-light);
+  box-shadow: 1px 1px 0 var(--win-black);
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 1200px;
   margin: 0 auto;
 }
 
-/* Header */
-.header {
-  background: linear-gradient(135deg, var(--surface) 0%, var(--surface-light) 100%);
-  padding: 24px 32px;
-  border-radius: 16px;
-  margin-bottom: 24px;
-  box-shadow: 0 8px 24px var(--shadow);
-  border: 1px solid var(--border);
+.win-window.win-maximized {
+  max-width: 100%;
 }
 
-.header-content {
+/* Title Bar */
+.win-titlebar {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 16px;
-}
-
-.header h1 {
-  font-size: 24px;
-  font-weight: 700;
-  background: linear-gradient(135deg, var(--primary) 0%, #8b5cf6 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.header-controls {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-
-/* Status Badge */
-.status-badge {
-  padding: 8px 16px;
-  border-radius: 20px;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.status-running {
-  background: rgba(16, 185, 129, 0.2);
-  color: var(--success);
-  border: 1px solid var(--success);
-}
-
-.status-stopped {
-  background: rgba(239, 68, 68, 0.2);
-  color: var(--danger);
-  border: 1px solid var(--danger);
-}
-
-/* Tab Navigation */
-.tab-nav {
-  display: flex;
+  padding: 2px 3px;
+  background: linear-gradient(90deg, var(--win-title-active), #1084d0);
+  color: var(--win-title-text);
+  height: 22px;
   gap: 4px;
-  background: var(--surface);
-  padding: 4px;
-  border-radius: 12px;
-  margin-bottom: 24px;
-  overflow-x: auto;
+  user-select: none;
 }
 
-.tab-btn {
-  padding: 12px 24px;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  border-radius: 8px;
-  transition: all 0.2s;
-  white-space: nowrap;
+.win-titlebar.inactive {
+  background: linear-gradient(90deg, var(--win-title-inactive), #b0b0b0);
 }
 
-.tab-btn:hover {
-  color: var(--text);
-  background: var(--surface-light);
-}
-
-.tab-btn.active {
-  background: var(--primary);
-  color: white;
-}
-
-/* Tab Content */
-.tab-panel {
-  display: none;
-}
-
-.tab-panel.active {
-  display: block;
-}
-
-/* Cards */
-.card {
-  background: var(--surface);
-  border-radius: 12px;
-  padding: 24px;
-  margin-bottom: 20px;
-  border: 1px solid var(--border);
-}
-
-.card h2 {
-  font-size: 18px;
-  font-weight: 600;
-  margin-bottom: 16px;
-  color: var(--text);
-}
-
-.card h3 {
-  font-size: 16px;
-  font-weight: 600;
-  margin-bottom: 12px;
-  color: var(--text);
-}
-
-.card-description {
-  color: var(--text-muted);
-  font-size: 14px;
-  margin-bottom: 16px;
-}
-
-/* Wallet Card */
-.wallet-card {
-  background: linear-gradient(135deg, var(--surface) 0%, var(--surface-light) 100%);
-}
-
-.wallet-info {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.wallet-address {
-  font-family: monospace;
-  font-size: 14px;
-  color: var(--text-muted);
-  word-break: break-all;
-}
-
-.wallet-balance {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.balance-label {
-  color: var(--text-muted);
-  font-size: 14px;
-}
-
-.balance-amount {
-  font-size: 32px;
-  font-weight: 700;
-  color: var(--text);
-}
-
-.balance-change {
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.balance-change.positive { color: var(--success); }
-.balance-change.negative { color: var(--danger); }
-
-/* Metrics Grid */
-.metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
-}
-
-.metric-card {
-  background: var(--surface);
-  border-radius: 12px;
-  padding: 20px;
-  text-align: center;
-  border: 1px solid var(--border);
-}
-
-.metric-card.success { border-color: var(--success); }
-.metric-card.danger { border-color: var(--danger); }
-
-.metric-value {
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--text);
-  margin-bottom: 4px;
-}
-
-.metric-card.success .metric-value { color: var(--success); }
-.metric-card.danger .metric-value { color: var(--danger); }
-
-.metric-label {
-  font-size: 12px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-/* Buttons */
-.btn {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.btn-primary {
-  background: var(--primary);
-  color: white;
-}
-
-.btn-primary:hover {
-  background: var(--primary-dark);
-}
-
-.btn-success {
-  background: var(--success);
-  color: white;
-}
-
-.btn-danger {
-  background: var(--danger);
-  color: white;
-}
-
-.btn-outline {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text);
-}
-
-.btn-outline:hover {
-  background: var(--surface-light);
-}
-
-.btn-sm {
-  padding: 6px 12px;
-  font-size: 12px;
-}
-
-/* Inputs */
-.input {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 14px;
-  font-size: 14px;
-  color: var(--text);
-  width: 100%;
-  transition: border-color 0.2s;
-}
-
-.input:focus {
-  outline: none;
-  border-color: var(--primary);
-}
-
-.input-sm {
-  padding: 8px 12px;
-  width: auto;
-  min-width: 100px;
-}
-
-.input-group {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-
-.input-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.input-row label {
-  min-width: 120px;
-  color: var(--text-muted);
-  font-size: 14px;
-}
-
-.input-hint {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 8px;
-}
-
-.input-prefix, .input-suffix {
-  color: var(--text-muted);
-  font-size: 14px;
-}
-
-/* Toggle Switch */
-.toggle {
-  position: relative;
-  display: inline-block;
-  width: 48px;
-  height: 26px;
-}
-
-.toggle input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.toggle-slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--surface-light);
-  border-radius: 26px;
-  transition: 0.3s;
-}
-
-.toggle-slider:before {
-  position: absolute;
-  content: "";
-  height: 20px;
-  width: 20px;
-  left: 3px;
-  bottom: 3px;
-  background: white;
-  border-radius: 50%;
-  transition: 0.3s;
-}
-
-.toggle input:checked + .toggle-slider {
-  background: var(--primary);
-}
-
-.toggle input:checked + .toggle-slider:before {
-  transform: translateX(22px);
-}
-
-.toggle-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-/* Radio Group */
-.radio-group {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.radio-label {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.radio-label input[type="radio"] {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--primary);
-}
-
-/* Tables */
-.table-container {
-  overflow-x: auto;
-}
-
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.data-table th,
-.data-table td {
-  padding: 12px 16px;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-}
-
-.data-table th {
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.data-table td {
-  font-size: 14px;
-}
-
-.data-table tr:hover {
-  background: var(--surface-light);
-}
-
-.empty-state {
-  text-align: center;
-  padding: 40px;
-  color: var(--text-muted);
-}
-
-/* Status Pills */
-.status-pill {
-  display: inline-block;
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.status-pill.success {
-  background: rgba(16, 185, 129, 0.2);
-  color: var(--success);
-}
-
-.status-pill.failed {
-  background: rgba(239, 68, 68, 0.2);
-  color: var(--danger);
-}
-
-.status-pill.pending {
-  background: rgba(245, 158, 11, 0.2);
-  color: var(--warning);
-}
-
-/* Conflict Banner */
-.conflict-banner {
-  background: rgba(245, 158, 11, 0.1);
-  border: 1px solid var(--warning);
-  border-radius: 8px;
-  padding: 12px 20px;
-  margin-bottom: 20px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.conflict-icon {
-  font-size: 20px;
-  color: var(--warning);
-}
-
-.conflict-banner span {
-  flex: 1;
-  color: var(--warning);
-}
-
-/* Conflict Panel */
-.conflict-panel {
-  border-color: var(--warning);
-}
-
-.conflicts-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.conflict-item {
-  background: var(--bg);
-  border-radius: 8px;
-  padding: 12px 16px;
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.conflict-item.warning {
-  border-left: 3px solid var(--warning);
-}
-
-.conflict-item.error {
-  border-left: 3px solid var(--danger);
-}
-
-.conflict-item-icon {
-  font-size: 18px;
-}
-
-.conflict-item.warning .conflict-item-icon { color: var(--warning); }
-.conflict-item.error .conflict-item-icon { color: var(--danger); }
-
-.conflict-item-content {
-  flex: 1;
-}
-
-.conflict-item-message {
-  font-size: 14px;
-  margin-bottom: 4px;
-}
-
-.conflict-item-suggestion {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-/* Pipeline Preview */
-.pipeline-preview {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 20px;
-  background: var(--bg);
-  border-radius: 8px;
-}
-
-.pipeline-step {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  width: 100%;
-  max-width: 500px;
-  padding: 12px 16px;
-  background: var(--surface-light);
-  border-radius: 8px;
-  border: 1px solid var(--border);
-}
-
-.pipeline-step.final {
-  border-color: var(--success);
-  background: rgba(16, 185, 129, 0.1);
-}
-
-.step-icon {
-  width: 32px;
-  height: 32px;
+.win-titlebar-icon {
+  width: 16px;
+  height: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--primary);
-  color: white;
-  border-radius: 50%;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 12px;
 }
 
-.pipeline-step.final .step-icon {
+.win-titlebar-text {
+  flex: 1;
+  font-family: var(--font-system);
+  font-size: 14px;
+  font-weight: bold;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.win-titlebar-buttons {
+  display: flex;
+  gap: 2px;
+}
+
+.win-titlebar-btn {
+  width: 16px;
+  height: 14px;
+  background: var(--win-surface);
+  border: 2px outset var(--win-surface);
+  font-family: var(--font-system);
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  color: var(--win-black);
+}
+
+.win-titlebar-btn:active {
+  border-style: inset;
+}
+
+/* Menu Bar */
+.win-menubar {
+  display: flex;
+  padding: 0 2px;
+  border-bottom: 1px solid var(--win-dark);
+  background: var(--win-surface);
+  height: 22px;
+  align-items: center;
+}
+
+.win-menu-item {
+  padding: 2px 8px;
+  font-family: var(--font-system);
+  font-size: 14px;
+  cursor: pointer;
+  color: var(--win-black);
+  background: none;
+  border: none;
+}
+
+.win-menu-item:hover {
+  background: var(--win-selection);
+  color: var(--win-selected-text);
+}
+
+.win-menu-item.active {
+  background: var(--win-selection);
+  color: var(--win-selected-text);
+}
+
+/* Window Body */
+.win-body {
+  padding: 8px;
+  flex: 1;
+  overflow-y: auto;
+  max-height: calc(100vh - 120px);
+}
+
+/* Status Bar */
+.win-statusbar {
+  display: flex;
+  padding: 2px 4px;
+  border-top: 2px solid;
+  border-color: var(--win-dark) var(--win-light) var(--win-light) var(--win-dark);
+  background: var(--win-surface);
+  font-size: 13px;
+  gap: 2px;
+  min-height: 22px;
+}
+
+.win-statusbar-section {
+  padding: 1px 4px;
+  border: 1px solid;
+  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.win-statusbar-section.fixed {
+  flex: none;
+  min-width: 80px;
+  text-align: center;
+}
+
+/* ============================================================
+   WIN95 TABS
+   ============================================================ */
+.win-tabs {
+  display: flex;
+  padding: 0 4px;
+  margin-bottom: -1px;
+  position: relative;
+  z-index: 1;
+}
+
+.win-tab {
+  padding: 4px 12px;
+  font-family: var(--font-system);
+  font-size: 14px;
+  background: var(--win-surface);
+  border: 2px solid;
+  border-color: var(--win-light) var(--win-darker) var(--win-darker) var(--win-light);
+  border-bottom: none;
+  margin-right: 2px;
+  cursor: pointer;
+  position: relative;
+  color: var(--win-black);
+}
+
+.win-tab.active {
+  background: var(--win-surface);
+  border-bottom: 2px solid var(--win-surface);
+  margin-bottom: -2px;
+  z-index: 2;
+  padding-bottom: 6px;
+}
+
+.win-tab:hover:not(.active) {
+  background: var(--win-light);
+}
+
+.win-tab-content {
+  border: 2px solid;
+  border-color: var(--win-light) var(--win-darker) var(--win-darker) var(--win-light);
+  background: var(--win-surface);
+  padding: 12px;
+}
+
+.win-tab-panel {
+  display: none;
+}
+
+.win-tab-panel.active {
+  display: block;
+}
+
+/* ============================================================
+   WIN95 GROUP BOX
+   ============================================================ */
+.win-group {
+  border: 2px solid;
+  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
+  padding: 12px 8px 8px;
+  margin-bottom: 12px;
+  position: relative;
+}
+
+.win-group-title {
+  position: absolute;
+  top: -8px;
+  left: 10px;
+  background: var(--win-surface);
+  padding: 0 4px;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+/* ============================================================
+   WIN95 BUTTONS
+   ============================================================ */
+.win-btn {
+  font-family: var(--font-system);
+  font-size: 15px;
+  padding: 4px 16px;
+  background: var(--win-surface);
+  border: 2px outset var(--win-surface);
+  cursor: pointer;
+  color: var(--win-black);
+  min-width: 75px;
+  text-align: center;
+}
+
+.win-btn:active {
+  border-style: inset;
+}
+
+.win-btn:disabled {
+  color: var(--win-dark);
+  text-shadow: 1px 1px 0 var(--win-white);
+}
+
+.win-btn:focus {
+  outline: 1px dotted var(--win-black);
+  outline-offset: -4px;
+}
+
+.win-btn-primary {
+  font-weight: bold;
+  border: 3px outset var(--win-surface);
+}
+
+.win-btn-primary:active {
+  border-style: inset;
+}
+
+.win-btn-success {
+  background: #c0dcc0;
+}
+
+.win-btn-danger {
+  background: #dcc0c0;
+}
+
+.win-btn-sm {
+  padding: 2px 8px;
+  min-width: 50px;
+  font-size: 13px;
+}
+
+/* ============================================================
+   WIN95 INPUTS
+   ============================================================ */
+.win-input {
+  font-family: var(--font-system);
+  font-size: 15px;
+  padding: 3px 4px;
+  background: var(--win-field-bg);
+  border: 2px solid;
+  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
+  color: var(--win-black);
+}
+
+.win-input:focus {
+  outline: none;
+}
+
+.win-input-full {
+  width: 100%;
+}
+
+.win-select {
+  font-family: var(--font-system);
+  font-size: 15px;
+  padding: 2px;
+  background: var(--win-field-bg);
+  border: 2px solid;
+  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
+  color: var(--win-black);
+}
+
+/* ============================================================
+   WIN95 CHECKBOX / RADIO
+   ============================================================ */
+.win-checkbox,
+.win-radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  margin: 4px 0;
+}
+
+.win-checkbox input[type="checkbox"],
+.win-radio input[type="radio"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--win-black);
+}
+
+/* Toggle switch styled as Win95 checkbox */
+.win-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.win-toggle input {
+  appearance: none;
+  width: 32px;
+  height: 16px;
+  background: var(--win-field-bg);
+  border: 2px inset var(--win-surface);
+  position: relative;
+  cursor: pointer;
+}
+
+.win-toggle input::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: var(--win-dark);
+  top: 1px;
+  left: 1px;
+  transition: left 0.1s;
+}
+
+.win-toggle input:checked {
+  background: #c0dcc0;
+}
+
+.win-toggle input:checked::after {
+  left: 17px;
   background: var(--success);
 }
 
-.step-content {
-  flex: 1;
+/* ============================================================
+   WIN95 TABLE / LISTVIEW
+   ============================================================ */
+.win-listview {
+  width: 100%;
+  border: 2px solid;
+  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
+  background: var(--win-field-bg);
+  border-collapse: collapse;
 }
 
-.step-title {
+.win-listview th {
+  background: var(--win-surface);
+  border: 1px outset var(--win-surface);
+  padding: 2px 8px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: bold;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+
+.win-listview td {
+  padding: 2px 8px;
   font-size: 14px;
-  font-weight: 600;
+  border-bottom: 1px solid var(--win-light);
+  white-space: nowrap;
 }
 
-.step-desc {
-  font-size: 12px;
-  color: var(--text-muted);
+.win-listview tr:hover td {
+  background: var(--win-selection);
+  color: var(--win-selected-text);
 }
 
-.step-status {
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
+.win-listview .empty-row td {
+  text-align: center;
+  padding: 20px;
+  color: var(--win-dark);
 }
 
-.step-status.on {
-  background: rgba(16, 185, 129, 0.2);
-  color: var(--success);
+.win-listview .empty-row:hover td {
+  background: var(--win-field-bg);
+  color: var(--win-dark);
 }
 
-.step-status.off {
-  background: var(--surface);
-  color: var(--text-muted);
+/* ============================================================
+   WIN95 PROGRESS BAR
+   ============================================================ */
+.win-progress {
+  width: 100%;
+  height: 18px;
+  border: 2px solid;
+  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
+  background: var(--win-field-bg);
 }
 
-.step-status.always-on {
-  background: rgba(99, 102, 241, 0.2);
-  color: var(--primary);
-}
-
-.pipeline-arrow {
-  color: var(--text-muted);
-  font-size: 20px;
-}
-
-/* Filters Grid */
-.filters-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 20px;
-}
-
-.filter-card {
-  margin-bottom: 0;
-}
-
-.filter-desc {
-  color: var(--text-muted);
-  font-size: 13px;
-  margin-bottom: 16px;
-}
-
-.range-inputs {
+.win-progress-bar {
+  height: 100%;
+  background: var(--win-blue);
   display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 
-.rate-status {
+.win-progress-block {
+  width: 10px;
+  height: 100%;
+  background: var(--win-blue);
+  margin-right: 2px;
+}
+
+/* ============================================================
+   LAYOUT HELPERS
+   ============================================================ */
+.flex-row {
   display: flex;
-  gap: 20px;
-  margin-top: 12px;
-  font-size: 13px;
-  color: var(--text-muted);
+  align-items: center;
+  gap: 8px;
 }
 
-/* Wallets List */
-.wallets-list {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.wallet-item {
-  background: var(--bg);
-  border-radius: 12px;
-  padding: 16px 20px;
+.flex-between {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16px;
+}
+
+.flex-wrap {
   flex-wrap: wrap;
 }
 
-.wallet-item-info {
+.gap-4 { gap: 4px; }
+.gap-8 { gap: 8px; }
+.gap-12 { gap: 12px; }
+.gap-16 { gap: 16px; }
+
+.mb-4 { margin-bottom: 4px; }
+.mb-8 { margin-bottom: 8px; }
+.mb-12 { margin-bottom: 12px; }
+.mt-8 { margin-top: 8px; }
+
+.text-mono { font-family: var(--font-mono); font-size: 13px; }
+.text-muted { color: var(--win-dark); }
+.text-success { color: var(--success); }
+.text-danger { color: var(--danger); }
+.text-warning { color: var(--warning); }
+.text-bold { font-weight: bold; }
+.text-sm { font-size: 13px; }
+.text-center { text-align: center; }
+
+.w-full { width: 100%; }
+
+.hidden { display: none !important; }
+
+/* ============================================================
+   METRICS DISPLAY (Win95 style)
+   ============================================================ */
+.metrics-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.metric-box {
+  flex: 1;
+  min-width: 120px;
+  border: 2px solid;
+  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
+  background: var(--win-field-bg);
+  padding: 8px;
+  text-align: center;
+}
+
+.metric-box .metric-value {
+  font-size: 24px;
+  font-weight: bold;
+  font-family: var(--font-system);
+  color: var(--win-black);
+}
+
+.metric-box .metric-label {
+  font-size: 12px;
+  color: var(--win-dark);
+  text-transform: uppercase;
+}
+
+.metric-box.success .metric-value { color: var(--success); }
+.metric-box.danger .metric-value { color: var(--danger); }
+
+/* ============================================================
+   WALLET CARD (Win95 item style)
+   ============================================================ */
+.wallet-entry {
+  border: 2px solid;
+  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
+  background: var(--win-field-bg);
+  padding: 8px;
+  margin-bottom: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wallet-entry.active-wallet {
+  border-left: 4px solid var(--success);
+}
+
+.wallet-entry.inactive-wallet {
+  border-left: 4px solid var(--win-dark);
+  opacity: 0.8;
+}
+
+.wallet-entry-info {
   flex: 1;
   min-width: 200px;
 }
 
-.wallet-item-address {
-  font-family: monospace;
-  font-size: 14px;
-  margin-bottom: 4px;
+.wallet-entry-address {
+  font-family: var(--font-mono);
+  font-size: 13px;
 }
 
-.wallet-item-label {
-  font-weight: 600;
-  margin-right: 8px;
+.wallet-entry-label {
+  font-weight: bold;
+  margin-right: 6px;
 }
 
-.wallet-item-config {
+.wallet-entry-config {
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--win-dark);
+  margin-top: 2px;
 }
 
-.wallet-item-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-/* Wallet Item Header & Balance */
-.wallet-item-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 4px;
-}
-
-.wallet-item-balance {
+.wallet-entry-balance {
   text-align: right;
-  margin-left: 16px;
+  font-size: 14px;
 }
 
-.wallet-item-balance .balance-value {
+.wallet-entry-balance .balance-val {
+  font-weight: bold;
   font-size: 16px;
-  font-weight: 600;
   color: var(--success);
 }
 
-.wallet-item-balance .balance-value.muted {
-  color: var(--text-muted);
-  font-weight: 400;
-  font-size: 14px;
+.wallet-entry-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
 }
 
-.wallet-item-balance .balance-note {
-  display: block;
+/* ============================================================
+   BADGE
+   ============================================================ */
+.win-badge {
+  display: inline-block;
+  padding: 1px 6px;
   font-size: 11px;
-  color: var(--text-muted);
+  font-family: var(--font-system);
+  border: 1px solid var(--win-dark);
+  background: var(--win-surface);
+  margin-right: 4px;
 }
 
-.wallet-item-balance .balance-loading {
+.win-badge.badge-success { background: #c0dcc0; border-color: var(--success); }
+.win-badge.badge-danger { background: #dcc0c0; border-color: var(--danger); }
+.win-badge.badge-warning { background: #dcdcc0; border-color: var(--warning); }
+.win-badge.badge-info { background: #c0c0dc; border-color: var(--info); }
+
+/* ============================================================
+   STATUS PILL
+   ============================================================ */
+.status-pill {
+  display: inline-block;
+  padding: 1px 8px;
   font-size: 12px;
-  color: var(--text-muted);
+  font-weight: bold;
+  border: 1px solid;
 }
 
-.wallet-item-balance .balance-error {
-  font-size: 12px;
-  color: var(--danger);
-}
+.status-pill.success { background: #c0dcc0; border-color: var(--success); color: var(--success); }
+.status-pill.failed { background: #dcc0c0; border-color: var(--danger); color: var(--danger); }
+.status-pill.pending { background: #dcdcc0; border-color: var(--warning); color: var(--warning); }
 
-/* Warning Banner */
-.warning-banner {
-  background: rgba(245, 158, 11, 0.1);
-  border: 1px solid var(--warning);
-  border-radius: 8px;
-  padding: 12px 16px;
-  margin-bottom: 16px;
-  font-size: 13px;
-  color: var(--warning);
-}
-
-/* Modal */
-.modal {
+/* ============================================================
+   WIN95 MODAL (Dialog Box)
+   ============================================================ */
+.win-modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.7);
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 5000;
   padding: 20px;
 }
 
-.modal-content {
-  background: var(--surface);
-  border-radius: 16px;
-  max-width: 600px;
+.win-modal {
+  background: var(--win-surface);
+  border: 2px solid;
+  border-color: var(--win-light) var(--win-darker) var(--win-darker) var(--win-light);
+  box-shadow: 2px 2px 0 var(--win-black);
+  max-width: 700px;
   width: 100%;
-  max-height: 80vh;
-  overflow: hidden;
+  max-height: 85vh;
   display: flex;
   flex-direction: column;
 }
 
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 24px;
-  border-bottom: 1px solid var(--border);
-}
-
-.modal-header h2 {
-  margin: 0;
-  font-size: 18px;
-}
-
-.modal-close {
-  background: none;
-  border: none;
-  font-size: 24px;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 0;
-  line-height: 1;
-}
-
-.modal-close:hover {
-  color: var(--text);
-}
-
-.modal-body {
-  padding: 24px;
+.win-modal-body {
+  padding: 12px;
   overflow-y: auto;
-}
-
-/* Test Results */
-.test-results {
-  margin-top: 16px;
-  padding: 16px;
-  background: var(--bg);
-  border-radius: 8px;
-}
-
-.test-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.test-item:last-child {
-  border-bottom: none;
-}
-
-.test-icon {
-  font-size: 16px;
-}
-
-.test-icon.success { color: var(--success); }
-.test-icon.failed { color: var(--danger); }
-
-/* Analysis Content */
-.analysis-content {
-  margin-bottom: 16px;
-}
-
-.analysis-stat {
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.analysis-stat:last-child {
-  border-bottom: none;
-}
-
-/* Issues */
-.issues-list, .issues-log {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.issue-item {
-  background: var(--bg);
-  border-radius: 8px;
-  padding: 12px 16px;
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.issue-item.error {
-  border-left: 3px solid var(--danger);
-}
-
-.issue-item.warning {
-  border-left: 3px solid var(--warning);
-}
-
-.issue-item.info {
-  border-left: 3px solid var(--info);
-}
-
-.issue-content {
   flex: 1;
 }
 
-.issue-message {
-  font-size: 14px;
-  margin-bottom: 4px;
-}
-
-.issue-time {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-/* Large Modal (Wallet Configuration) */
-.modal-large {
-  max-width: 700px;
-  max-height: 90vh;
-}
-
-.modal-footer {
+.win-modal-footer {
+  padding: 8px 12px;
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
-  padding: 16px 24px;
-  border-top: 1px solid var(--border);
-  background: var(--bg);
+  gap: 8px;
+  border-top: 1px solid var(--win-dark);
 }
 
-.btn-secondary {
-  background: var(--surface-light);
-  color: var(--text);
-}
-
-.btn-secondary:hover {
-  background: var(--border);
-}
-
-/* Modal Sections */
-.modal-section {
-  margin-bottom: 24px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid var(--border);
-}
-
-.modal-section:last-child {
-  margin-bottom: 0;
-  padding-bottom: 0;
-  border-bottom: none;
-}
-
-.section-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: 16px;
+/* ============================================================
+   FORM LAYOUT
+   ============================================================ */
+.form-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-bottom: 8px;
 }
 
-.section-title.collapsible {
-  cursor: pointer;
-  user-select: none;
+.form-row label {
+  min-width: 130px;
+  font-size: 14px;
+  text-align: right;
 }
 
-.section-title.collapsible:hover {
-  color: var(--primary);
+.form-row .win-input {
+  flex: 1;
+  max-width: 200px;
 }
 
-.section-icon {
-  font-size: 10px;
-  transition: transform 0.2s;
-}
-
-.section-content {
-  padding-left: 8px;
-}
-
-/* Wallet Modal Info */
-.wallet-modal-info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.wallet-modal-address {
-  font-family: monospace;
-  font-size: 13px;
-  color: var(--text-muted);
-  background: var(--bg);
-  padding: 6px 12px;
-  border-radius: 6px;
-}
-
-.wallet-modal-status {
-  padding: 4px 10px;
-  border-radius: 12px;
+.form-hint {
   font-size: 12px;
-  font-weight: 600;
+  color: var(--win-dark);
+  margin-top: 2px;
+  margin-left: 138px;
 }
 
-.wallet-modal-status.active {
-  background: rgba(16, 185, 129, 0.2);
-  color: var(--success);
-}
-
-.wallet-modal-status.inactive {
-  background: rgba(239, 68, 68, 0.2);
-  color: var(--danger);
-}
-
-/* Radio Group Variants */
-.radio-group.vertical {
-  flex-direction: column;
-  gap: 12px;
-}
-
-.radio-group.horizontal {
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: 20px;
-}
-
-/* Sub Inputs (nested inside toggles) */
-.sub-inputs {
-  margin-top: 12px;
-  padding-left: 16px;
-  border-left: 2px solid var(--border);
-}
-
-/* Filter Block (inside modal) */
+/* ============================================================
+   FILTER BLOCK
+   ============================================================ */
 .filter-block {
-  background: var(--bg);
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 16px;
-}
-
-.filter-block:last-child {
-  margin-bottom: 0;
+  border: 1px solid var(--win-dark);
+  background: var(--win-surface);
+  padding: 8px;
+  margin-bottom: 8px;
 }
 
 .filter-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
-}
-
-.filter-header span:first-child {
-  font-weight: 500;
+  margin-bottom: 6px;
+  font-weight: bold;
   font-size: 14px;
-}
-
-/* Input Grid */
-.input-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-/* Badges */
-.badge {
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.badge-default {
-  background: var(--surface-light);
-  color: var(--text-muted);
-}
-
-.badge-success {
-  background: rgba(16, 185, 129, 0.2);
-  color: var(--success);
-}
-
-.badge-danger {
-  background: rgba(239, 68, 68, 0.2);
-  color: var(--danger);
-}
-
-.badge-warning {
-  background: rgba(245, 158, 11, 0.2);
-  color: var(--warning);
-}
-
-/* Config Summary */
-.config-summary {
-  background: var(--bg);
-  border-radius: 8px;
-  padding: 16px;
-}
-
-.config-summary-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.config-summary-item:last-child {
-  border-bottom: none;
-}
-
-.config-summary-label {
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-.config-summary-value {
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.config-summary-value.active {
-  color: var(--success);
-}
-
-.config-summary-value.inactive {
-  color: var(--text-muted);
-}
-
-/* Highlight Section (Trade Size) */
-.highlight-section {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
-  border: 1px solid var(--primary);
-  border-radius: 8px;
-  padding: 16px;
-}
-
-.required-badge {
-  background: var(--primary);
-  color: white;
-  font-size: 10px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  margin-left: 8px;
-  vertical-align: middle;
-}
-
-.section-desc {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-bottom: 8px;
 }
 
 .filter-hint {
   font-size: 12px;
-  color: var(--text-muted);
-  margin: 4px 0 12px 0;
-}
-
-/* Modal Pipeline (compact version) */
-.modal-pipeline {
-  padding: 12px;
-}
-
-.modal-pipeline .pipeline-step {
-  padding: 8px 12px;
-}
-
-.modal-pipeline .step-icon {
-  width: 26px;
-  height: 26px;
-  font-size: 12px;
-}
-
-.modal-pipeline .step-title {
-  font-size: 13px;
-}
-
-.modal-pipeline .step-desc {
-  font-size: 11px;
-}
-
-.modal-pipeline .step-status {
-  font-size: 10px;
-  padding: 3px 8px;
-}
-
-.modal-pipeline .pipeline-arrow {
-  font-size: 14px;
-  margin: 2px 0;
-}
-
-/* Info Banner */
-.info-banner {
-  background: rgba(59, 130, 246, 0.1);
-  border: 1px solid var(--info);
-  border-radius: 8px;
-  padding: 12px 16px;
-  margin-bottom: 20px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 14px;
-  color: var(--info);
-}
-
-.info-icon {
-  font-size: 18px;
-}
-
-/* Enhanced Wallet Item */
-.wallet-item.active {
-  border: 1px solid var(--success);
-}
-
-.wallet-item.inactive {
-  border: 1px solid var(--border);
-  opacity: 0.8;
-}
-
-.wallet-item-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  margin-top: 4px;
-}
-
-.wallet-item-status .status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.wallet-item-status .status-dot.active {
-  background: var(--success);
-  box-shadow: 0 0 6px var(--success);
-}
-
-.wallet-item-status .status-dot.inactive {
-  background: var(--danger);
-}
-
-/* Toggle with green/red color */
-.toggle input:checked + .toggle-slider {
-  background: var(--success);
-}
-
-.toggle input:not(:checked) + .toggle-slider {
-  background: var(--danger);
-  opacity: 0.6;
-}
-
-/* Responsive */
-@media (max-width: 768px) {
-  body {
-    padding: 12px;
-  }
-  
-  .header {
-    padding: 16px;
-  }
-  
-  .header h1 {
-    font-size: 20px;
-  }
-  
-  .tab-nav {
-    padding: 2px;
-  }
-  
-  .tab-btn {
-    padding: 10px 16px;
-    font-size: 13px;
-  }
-  
-  .metrics-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  
-  .filters-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .input-row {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  
-  .input-row label {
-    margin-bottom: 4px;
-  }
-  
-  .modal-large {
-    max-width: 100%;
-    max-height: 100vh;
-    border-radius: 0;
-  }
-  
-  .input-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .radio-group.horizontal {
-    flex-direction: column;
-    gap: 12px;
-  }
+  color: var(--win-dark);
+  margin-bottom: 6px;
 }
 
 /* ============================================================
-   MIRROR POSITIONS MODAL STYLES
+   PIPELINE PREVIEW (Win95 styled)
    ============================================================ */
-
-.mirror-summary {
-  display: flex;
-  gap: 24px;
-  padding: 16px;
-  background: var(--surface);
-  border-radius: 8px;
-  margin-bottom: 16px;
-}
-
-.summary-item {
+.pipeline-preview {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 4px;
+  padding: 8px;
+  border: 2px solid;
+  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
+  background: var(--win-field-bg);
 }
 
-.summary-label {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.summary-value {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.mirror-trades-container {
-  max-height: 400px;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-.mirror-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.mirror-table th {
-  position: sticky;
-  top: 0;
-  background: var(--surface);
-  padding: 12px 8px;
-  text-align: left;
-  font-weight: 600;
-  color: var(--text-muted);
-  border-bottom: 1px solid var(--border);
-}
-
-.mirror-table td {
-  padding: 10px 8px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: middle;
-}
-
-.mirror-table tr:hover {
-  background: var(--surface-light);
-}
-
-.mirror-table tr.row-skipped {
-  opacity: 0.5;
-  background: rgba(0, 0, 0, 0.2);
-}
-
-.mirror-table tr.row-warning {
-  background: rgba(245, 158, 11, 0.1);
-}
-
-.market-cell {
-  max-width: 180px;
-}
-
-.market-title {
-  font-weight: 500;
-  color: var(--text);
-}
-
-.market-outcome {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.allocation-percent {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.action-badge {
-  display: inline-block;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.action-badge.action-buy {
-  background: rgba(16, 185, 129, 0.2);
-  color: var(--success);
-}
-
-.action-badge.action-sell {
-  background: rgba(239, 68, 68, 0.2);
-  color: var(--danger);
-}
-
-.action-badge.action-skip {
-  background: var(--surface);
-  color: var(--text-muted);
-}
-
-.trade-cost {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.price-deviation {
-  display: block;
-  font-size: 11px;
-  color: var(--warning);
-}
-
-.status-badge {
-  display: inline-block;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-}
-
-.status-badge.status-ready {
-  background: rgba(16, 185, 129, 0.2);
-  color: var(--success);
-}
-
-.status-badge.status-warning {
-  background: rgba(245, 158, 11, 0.2);
-  color: var(--warning);
-}
-
-.status-badge.status-skipped {
-  background: var(--surface);
-  color: var(--text-muted);
-}
-
-.mirror-execution-summary {
-  margin-top: 16px;
-  padding: 12px 16px;
-  background: var(--surface);
-  border-radius: 8px;
-  font-size: 14px;
-}
-
-.mirror-execution-summary .buy-summary {
-  color: var(--success);
-  font-weight: 600;
-}
-
-.mirror-execution-summary .sell-summary {
-  color: var(--danger);
-  font-weight: 600;
-}
-
-.mirror-execution-summary .excluded-note {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-/* Skipped trades accordion */
-.skipped-accordion-row {
-  background: var(--surface) !important;
-}
-
-.skipped-accordion-row:hover {
-  background: var(--surface) !important;
-}
-
-.skipped-accordion {
+.pipeline-step {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 0;
-  cursor: pointer;
-  color: var(--text-muted);
-  font-size: 13px;
-  user-select: none;
+  width: 100%;
+  max-width: 450px;
+  padding: 4px 8px;
+  background: var(--win-surface);
+  border: 1px solid var(--win-dark);
 }
 
-.skipped-accordion:hover {
-  color: var(--text);
+.pipeline-step.final {
+  border: 2px solid var(--success);
+  background: #c0dcc0;
 }
 
-.accordion-icon {
+.step-icon {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--win-blue);
+  color: white;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.pipeline-step.final .step-icon {
+  background: var(--success);
+}
+
+.step-content { flex: 1; }
+.step-title { font-size: 13px; font-weight: bold; }
+.step-desc { font-size: 11px; color: var(--win-dark); }
+
+.step-status {
+  padding: 1px 6px;
   font-size: 10px;
-  transition: transform 0.2s;
+  font-weight: bold;
+  text-transform: uppercase;
+  border: 1px solid var(--win-dark);
 }
 
-.accordion-label {
-  font-weight: 500;
+.step-status.on { background: #c0dcc0; color: var(--success); }
+.step-status.off { background: var(--win-surface); color: var(--win-dark); }
+.step-status.always-on { background: #c0c0dc; color: var(--info); }
+
+.pipeline-arrow {
+  color: var(--win-dark);
+  font-size: 14px;
 }
 
-.accordion-hint {
-  font-size: 11px;
-  color: var(--text-muted);
+/* ============================================================
+   WALLET INFO BAR (top of dashboard)
+   ============================================================ */
+.wallet-info-bar {
+  border: 2px solid;
+  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
+  background: var(--win-field-bg);
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wallet-info-bar .address { font-family: var(--font-mono); font-size: 14px; }
+.wallet-info-bar .balance { font-size: 24px; font-weight: bold; }
+.wallet-info-bar .balance-change { font-size: 14px; }
+.wallet-info-bar .balance-change.positive { color: var(--success); }
+.wallet-info-bar .balance-change.negative { color: var(--danger); }
+
+/* ============================================================
+   MIRROR MODAL STYLES
+   ============================================================ */
+.mirror-summary-bar {
+  display: flex;
+  gap: 16px;
+  padding: 8px;
+  border: 1px solid var(--win-dark);
+  background: var(--win-surface);
+  margin-bottom: 8px;
+}
+
+.mirror-summary-item .label { font-size: 11px; color: var(--win-dark); }
+.mirror-summary-item .value { font-size: 18px; font-weight: bold; }
+
+.mirror-trades-wrap {
+  max-height: 350px;
+  overflow-y: auto;
+  border: 2px solid;
+  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
+}
+
+.execution-summary-bar {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--win-dark);
+  background: var(--win-surface);
+  font-size: 14px;
+}
+
+.execution-summary-bar .buy-summary { color: var(--success); font-weight: bold; }
+.execution-summary-bar .sell-summary { color: var(--danger); font-weight: bold; }
+.execution-summary-bar .excluded-note { color: var(--win-dark); font-size: 12px; }
+
+/* ============================================================
+   WARNING / INFO BANNERS
+   ============================================================ */
+.win-warning {
+  border: 2px solid var(--warning);
+  background: #ffffcc;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.win-info {
+  border: 2px solid var(--info);
+  background: #ccccff;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.win-error {
+  border: 2px solid var(--danger);
+  background: #ffcccc;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+}
+
+/* ============================================================
+   MULTI-WALLET SECTION
+   ============================================================ */
+.trading-wallets-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.trading-wallet-card {
+  border: 2px solid;
+  border-color: var(--win-light) var(--win-darker) var(--win-darker) var(--win-light);
+  background: var(--win-field-bg);
+  padding: 8px;
+}
+
+.trading-wallet-card.active-card {
+  border-left: 4px solid var(--success);
+}
+
+.trading-wallet-card.inactive-card {
+  border-left: 4px solid var(--win-dark);
   opacity: 0.7;
 }
 
-.skip-icon {
-  color: var(--text-muted);
-  font-size: 16px;
+/* ============================================================
+   UNLOCK PROMPT
+   ============================================================ */
+.unlock-prompt {
+  border: 2px solid;
+  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
+  background: var(--win-field-bg);
+  padding: 16px;
+  text-align: center;
+  margin-bottom: 12px;
 }
 
-#skippedTradesContainer tr {
-  opacity: 0.6;
+.unlock-prompt .lock-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
 }
 
-#skippedTradesContainer tr:hover {
-  opacity: 0.8;
-}
-
-/* Balance warning banner */
-.balance-warning {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px 16px;
-  margin: 12px 0;
-  background: rgba(255, 152, 0, 0.15);
-  border: 1px solid rgba(255, 152, 0, 0.4);
-  border-radius: 8px;
-  color: #ff9800;
-}
-
-.balance-warning.critical {
-  background: rgba(244, 67, 54, 0.15);
-  border-color: rgba(244, 67, 54, 0.4);
-  color: #f44336;
-}
-
-.balance-warning .warning-icon {
-  font-size: 20px;
-  flex-shrink: 0;
-}
-
-.balance-warning .warning-text {
-  flex: 1;
-}
-
-.balance-warning .warning-text strong {
-  display: block;
+/* ============================================================
+   ISSUES LIST
+   ============================================================ */
+.issue-item {
+  border: 1px solid var(--win-dark);
+  background: var(--win-field-bg);
+  padding: 6px 8px;
   margin-bottom: 4px;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
 }
 
-.balance-warning .warning-text p {
-  margin: 0;
-  font-size: 13px;
-  opacity: 0.9;
+.issue-item.error { border-left: 3px solid var(--danger); }
+.issue-item.warning { border-left: 3px solid var(--warning); }
+.issue-item.info { border-left: 3px solid var(--info); }
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 768px) {
+  .desktop { padding: 4px; padding-bottom: 44px; }
+  
+  .metrics-row { flex-direction: column; }
+  .metric-box { min-width: auto; }
+  
+  .wallet-entry { flex-direction: column; align-items: flex-start; }
+  .wallet-entry-actions { width: 100%; justify-content: flex-end; }
+  
+  .form-row { flex-direction: column; align-items: flex-start; }
+  .form-row label { min-width: auto; text-align: left; }
+  .form-hint { margin-left: 0; }
+  
+  .win-modal { max-height: 100vh; }
+  
+  .mirror-summary-bar { flex-direction: column; gap: 8px; }
+  
+  .win-tabs { flex-wrap: wrap; }
+}
+
+/* Scrollbar styling for Win95 feel */
+::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--win-light);
+  border: 1px solid var(--win-dark);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--win-surface);
+  border: 2px outset var(--win-surface);
+}
+
+::-webkit-scrollbar-button {
+  background: var(--win-surface);
+  border: 2px outset var(--win-surface);
+  width: 16px;
+  height: 16px;
 }
