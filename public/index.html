@@ -34,6 +34,8 @@
           <button class="win-tab active" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
           <button class="win-tab" data-tab="wallets" onclick="switchTab('wallets')">Tracked Wallets</button>
           <button class="win-tab" data-tab="trading-wallets" onclick="switchTab('trading-wallets')">Trading Wallets</button>
+          <button class="win-tab" data-tab="platforms" onclick="switchTab('platforms')">Platforms</button>
+          <button class="win-tab" data-tab="cross-platform" onclick="switchTab('cross-platform')">Cross-Platform</button>
           <button class="win-tab" data-tab="settings" onclick="switchTab('settings')">Settings</button>
           <button class="win-tab" data-tab="diagnostics" onclick="switchTab('diagnostics')">Diagnostics</button>
         </div>
@@ -297,11 +299,210 @@
             </div>
           </div>
         </div>
+
+        <!-- ============================================================
+             PLATFORMS TAB
+             ============================================================ -->
+        <div id="tab-platforms" class="win-tab-panel">
+          <!-- Platform Status -->
+          <div class="win-group">
+            <div class="win-group-title">Platform Status</div>
+            <div id="platformStatusGrid" class="platform-grid">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+
+          <!-- Platform Balances -->
+          <div class="win-group">
+            <div class="win-group-title">Platform Balances</div>
+            <div class="metrics-row" id="platformBalances">
+              <div class="metric-box">
+                <div class="metric-value" id="polymarketBalance">--</div>
+                <div class="metric-label">Polymarket (USDC)</div>
+              </div>
+              <div class="metric-box">
+                <div class="metric-value" id="kalshiBalance">--</div>
+                <div class="metric-label">Kalshi (USD)</div>
+              </div>
+              <div class="metric-box">
+                <div class="metric-value" id="totalCrossBalance">--</div>
+                <div class="metric-label">Total</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Kalshi Configuration -->
+          <div class="win-group">
+            <div class="win-group-title">Kalshi API Configuration</div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="form-label">API Key ID</label>
+                <input type="text" class="win-input" id="kalshiApiKeyId" placeholder="Enter Kalshi API Key ID">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Private Key (PEM)</label>
+                <textarea class="win-input" id="kalshiPrivateKeyPem" rows="3" placeholder="Paste RSA private key PEM"></textarea>
+              </div>
+              <div class="form-group">
+                <button class="win-btn win-btn-primary" onclick="saveKalshiConfig()">Save Kalshi Config</button>
+                <button class="win-btn" onclick="testKalshiConnection()">Test Connection</button>
+              </div>
+            </div>
+            <div id="kalshiTestResult" class="hidden" style="margin-top:8px;"></div>
+          </div>
+
+          <!-- Cross-Platform Entity Mapping -->
+          <div class="win-group">
+            <div class="win-group-title">Entity Wallet Mapping</div>
+            <p class="form-hint">Link Polymarket wallets and Kalshi accounts to the same entity for cross-platform hedge detection.</p>
+            <div id="entityPlatformMap">
+              <!-- Populated by JS -->
+              <div class="text-center text-muted" style="padding:12px;">Loading entities...</div>
+            </div>
+            <div style="margin-top: 8px;">
+              <button class="win-btn" onclick="addPlatformWalletDialog()">+ Link Platform Wallet</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============================================================
+             CROSS-PLATFORM TAB
+             ============================================================ -->
+        <div id="tab-cross-platform" class="win-tab-panel">
+          <!-- Executor Status -->
+          <div class="win-group">
+            <div class="win-group-title">Cross-Platform Executor</div>
+            <div class="metrics-row" id="executorMetrics">
+              <div class="metric-box">
+                <div class="metric-value" id="execPaperMode">ON</div>
+                <div class="metric-label">Paper Mode</div>
+              </div>
+              <div class="metric-box success">
+                <div class="metric-value" id="execSuccessful">0</div>
+                <div class="metric-label">Successful Arbs</div>
+              </div>
+              <div class="metric-box danger">
+                <div class="metric-value" id="execPartialFills">0</div>
+                <div class="metric-label">Partial Fills</div>
+              </div>
+              <div class="metric-box">
+                <div class="metric-value" id="execTotal">0</div>
+                <div class="metric-label">Total Executions</div>
+              </div>
+            </div>
+            <div style="margin-top: 8px; display: flex; gap: 8px;">
+              <button class="win-btn win-btn-primary" onclick="toggleExecutorPaperMode()">Toggle Paper Mode</button>
+              <button class="win-btn" onclick="refreshExecutorStatus()">Refresh</button>
+            </div>
+          </div>
+
+          <!-- Arbitrage Opportunities -->
+          <div class="win-group">
+            <div class="win-group-title">Arbitrage Opportunities</div>
+            <button class="win-btn" onclick="scanArbitrageOpportunities()" style="margin-bottom: 8px;">Scan Now</button>
+            <div style="overflow-x: auto;">
+              <table class="win-listview" id="arbTable">
+                <thead>
+                  <tr>
+                    <th>Event</th>
+                    <th>Poly Price</th>
+                    <th>Kalshi Price</th>
+                    <th>Spread</th>
+                    <th>Expected Profit</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="arbTableBody">
+                  <tr><td colspan="6" class="text-center text-muted">Click "Scan Now" to find opportunities</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Cross-Platform Hedges -->
+          <div class="win-group">
+            <div class="win-group-title">Cross-Platform Hedge Detection</div>
+            <button class="win-btn" onclick="detectCrossPlatformHedges()" style="margin-bottom: 8px;">Detect Hedges</button>
+            <div style="overflow-x: auto;">
+              <table class="win-listview" id="crossHedgeTable">
+                <thead>
+                  <tr>
+                    <th>Entity</th>
+                    <th>Event</th>
+                    <th>Poly Side/Size</th>
+                    <th>Kalshi Side/Size</th>
+                    <th>Hedged?</th>
+                    <th>Net Exposure</th>
+                  </tr>
+                </thead>
+                <tbody id="crossHedgeTableBody">
+                  <tr><td colspan="6" class="text-center text-muted">Click "Detect Hedges" to scan</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Hedge Recommendations -->
+          <div class="win-group">
+            <div class="win-group-title">Hedge Recommendations</div>
+            <button class="win-btn" onclick="generateHedgeRecommendations()" style="margin-bottom: 8px;">Generate Recommendations</button>
+            <div id="hedgeRecommendations">
+              <div class="text-center text-muted" style="padding:12px;">Generate recommendations to see actionable trades</div>
+            </div>
+          </div>
+
+          <!-- Execution History -->
+          <div class="win-group">
+            <div class="win-group-title">Execution History</div>
+            <div style="overflow-x: auto;">
+              <table class="win-listview" id="execHistoryTable">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Type</th>
+                    <th>Result</th>
+                    <th>Buy</th>
+                    <th>Sell</th>
+                    <th>Paper?</th>
+                  </tr>
+                </thead>
+                <tbody id="execHistoryTableBody">
+                  <tr><td colspan="6" class="text-center text-muted">No executions yet</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Executor Configuration -->
+          <div class="win-group">
+            <div class="win-group-title">Executor Configuration</div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="form-label">Max Trade Size (USD)</label>
+                <input type="number" class="win-input" id="execMaxTradeSize" value="50">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Min Spread (%)</label>
+                <input type="number" class="win-input" id="execMinSpread" value="2" step="0.5">
+              </div>
+              <div class="form-group">
+                <label class="form-label">
+                  <input type="checkbox" id="execSimultaneous" checked> Simultaneous Execution
+                </label>
+              </div>
+              <div class="form-group">
+                <button class="win-btn win-btn-primary" onclick="saveExecutorConfig()">Save Config</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Status Bar -->
       <div class="win-statusbar">
         <div class="win-statusbar-section" id="statusBarMain">Ready</div>
+        <div class="win-statusbar-section fixed" id="statusBarPoly" title="Polymarket">POLY: --</div>
+        <div class="win-statusbar-section fixed" id="statusBarKalshi" title="Kalshi">KALSHI: --</div>
         <div class="win-statusbar-section fixed" id="statusBarMode">Polling</div>
         <div class="win-statusbar-section fixed" id="statusBarBot">Stopped</div>
       </div>

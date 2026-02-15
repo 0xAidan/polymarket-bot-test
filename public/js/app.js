@@ -45,6 +45,12 @@ function refreshCurrentTab() {
     case 'trading-wallets':
       loadTradingWallets();
       break;
+    case 'platforms':
+      loadPlatformStatus();
+      break;
+    case 'cross-platform':
+      refreshExecutorStatus();
+      break;
   }
 }
 
@@ -57,6 +63,7 @@ async function loadAllData() {
       loadTrades(),
       loadWallets(),
       loadSettings(),
+      loadPlatformStatus().catch(() => {}),
       checkLockStatus()
     ]);
   } catch (error) {
@@ -1036,4 +1043,379 @@ function closeMirrorModal() {
   currentMirrorWallet = null;
   currentMirrorTrades = [];
   currentMirrorPreview = null;
+}
+
+// ============================================================
+// PLATFORMS TAB
+// ============================================================
+
+async function loadPlatformStatus() {
+  try {
+    const data = await API.getPlatforms();
+    const grid = document.getElementById('platformStatusGrid');
+    if (!data.platforms || data.platforms.length === 0) {
+      grid.innerHTML = '<div class="text-center text-muted">No platforms configured</div>';
+      return;
+    }
+
+    grid.innerHTML = data.platforms.map(p => `
+      <div class="platform-card ${p.configured ? 'configured' : 'not-configured'}">
+        <div class="platform-card-header">
+          <span class="platform-icon">${p.platform === 'polymarket' ? '&#9670;' : '&#9679;'}</span>
+          <strong>${p.label}</strong>
+          <span class="platform-badge ${p.configured ? 'badge-success' : 'badge-warning'}">
+            ${p.configured ? 'Connected' : 'Not Configured'}
+          </span>
+        </div>
+        <div class="platform-card-body">
+          <div>Data: ${p.configured ? 'Available' : 'Unavailable'}</div>
+          <div>Execution: ${p.canExecute ? 'Ready' : 'No credentials'}</div>
+        </div>
+      </div>
+    `).join('');
+
+    // Update status bar
+    data.platforms.forEach(p => {
+      if (p.platform === 'polymarket') {
+        const el = document.getElementById('statusBarPoly');
+        el.textContent = `POLY: ${p.configured ? 'OK' : '--'}`;
+        el.style.color = p.configured ? '#00aa00' : '#666';
+      }
+      if (p.platform === 'kalshi') {
+        const el = document.getElementById('statusBarKalshi');
+        el.textContent = `KALSHI: ${p.configured ? 'OK' : '--'}`;
+        el.style.color = p.configured ? '#00aa00' : '#666';
+      }
+    });
+
+    // Load balances
+    loadPlatformBalances();
+  } catch (err) {
+    console.error('Failed to load platform status:', err);
+  }
+}
+
+async function loadPlatformBalances() {
+  try {
+    const [polyBal, kalshiBal] = await Promise.allSettled([
+      API.getPlatformBalance('polymarket'),
+      API.getPlatformBalance('kalshi')
+    ]);
+
+    const polyVal = polyBal.status === 'fulfilled' && polyBal.value.balance != null ? polyBal.value.balance : null;
+    const kalshiVal = kalshiBal.status === 'fulfilled' && kalshiBal.value.balance != null ? kalshiBal.value.balance : null;
+
+    document.getElementById('polymarketBalance').textContent = polyVal != null ? `$${polyVal.toFixed(2)}` : '--';
+    document.getElementById('kalshiBalance').textContent = kalshiVal != null ? `$${kalshiVal.toFixed(2)}` : '--';
+
+    const total = (polyVal || 0) + (kalshiVal || 0);
+    document.getElementById('totalCrossBalance').textContent = total > 0 ? `$${total.toFixed(2)}` : '--';
+  } catch (err) {
+    console.error('Failed to load platform balances:', err);
+  }
+}
+
+async function saveKalshiConfig() {
+  const apiKeyId = document.getElementById('kalshiApiKeyId').value.trim();
+  const privateKeyPem = document.getElementById('kalshiPrivateKeyPem').value.trim();
+  if (!apiKeyId || !privateKeyPem) {
+    alert('Both API Key ID and Private Key PEM are required');
+    return;
+  }
+  try {
+    await API.post('/config/kalshi', { apiKeyId, privateKeyPem });
+    alert('Kalshi configuration saved');
+    loadPlatformStatus();
+  } catch (err) {
+    alert(`Failed to save: ${err.message}`);
+  }
+}
+
+async function testKalshiConnection() {
+  const resultEl = document.getElementById('kalshiTestResult');
+  resultEl.classList.remove('hidden');
+  resultEl.innerHTML = '<div class="text-muted">Testing connection...</div>';
+  try {
+    const result = await API.getPlatformBalance('kalshi');
+    resultEl.innerHTML = `<div class="text-center" style="color:green;">Connected! Balance: $${(result.balance || 0).toFixed(2)}</div>`;
+  } catch (err) {
+    resultEl.innerHTML = `<div class="text-center" style="color:red;">Connection failed: ${err.message}</div>`;
+  }
+}
+
+async function loadEntityPlatformMap() {
+  try {
+    const data = await API.getEntities();
+    const container = document.getElementById('entityPlatformMap');
+    if (!data.entities || data.entities.length === 0) {
+      container.innerHTML = '<div class="text-center text-muted" style="padding:12px;">No entities configured. Create entities in the Dashboard first.</div>';
+      return;
+    }
+
+    container.innerHTML = data.entities.map(entity => {
+      const wallets = entity.platformWallets || entity.walletAddresses.map(a => ({ platform: 'polymarket', identifier: a }));
+      return `
+        <div class="entity-map-card">
+          <div class="entity-map-header">
+            <strong>${entity.label || entity.id}</strong>
+            <span class="text-muted">(${wallets.length} wallet${wallets.length !== 1 ? 's' : ''})</span>
+          </div>
+          <div class="entity-map-wallets">
+            ${wallets.map(w => `
+              <div class="entity-wallet-row">
+                <span class="platform-badge ${w.platform === 'polymarket' ? 'badge-poly' : 'badge-kalshi'}">${w.platform}</span>
+                <span class="address">${w.identifier.length > 20 ? w.identifier.slice(0, 8) + '...' + w.identifier.slice(-6) : w.identifier}</span>
+                <button class="win-btn win-btn-sm" onclick="removePlatformWalletUI('${entity.id}', '${w.platform}', '${w.identifier}')" title="Remove">X</button>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Failed to load entity map:', err);
+  }
+}
+
+function addPlatformWalletDialog() {
+  const entityId = prompt('Entity ID:');
+  if (!entityId) return;
+  const platform = prompt('Platform (polymarket or kalshi):');
+  if (!platform || !['polymarket', 'kalshi'].includes(platform)) {
+    alert('Platform must be "polymarket" or "kalshi"');
+    return;
+  }
+  const identifier = prompt(`${platform === 'polymarket' ? 'Wallet address (0x...)' : 'Kalshi account ID'}:`);
+  if (!identifier) return;
+
+  API.addPlatformWallet(entityId, platform, identifier)
+    .then(() => { alert('Platform wallet linked!'); loadEntityPlatformMap(); })
+    .catch(err => alert(`Failed: ${err.message}`));
+}
+
+function removePlatformWalletUI(entityId, platform, identifier) {
+  if (!confirm(`Remove ${platform} wallet ${identifier.slice(0, 12)}... from entity?`)) return;
+  API.removePlatformWallet(entityId, platform, identifier)
+    .then(() => loadEntityPlatformMap())
+    .catch(err => alert(`Failed: ${err.message}`));
+}
+
+// ============================================================
+// CROSS-PLATFORM TAB
+// ============================================================
+
+async function refreshExecutorStatus() {
+  try {
+    const data = await API.getExecutorStatus();
+    document.getElementById('execPaperMode').textContent = data.paperMode ? 'ON' : 'OFF';
+    document.getElementById('execPaperMode').style.color = data.paperMode ? '#aa8800' : '#00aa00';
+    document.getElementById('execSuccessful').textContent = data.successfulArbs || 0;
+    document.getElementById('execPartialFills').textContent = data.partialFills || 0;
+    document.getElementById('execTotal').textContent = data.totalExecutions || 0;
+    loadExecutionHistory();
+  } catch (err) {
+    console.error('Failed to load executor status:', err);
+  }
+}
+
+async function toggleExecutorPaperMode() {
+  try {
+    const current = await API.getExecutorConfig();
+    await API.updateExecutorConfig({ paperMode: !current.config.paperMode });
+    refreshExecutorStatus();
+  } catch (err) {
+    alert(`Failed: ${err.message}`);
+  }
+}
+
+async function scanArbitrageOpportunities() {
+  try {
+    const tbody = document.getElementById('arbTableBody');
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Scanning...</td></tr>';
+
+    const data = await API.scanArbitrage();
+    const opps = data.opportunities || [];
+
+    if (opps.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No arbitrage opportunities found</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = opps.map(opp => `
+      <tr>
+        <td title="${opp.eventTitle}">${(opp.eventTitle || '').slice(0, 35)}...</td>
+        <td>${(opp.polymarketPrice * 100).toFixed(1)}c</td>
+        <td>${(opp.kalshiPrice * 100).toFixed(1)}c</td>
+        <td class="${opp.spreadPercent > 3 ? 'text-success' : ''}">${opp.spreadPercent.toFixed(1)}%</td>
+        <td>$${(opp.expectedProfit || 0).toFixed(2)}</td>
+        <td>
+          <button class="win-btn win-btn-sm win-btn-primary" onclick='executeArbFromTable(${JSON.stringify(opp)})'>
+            Execute
+          </button>
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    alert(`Scan failed: ${err.message}`);
+  }
+}
+
+async function executeArbFromTable(opp) {
+  if (!confirm(`Execute arb on "${opp.eventTitle}"?\nSpread: ${opp.spreadPercent.toFixed(1)}%`)) return;
+
+  try {
+    const trade = {
+      id: `arb-${Date.now()}`,
+      eventTitle: opp.eventTitle,
+      buyPlatform: opp.cheaperPlatform,
+      buyMarketId: opp.cheaperPlatform === 'polymarket' ? opp.polymarketTokenId : opp.kalshiTicker,
+      buySide: 'YES',
+      buyPrice: opp.cheaperPlatform === 'polymarket' ? opp.polymarketPrice : opp.kalshiPrice,
+      buySize: 10,
+      sellPlatform: opp.cheaperPlatform === 'polymarket' ? 'kalshi' : 'polymarket',
+      sellMarketId: opp.cheaperPlatform === 'polymarket' ? opp.kalshiTicker : opp.polymarketTokenId,
+      sellSide: 'NO',
+      sellPrice: opp.cheaperPlatform === 'polymarket' ? opp.kalshiPrice : opp.polymarketPrice,
+      sellSize: 10,
+      expectedProfit: opp.expectedProfit || 0,
+      spreadPercent: opp.spreadPercent,
+    };
+
+    const result = await API.executeArb(trade);
+    if (result.result.bothSucceeded) {
+      alert('Arb executed successfully!');
+    } else if (result.result.partialFill) {
+      alert('WARNING: Partial fill — one leg failed. Check execution history.');
+    } else {
+      alert('Execution failed. Check execution history for details.');
+    }
+    refreshExecutorStatus();
+  } catch (err) {
+    alert(`Execution failed: ${err.message}`);
+  }
+}
+
+async function detectCrossPlatformHedges() {
+  try {
+    const tbody = document.getElementById('crossHedgeTableBody');
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Scanning...</td></tr>';
+
+    const data = await API.detectCrossPlatformHedges();
+    const hedges = data.hedges || [];
+
+    if (hedges.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No cross-platform hedges detected</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = hedges.map(h => `
+      <tr>
+        <td>${h.entityLabel}</td>
+        <td title="${h.eventTitle}">${h.eventTitle.slice(0, 30)}...</td>
+        <td>${h.polymarketPosition.side} / ${h.polymarketPosition.size.toFixed(1)}</td>
+        <td>${h.kalshiPosition.side} / ${h.kalshiPosition.size.toFixed(1)}</td>
+        <td class="${h.isHedged ? 'text-success' : 'text-warning'}">${h.isHedged ? 'Yes' : 'No'}</td>
+        <td>${h.netExposure}</td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    alert(`Hedge detection failed: ${err.message}`);
+  }
+}
+
+async function generateHedgeRecommendations() {
+  try {
+    const container = document.getElementById('hedgeRecommendations');
+    container.innerHTML = '<div class="text-center text-muted" style="padding:12px;">Generating recommendations...</div>';
+
+    const data = await API.generateHedgeRecommendations();
+    const recs = data.recommendations || [];
+
+    if (recs.length === 0) {
+      container.innerHTML = '<div class="text-center text-muted" style="padding:12px;">No recommendations at this time</div>';
+      return;
+    }
+
+    container.innerHTML = recs.map(rec => `
+      <div class="hedge-rec-card">
+        <div class="hedge-rec-header">
+          <span class="platform-badge ${rec.platform === 'polymarket' ? 'badge-poly' : 'badge-kalshi'}">${rec.platform}</span>
+          <strong>${rec.action} ${rec.outcome}</strong>
+          <span class="text-muted">— ${(rec.marketTitle || '').slice(0, 40)}</span>
+        </div>
+        <div class="hedge-rec-details">
+          <span>Size: ${rec.size.toFixed(2)}</span>
+          <span>Est. Price: $${rec.estimatedPrice.toFixed(2)}</span>
+          <span>Confidence: ${(rec.confidence * 100).toFixed(0)}%</span>
+        </div>
+        <div class="hedge-rec-actions">
+          ${rec.executable
+            ? `<button class="win-btn win-btn-sm win-btn-primary" onclick='executeHedgeRec(${JSON.stringify(rec)})'>Execute</button>`
+            : '<span class="text-muted">Not executable</span>'
+          }
+        </div>
+      </div>
+    `).join('');
+  } catch (err) {
+    alert(`Failed: ${err.message}`);
+  }
+}
+
+async function executeHedgeRec(rec) {
+  if (!confirm(`Execute ${rec.action} ${rec.outcome} on ${rec.platform}?`)) return;
+  try {
+    const result = await API.executeHedge({
+      platform: rec.platform,
+      marketId: rec.tokenId || rec.kalshiTicker,
+      side: rec.outcome,
+      action: rec.action,
+      size: rec.size,
+      price: rec.estimatedPrice,
+    });
+    alert(result.result.success ? 'Hedge executed!' : `Failed: ${result.result.error}`);
+    refreshExecutorStatus();
+  } catch (err) {
+    alert(`Failed: ${err.message}`);
+  }
+}
+
+async function loadExecutionHistory() {
+  try {
+    const data = await API.getExecutorHistory();
+    const history = (data.history || []).slice(-20).reverse();
+    const tbody = document.getElementById('execHistoryTableBody');
+
+    if (history.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No executions yet</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = history.map(exec => `
+      <tr>
+        <td>${new Date(exec.timestamp).toLocaleString()}</td>
+        <td>Arb</td>
+        <td class="${exec.bothSucceeded ? 'text-success' : exec.partialFill ? 'text-warning' : 'text-danger'}">
+          ${exec.bothSucceeded ? 'Success' : exec.partialFill ? 'Partial' : 'Failed'}
+        </td>
+        <td>${exec.buyResult.platform}: ${exec.buyResult.success ? 'OK' : exec.buyResult.error?.slice(0, 20)}</td>
+        <td>${exec.sellResult.platform}: ${exec.sellResult.success ? 'OK' : exec.sellResult.error?.slice(0, 20)}</td>
+        <td>${exec.paperMode ? 'Yes' : 'No'}</td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    console.error('Failed to load execution history:', err);
+  }
+}
+
+async function saveExecutorConfig() {
+  try {
+    await API.updateExecutorConfig({
+      maxTradeSize: parseFloat(document.getElementById('execMaxTradeSize').value),
+      minSpread: parseFloat(document.getElementById('execMinSpread').value),
+      simultaneousExecution: document.getElementById('execSimultaneous').checked,
+    });
+    alert('Executor config saved');
+  } catch (err) {
+    alert(`Failed: ${err.message}`);
+  }
 }

@@ -344,6 +344,102 @@ const API = {
       method: 'DELETE',
       body: JSON.stringify({ trackedWalletAddress, tradingWalletId })
     });
+  },
+
+  // ============================================================
+  // PLATFORM (Multi-platform)
+  // ============================================================
+
+  async getPlatforms() {
+    return this.get('/platforms');
+  },
+
+  async getPlatformBalance(platform) {
+    return this.get(`/platforms/${platform}/balance`);
+  },
+
+  async getPlatformPositions(platform, identifier) {
+    return this.get(`/platforms/${platform}/positions/${identifier}`);
+  },
+
+  // ============================================================
+  // ENTITIES (Platform Wallets + Cross-Platform Hedges)
+  // ============================================================
+
+  async getEntities() {
+    return this.get('/entities');
+  },
+
+  async addPlatformWallet(entityId, platform, identifier, label) {
+    return this.post(`/entities/${entityId}/platform-wallet`, { platform, identifier, label });
+  },
+
+  async removePlatformWallet(entityId, platform, identifier) {
+    return this.delete(`/entities/${entityId}/platform-wallet/${platform}/${identifier}`);
+  },
+
+  async detectCrossPlatformHedges() {
+    return this.post('/entities/cross-platform-hedges');
+  },
+
+  async getCrossPlatformHedges() {
+    return this.get('/entities/cross-platform-hedges');
+  },
+
+  // ============================================================
+  // CROSS-PLATFORM EXECUTOR
+  // ============================================================
+
+  async getExecutorStatus() {
+    return this.get('/executor/status');
+  },
+
+  async getExecutorHistory() {
+    return this.get('/executor/history');
+  },
+
+  async getExecutorConfig() {
+    return this.get('/executor/config');
+  },
+
+  async updateExecutorConfig(config) {
+    return this.post('/executor/config', config);
+  },
+
+  async executeArb(trade) {
+    return this.post('/executor/arb', trade);
+  },
+
+  async executeHedge(params) {
+    return this.post('/executor/hedge', params);
+  },
+
+  // ============================================================
+  // ARBITRAGE SCANNER
+  // ============================================================
+
+  async getArbStatus() {
+    return this.get('/arb/status');
+  },
+
+  async getArbOpportunities() {
+    return this.get('/arb/opportunities');
+  },
+
+  async scanArbitrage() {
+    return this.post('/arb/scan');
+  },
+
+  // ============================================================
+  // HEDGE RECOMMENDATIONS
+  // ============================================================
+
+  async getHedgeRecommendations() {
+    return this.get('/hedge/recommendations');
+  },
+
+  async generateHedgeRecommendations() {
+    return this.post('/hedge/generate-recommendations');
   }
 };
 
