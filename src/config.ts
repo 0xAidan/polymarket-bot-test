@@ -45,6 +45,9 @@ export const config = {
   // REDUCED from 15s to 5s for faster trade detection when copy trading
   monitoringIntervalMs: parseInt(process.env.MONITORING_INTERVAL_MS || '5000', 10), // 5 seconds default for faster copy trading
 
+  // Storage backend: 'json' (file-based, default) or 'sqlite'
+  storageBackend: (process.env.STORAGE_BACKEND || 'json').toLowerCase() as 'json' | 'sqlite',
+
   // Validate required configuration
   validate(): void {
     if (!this.privateKey) {
