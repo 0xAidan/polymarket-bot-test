@@ -992,6 +992,60 @@
     </div>
   </div>
 
+  <!-- Builder Credentials Modal -->
+  <div id="builderCredsModal" class="win-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="builderCredsModalTitle">
+    <div class="win-modal" style="max-width:480px;">
+      <div class="win-titlebar">
+        <div class="win-titlebar-icon">&#128273;</div>
+        <div class="win-titlebar-text" id="builderCredsModalTitle">Add Builder API Credentials</div>
+        <div class="win-titlebar-buttons">
+          <button class="win-titlebar-btn" onclick="closeBuilderCredsModal()" aria-label="Close" tabindex="0">&#10005;</button>
+        </div>
+      </div>
+      <div class="win-modal-body">
+        <div class="win-info mb-8">
+          <span>&#9432;</span>
+          <span>These credentials are required to place orders on Polymarket. Get them from
+            <a href="https://polymarket.com/settings?tab=builder" target="_blank" rel="noopener noreferrer" style="color:var(--win-blue);font-weight:bold;">polymarket.com/settings &rarr; Builder tab</a>
+          </span>
+        </div>
+        <div class="text-sm mb-8">Wallet: <strong id="builderCredsWalletLabel"></strong></div>
+        <input type="hidden" id="builderCredsWalletId">
+
+        <div class="form-row">
+          <label for="builderCredsApiKey">API Key:</label>
+          <div style="flex:1;display:flex;gap:4px;max-width:260px;">
+            <input type="password" id="builderCredsApiKey" placeholder="Enter API key" class="win-input" style="flex:1;" aria-label="Builder API Key" autocomplete="off">
+            <button class="win-btn win-btn-sm" type="button" onclick="toggleCredFieldVisibility('builderCredsApiKey', this)" aria-label="Show/hide API key" tabindex="0" style="min-width:40px;">Show</button>
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="builderCredsApiSecret">API Secret:</label>
+          <div style="flex:1;display:flex;gap:4px;max-width:260px;">
+            <input type="password" id="builderCredsApiSecret" placeholder="Enter API secret" class="win-input" style="flex:1;" aria-label="Builder API Secret" autocomplete="off">
+            <button class="win-btn win-btn-sm" type="button" onclick="toggleCredFieldVisibility('builderCredsApiSecret', this)" aria-label="Show/hide API secret" tabindex="0" style="min-width:40px;">Show</button>
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="builderCredsPassphrase">Passphrase:</label>
+          <div style="flex:1;display:flex;gap:4px;max-width:260px;">
+            <input type="password" id="builderCredsPassphrase" placeholder="Enter passphrase" class="win-input" style="flex:1;" aria-label="Builder API Passphrase" autocomplete="off">
+            <button class="win-btn win-btn-sm" type="button" onclick="toggleCredFieldVisibility('builderCredsPassphrase', this)" aria-label="Show/hide passphrase" tabindex="0" style="min-width:40px;">Show</button>
+          </div>
+        </div>
+
+        <div id="builderCredsError" class="win-error hidden" style="margin-top:8px;">
+          <span>&#9888;</span>
+          <span id="builderCredsErrorText"></span>
+        </div>
+      </div>
+      <div class="win-modal-footer">
+        <button class="win-btn" onclick="closeBuilderCredsModal()" tabindex="0">Cancel</button>
+        <button class="win-btn win-btn-primary" onclick="submitBuilderCredentials()" tabindex="0">Save Credentials</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Taskbar -->
   <div class="taskbar">
     <button class="start-btn" id="startStopBtn" onclick="toggleBot()">

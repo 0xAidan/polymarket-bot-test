@@ -910,7 +910,7 @@ async function loadTradingWallets() {
             </div>
           </div>
           <div class="flex-row gap-4">
-            ${!w.hasCredentials ? `<button class="win-btn win-btn-sm" onclick="promptBuilderCredentials('${w.id}')" title="Add Builder API credentials">Add Creds</button>` : ''}
+            ${!w.hasCredentials ? `<button class="win-btn win-btn-sm" onclick="openBuilderCredsModal('${w.id}', '${w.label.replace(/'/g, "\\'")}')" title="Add Builder API credentials">Add Creds</button>` : `<button class="win-btn win-btn-sm" onclick="openBuilderCredsModal('${w.id}', '${w.label.replace(/'/g, "\\'")}')" title="Update Builder API credentials">Update Creds</button>`}
             <label class="win-toggle">
               <input type="checkbox" ${w.isActive ? 'checked' : ''} onchange="toggleTradingWalletActive('${w.id}', this.checked)">
             </label>
@@ -1000,23 +1000,123 @@ async function toggleTradingWalletActive(id, active) {
   catch (error) { alert(`Failed: ${error.message}`); await loadTradingWallets(); }
 }
 
-async function promptBuilderCredentials(walletId) {
-  const apiKey = prompt(`Enter Builder API Key for wallet "${walletId}":\n\nGet these from: polymarket.com/settings → Builder tab`);
-  if (!apiKey) return;
-  const apiSecret = prompt('Enter Builder API Secret:');
-  if (!apiSecret) return;
-  const apiPassphrase = prompt('Enter Builder API Passphrase:');
-  if (!apiPassphrase) return;
+// ============================================================
+// BUILDER CREDENTIALS MODAL
+// ============================================================
 
+function openBuilderCredsModal(walletId, walletLabel) {
   if (!masterPassword) { alert('Wallets must be unlocked first'); return; }
 
+  document.getElementById('builderCredsWalletId').value = walletId;
+  document.getElementById('builderCredsWalletLabel').textContent = `${walletLabel} (${walletId})`;
+
+  // Clear previous values
+  document.getElementById('builderCredsApiKey').value = '';
+  document.getElementById('builderCredsApiSecret').value = '';
+  document.getElementById('builderCredsPassphrase').value = '';
+
+  // Reset all fields to password type
+  ['builderCredsApiKey', 'builderCredsApiSecret', 'builderCredsPassphrase'].forEach(id => {
+    const input = document.getElementById(id);
+    input.type = 'password';
+    const btn = input.parentElement.querySelector('button');
+    if (btn) btn.textContent = 'Show';
+  });
+
+  // Hide any previous error
+  document.getElementById('builderCredsError').classList.add('hidden');
+
+  // Show modal
+  document.getElementById('builderCredsModal').classList.remove('hidden');
+
+  // Focus the first field
+  setTimeout(() => document.getElementById('builderCredsApiKey').focus(), 50);
+}
+
+function closeBuilderCredsModal() {
+  document.getElementById('builderCredsModal').classList.add('hidden');
+
+  // Clear sensitive data from inputs on close
+  document.getElementById('builderCredsApiKey').value = '';
+  document.getElementById('builderCredsApiSecret').value = '';
+  document.getElementById('builderCredsPassphrase').value = '';
+}
+
+function toggleCredFieldVisibility(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.textContent = 'Hide';
+  } else {
+    input.type = 'password';
+    btn.textContent = 'Show';
+  }
+}
+
+async function submitBuilderCredentials() {
+  const walletId = document.getElementById('builderCredsWalletId').value;
+  const apiKey = document.getElementById('builderCredsApiKey').value.trim();
+  const apiSecret = document.getElementById('builderCredsApiSecret').value.trim();
+  const apiPassphrase = document.getElementById('builderCredsPassphrase').value.trim();
+
+  const errorEl = document.getElementById('builderCredsError');
+  const errorText = document.getElementById('builderCredsErrorText');
+
+  // Validate all fields are filled
+  if (!apiKey || !apiSecret || !apiPassphrase) {
+    errorEl.classList.remove('hidden');
+    errorText.textContent = 'All three fields are required.';
+    return;
+  }
+
+  if (!masterPassword) {
+    errorEl.classList.remove('hidden');
+    errorText.textContent = 'Wallets must be unlocked first.';
+    return;
+  }
+
+  // Hide error
+  errorEl.classList.add('hidden');
+
   try {
-    await API.updateTradingWalletCredentials(walletId, apiKey.trim(), apiSecret.trim(), apiPassphrase.trim(), masterPassword);
-    alert('Builder credentials saved successfully! This wallet can now place orders.');
+    await API.updateTradingWalletCredentials(walletId, apiKey, apiSecret, apiPassphrase, masterPassword);
+    closeBuilderCredsModal();
     await loadTradingWallets();
   } catch (error) {
-    alert(`Failed to save credentials: ${error.message}`);
+    errorEl.classList.remove('hidden');
+    errorText.textContent = `Failed: ${error.message}`;
   }
+}
+
+// Close modal on Escape key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const modal = document.getElementById('builderCredsModal');
+    if (modal && !modal.classList.contains('hidden')) {
+      closeBuilderCredsModal();
+    }
+  }
+});
+
+// Close modal when clicking the overlay background
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'builderCredsModal') {
+    closeBuilderCredsModal();
+  }
+});
+
+// Legacy alias for backward compat
+function promptBuilderCredentials(walletId) {
+  // Find the wallet label from the DOM
+  const cards = document.querySelectorAll('.trading-wallet-card');
+  let label = walletId;
+  cards.forEach(card => {
+    if (card.innerHTML.includes(`'${walletId}'`)) {
+      const boldEl = card.querySelector('.text-bold');
+      if (boldEl) label = boldEl.childNodes[0]?.textContent?.trim() || walletId;
+    }
+  });
+  openBuilderCredsModal(walletId, label);
 }
 
 async function loadCopyAssignments() {
