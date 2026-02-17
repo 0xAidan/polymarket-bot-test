@@ -33,6 +33,7 @@ export interface LadderExit {
 /** Configuration for ladder exits */
 export interface LadderExitConfig {
   enabled: boolean;
+  liveMode: boolean;           // When true, execute real trades; when false, paper mode (log only)
   defaultStepCount: number;    // Default number of ladder steps
   defaultStartPercent: number; // First step: sell at entry + X%
   defaultStepSpread: number;   // Spread between steps (percentage points)
@@ -41,6 +42,7 @@ export interface LadderExitConfig {
 
 const DEFAULT_LADDER_CONFIG: LadderExitConfig = {
   enabled: false,
+  liveMode: false,             // Paper mode by default for safety
   defaultStepCount: 4,
   defaultStartPercent: 10,     // First take-profit at +10%
   defaultStepSpread: 10,       // Each step 10% apart

@@ -33,7 +33,7 @@ export const config = {
 
   // Blockchain configuration
   // Using Alchemy RPC for reliable balance fetching (needed for position threshold filter)
-  polygonRpcUrl: process.env.POLYGON_RPC_URL || 'https://polygon-mainnet.g.alchemy.com/v2/7mtxoY0fzCQRByZFL-YBg',
+  polygonRpcUrl: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
   
   // Server configuration
   port: parseInt(process.env.PORT || '3001', 10),
@@ -50,6 +50,11 @@ export const config = {
 
   // Dome API (prediction market aggregator)
   domeApiKey: process.env.DOME_API_KEY || '',
+
+  // Kalshi API credentials (RSA-PSS authentication)
+  kalshiApiKeyId: process.env.KALSHI_API_KEY_ID || '',
+  kalshiPrivateKeyPath: process.env.KALSHI_PRIVATE_KEY_PATH || '',
+  kalshiPrivateKeyPem: process.env.KALSHI_PRIVATE_KEY_PEM || '',
 
   // Validate required configuration
   validate(): void {

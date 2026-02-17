@@ -11,6 +11,9 @@ import { HedgeCalculator } from '../hedgeCalculator.js';
 import { LadderExitManager } from '../ladderExitManager.js';
 import { SmartStopLossManager } from '../smartStopLoss.js';
 import { PriceMonitor } from '../priceMonitor.js';
+import { getAllPlatformStatuses, getAdapter, getConfiguredAdapters } from '../platform/platformRegistry.js';
+import { CrossPlatformExecutor } from '../crossPlatformExecutor.js';
+import { CrossPlatformPnlTracker } from '../crossPlatformPnl.js';
 import {
   initWalletManager,
   addTradingWallet,
@@ -18,6 +21,7 @@ import {
   toggleTradingWallet,
   updateTradingWalletLabel,
   getTradingWallets,
+  getTradingWallet,
   getActiveTradingWallets,
   addCopyAssignment,
   removeCopyAssignment,
@@ -25,6 +29,7 @@ import {
   unlockWallets,
   isWalletUnlocked,
   listStoredWalletIds,
+  updateWalletBuilderCredentials,
 } from '../walletManager.js';
 
 /**
@@ -38,6 +43,10 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   const entityManager = new EntityManager();
   entityManager.init().catch(err => console.error('[Routes] EntityManager init failed:', err.message));
   const hedgeCalculator = new HedgeCalculator();
+  const crossPlatformExecutor = new CrossPlatformExecutor();
+  crossPlatformExecutor.init().catch(err => console.error('[Routes] CrossPlatformExecutor init failed:', err.message));
+  const pnlTracker = new CrossPlatformPnlTracker();
+  pnlTracker.init().catch(err => console.error('[Routes] PnlTracker init failed:', err.message));
 
   // Ladder exits + stop-loss
   const ladderManager = new LadderExitManager();
@@ -46,14 +55,86 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   stopLossManager.init().catch(err => console.error('[Routes] StopLoss init failed:', err.message));
   const priceMonitor = new PriceMonitor(ladderManager, stopLossManager);
 
-  // Wire up ladder and stop-loss trigger events for logging
-  priceMonitor.on('ladder-trigger', (data: any) => {
-    console.log(`[PriceMonitor] Ladder sell: ${data.ladder.marketTitle} step ${data.stepIndex + 1}, ${data.sharesToSell} shares`);
-    // Mark step as executed (paper mode — no actual trade yet)
-    ladderManager.markStepExecuted(data.ladder.id, data.stepIndex, data.currentPrice, data.sharesToSell);
+  // Auto-start price monitor if there are active ladders or stop-loss orders
+  const autoStartPriceMonitor = () => {
+    const hasActiveLadders = ladderManager.getLadders(true).length > 0;
+    const hasActiveStopLosses = stopLossManager.getOrders(true).length > 0;
+    if ((hasActiveLadders || hasActiveStopLosses) && !priceMonitor.getStatus().isRunning) {
+      console.log(`[Routes] Auto-starting PriceMonitor (${ladderManager.getLadders(true).length} ladders, ${stopLossManager.getOrders(true).length} stop-losses)`);
+      priceMonitor.start();
+    }
+  };
+
+  // Delay auto-start slightly to let init() complete
+  setTimeout(autoStartPriceMonitor, 2000);
+
+  // Wire up ladder trigger events — execute real trades when in live mode
+  priceMonitor.on('ladder-trigger', async (data: any) => {
+    const ladderConfig = ladderManager.getConfig();
+    console.log(`[LadderExit] Step triggered: ${data.ladder.marketTitle} step ${data.stepIndex + 1}, ${data.sharesToSell.toFixed(2)} shares @ $${data.currentPrice?.toFixed(4)}`);
+
+    if (!ladderConfig.liveMode) {
+      console.log(`[LadderExit] PAPER MODE — logging only, no real trade executed`);
+      ladderManager.markStepExecuted(data.ladder.id, data.stepIndex, data.currentPrice, data.sharesToSell);
+      return;
+    }
+
+    // Live mode: execute real SELL order
+    try {
+      const tradeExecutor = copyTrader.getTradeExecutor();
+      const order = {
+        marketId: data.ladder.conditionId || data.ladder.tokenId,
+        outcome: (data.ladder.outcome || 'YES') as 'YES' | 'NO',
+        amount: data.sharesToSell.toFixed(2),
+        price: data.currentPrice.toFixed(4),
+        side: 'SELL' as const,
+        tokenId: data.ladder.tokenId,
+        negRisk: false,
+      };
+
+      console.log(`[LadderExit] LIVE MODE — executing SELL: ${order.amount} shares of ${data.ladder.marketTitle} @ $${order.price}`);
+      const result = await tradeExecutor.executeTrade(order);
+
+      if (result.success) {
+        console.log(`[LadderExit] SELL executed successfully (order: ${result.orderId})`);
+        ladderManager.markStepExecuted(data.ladder.id, data.stepIndex, data.currentPrice, data.sharesToSell);
+      } else {
+        console.error(`[LadderExit] SELL failed: ${result.error} — step NOT marked executed, will retry next tick`);
+      }
+    } catch (err: any) {
+      console.error(`[LadderExit] SELL execution error: ${err.message} — step NOT marked executed, will retry next tick`);
+    }
   });
   priceMonitor.on('stoploss-trigger', (data: any) => {
     console.log(`[PriceMonitor] Stop-loss sell: ${data.order.marketTitle} ${data.order.outcome}, ${data.order.shares} shares`);
+  });
+
+  // ============================================================================
+  // PLATFORM STATUS
+  // ============================================================================
+
+  router.get('/platforms', (req: Request, res: Response) => {
+    res.json({ success: true, platforms: getAllPlatformStatuses() });
+  });
+
+  router.get('/platforms/:platform/balance', async (req: Request, res: Response) => {
+    try {
+      const adapter = getAdapter(req.params.platform as any);
+      const balance = await adapter.getBalance();
+      res.json({ success: true, platform: req.params.platform, balance });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  router.get('/platforms/:platform/positions/:identifier', async (req: Request, res: Response) => {
+    try {
+      const adapter = getAdapter(req.params.platform as any);
+      const positions = await adapter.getPositions(req.params.identifier);
+      res.json({ success: true, platform: req.params.platform, positions });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
   });
 
   // Get all tracked wallets
@@ -183,17 +264,45 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     res.json({ success: true, wallets: getTradingWallets() });
   });
 
-  // Add a trading wallet
+  // Add a trading wallet (with optional Builder API credentials)
   router.post('/trading-wallets', async (req: Request, res: Response) => {
     try {
-      const { id, label, privateKey, masterPassword } = req.body;
+      const { id, label, privateKey, masterPassword, apiKey, apiSecret, apiPassphrase } = req.body;
       if (!id || !label || !privateKey || !masterPassword) {
         return res.status(400).json({
           success: false,
           error: 'id, label, privateKey, and masterPassword are required'
         });
       }
-      const wallet = await addTradingWallet(id, label, privateKey, masterPassword);
+
+      // Build Builder credentials object if any credential fields are provided
+      const hasBuilderCreds = apiKey && apiSecret && apiPassphrase;
+      const builderCreds = hasBuilderCreds
+        ? { apiKey, apiSecret, apiPassphrase }
+        : undefined;
+
+      const wallet = await addTradingWallet(id, label, privateKey, masterPassword, builderCreds);
+      res.json({ success: true, wallet });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Update Builder API credentials for an existing trading wallet
+  router.patch('/trading-wallets/:id/credentials', async (req: Request, res: Response) => {
+    try {
+      const { apiKey, apiSecret, apiPassphrase, masterPassword } = req.body;
+      if (!apiKey || !apiSecret || !apiPassphrase || !masterPassword) {
+        return res.status(400).json({
+          success: false,
+          error: 'apiKey, apiSecret, apiPassphrase, and masterPassword are required'
+        });
+      }
+      const wallet = await updateWalletBuilderCredentials(
+        req.params.id,
+        { apiKey, apiSecret, apiPassphrase },
+        masterPassword
+      );
       res.json({ success: true, wallet });
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
@@ -230,6 +339,22 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       res.json({ success: true, wallet });
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get positions for a trading wallet (by wallet ID)
+  router.get('/trading-wallets/:id/positions', async (req: Request, res: Response) => {
+    try {
+      const wallet = getTradingWallet(req.params.id);
+      if (!wallet) {
+        return res.status(404).json({ success: false, error: `Trading wallet "${req.params.id}" not found` });
+      }
+      const api = copyTrader.getPolymarketApi();
+      const positions = await api.getUserPositions(wallet.address);
+      res.json({ success: true, walletId: wallet.id, walletLabel: wallet.label, positions: positions || [] });
+    } catch (error: any) {
+      console.error(`Failed to load positions for trading wallet ${req.params.id}:`, error.message);
+      res.json({ success: true, positions: [], error: error.message });
     }
   });
 
@@ -480,6 +605,141 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
 
   // ============================================================================
+  // PLATFORM WALLETS (entity-level cross-platform wallet management)
+  // ============================================================================
+
+  router.post('/entities/:id/platform-wallet', async (req: Request, res: Response) => {
+    try {
+      const { platform, identifier, label } = req.body;
+      if (!platform || !identifier) {
+        return res.status(400).json({ success: false, error: 'platform and identifier required' });
+      }
+      const entity = await entityManager.addPlatformWallet(req.params.id, { platform, identifier, label });
+      res.json({ success: true, entity });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  router.delete('/entities/:id/platform-wallet/:platform/:identifier', async (req: Request, res: Response) => {
+    try {
+      const entity = await entityManager.removePlatformWallet(
+        req.params.id,
+        req.params.platform as any,
+        req.params.identifier
+      );
+      res.json({ success: true, entity });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Cross-platform hedge detection
+  router.post('/entities/cross-platform-hedges', async (req: Request, res: Response) => {
+    try {
+      const hedges = await entityManager.detectCrossPlatformHedges();
+      res.json({ success: true, hedges, count: hedges.length });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  router.get('/entities/cross-platform-hedges', (req: Request, res: Response) => {
+    res.json({ success: true, hedges: entityManager.getCrossPlatformHedges() });
+  });
+
+  // ============================================================================
+  // CROSS-PLATFORM EXECUTOR (one-click arb + hedge execution)
+  // ============================================================================
+
+  router.get('/executor/status', (req: Request, res: Response) => {
+    res.json({ success: true, ...crossPlatformExecutor.getStatus() });
+  });
+
+  router.get('/executor/history', (req: Request, res: Response) => {
+    res.json({ success: true, history: crossPlatformExecutor.getHistory() });
+  });
+
+  router.get('/executor/config', (req: Request, res: Response) => {
+    res.json({ success: true, config: crossPlatformExecutor.getConfig() });
+  });
+
+  router.post('/executor/config', async (req: Request, res: Response) => {
+    try {
+      const config = await crossPlatformExecutor.updateConfig(req.body);
+      res.json({ success: true, config });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Execute an arbitrage pair trade
+  router.post('/executor/arb', async (req: Request, res: Response) => {
+    try {
+      const result = await crossPlatformExecutor.executeArbPair(req.body);
+      res.json({ success: true, result });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Execute a hedge on a specific platform
+  router.post('/executor/hedge', async (req: Request, res: Response) => {
+    try {
+      const { platform, marketId, side, action, size, price } = req.body;
+      if (!platform || !marketId || !side || !action || !size || !price) {
+        return res.status(400).json({ success: false, error: 'Missing required fields: platform, marketId, side, action, size, price' });
+      }
+      const result = await crossPlatformExecutor.executeHedge({ platform, marketId, side, action, size, price });
+      res.json({ success: true, result });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // CROSS-PLATFORM P&L + SMART ROUTING
+  // ============================================================================
+
+  router.get('/pnl/status', (req: Request, res: Response) => {
+    res.json({ success: true, ...pnlTracker.getStatus() });
+  });
+
+  router.post('/pnl/calculate', async (req: Request, res: Response) => {
+    try {
+      const { walletsByPlatform } = req.body;
+      if (!walletsByPlatform) {
+        return res.status(400).json({ success: false, error: 'walletsByPlatform required (e.g. {"polymarket": ["0x..."], "kalshi": ["acct1"]})' });
+      }
+      const result = await pnlTracker.calculatePnl(walletsByPlatform);
+      res.json({ success: true, pnl: result });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  router.get('/pnl/history', (req: Request, res: Response) => {
+    res.json({ success: true, history: pnlTracker.getPnlHistory() });
+  });
+
+  router.post('/smart-route', async (req: Request, res: Response) => {
+    try {
+      const { side, action, matchedMarket } = req.body;
+      if (!side || !action || !matchedMarket) {
+        return res.status(400).json({ success: false, error: 'side, action, and matchedMarket required' });
+      }
+      const route = await pnlTracker.smartRoute({ side, action, matchedMarket });
+      res.json({ success: true, route });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  router.get('/matched-markets', (req: Request, res: Response) => {
+    res.json({ success: true, markets: pnlTracker.getMatchedMarkets() });
+  });
+
+  // ============================================================================
   // HEDGE CALCULATOR + RECOMMENDATIONS
   // ============================================================================
 
@@ -565,6 +825,13 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         tokenId, conditionId || '', marketTitle || '', outcome || 'YES',
         parseFloat(entryPrice), parseFloat(totalShares), steps
       );
+
+      // Auto-start price monitor if not already running
+      if (!priceMonitor.getStatus().isRunning) {
+        console.log('[Routes] Auto-starting PriceMonitor after ladder creation');
+        priceMonitor.start();
+      }
+
       res.json({ success: true, ladder });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
@@ -611,6 +878,13 @@ export function createRoutes(copyTrader: CopyTrader): Router {
           trailingPercent: trailingPercent ? parseFloat(trailingPercent) : undefined,
           profitLockThreshold: profitLockThreshold ? parseFloat(profitLockThreshold) : undefined }
       );
+
+      // Auto-start price monitor if not already running
+      if (!priceMonitor.getStatus().isRunning) {
+        console.log('[Routes] Auto-starting PriceMonitor after stop-loss creation');
+        priceMonitor.start();
+      }
+
       res.json({ success: true, order });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
@@ -762,21 +1036,26 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       // Step 1: Get trades first (core data - always return this even if enrichment fails)
       const trades = performanceTracker.getRecentTrades(limit);
       
-      // Step 2: Load wallets for labels (safe, local operation)
+      // Step 2: Load wallets for labels and tags (safe, local operation)
       let walletLabelMap = new Map<string, string>();
+      let walletTagsMap = new Map<string, string[]>();
       try {
         const wallets = await Storage.loadTrackedWallets();
         walletLabelMap = new Map(
           wallets.map(w => [w.address.toLowerCase(), w.label || ''])
         );
+        walletTagsMap = new Map(
+          wallets.map(w => [w.address.toLowerCase(), w.tags || []])
+        );
       } catch (error: any) {
-        // If wallet lookup fails, use empty map (no labels shown)
+        // If wallet lookup fails, use empty maps (no labels/tags shown)
         console.warn('[API] Failed to load wallet labels for trades:', error.message);
       }
       
-      // Step 3: Enrich trades with labels (safe, synchronous)
+      // Step 3: Enrich trades with labels and tags (safe, synchronous)
       trades.forEach(t => {
         (t as any).walletLabel = walletLabelMap.get(t.walletAddress.toLowerCase()) || '';
+        (t as any).walletTags = walletTagsMap.get(t.walletAddress.toLowerCase()) || [];
       });
       
       // Step 4: Enrich trades with market names
@@ -1128,6 +1407,31 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
+
+  // Update wallet tags (category labels)
+  router.patch('/wallets/:address/tags', async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      const { tags } = req.body;
+
+      if (!Array.isArray(tags)) {
+        return res.status(400).json({
+          success: false,
+          error: 'tags must be an array of strings'
+        });
+      }
+
+      const wallet = await Storage.updateWalletTags(address, tags);
+
+      res.json({
+        success: true,
+        message: 'Wallet tags updated',
+        wallet
+      });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
 
   // Update per-wallet trade configuration (ALL settings are per-wallet)
   // Accepts all filter settings - pass null to clear a value (use default)
@@ -1808,6 +2112,71 @@ export function createRoutes(copyTrader: CopyTrader): Router {
           requiresRestart: true
         });
       }
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Save Kalshi API credentials (WARNING: This writes to .env file)
+  router.post('/config/kalshi', async (req: Request, res: Response) => {
+    try {
+      const { apiKeyId, privateKeyPem } = req.body;
+
+      if (!apiKeyId || typeof apiKeyId !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'Kalshi API Key ID is required'
+        });
+      }
+
+      if (!privateKeyPem || typeof privateKeyPem !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'Kalshi Private Key PEM is required'
+        });
+      }
+
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const envPath = path.join(process.cwd(), '.env');
+
+      let envContent = '';
+      try {
+        envContent = await fs.readFile(envPath, 'utf-8');
+      } catch {
+        envContent = '';
+      }
+
+      const lines = envContent.split('\n');
+      const updates: Record<string, string> = {
+        'KALSHI_API_KEY_ID': apiKeyId,
+        'KALSHI_PRIVATE_KEY_PEM': privateKeyPem
+      };
+
+      for (const [key, value] of Object.entries(updates)) {
+        let found = false;
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].startsWith(`${key}=`)) {
+            lines[i] = `${key}=${value}`;
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          lines.push(`${key}=${value}`);
+        }
+      }
+
+      await fs.writeFile(envPath, lines.join('\n'));
+
+      // Update environment variables in memory
+      process.env.KALSHI_API_KEY_ID = apiKeyId;
+      process.env.KALSHI_PRIVATE_KEY_PEM = privateKeyPem;
+
+      res.json({
+        success: true,
+        message: 'Kalshi credentials saved. Platform will be available on next restart or adapter refresh.'
+      });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }

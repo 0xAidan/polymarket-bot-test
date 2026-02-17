@@ -10,7 +10,7 @@
     "dev:watch": "tsx watch src/index.ts",
     "build": "tsc",
     "test": "node --test --import tsx tests/**/*.test.ts",
-    "start": "node dist/index.js",
+    "start": "tsx src/index.ts",
     "lint": "eslint src --ext .ts"
   },
   "keywords": [
@@ -25,7 +25,7 @@
     "@dome-api/sdk": "^1.0.2",
     "@ethersproject/signing-key": "^5.8.0",
     "@polymarket/builder-signing-sdk": "^0.0.8",
-    "@polymarket/clob-client": "^5.2.0",
+    "@polymarket/clob-client": "^5.2.3",
     "@privy-io/server-auth": "^1.32.5",
     "axios": "^1.6.2",
     "better-sqlite3": "^12.6.2",
@@ -36,6 +36,7 @@
     "dotenv": "^16.3.1",
     "ethers": "^5.8.0",
     "express": "^4.18.2",
+    "kalshi-typescript": "^3.6.0",
     "ws": "^8.14.2"
   },
   "devDependencies": {

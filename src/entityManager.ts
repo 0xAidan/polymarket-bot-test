@@ -1,16 +1,26 @@
 import { Storage } from './storage.js';
 import { PolymarketApi } from './polymarketApi.js';
 import { domeGetPositions, isDomeConfigured } from './domeClient.js';
+import { getAdapter, getConfiguredAdapters } from './platform/platformRegistry.js';
+import type { NormalizedPosition } from './platform/types.js';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-/** A wallet entity groups multiple addresses under one identity */
+/** A wallet/account linked to a specific platform */
+export interface PlatformWallet {
+  platform: 'polymarket' | 'kalshi';
+  identifier: string;  // Polymarket: 0x address, Kalshi: account ID
+  label?: string;
+}
+
+/** A wallet entity groups multiple addresses/accounts under one identity */
 export interface WalletEntity {
   id: string;
   label: string;
-  walletAddresses: string[];
+  walletAddresses: string[];           // Legacy: Polymarket-only addresses
+  platformWallets: PlatformWallet[];   // New: platform-aware wallet links
   notes: string;
   createdAt: string;
   updatedAt: string;
@@ -18,6 +28,7 @@ export interface WalletEntity {
 
 /** A position held by a wallet */
 export interface WalletPosition {
+  platform: 'polymarket' | 'kalshi';
   walletAddress: string;
   tokenId: string;
   conditionId: string;
@@ -77,6 +88,7 @@ export class EntityManager {
   private entities: WalletEntity[] = [];
   private api: PolymarketApi;
   private hedges: DetectedHedge[] = [];
+  private crossPlatformHedges: CrossPlatformHedge[] = [];
   private lastAnalysisTime = 0;
 
   constructor() {
@@ -98,21 +110,80 @@ export class EntityManager {
   /**
    * Create a new entity grouping multiple wallets.
    */
-  async createEntity(id: string, label: string, walletAddresses: string[], notes = ''): Promise<WalletEntity> {
+  async createEntity(id: string, label: string, walletAddresses: string[], notes = '', platformWallets?: PlatformWallet[]): Promise<WalletEntity> {
     if (this.entities.find(e => e.id === id)) {
       throw new Error(`Entity "${id}" already exists`);
+    }
+
+    // Build platform wallets: merge explicit + legacy addresses (default to polymarket)
+    const pw: PlatformWallet[] = platformWallets ? [...platformWallets] : [];
+    for (const addr of walletAddresses) {
+      const lower = addr.toLowerCase();
+      if (!pw.find(p => p.platform === 'polymarket' && p.identifier.toLowerCase() === lower)) {
+        pw.push({ platform: 'polymarket', identifier: lower });
+      }
     }
 
     const entity: WalletEntity = {
       id,
       label,
       walletAddresses: walletAddresses.map(a => a.toLowerCase()),
+      platformWallets: pw,
       notes,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
     this.entities.push(entity);
+    await this.saveEntities();
+    return entity;
+  }
+
+  /**
+   * Add a platform wallet link to an entity.
+   */
+  async addPlatformWallet(entityId: string, pw: PlatformWallet): Promise<WalletEntity> {
+    const entity = this.entities.find(e => e.id === entityId);
+    if (!entity) throw new Error(`Entity "${entityId}" not found`);
+    if (!entity.platformWallets) entity.platformWallets = [];
+
+    const id = pw.identifier.toLowerCase();
+    if (entity.platformWallets.find(p => p.platform === pw.platform && p.identifier.toLowerCase() === id)) {
+      throw new Error(`${pw.platform} wallet ${pw.identifier} already in entity "${entityId}"`);
+    }
+
+    entity.platformWallets.push({ ...pw, identifier: id });
+
+    // Keep legacy array in sync for polymarket
+    if (pw.platform === 'polymarket' && !entity.walletAddresses.includes(id)) {
+      entity.walletAddresses.push(id);
+    }
+
+    entity.updatedAt = new Date().toISOString();
+    await this.saveEntities();
+    return entity;
+  }
+
+  /**
+   * Remove a platform wallet link from an entity.
+   */
+  async removePlatformWallet(entityId: string, platform: 'polymarket' | 'kalshi', identifier: string): Promise<WalletEntity> {
+    const entity = this.entities.find(e => e.id === entityId);
+    if (!entity) throw new Error(`Entity "${entityId}" not found`);
+    if (!entity.platformWallets) entity.platformWallets = [];
+
+    const id = identifier.toLowerCase();
+    const idx = entity.platformWallets.findIndex(p => p.platform === platform && p.identifier.toLowerCase() === id);
+    if (idx === -1) throw new Error(`${platform} wallet ${identifier} not in entity "${entityId}"`);
+
+    entity.platformWallets.splice(idx, 1);
+
+    // Keep legacy array in sync
+    if (platform === 'polymarket') {
+      entity.walletAddresses = entity.walletAddresses.filter(a => a !== id);
+    }
+
+    entity.updatedAt = new Date().toISOString();
     await this.saveEntities();
     return entity;
   }
@@ -198,7 +269,8 @@ export class EntityManager {
     this.lastAnalysisTime = Date.now();
 
     for (const entity of this.entities) {
-      if (entity.walletAddresses.length < 2) continue;
+      const totalWallets = (entity.platformWallets?.length ?? 0) || entity.walletAddresses.length;
+      if (totalWallets < 2) continue;
 
       try {
         const hedges = await this.analyzeEntityHedges(entity);
@@ -221,15 +293,39 @@ export class EntityManager {
    * Analyze hedges for a single entity.
    */
   private async analyzeEntityHedges(entity: WalletEntity): Promise<DetectedHedge[]> {
-    // Collect all positions across all wallets in this entity
+    // Collect all positions across ALL platforms for this entity
     const allPositions: WalletPosition[] = [];
 
-    for (const addr of entity.walletAddresses) {
+    // Use platformWallets if available, otherwise fall back to legacy walletAddresses
+    const wallets: PlatformWallet[] = entity.platformWallets?.length
+      ? entity.platformWallets
+      : entity.walletAddresses.map(a => ({ platform: 'polymarket' as const, identifier: a }));
+
+    for (const pw of wallets) {
       try {
-        const positions = await this.getWalletPositions(addr);
-        allPositions.push(...positions);
+        if (pw.platform === 'kalshi') {
+          // Fetch Kalshi positions via adapter
+          const adapter = getAdapter('kalshi');
+          const positions = await adapter.getPositions(pw.identifier);
+          allPositions.push(...positions.map(p => ({
+            platform: 'kalshi' as const,
+            walletAddress: pw.identifier,
+            tokenId: p.marketId,
+            conditionId: p.marketId, // Use ticker as cross-ref key
+            outcome: p.outcome,
+            marketTitle: p.marketTitle,
+            size: p.size,
+            avgPrice: p.avgPrice,
+            currentPrice: p.currentPrice,
+            side: p.side,
+          })));
+        } else {
+          // Polymarket: use existing method
+          const positions = await this.getWalletPositions(pw.identifier);
+          allPositions.push(...positions);
+        }
       } catch (err: any) {
-        console.warn(`[EntityManager] Could not fetch positions for ${addr.slice(0, 10)}:`, err.message);
+        console.warn(`[EntityManager] Could not fetch ${pw.platform} positions for ${pw.identifier.slice(0, 10)}:`, err.message);
       }
     }
 
@@ -306,6 +402,7 @@ export class EntityManager {
       try {
         const domePositions = await domeGetPositions(walletAddress);
         return domePositions.map((p: any) => ({
+          platform: 'polymarket' as const,
           walletAddress,
           tokenId: p.token_id || p.asset || '',
           conditionId: p.condition_id || p.conditionId || '',
@@ -323,6 +420,7 @@ export class EntityManager {
 
     const positions = await this.api.getUserPositions(walletAddress);
     return positions.map((p: any) => ({
+      platform: 'polymarket' as const,
       walletAddress,
       tokenId: p.asset || '',
       conditionId: p.conditionId || '',
@@ -348,6 +446,113 @@ export class EntityManager {
   }
 
   // ============================================================
+  // CROSS-PLATFORM HEDGE DETECTION
+  // ============================================================
+
+  /**
+   * Detect hedging across platforms for all entities.
+   * Finds entities that have positions on both Polymarket and Kalshi for the same event.
+   * Uses Dome's matching markets API when available.
+   */
+  async detectCrossPlatformHedges(): Promise<CrossPlatformHedge[]> {
+    const results: CrossPlatformHedge[] = [];
+
+    for (const entity of this.entities) {
+      const platformWallets = entity.platformWallets || entity.walletAddresses.map(a => ({ platform: 'polymarket' as const, identifier: a }));
+
+      const polyWallets = platformWallets.filter(w => w.platform === 'polymarket');
+      const kalshiWallets = platformWallets.filter(w => w.platform === 'kalshi');
+
+      if (polyWallets.length === 0 || kalshiWallets.length === 0) continue;
+
+      // Gather positions from both platforms
+      const polyPositions: WalletPosition[] = [];
+      const kalshiPositions: WalletPosition[] = [];
+
+      for (const pw of polyWallets) {
+        try {
+          const pos = await this.getWalletPositions(pw.identifier);
+          polyPositions.push(...pos);
+        } catch { /* skip */ }
+      }
+
+      for (const kw of kalshiWallets) {
+        try {
+          const adapter = getAdapter('kalshi');
+          const pos = await adapter.getPositions(kw.identifier);
+          kalshiPositions.push(...pos.map(p => ({
+            platform: 'kalshi' as const,
+            walletAddress: kw.identifier,
+            tokenId: p.marketId,
+            conditionId: p.marketId,
+            outcome: p.outcome,
+            marketTitle: p.marketTitle,
+            size: p.size,
+            avgPrice: p.avgPrice,
+            currentPrice: p.currentPrice,
+            side: p.side,
+          })));
+        } catch { /* skip */ }
+      }
+
+      if (polyPositions.length === 0 || kalshiPositions.length === 0) continue;
+
+      // Try to match markets across platforms by title similarity
+      for (const pp of polyPositions) {
+        for (const kp of kalshiPositions) {
+          const titleMatch = this.fuzzyTitleMatch(pp.marketTitle, kp.marketTitle);
+          if (!titleMatch) continue;
+
+          const isHedged = pp.side !== kp.side;
+          results.push({
+            entityId: entity.id,
+            entityLabel: entity.label,
+            eventTitle: pp.marketTitle,
+            polymarketPosition: {
+              walletAddress: pp.walletAddress,
+              side: pp.side,
+              size: pp.size,
+              price: pp.currentPrice,
+              marketSlug: pp.tokenId,
+            },
+            kalshiPosition: {
+              ticker: kp.tokenId,
+              side: kp.side,
+              size: kp.size,
+              price: kp.currentPrice,
+            },
+            isHedged,
+            netExposure: isHedged
+              ? (pp.size > kp.size ? `YES-heavy (${(pp.size - kp.size).toFixed(2)})` : `NO-heavy (${(kp.size - pp.size).toFixed(2)})`)
+              : `Same side (${pp.side})`,
+            detectedAt: new Date().toISOString(),
+          });
+        }
+      }
+    }
+
+    this.crossPlatformHedges = results;
+    if (results.length > 0) {
+      console.log(`[EntityManager] Detected ${results.length} cross-platform hedge(s)`);
+    }
+    return results;
+  }
+
+  /**
+   * Fuzzy match market titles across platforms.
+   * Basic approach: normalize and check overlap of significant words.
+   */
+  private fuzzyTitleMatch(a: string, b: string): boolean {
+    const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter(w => w.length > 2);
+    const wordsA = normalize(a);
+    const wordsB = normalize(b);
+    if (wordsA.length === 0 || wordsB.length === 0) return false;
+    const overlap = wordsA.filter(w => wordsB.includes(w)).length;
+    const minLen = Math.min(wordsA.length, wordsB.length);
+    return overlap / minLen >= 0.5; // At least 50% word overlap
+  }
+
+  // ============================================================
   // STATUS / QUERY
   // ============================================================
 
@@ -355,10 +560,20 @@ export class EntityManager {
    * Get current status.
    */
   getStatus() {
+    const totalPlatformWallets = this.entities.reduce(
+      (s, e) => s + (e.platformWallets?.length || e.walletAddresses.length), 0
+    );
     return {
       entityCount: this.entities.length,
-      totalWalletsMapped: this.entities.reduce((s, e) => s + e.walletAddresses.length, 0),
+      totalWalletsMapped: totalPlatformWallets,
+      polymarketWallets: this.entities.reduce(
+        (s, e) => s + (e.platformWallets?.filter(p => p.platform === 'polymarket').length || e.walletAddresses.length), 0
+      ),
+      kalshiAccounts: this.entities.reduce(
+        (s, e) => s + (e.platformWallets?.filter(p => p.platform === 'kalshi').length || 0), 0
+      ),
       hedgesDetected: this.hedges.length,
+      crossPlatformHedgesDetected: this.crossPlatformHedges.length,
       lastAnalysisTime: this.lastAnalysisTime,
     };
   }
@@ -368,6 +583,13 @@ export class EntityManager {
    */
   getHedges(): DetectedHedge[] {
     return [...this.hedges];
+  }
+
+  /**
+   * Get detected cross-platform hedges.
+   */
+  getCrossPlatformHedges(): CrossPlatformHedge[] {
+    return [...this.crossPlatformHedges];
   }
 
   // ============================================================

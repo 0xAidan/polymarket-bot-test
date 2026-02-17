@@ -1,4 +1,5 @@
 import { getDomeClient, isDomeConfigured, domeGetMarketPrice } from './domeClient.js';
+import { getAdapter, isPlatformConfigured } from './platform/platformRegistry.js';
 import { Storage } from './storage.js';
 
 // ============================================================================

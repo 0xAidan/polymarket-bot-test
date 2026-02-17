@@ -108,6 +108,10 @@ const API = {
     return this.patch(`/wallets/${address}/label`, { label });
   },
 
+  async updateWalletTags(address, tags) {
+    return this.patch(`/wallets/${address}/tags`, { tags });
+  },
+
   async updateWalletTradeConfig(address, config) {
     return this.patch(`/wallets/${address}/trade-config`, config);
   },
@@ -116,7 +120,7 @@ const API = {
     return this.delete(`/wallets/${address}/trade-config`);
   },
 
-  async getWalletBalance(address) {
+  async getTrackedWalletBalance(address) {
     return this.get(`/wallets/${address}/balance`);
   },
 
@@ -319,8 +323,12 @@ const API = {
     return this.get('/trading-wallets');
   },
 
-  async addTradingWallet(id, label, privateKey, masterPassword) {
-    return this.post('/trading-wallets', { id, label, privateKey, masterPassword });
+  async addTradingWallet(id, label, privateKey, masterPassword, apiKey, apiSecret, apiPassphrase) {
+    return this.post('/trading-wallets', { id, label, privateKey, masterPassword, apiKey, apiSecret, apiPassphrase });
+  },
+
+  async updateTradingWalletCredentials(id, apiKey, apiSecret, apiPassphrase, masterPassword) {
+    return this.patch(`/trading-wallets/${id}/credentials`, { apiKey, apiSecret, apiPassphrase, masterPassword });
   },
 
   async removeTradingWallet(id) {
@@ -344,6 +352,170 @@ const API = {
       method: 'DELETE',
       body: JSON.stringify({ trackedWalletAddress, tradingWalletId })
     });
+  },
+
+  // ============================================================
+  // PLATFORM (Multi-platform)
+  // ============================================================
+
+  async getPlatforms() {
+    return this.get('/platforms');
+  },
+
+  async getPlatformBalance(platform) {
+    return this.get(`/platforms/${platform}/balance`);
+  },
+
+  async getPlatformPositions(platform, identifier) {
+    return this.get(`/platforms/${platform}/positions/${identifier}`);
+  },
+
+  // ============================================================
+  // ENTITIES (Platform Wallets + Cross-Platform Hedges)
+  // ============================================================
+
+  async getEntities() {
+    return this.get('/entities');
+  },
+
+  async addPlatformWallet(entityId, platform, identifier, label) {
+    return this.post(`/entities/${entityId}/platform-wallet`, { platform, identifier, label });
+  },
+
+  async removePlatformWallet(entityId, platform, identifier) {
+    return this.delete(`/entities/${entityId}/platform-wallet/${platform}/${identifier}`);
+  },
+
+  async detectCrossPlatformHedges() {
+    return this.post('/entities/cross-platform-hedges');
+  },
+
+  async getCrossPlatformHedges() {
+    return this.get('/entities/cross-platform-hedges');
+  },
+
+  // ============================================================
+  // CROSS-PLATFORM EXECUTOR
+  // ============================================================
+
+  async getExecutorStatus() {
+    return this.get('/executor/status');
+  },
+
+  async getExecutorHistory() {
+    return this.get('/executor/history');
+  },
+
+  async getExecutorConfig() {
+    return this.get('/executor/config');
+  },
+
+  async updateExecutorConfig(config) {
+    return this.post('/executor/config', config);
+  },
+
+  async executeArb(trade) {
+    return this.post('/executor/arb', trade);
+  },
+
+  async executeHedge(params) {
+    return this.post('/executor/hedge', params);
+  },
+
+  // ============================================================
+  // ARBITRAGE SCANNER
+  // ============================================================
+
+  async getArbStatus() {
+    return this.get('/arb/status');
+  },
+
+  async getArbOpportunities() {
+    return this.get('/arb/opportunities');
+  },
+
+  async scanArbitrage() {
+    return this.post('/arb/scan');
+  },
+
+  // ============================================================
+  // HEDGE RECOMMENDATIONS
+  // ============================================================
+
+  async getHedgeRecommendations() {
+    return this.get('/hedge/recommendations');
+  },
+
+  async generateHedgeRecommendations() {
+    return this.post('/hedge/generate');
+  },
+
+  // ============================================================
+  // CROSS-PLATFORM P&L
+  // ============================================================
+
+  async getPnlStatus() {
+    return this.get('/pnl/status');
+  },
+
+  async calculatePnl(walletsByPlatform) {
+    return this.post('/pnl/calculate', { walletsByPlatform });
+  },
+
+  async getPnlHistory() {
+    return this.get('/pnl/history');
+  },
+
+  async smartRoute(params) {
+    return this.post('/smart-route', params);
+  },
+
+  async getMatchedMarkets() {
+    return this.get('/matched-markets');
+  },
+
+  // ============================================================
+  // LADDER EXITS
+  // ============================================================
+
+  async getLadderStatus() {
+    return this.get('/ladder/status');
+  },
+
+  async getLadders(activeOnly = false) {
+    return this.get(`/ladder/all?active=${activeOnly}`);
+  },
+
+  async createLadder(params) {
+    return this.post('/ladder/create', params);
+  },
+
+  async cancelLadder(id) {
+    return this.post(`/ladder/cancel/${id}`);
+  },
+
+  async updateLadderConfig(config) {
+    return this.post('/ladder/config', config);
+  },
+
+  async getTradingWalletPositions(walletId) {
+    return this.get(`/trading-wallets/${walletId}/positions`);
+  },
+
+  // ============================================================
+  // PRICE MONITOR
+  // ============================================================
+
+  async getPriceMonitorStatus() {
+    return this.get('/pricemonitor/status');
+  },
+
+  async startPriceMonitor() {
+    return this.post('/pricemonitor/start');
+  },
+
+  async stopPriceMonitor() {
+    return this.post('/pricemonitor/stop');
   }
 };
 

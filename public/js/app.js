@@ -45,6 +45,12 @@ function refreshCurrentTab() {
     case 'trading-wallets':
       loadTradingWallets();
       break;
+    case 'platforms':
+      loadPlatformStatus();
+      break;
+    case 'cross-platform':
+      refreshExecutorStatus();
+      break;
   }
 }
 
@@ -57,7 +63,9 @@ async function loadAllData() {
       loadTrades(),
       loadWallets(),
       loadSettings(),
-      checkLockStatus()
+      loadPlatformStatus().catch(() => {}),
+      checkLockStatus(),
+      loadLadderStatus().catch(() => {})
     ]);
   } catch (error) {
     console.error('Error loading data:', error);
@@ -90,7 +98,8 @@ async function loadDashboardData() {
     loadStatus(),
     loadWalletBalance(),
     loadPerformance(),
-    loadTrades()
+    loadTrades(),
+    loadLadderStatus()
   ]);
 }
 
@@ -175,16 +184,31 @@ async function loadTrades() {
       return;
     }
     
-    tbody.innerHTML = data.trades.map(trade => `
-      <tr>
-        <td>${new Date(trade.timestamp).toLocaleTimeString()}</td>
-        <td>${trade.walletLabel || trade.walletAddress.slice(0, 8)}...</td>
+    const sortedTrades = [...data.trades].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    
+    tbody.innerHTML = sortedTrades.map(trade => {
+      // Show the executed amount (bot's trade size) if available, otherwise detected amount
+      const displayAmount = trade.executedAmount
+        ? parseFloat(trade.executedAmount)
+        : parseFloat(trade.amount || 0);
+      const displayPrice = trade.executedPrice
+        ? parseFloat(trade.executedPrice)
+        : parseFloat(trade.price || 0);
+      // Calculate USD value: shares * price
+      const usdValue = displayAmount * displayPrice;
+      // Format: show USD value for executed trades, share count for detected-only
+      const amountDisplay = trade.executedAmount
+        ? `$${usdValue.toFixed(2)}`
+        : `$${usdValue.toFixed(2)}`;
+      return `<tr>
+        <td>${new Date(trade.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
+        <td>${trade.walletLabel || trade.walletAddress.slice(0, 8)}...${(trade.walletTags && trade.walletTags.length > 0) ? ' ' + trade.walletTags.map(t => `<span class="tag-badge ${TAG_COLOR_MAP[t] || ''}">${t}</span>`).join('') : ''}</td>
         <td>${trade.marketId?.slice(0, 12)}...</td>
         <td>${trade.outcome} ${trade.side || 'BUY'}</td>
-        <td>$${parseFloat(trade.amount || 0).toFixed(2)}</td>
+        <td>${amountDisplay}</td>
         <td><span class="status-pill ${trade.success ? 'success' : (trade.status === 'pending' ? 'pending' : 'failed')}">${trade.status || (trade.success ? 'OK' : 'FAIL')}</span></td>
-      </tr>
-    `).join('');
+      </tr>`;
+    }).join('');
   } catch (error) {
     console.error('Error loading trades:', error);
   }
@@ -227,6 +251,47 @@ async function stopBot() {
 
 let currentWalletAddress = null;
 
+// Active tag filter (empty string = show all)
+let activeTagFilter = '';
+
+const TAG_COLOR_MAP = {
+  sports: 'tag-sports',
+  politics: 'tag-politics',
+  insider: 'tag-insider',
+  crypto: 'tag-crypto',
+  markets: 'tag-markets'
+};
+
+const renderTagBadges = (tags) => {
+  if (!tags || tags.length === 0) return '';
+  return tags.map(tag => {
+    const cls = TAG_COLOR_MAP[tag] || '';
+    return `<span class="tag-badge ${cls}">${tag}</span>`;
+  }).join('');
+};
+
+function handleTagFilter(tag) {
+  activeTagFilter = activeTagFilter === tag ? '' : tag;
+  // Re-render without re-fetching
+  const filterBtns = document.querySelectorAll('.tag-filter-btn');
+  filterBtns.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tag === activeTagFilter);
+  });
+  applyWalletTagFilter();
+}
+
+function applyWalletTagFilter() {
+  const entries = document.querySelectorAll('.wallet-entry[data-tags]');
+  entries.forEach(el => {
+    if (!activeTagFilter) {
+      el.style.display = '';
+      return;
+    }
+    const tags = (el.dataset.tags || '').split(',');
+    el.style.display = tags.includes(activeTagFilter) ? '' : 'none';
+  });
+}
+
 async function loadWallets() {
   try {
     const data = await API.getWallets();
@@ -236,17 +301,35 @@ async function loadWallets() {
       list.innerHTML = '<div class="text-center text-muted" style="padding:20px;">No wallets tracked yet. Add a wallet address above to start copy trading.</div>';
       return;
     }
+
+    // Collect all unique tags across wallets for the filter bar
+    const allTags = new Set();
+    data.wallets.forEach(w => (w.tags || []).forEach(t => allTags.add(t)));
+
+    let filterBarHtml = '';
+    if (allTags.size > 0) {
+      filterBarHtml = `<div class="tag-filter-bar">
+        <span class="text-sm text-muted" style="line-height:22px;">Filter:</span>
+        <button class="tag-filter-btn ${!activeTagFilter ? 'active' : ''}" data-tag="" onclick="handleTagFilter('')" aria-label="Show all wallets" tabindex="0">All</button>
+        ${[...allTags].sort().map(tag => `
+          <button class="tag-filter-btn ${activeTagFilter === tag ? 'active' : ''}" data-tag="${tag}" onclick="handleTagFilter('${tag}')" aria-label="Filter by ${tag}" tabindex="0">${tag}</button>
+        `).join('')}
+      </div>`;
+    }
     
-    list.innerHTML = data.wallets.map(wallet => {
+    const walletsHtml = data.wallets.map(wallet => {
       const isActive = wallet.active;
       const configBadges = getWalletConfigBadges(wallet);
+      const tagBadges = renderTagBadges(wallet.tags);
+      const tagsDataAttr = (wallet.tags || []).join(',');
       
       return `
-        <div class="wallet-entry ${isActive ? 'active-wallet' : 'inactive-wallet'}" id="wallet-${wallet.address}">
+        <div class="wallet-entry ${isActive ? 'active-wallet' : 'inactive-wallet'}" id="wallet-${wallet.address}" data-tags="${tagsDataAttr}">
           <div class="wallet-entry-info">
             <div class="wallet-entry-address">
               ${wallet.label ? `<span class="wallet-entry-label">${wallet.label}</span>` : ''}
               <span class="text-mono">${wallet.address.slice(0, 10)}...${wallet.address.slice(-8)}</span>
+              ${tagBadges}
             </div>
             <div class="wallet-entry-config">${configBadges}</div>
           </div>
@@ -264,6 +347,13 @@ async function loadWallets() {
         </div>
       `;
     }).join('');
+
+    list.innerHTML = filterBarHtml + walletsHtml;
+
+    // Apply active filter if set
+    if (activeTagFilter) {
+      applyWalletTagFilter();
+    }
     
     // Fetch balances async
     for (const wallet of data.wallets) {
@@ -410,6 +500,11 @@ async function openWalletModal(address) {
     
     document.getElementById('modalSlippagePercent').value = wallet.slippagePercent || '';
     updateSlippageBadge();
+
+    // Initialize tags
+    const currentTags = wallet.tags || [];
+    document.getElementById('modalWalletTags').value = JSON.stringify(currentTags);
+    refreshModalTagButtons(currentTags);
     
     updateModalPipeline();
     document.getElementById('walletModal').classList.remove('hidden');
@@ -535,11 +630,58 @@ function closeWalletModal() {
   currentWalletAddress = null;
 }
 
+// ---- Tag management for wallet config modal ----
+
+function getModalTags() {
+  try {
+    return JSON.parse(document.getElementById('modalWalletTags').value || '[]');
+  } catch { return []; }
+}
+
+function setModalTags(tags) {
+  document.getElementById('modalWalletTags').value = JSON.stringify(tags);
+  refreshModalTagButtons(tags);
+}
+
+function refreshModalTagButtons(tags) {
+  const btns = document.querySelectorAll('#modalTagButtons .tag-filter-btn');
+  btns.forEach(btn => {
+    btn.classList.toggle('active', tags.includes(btn.dataset.tag));
+  });
+}
+
+function toggleModalTag(tag) {
+  const tags = getModalTags();
+  const idx = tags.indexOf(tag);
+  if (idx >= 0) {
+    tags.splice(idx, 1);
+  } else {
+    tags.push(tag);
+  }
+  setModalTags(tags);
+}
+
+function addCustomModalTag() {
+  const input = document.getElementById('modalCustomTag');
+  const tag = input.value.trim().toLowerCase();
+  if (!tag) return;
+  const tags = getModalTags();
+  if (!tags.includes(tag)) {
+    tags.push(tag);
+    setModalTags(tags);
+  }
+  input.value = '';
+}
+
+// ---- End tag management ----
+
 async function saveWalletConfig() {
   if (!currentWalletAddress) return;
   try {
     const config = collectModalConfig();
+    const tags = getModalTags();
     await API.updateWalletLabel(currentWalletAddress, document.getElementById('modalWalletLabel').value.trim());
+    await API.updateWalletTags(currentWalletAddress, tags);
     await API.updateWalletTradeConfig(currentWalletAddress, config);
     alert('Configuration saved (wallet remains inactive until enabled)');
     closeWalletModal();
@@ -551,7 +693,9 @@ async function saveWalletConfigAndEnable() {
   if (!currentWalletAddress) return;
   try {
     const config = collectModalConfig();
+    const tags = getModalTags();
     await API.updateWalletLabel(currentWalletAddress, document.getElementById('modalWalletLabel').value.trim());
+    await API.updateWalletTags(currentWalletAddress, tags);
     await API.updateWalletTradeConfig(currentWalletAddress, config);
     await API.toggleWallet(currentWalletAddress, true);
     alert('Configuration saved and wallet enabled!');
@@ -713,6 +857,11 @@ async function checkLockStatus() {
       document.getElementById('unlockSection').classList.add('hidden');
       document.getElementById('tradingWalletsSection').classList.remove('hidden');
       loadTradingWallets();
+    } else {
+      // Show the right messaging based on whether wallets exist
+      const isFirstTime = (data.storedWalletCount || 0) === 0;
+      document.getElementById('unlockFirstTime').classList.toggle('hidden', !isFirstTime);
+      document.getElementById('unlockReturning').classList.toggle('hidden', isFirstTime);
     }
   } catch (error) { console.error('Error checking lock status:', error); }
 }
@@ -753,8 +902,15 @@ async function loadTradingWallets() {
             <div class="text-bold">${w.label} <span class="win-badge ${w.isActive ? 'badge-success' : ''}">${w.id}</span></div>
             <div class="text-mono text-sm">${w.address}</div>
             <div class="text-sm text-muted">Created: ${new Date(w.createdAt).toLocaleDateString()}</div>
+            <div class="text-sm" style="margin-top:2px;">
+              ${w.hasCredentials
+                ? '<span style="color:var(--win-green,green);">Builder API: Configured</span>'
+                : '<span style="color:var(--win-red,#c00);font-weight:bold;">Builder API: Missing — cannot trade</span>'
+              }
+            </div>
           </div>
           <div class="flex-row gap-4">
+            ${!w.hasCredentials ? `<button class="win-btn win-btn-sm" onclick="openBuilderCredsModal('${w.id}', '${w.label.replace(/'/g, "\\'")}')" title="Add Builder API credentials">Add Creds</button>` : `<button class="win-btn win-btn-sm" onclick="openBuilderCredsModal('${w.id}', '${w.label.replace(/'/g, "\\'")}')" title="Update Builder API credentials">Update Creds</button>`}
             <label class="win-toggle">
               <input type="checkbox" ${w.isActive ? 'checked' : ''} onchange="toggleTradingWalletActive('${w.id}', this.checked)">
             </label>
@@ -801,15 +957,31 @@ async function addNewTradingWallet() {
   const id = document.getElementById('newTradingWalletId').value.trim();
   const label = document.getElementById('newTradingWalletLabel').value.trim();
   const pk = document.getElementById('newTradingWalletKey').value.trim();
+  const apiKey = document.getElementById('newTradingWalletApiKey').value.trim();
+  const apiSecret = document.getElementById('newTradingWalletApiSecret').value.trim();
+  const apiPassphrase = document.getElementById('newTradingWalletApiPassphrase').value.trim();
   
-  if (!id || !label || !pk) { alert('All fields are required'); return; }
+  if (!id || !label || !pk) { alert('Wallet ID, Label, and Private Key are required'); return; }
   if (!masterPassword) { alert('Wallets must be unlocked first'); return; }
   
+  if (!apiKey || !apiSecret || !apiPassphrase) {
+    const proceed = confirm(
+      'WARNING: You have not entered Builder API credentials.\n\n' +
+      'Without these, this wallet CANNOT place orders on Polymarket.\n' +
+      'Get them from: polymarket.com/settings → Builder tab\n\n' +
+      'Add wallet anyway (credentials can be added later)?'
+    );
+    if (!proceed) return;
+  }
+  
   try {
-    await API.addTradingWallet(id, label, pk, masterPassword);
+    await API.addTradingWallet(id, label, pk, masterPassword, apiKey, apiSecret, apiPassphrase);
     document.getElementById('newTradingWalletId').value = '';
     document.getElementById('newTradingWalletLabel').value = '';
     document.getElementById('newTradingWalletKey').value = '';
+    document.getElementById('newTradingWalletApiKey').value = '';
+    document.getElementById('newTradingWalletApiSecret').value = '';
+    document.getElementById('newTradingWalletApiPassphrase').value = '';
     alert('Trading wallet added!');
     await loadTradingWallets();
   } catch (error) {
@@ -826,6 +998,125 @@ async function removeTradingWalletUI(id) {
 async function toggleTradingWalletActive(id, active) {
   try { await API.toggleTradingWallet(id, active); await loadTradingWallets(); }
   catch (error) { alert(`Failed: ${error.message}`); await loadTradingWallets(); }
+}
+
+// ============================================================
+// BUILDER CREDENTIALS MODAL
+// ============================================================
+
+function openBuilderCredsModal(walletId, walletLabel) {
+  if (!masterPassword) { alert('Wallets must be unlocked first'); return; }
+
+  document.getElementById('builderCredsWalletId').value = walletId;
+  document.getElementById('builderCredsWalletLabel').textContent = `${walletLabel} (${walletId})`;
+
+  // Clear previous values
+  document.getElementById('builderCredsApiKey').value = '';
+  document.getElementById('builderCredsApiSecret').value = '';
+  document.getElementById('builderCredsPassphrase').value = '';
+
+  // Reset all fields to password type
+  ['builderCredsApiKey', 'builderCredsApiSecret', 'builderCredsPassphrase'].forEach(id => {
+    const input = document.getElementById(id);
+    input.type = 'password';
+    const btn = input.parentElement.querySelector('button');
+    if (btn) btn.textContent = 'Show';
+  });
+
+  // Hide any previous error
+  document.getElementById('builderCredsError').classList.add('hidden');
+
+  // Show modal
+  document.getElementById('builderCredsModal').classList.remove('hidden');
+
+  // Focus the first field
+  setTimeout(() => document.getElementById('builderCredsApiKey').focus(), 50);
+}
+
+function closeBuilderCredsModal() {
+  document.getElementById('builderCredsModal').classList.add('hidden');
+
+  // Clear sensitive data from inputs on close
+  document.getElementById('builderCredsApiKey').value = '';
+  document.getElementById('builderCredsApiSecret').value = '';
+  document.getElementById('builderCredsPassphrase').value = '';
+}
+
+function toggleCredFieldVisibility(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.textContent = 'Hide';
+  } else {
+    input.type = 'password';
+    btn.textContent = 'Show';
+  }
+}
+
+async function submitBuilderCredentials() {
+  const walletId = document.getElementById('builderCredsWalletId').value;
+  const apiKey = document.getElementById('builderCredsApiKey').value.trim();
+  const apiSecret = document.getElementById('builderCredsApiSecret').value.trim();
+  const apiPassphrase = document.getElementById('builderCredsPassphrase').value.trim();
+
+  const errorEl = document.getElementById('builderCredsError');
+  const errorText = document.getElementById('builderCredsErrorText');
+
+  // Validate all fields are filled
+  if (!apiKey || !apiSecret || !apiPassphrase) {
+    errorEl.classList.remove('hidden');
+    errorText.textContent = 'All three fields are required.';
+    return;
+  }
+
+  if (!masterPassword) {
+    errorEl.classList.remove('hidden');
+    errorText.textContent = 'Wallets must be unlocked first.';
+    return;
+  }
+
+  // Hide error
+  errorEl.classList.add('hidden');
+
+  try {
+    await API.updateTradingWalletCredentials(walletId, apiKey, apiSecret, apiPassphrase, masterPassword);
+    closeBuilderCredsModal();
+    await loadTradingWallets();
+  } catch (error) {
+    errorEl.classList.remove('hidden');
+    errorText.textContent = `Failed: ${error.message}`;
+  }
+}
+
+// Close modal on Escape key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const modal = document.getElementById('builderCredsModal');
+    if (modal && !modal.classList.contains('hidden')) {
+      closeBuilderCredsModal();
+    }
+  }
+});
+
+// Close modal when clicking the overlay background
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'builderCredsModal') {
+    closeBuilderCredsModal();
+  }
+});
+
+// Legacy alias for backward compat
+function promptBuilderCredentials(walletId) {
+  // Find the wallet label from the DOM
+  const cards = document.querySelectorAll('.trading-wallet-card');
+  let label = walletId;
+  cards.forEach(card => {
+    if (card.innerHTML.includes(`'${walletId}'`)) {
+      const boldEl = card.querySelector('.text-bold');
+      if (boldEl) label = boldEl.childNodes[0]?.textContent?.trim() || walletId;
+    }
+  });
+  openBuilderCredsModal(walletId, label);
 }
 
 async function loadCopyAssignments() {
@@ -1036,4 +1327,674 @@ function closeMirrorModal() {
   currentMirrorWallet = null;
   currentMirrorTrades = [];
   currentMirrorPreview = null;
+}
+
+// ============================================================
+// LADDER EXITS
+// ============================================================
+
+// Holds the position data the user selected for ladder creation
+let selectedLadderPosition = null;
+
+async function loadLadderStatus() {
+  try {
+    const [statusData, laddersData, monitorData] = await Promise.all([
+      API.getLadderStatus(),
+      API.getLadders(),
+      API.getPriceMonitorStatus()
+    ]);
+
+    // Update status badges
+    const monitorEl = document.getElementById('ladderPriceMonitorStatus');
+    if (monitorData.isRunning) {
+      monitorEl.textContent = 'RUNNING';
+      monitorEl.className = 'win-badge badge-success';
+    } else {
+      monitorEl.textContent = 'OFF';
+      monitorEl.className = 'win-badge';
+    }
+
+    const modeEl = document.getElementById('ladderModeStatus');
+    if (statusData.config && statusData.config.liveMode) {
+      modeEl.textContent = 'LIVE';
+      modeEl.className = 'win-badge badge-danger';
+    } else {
+      modeEl.textContent = 'PAPER';
+      modeEl.className = 'win-badge badge-warning';
+    }
+
+    // Pre-fill ladder config defaults from server config
+    if (statusData.config) {
+      const cfg = statusData.config;
+      if (cfg.defaultStepCount) document.getElementById('ladderStepCount').value = cfg.defaultStepCount;
+      if (cfg.defaultStartPercent) document.getElementById('ladderStartPercent').value = cfg.defaultStartPercent;
+      if (cfg.defaultStepSpread) document.getElementById('ladderStepSpread').value = cfg.defaultStepSpread;
+      if (cfg.defaultSellPercent) document.getElementById('ladderSellPercent').value = cfg.defaultSellPercent;
+    }
+
+    // Render active ladders
+    const container = document.getElementById('activeLaddersList');
+    const ladders = laddersData.ladders || [];
+    const activeLadders = ladders.filter(l => l.isActive);
+    const completedLadders = ladders.filter(l => !l.isActive);
+
+    if (activeLadders.length === 0 && completedLadders.length === 0) {
+      container.innerHTML = '<div class="text-center text-muted" style="padding:12px;">No ladders configured. Click "+ New Ladder" to set up automatic take-profit levels from your positions.</div>';
+      return;
+    }
+
+    let html = '';
+
+    for (const ladder of activeLadders) {
+      const executedSteps = ladder.steps.filter(s => s.executed).length;
+      const totalSteps = ladder.steps.length;
+      const progressPct = totalSteps > 0 ? Math.round((executedSteps / totalSteps) * 100) : 0;
+
+      html += `
+        <div style="background:var(--win-surface);border:1px solid var(--win-dark);padding:8px;margin-bottom:4px;">
+          <div class="flex-between">
+            <div>
+              <span class="text-bold">${ladder.marketTitle || ladder.tokenId.slice(0, 12) + '...'}</span>
+              <span class="win-badge badge-success">${ladder.outcome}</span>
+              <span class="text-sm text-muted">Entry: $${ladder.entryPrice.toFixed(2)}</span>
+            </div>
+            <button class="win-btn win-btn-sm win-btn-danger" onclick="cancelLadder('${ladder.id}')" aria-label="Cancel this ladder exit" tabindex="0">Cancel</button>
+          </div>
+          <div class="flex-row gap-8 mt-4" style="margin-top:4px;">
+            <span class="text-sm">Remaining: ${ladder.remainingShares.toFixed(1)} / ${ladder.totalShares.toFixed(1)} shares</span>
+            <span class="text-sm">Steps: ${executedSteps}/${totalSteps}</span>
+          </div>
+          <div style="background:var(--win-dark);height:6px;margin-top:4px;border:1px inset;">
+            <div style="background:#00aa00;height:100%;width:${progressPct}%;"></div>
+          </div>
+          <div class="flex-row gap-4 mt-4" style="margin-top:4px;flex-wrap:wrap;">
+            ${ladder.steps.map((step, i) => `
+              <span class="text-sm" style="padding:2px 4px;border:1px solid var(--win-dark);background:${step.executed ? '#d4edda' : 'var(--win-surface)'};">
+                $${step.triggerPrice.toFixed(2)} (${step.sellPercent}%)
+                ${step.executed ? ' &#10003;' : ''}
+              </span>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    if (completedLadders.length > 0) {
+      html += `<div class="text-sm text-muted" style="padding:4px 0;margin-top:4px;">${completedLadders.length} completed ladder(s)</div>`;
+    }
+
+    container.innerHTML = html;
+  } catch (error) {
+    console.error('Error loading ladder status:', error);
+  }
+}
+
+async function openCreateLadderForm() {
+  const form = document.getElementById('createLadderForm');
+  form.classList.remove('hidden');
+  document.getElementById('ladderConfigPanel').classList.add('hidden');
+  selectedLadderPosition = null;
+
+  // Populate trading wallet dropdown
+  const select = document.getElementById('ladderWalletSelect');
+  try {
+    const data = await API.getTradingWallets();
+    const wallets = data.wallets || [];
+    select.innerHTML = '<option value="">-- Select a wallet --</option>';
+    for (const w of wallets) {
+      const label = w.label || w.id;
+      const addr = w.address ? ` (${w.address.slice(0, 6)}...${w.address.slice(-4)})` : '';
+      const activeTag = w.isActive ? '' : ' [inactive]';
+      select.innerHTML += `<option value="${w.id}">${label}${addr}${activeTag}</option>`;
+    }
+    if (wallets.length === 0) {
+      select.innerHTML = '<option value="">No trading wallets configured</option>';
+    }
+  } catch (error) {
+    select.innerHTML = '<option value="">Failed to load wallets</option>';
+    console.error('Error loading trading wallets for ladder:', error);
+  }
+
+  document.getElementById('ladderPositionsList').innerHTML =
+    '<div class="text-center text-muted" style="padding:12px;">Select a trading wallet to see your positions</div>';
+}
+
+function closeCreateLadderForm() {
+  document.getElementById('createLadderForm').classList.add('hidden');
+  document.getElementById('ladderConfigPanel').classList.add('hidden');
+  selectedLadderPosition = null;
+}
+
+async function loadWalletPositionsForLadder() {
+  const walletId = document.getElementById('ladderWalletSelect').value;
+  const container = document.getElementById('ladderPositionsList');
+
+  if (!walletId) {
+    container.innerHTML = '<div class="text-center text-muted" style="padding:12px;">Select a trading wallet to see your positions</div>';
+    return;
+  }
+
+  container.innerHTML = '<div class="text-center text-muted" style="padding:12px;">Loading positions...</div>';
+
+  try {
+    const data = await API.getTradingWalletPositions(walletId);
+    const positions = (data.positions || []).filter(p => parseFloat(p.size) > 0);
+
+    if (positions.length === 0) {
+      container.innerHTML = '<div class="text-center text-muted" style="padding:12px;">No open positions found for this wallet</div>';
+      return;
+    }
+
+    let html = '';
+    for (const pos of positions) {
+      const size = parseFloat(pos.size || 0);
+      const avgPrice = parseFloat(pos.avgPrice || 0);
+      const curPrice = parseFloat(pos.curPrice || 0);
+      const pnl = (curPrice - avgPrice) * size;
+      const pnlPct = avgPrice > 0 ? ((curPrice - avgPrice) / avgPrice * 100) : 0;
+      const pnlColor = pnl >= 0 ? '#00aa00' : '#cc0000';
+      const title = pos.title || pos.conditionId?.slice(0, 16) || 'Unknown Market';
+      const outcome = pos.outcome || 'Yes';
+
+      // Escape data for onclick
+      const posJson = JSON.stringify({
+        tokenId: pos.asset,
+        conditionId: pos.conditionId,
+        marketTitle: title,
+        outcome: outcome.toUpperCase(),
+        entryPrice: avgPrice,
+        curPrice: curPrice,
+        totalShares: size
+      }).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+
+      html += `
+        <div style="background:var(--win-surface);border:1px solid var(--win-dark);padding:8px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;">
+          <div style="flex:1;min-width:0;">
+            <div class="text-bold" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${title}</div>
+            <div class="flex-row gap-8" style="margin-top:2px;">
+              <span class="win-badge ${outcome.toUpperCase() === 'YES' ? 'badge-success' : 'badge-danger'}">${outcome}</span>
+              <span class="text-sm">${size.toFixed(1)} shares</span>
+              <span class="text-sm">Avg: $${avgPrice.toFixed(3)}</span>
+              <span class="text-sm">Now: $${curPrice.toFixed(3)}</span>
+              <span class="text-sm" style="color:${pnlColor};font-weight:bold;">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)</span>
+            </div>
+          </div>
+          <button class="win-btn win-btn-sm win-btn-primary" style="margin-left:8px;white-space:nowrap;"
+            onclick="selectPositionForLadder(this, '${posJson}')"
+            aria-label="Add ladder exit for ${title}" tabindex="0">
+            Add Ladder
+          </button>
+        </div>
+      `;
+    }
+
+    container.innerHTML = html;
+  } catch (error) {
+    container.innerHTML = `<div class="text-center text-muted" style="padding:12px;">Failed to load positions: ${error.message}</div>`;
+    console.error('Error loading positions for ladder:', error);
+  }
+}
+
+function selectPositionForLadder(btn, posJsonEncoded) {
+  const pos = JSON.parse(posJsonEncoded.replace(/&quot;/g, '"'));
+  selectedLadderPosition = pos;
+
+  // Show config panel
+  const panel = document.getElementById('ladderConfigPanel');
+  panel.classList.remove('hidden');
+
+  // Update summary
+  const summary = document.getElementById('ladderConfigPositionSummary');
+  summary.innerHTML = `<strong>${pos.marketTitle}</strong> | ${pos.outcome} | ${pos.totalShares.toFixed(1)} shares @ $${pos.entryPrice.toFixed(3)} (now $${pos.curPrice.toFixed(3)})`;
+
+  // Scroll config panel into view
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function cancelLadderConfig() {
+  document.getElementById('ladderConfigPanel').classList.add('hidden');
+  selectedLadderPosition = null;
+}
+
+async function confirmCreateLadder() {
+  if (!selectedLadderPosition) {
+    alert('No position selected. Please select a position first.');
+    return;
+  }
+
+  const stepCount = parseInt(document.getElementById('ladderStepCount').value) || 4;
+  const startPercent = parseFloat(document.getElementById('ladderStartPercent').value) || 10;
+  const stepSpread = parseFloat(document.getElementById('ladderStepSpread').value) || 10;
+  const sellPercent = parseFloat(document.getElementById('ladderSellPercent').value) || 25;
+
+  // Build steps array from the config
+  const steps = [];
+  for (let i = 0; i < stepCount; i++) {
+    const triggerPct = startPercent + (i * stepSpread);
+    const triggerPrice = selectedLadderPosition.entryPrice * (1 + triggerPct / 100);
+    steps.push({
+      triggerPrice: Math.min(triggerPrice, 0.99),
+      sellPercent: sellPercent
+    });
+  }
+
+  try {
+    await API.createLadder({
+      tokenId: selectedLadderPosition.tokenId,
+      conditionId: selectedLadderPosition.conditionId || selectedLadderPosition.tokenId,
+      marketTitle: selectedLadderPosition.marketTitle,
+      outcome: selectedLadderPosition.outcome,
+      entryPrice: selectedLadderPosition.entryPrice,
+      totalShares: selectedLadderPosition.totalShares,
+      steps: steps
+    });
+    cancelLadderConfig();
+    closeCreateLadderForm();
+    await loadLadderStatus();
+  } catch (error) {
+    alert(`Failed to create ladder: ${error.message}`);
+  }
+}
+
+async function cancelLadder(id) {
+  if (!confirm('Cancel this ladder exit? No further steps will execute.')) return;
+  try {
+    await API.cancelLadder(id);
+    await loadLadderStatus();
+  } catch (error) {
+    alert(`Failed to cancel ladder: ${error.message}`);
+  }
+}
+
+async function toggleLadderLiveMode() {
+  try {
+    const status = await API.getLadderStatus();
+    const currentLive = status.config?.liveMode || false;
+    const newMode = !currentLive;
+
+    if (newMode && !confirm('Enable LIVE mode? Ladder steps will execute REAL sell orders on Polymarket. Make sure you understand the risks.')) {
+      return;
+    }
+
+    await API.updateLadderConfig({ liveMode: newMode });
+    await loadLadderStatus();
+  } catch (error) {
+    alert(`Failed to toggle mode: ${error.message}`);
+  }
+}
+
+// ============================================================
+// PLATFORMS TAB
+// ============================================================
+
+async function loadPlatformStatus() {
+  loadEntityPlatformMap();
+  try {
+    const data = await API.getPlatforms();
+    const grid = document.getElementById('platformStatusGrid');
+    if (!data.platforms || data.platforms.length === 0) {
+      grid.innerHTML = '<div class="text-center text-muted">No platforms configured</div>';
+      return;
+    }
+
+    grid.innerHTML = data.platforms.map(p => `
+      <div class="platform-card ${p.configured ? 'configured' : 'not-configured'}">
+        <div class="platform-card-header">
+          <span class="platform-icon">${p.platform === 'polymarket' ? '&#9670;' : '&#9679;'}</span>
+          <strong>${p.label}</strong>
+          <span class="platform-badge ${p.configured ? 'badge-success' : 'badge-warning'}">
+            ${p.configured ? 'Connected' : 'Not Configured'}
+          </span>
+        </div>
+        <div class="platform-card-body">
+          <div>Data: ${p.configured ? 'Available' : 'Unavailable'}</div>
+          <div>Execution: ${p.canExecute ? 'Ready' : 'No credentials'}</div>
+        </div>
+      </div>
+    `).join('');
+
+    // Update status bar
+    data.platforms.forEach(p => {
+      if (p.platform === 'polymarket') {
+        const el = document.getElementById('statusBarPoly');
+        el.textContent = `POLY: ${p.configured ? 'OK' : '--'}`;
+        el.style.color = p.configured ? '#00aa00' : '#666';
+      }
+      if (p.platform === 'kalshi') {
+        const el = document.getElementById('statusBarKalshi');
+        el.textContent = `KALSHI: ${p.configured ? 'OK' : '--'}`;
+        el.style.color = p.configured ? '#00aa00' : '#666';
+      }
+    });
+
+    // Load balances
+    loadPlatformBalances();
+  } catch (err) {
+    console.error('Failed to load platform status:', err);
+  }
+}
+
+async function loadPlatformBalances() {
+  try {
+    const [polyBal, kalshiBal] = await Promise.allSettled([
+      API.getPlatformBalance('polymarket'),
+      API.getPlatformBalance('kalshi')
+    ]);
+
+    const polyVal = polyBal.status === 'fulfilled' && polyBal.value.balance != null ? polyBal.value.balance : null;
+    const kalshiVal = kalshiBal.status === 'fulfilled' && kalshiBal.value.balance != null ? kalshiBal.value.balance : null;
+
+    document.getElementById('polymarketBalance').textContent = polyVal != null ? `$${polyVal.toFixed(2)}` : '--';
+    document.getElementById('kalshiBalance').textContent = kalshiVal != null ? `$${kalshiVal.toFixed(2)}` : '--';
+
+    const total = (polyVal || 0) + (kalshiVal || 0);
+    document.getElementById('totalCrossBalance').textContent = total > 0 ? `$${total.toFixed(2)}` : '--';
+  } catch (err) {
+    console.error('Failed to load platform balances:', err);
+  }
+}
+
+async function saveKalshiConfig() {
+  const apiKeyId = document.getElementById('kalshiApiKeyId').value.trim();
+  const privateKeyPem = document.getElementById('kalshiPrivateKeyPem').value.trim();
+  if (!apiKeyId || !privateKeyPem) {
+    alert('Both API Key ID and Private Key PEM are required');
+    return;
+  }
+  try {
+    await API.post('/config/kalshi', { apiKeyId, privateKeyPem });
+    alert('Kalshi configuration saved');
+    loadPlatformStatus();
+  } catch (err) {
+    alert(`Failed to save: ${err.message}`);
+  }
+}
+
+async function testKalshiConnection() {
+  const resultEl = document.getElementById('kalshiTestResult');
+  resultEl.classList.remove('hidden');
+  resultEl.innerHTML = '<div class="text-muted">Testing connection...</div>';
+  try {
+    const result = await API.getPlatformBalance('kalshi');
+    resultEl.innerHTML = `<div class="text-center" style="color:green;">Connected! Balance: $${(result.balance || 0).toFixed(2)}</div>`;
+  } catch (err) {
+    resultEl.innerHTML = `<div class="text-center" style="color:red;">Connection failed: ${err.message}</div>`;
+  }
+}
+
+async function loadEntityPlatformMap() {
+  try {
+    const data = await API.getEntities();
+    const container = document.getElementById('entityPlatformMap');
+    if (!data.entities || data.entities.length === 0) {
+      container.innerHTML = '<div class="text-center text-muted" style="padding:12px;">No entities configured. Create entities in the Dashboard first.</div>';
+      return;
+    }
+
+    container.innerHTML = data.entities.map(entity => {
+      const wallets = entity.platformWallets || entity.walletAddresses.map(a => ({ platform: 'polymarket', identifier: a }));
+      return `
+        <div class="entity-map-card">
+          <div class="entity-map-header">
+            <strong>${entity.label || entity.id}</strong>
+            <span class="text-muted">(${wallets.length} wallet${wallets.length !== 1 ? 's' : ''})</span>
+          </div>
+          <div class="entity-map-wallets">
+            ${wallets.map(w => `
+              <div class="entity-wallet-row">
+                <span class="platform-badge ${w.platform === 'polymarket' ? 'badge-poly' : 'badge-kalshi'}">${w.platform}</span>
+                <span class="address">${w.identifier.length > 20 ? w.identifier.slice(0, 8) + '...' + w.identifier.slice(-6) : w.identifier}</span>
+                <button class="win-btn win-btn-sm" onclick="removePlatformWalletUI('${entity.id}', '${w.platform}', '${w.identifier}')" title="Remove">X</button>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Failed to load entity map:', err);
+  }
+}
+
+function addPlatformWalletDialog() {
+  const entityId = prompt('Entity ID:');
+  if (!entityId) return;
+  const platform = prompt('Platform (polymarket or kalshi):');
+  if (!platform || !['polymarket', 'kalshi'].includes(platform)) {
+    alert('Platform must be "polymarket" or "kalshi"');
+    return;
+  }
+  const identifier = prompt(`${platform === 'polymarket' ? 'Wallet address (0x...)' : 'Kalshi account ID'}:`);
+  if (!identifier) return;
+
+  API.addPlatformWallet(entityId, platform, identifier)
+    .then(() => { alert('Platform wallet linked!'); loadEntityPlatformMap(); })
+    .catch(err => alert(`Failed: ${err.message}`));
+}
+
+function removePlatformWalletUI(entityId, platform, identifier) {
+  if (!confirm(`Remove ${platform} wallet ${identifier.slice(0, 12)}... from entity?`)) return;
+  API.removePlatformWallet(entityId, platform, identifier)
+    .then(() => loadEntityPlatformMap())
+    .catch(err => alert(`Failed: ${err.message}`));
+}
+
+// ============================================================
+// CROSS-PLATFORM TAB
+// ============================================================
+
+async function refreshExecutorStatus() {
+  try {
+    const data = await API.getExecutorStatus();
+    document.getElementById('execPaperMode').textContent = data.paperMode ? 'ON' : 'OFF';
+    document.getElementById('execPaperMode').style.color = data.paperMode ? '#aa8800' : '#00aa00';
+    document.getElementById('execSuccessful').textContent = data.successfulArbs || 0;
+    document.getElementById('execPartialFills').textContent = data.partialFills || 0;
+    document.getElementById('execTotal').textContent = data.totalExecutions || 0;
+    loadExecutionHistory();
+  } catch (err) {
+    console.error('Failed to load executor status:', err);
+  }
+}
+
+async function toggleExecutorPaperMode() {
+  try {
+    const current = await API.getExecutorConfig();
+    await API.updateExecutorConfig({ paperMode: !current.config.paperMode });
+    refreshExecutorStatus();
+  } catch (err) {
+    alert(`Failed: ${err.message}`);
+  }
+}
+
+async function scanArbitrageOpportunities() {
+  try {
+    const tbody = document.getElementById('arbTableBody');
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Scanning...</td></tr>';
+
+    const data = await API.scanArbitrage();
+    const opps = data.opportunities || [];
+
+    if (opps.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No arbitrage opportunities found</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = opps.map(opp => `
+      <tr>
+        <td title="${opp.eventTitle}">${(opp.eventTitle || '').slice(0, 35)}...</td>
+        <td>${(opp.polymarketPrice * 100).toFixed(1)}c</td>
+        <td>${(opp.kalshiPrice * 100).toFixed(1)}c</td>
+        <td class="${opp.spreadPercent > 3 ? 'text-success' : ''}">${opp.spreadPercent.toFixed(1)}%</td>
+        <td>$${(opp.expectedProfit || 0).toFixed(2)}</td>
+        <td>
+          <button class="win-btn win-btn-sm win-btn-primary" onclick='executeArbFromTable(${JSON.stringify(opp)})'>
+            Execute
+          </button>
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    alert(`Scan failed: ${err.message}`);
+  }
+}
+
+async function executeArbFromTable(opp) {
+  if (!confirm(`Execute arb on "${opp.eventTitle}"?\nSpread: ${opp.spreadPercent.toFixed(1)}%`)) return;
+
+  try {
+    const trade = {
+      id: `arb-${Date.now()}`,
+      eventTitle: opp.eventTitle,
+      buyPlatform: opp.cheaperPlatform,
+      buyMarketId: opp.cheaperPlatform === 'polymarket' ? opp.polymarketTokenId : opp.kalshiTicker,
+      buySide: 'YES',
+      buyPrice: opp.cheaperPlatform === 'polymarket' ? opp.polymarketPrice : opp.kalshiPrice,
+      buySize: 10,
+      sellPlatform: opp.cheaperPlatform === 'polymarket' ? 'kalshi' : 'polymarket',
+      sellMarketId: opp.cheaperPlatform === 'polymarket' ? opp.kalshiTicker : opp.polymarketTokenId,
+      sellSide: 'NO',
+      sellPrice: opp.cheaperPlatform === 'polymarket' ? opp.kalshiPrice : opp.polymarketPrice,
+      sellSize: 10,
+      expectedProfit: opp.expectedProfit || 0,
+      spreadPercent: opp.spreadPercent,
+    };
+
+    const result = await API.executeArb(trade);
+    if (result.result.bothSucceeded) {
+      alert('Arb executed successfully!');
+    } else if (result.result.partialFill) {
+      alert('WARNING: Partial fill — one leg failed. Check execution history.');
+    } else {
+      alert('Execution failed. Check execution history for details.');
+    }
+    refreshExecutorStatus();
+  } catch (err) {
+    alert(`Execution failed: ${err.message}`);
+  }
+}
+
+async function detectCrossPlatformHedges() {
+  try {
+    const tbody = document.getElementById('crossHedgeTableBody');
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Scanning...</td></tr>';
+
+    const data = await API.detectCrossPlatformHedges();
+    const hedges = data.hedges || [];
+
+    if (hedges.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No cross-platform hedges detected</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = hedges.map(h => `
+      <tr>
+        <td>${h.entityLabel}</td>
+        <td title="${h.eventTitle}">${h.eventTitle.slice(0, 30)}...</td>
+        <td>${h.polymarketPosition.side} / ${h.polymarketPosition.size.toFixed(1)}</td>
+        <td>${h.kalshiPosition.side} / ${h.kalshiPosition.size.toFixed(1)}</td>
+        <td class="${h.isHedged ? 'text-success' : 'text-warning'}">${h.isHedged ? 'Yes' : 'No'}</td>
+        <td>${h.netExposure}</td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    alert(`Hedge detection failed: ${err.message}`);
+  }
+}
+
+async function generateHedgeRecommendations() {
+  try {
+    const container = document.getElementById('hedgeRecommendations');
+    container.innerHTML = '<div class="text-center text-muted" style="padding:12px;">Generating recommendations...</div>';
+
+    const data = await API.generateHedgeRecommendations();
+    const recs = data.recommendations || [];
+
+    if (recs.length === 0) {
+      container.innerHTML = '<div class="text-center text-muted" style="padding:12px;">No recommendations at this time</div>';
+      return;
+    }
+
+    container.innerHTML = recs.map(rec => `
+      <div class="hedge-rec-card">
+        <div class="hedge-rec-header">
+          <span class="platform-badge ${rec.platform === 'polymarket' ? 'badge-poly' : 'badge-kalshi'}">${rec.platform}</span>
+          <strong>${rec.action} ${rec.outcome}</strong>
+          <span class="text-muted">— ${(rec.marketTitle || '').slice(0, 40)}</span>
+        </div>
+        <div class="hedge-rec-details">
+          <span>Size: ${rec.size.toFixed(2)}</span>
+          <span>Est. Price: $${rec.estimatedPrice.toFixed(2)}</span>
+          <span>Confidence: ${(rec.confidence * 100).toFixed(0)}%</span>
+        </div>
+        <div class="hedge-rec-actions">
+          ${rec.executable
+            ? `<button class="win-btn win-btn-sm win-btn-primary" onclick='executeHedgeRec(${JSON.stringify(rec)})'>Execute</button>`
+            : '<span class="text-muted">Not executable</span>'
+          }
+        </div>
+      </div>
+    `).join('');
+  } catch (err) {
+    alert(`Failed: ${err.message}`);
+  }
+}
+
+async function executeHedgeRec(rec) {
+  if (!confirm(`Execute ${rec.action} ${rec.outcome} on ${rec.platform}?`)) return;
+  try {
+    const result = await API.executeHedge({
+      platform: rec.platform,
+      marketId: rec.tokenId || rec.kalshiTicker,
+      side: rec.outcome,
+      action: rec.action,
+      size: rec.size,
+      price: rec.estimatedPrice,
+    });
+    alert(result.result.success ? 'Hedge executed!' : `Failed: ${result.result.error}`);
+    refreshExecutorStatus();
+  } catch (err) {
+    alert(`Failed: ${err.message}`);
+  }
+}
+
+async function loadExecutionHistory() {
+  try {
+    const data = await API.getExecutorHistory();
+    const history = (data.history || []).slice(-20).reverse();
+    const tbody = document.getElementById('execHistoryTableBody');
+
+    if (history.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No executions yet</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = history.map(exec => `
+      <tr>
+        <td>${new Date(exec.timestamp).toLocaleString()}</td>
+        <td>Arb</td>
+        <td class="${exec.bothSucceeded ? 'text-success' : exec.partialFill ? 'text-warning' : 'text-danger'}">
+          ${exec.bothSucceeded ? 'Success' : exec.partialFill ? 'Partial' : 'Failed'}
+        </td>
+        <td>${exec.buyResult.platform}: ${exec.buyResult.success ? 'OK' : exec.buyResult.error?.slice(0, 20)}</td>
+        <td>${exec.sellResult.platform}: ${exec.sellResult.success ? 'OK' : exec.sellResult.error?.slice(0, 20)}</td>
+        <td>${exec.paperMode ? 'Yes' : 'No'}</td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    console.error('Failed to load execution history:', err);
+  }
+}
+
+async function saveExecutorConfig() {
+  try {
+    await API.updateExecutorConfig({
+      maxTradeSize: parseFloat(document.getElementById('execMaxTradeSize').value),
+      minSpread: parseFloat(document.getElementById('execMinSpread').value),
+      simultaneousExecution: document.getElementById('execSimultaneous').checked,
+    });
+    alert('Executor config saved');
+  } catch (err) {
+    alert(`Failed: ${err.message}`);
+  }
 }

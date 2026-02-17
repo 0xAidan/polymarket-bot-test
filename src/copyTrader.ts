@@ -27,6 +27,7 @@ export class CopyTrader {
   private executedTrades = new Set<string>(); // Track executed trades by tx hash
   private processedTrades = new Map<string, number>(); // Track processed trades by tx hash to prevent duplicates
   private processedCompoundKeys = new Map<string, number>(); // Track by compound key (wallet-market-outcome-side-timeWindow) to catch same trade with different hashes
+  private inFlightTrades = new Set<string>(); // Prevent concurrent processing of the same trade
   
   // Per-wallet rate limiting state (in-memory, keyed by wallet address)
   private perWalletRateLimits: PerWalletRateLimitStates = new Map();
@@ -146,22 +147,25 @@ export class CopyTrader {
       console.log('📡 Starting Dome WebSocket monitoring (PRIMARY)...');
       try {
         // Wire up Dome WS events
+        // NOTE: Polling is NO LONGER paused when Dome WS connects.
+        // Both run in parallel because:
+        // 1. Dome WS identifies users by EOA, but some tracked wallets use proxy addresses
+        // 2. This caused wallets like 432 to silently stop being monitored
+        // 3. The dedup logic in handleDetectedTrade prevents double execution
+        // 4. Polling is reliable for ALL wallets; Dome WS adds speed for matching ones
         this.domeWsMonitor.on('connected', () => {
           this.monitoringMode = 'websocket';
-          this.monitor.pausePolling();
-          console.log('[DomeWS] Connected — polling paused (WebSocket is primary)');
+          console.log('[DomeWS] Connected — running alongside polling for maximum coverage');
         });
 
         this.domeWsMonitor.on('disconnected', () => {
           this.monitoringMode = 'polling';
-          this.monitor.resumePolling();
-          console.log('[DomeWS] Disconnected — polling resumed as fallback');
+          console.log('[DomeWS] Disconnected — polling continues as usual');
         });
 
         this.domeWsMonitor.on('reconnected', () => {
           this.monitoringMode = 'websocket';
-          this.monitor.pausePolling();
-          console.log('[DomeWS] Reconnected — polling paused again');
+          console.log('[DomeWS] Reconnected — running alongside polling');
         });
 
         this.domeWsMonitor.on('trade', async (trade: DetectedTrade) => {
@@ -380,6 +384,12 @@ export class CopyTrader {
       return;
     }
     
+    // CHECK 3: Currently in-flight (being executed right now, not yet finished)
+    if (this.inFlightTrades.has(tradeKey) || this.inFlightTrades.has(compoundKey)) {
+      console.log(`[CopyTrader] ⏭️  Trade currently in-flight, skipping concurrent processing`);
+      return;
+    }
+    
     console.log(`\n${'='.repeat(60)}`);
     console.log(`🔔 TRADE DETECTED`);
     console.log(`${'='.repeat(60)}`);
@@ -394,7 +404,21 @@ export class CopyTrader {
 
     // Validate trade data before attempting execution
     const priceNum = parseFloat(trade.price || '0');
-    const amountNum = parseFloat(trade.amount || '0');
+    let amountNum = parseFloat(trade.amount || '0');
+    
+    // SANITY CHECK: Detect values that appear to be in USDC base units (6 decimals)
+    // If amount * price > $10M, the amount is almost certainly in base units and needs conversion
+    // This guards against Dome WebSocket or API returning raw values instead of normalized ones
+    if (amountNum > 0 && priceNum > 0) {
+      const rawUsdValue = amountNum * priceNum;
+      if (rawUsdValue > 10_000_000) {
+        const correctedAmount = amountNum / 1_000_000;
+        console.warn(`[CopyTrader] ⚠️ AMOUNT SANITY CHECK: Detected amount ${amountNum} appears to be in base units (USD value would be $${rawUsdValue.toLocaleString()})`);
+        console.warn(`[CopyTrader]    Correcting: ${amountNum} → ${correctedAmount} (divided by 1e6 for USDC decimals)`);
+        amountNum = correctedAmount;
+        trade.amount = correctedAmount.toString();
+      }
+    }
     
     if (!trade.marketId || trade.marketId === 'unknown') {
       console.error(`❌ Invalid marketId (${trade.marketId}), cannot execute trade`);
@@ -483,7 +507,7 @@ export class CopyTrader {
           console.log(`\n⏭️  [CopyTrader] FILTERED - No-repeat-trades (already have position)`);
           console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
           console.log(`   Market: ${trade.marketId}`);
-          console.log(`   Side: ${trade.outcome}`);
+          console.log(`   Side: ${trade.side} | Outcome: ${trade.outcome}`);
           console.log(`   Block period: ${periodLabel}`);
           console.log(`   💡 You already have a ${trade.outcome} position in this market. Skipping repeat trade.\n`);
           
@@ -664,11 +688,10 @@ export class CopyTrader {
       console.warn(`[CopyTrader] Stop-loss check error (proceeding with trade): ${stopLossError.message}`);
     }
 
-    // Mark as processed ONLY after passing all pre-execution filters.
-    // This avoids "poisoning" dedupe state when a trade is rejected
-    // by filters like stop-loss, threshold, or price limits.
-    this.processedTrades.set(tradeKey, now);
-    this.processedCompoundKeys.set(compoundKey, now);
+    // Mark as in-flight to prevent concurrent processing of the same trade.
+    // Actual dedup marking happens AFTER successful execution so failed trades can retry.
+    this.inFlightTrades.add(tradeKey);
+    this.inFlightTrades.add(compoundKey);
 
     const executionStart = Date.now();
 
@@ -833,7 +856,7 @@ export class CopyTrader {
       if (trade.tokenId) {
         try {
           // Use the CLOB client to get the market's actual minimum
-          const clobClient = this.executor['clobClient'] as any;
+          const clobClient = this.executor.getClobClient();
           if (clobClient && typeof clobClient.getMinOrderSize === 'function') {
             marketMinShares = await clobClient.getMinOrderSize(trade.tokenId);
           }
@@ -954,7 +977,7 @@ export class CopyTrader {
       // Record metrics
       // NOTE: result.success is now only true if order was actually executed (not just placed)
       await this.performanceTracker.recordTrade({
-        timestamp: new Date(),
+        timestamp: trade.timestamp instanceof Date ? trade.timestamp : new Date(trade.timestamp),
         walletAddress: trade.walletAddress,
         marketId: trade.marketId,
         outcome: trade.outcome,
@@ -984,6 +1007,10 @@ export class CopyTrader {
         console.log(`   Side: ${order.side} $${tradeSizeUsdcNum.toFixed(2)} USDC (${order.amount} shares) @ ${order.price}`);
         console.log(`${'='.repeat(60)}\n`);
         this.executedTrades.add(trade.transactionHash);
+        
+        // Mark as processed now that execution succeeded (enables retry on failure)
+        this.processedTrades.set(tradeKey, Date.now());
+        this.processedCompoundKeys.set(compoundKey, Date.now());
         
         // Increment per-wallet rate limit counters (if rate limiting was enabled for this wallet)
         if (trade.rateLimitEnabled) {
@@ -1020,6 +1047,9 @@ export class CopyTrader {
           console.log(`   💡 This is normal - markets close when events conclude.`);
           console.log(`${'='.repeat(60)}\n`);
           // Don't log as error - this is expected behavior
+          // Still mark as processed so we don't keep retrying a closed market
+          this.processedTrades.set(tradeKey, Date.now());
+          this.processedCompoundKeys.set(compoundKey, Date.now());
         } else {
           console.error(`\n${'='.repeat(60)}`);
           console.error(`❌ [Execute] TRADE EXECUTION FAILED`);
@@ -1060,6 +1090,10 @@ export class CopyTrader {
         `Error handling trade: ${error.message}`,
         { trade, error: error.stack }
       );
+    } finally {
+      // Always clear in-flight status so the trade can be retried on failure
+      this.inFlightTrades.delete(tradeKey);
+      this.inFlightTrades.delete(compoundKey);
     }
   }
 
@@ -1155,6 +1189,13 @@ export class CopyTrader {
    */
   getBalanceTracker(): BalanceTracker {
     return this.balanceTracker;
+  }
+
+  /**
+   * Get the trade executor for direct trade execution (e.g. ladder exits)
+   */
+  getTradeExecutor(): TradeExecutor {
+    return this.executor;
   }
 
   /**

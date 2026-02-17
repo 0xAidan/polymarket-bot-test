@@ -189,10 +189,43 @@ export class TradeExecutor {
           negRisk: negRisk,
         });
       } catch (clobError: any) {
-        // CLOB client threw an error - this is expected for failures
         console.error(`[Execute] CLOB client threw error:`, clobError.message);
         
-        throw clobError;
+        // AUTO-RETRY: If "invalid signature", try re-deriving API credentials once
+        const isInvalidSig = clobError.message?.toLowerCase().includes('invalid signature');
+        if (isInvalidSig) {
+          console.warn(`[Execute] ⚠️ "invalid signature" detected — attempting to re-derive API credentials...`);
+          console.warn(`[Execute]    This can happen when L2 API keys expire or are revoked by Polymarket.`);
+          console.warn(`[Execute]    Also check that POLYMARKET_SIGNATURE_TYPE and POLYMARKET_FUNDER_ADDRESS are correct.`);
+          console.warn(`[Execute]    Current signature type: ${process.env.POLYMARKET_SIGNATURE_TYPE || '0'}`);
+          console.warn(`[Execute]    Current funder address: ${process.env.POLYMARKET_FUNDER_ADDRESS || '(not set, using signer address)'}`);
+          
+          try {
+            // Re-create the CLOB client to re-derive credentials
+            this.clobClient = new PolymarketClobClient();
+            await this.clobClient.initialize();
+            console.log(`[Execute] ✓ Re-derived API credentials, retrying order...`);
+            
+            // Retry the order once with fresh credentials
+            orderResponse = await this.clobClient.createAndPostOrder({
+              tokenID: tokenId,
+              side: side,
+              size: size,
+              price: price,
+              tickSize: tickSize,
+              negRisk: negRisk,
+            });
+          } catch (retryError: any) {
+            console.error(`[Execute] ❌ Retry also failed: ${retryError.message}`);
+            console.error(`[Execute]    IMPORTANT: If this keeps happening, you may need to:`);
+            console.error(`[Execute]    1. Regenerate your Builder API credentials at https://polymarket.com/settings?tab=builder`);
+            console.error(`[Execute]    2. Verify POLYMARKET_SIGNATURE_TYPE matches your wallet type (0=EOA, 1=email, 2=MetaMask+proxy)`);
+            console.error(`[Execute]    3. Verify POLYMARKET_FUNDER_ADDRESS is your Polymarket proxy wallet address`);
+            throw retryError;
+          }
+        } else {
+          throw clobError;
+        }
       }
 
       const executionTime = Date.now() - executionStart;

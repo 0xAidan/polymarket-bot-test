@@ -1,5 +1,7 @@
 import { ArbOpportunity } from './arbScanner.js';
 import { DetectedHedge } from './entityManager.js';
+import { getAdapter, isPlatformConfigured } from './platform/platformRegistry.js';
+import type { Platform } from './platform/types.js';
 
 // ============================================================================
 // TYPES
@@ -167,7 +169,7 @@ export class HedgeCalculator {
         },
         tokenId: cheaperPlatform === 'polymarket' ? opp.polymarketTokenId : undefined,
         kalshiTicker: cheaperPlatform === 'kalshi' ? opp.kalshiTicker : undefined,
-        executable: cheaperPlatform === 'polymarket', // Can only auto-execute on Polymarket
+        executable: isPlatformConfigured(cheaperPlatform as Platform) && getAdapter(cheaperPlatform as Platform).canExecute(),
         paperMode: this.config.paperMode,
       });
     }
@@ -196,8 +198,32 @@ export class HedgeCalculator {
       result.executedPrice = recommendation.estimatedPrice;
       result.executedSize = recommendation.size;
       console.log(`[HedgeCalc] PAPER TRADE: ${recommendation.action} ${recommendation.size.toFixed(2)} shares of ${recommendation.outcome} on ${recommendation.platform} @ $${recommendation.estimatedPrice.toFixed(2)}`);
-    } else if (recommendation.executable && recommendation.tokenId && executeFn) {
-      // Live execution on Polymarket
+    } else if (recommendation.executable) {
+      // Live execution via platform adapter
+      try {
+        const adapter = getAdapter(recommendation.platform as Platform);
+        const marketId = recommendation.tokenId || recommendation.kalshiTicker || '';
+        if (!marketId) throw new Error('No market identifier for execution');
+
+        const orderResult = await adapter.placeOrder({
+          platform: recommendation.platform as Platform,
+          marketId,
+          side: recommendation.outcome as 'YES' | 'NO',
+          action: recommendation.action,
+          size: recommendation.size,
+          price: recommendation.estimatedPrice,
+        });
+
+        result.success = orderResult.success;
+        result.txHash = orderResult.txHash;
+        result.error = orderResult.error;
+        result.executedPrice = recommendation.estimatedPrice;
+        result.executedSize = recommendation.size;
+      } catch (err: any) {
+        result.error = err.message;
+      }
+    } else if (executeFn && recommendation.tokenId) {
+      // Legacy: direct execution function fallback
       try {
         const execResult = await executeFn(recommendation.tokenId, recommendation.action, recommendation.size);
         result.success = execResult.success;
@@ -209,9 +235,7 @@ export class HedgeCalculator {
         result.error = err.message;
       }
     } else {
-      result.error = recommendation.platform === 'kalshi'
-        ? 'Kalshi execution not supported — manual trade required'
-        : 'No execution function provided or recommendation not executable';
+      result.error = 'No execution method available or recommendation not executable';
     }
 
     this.executionHistory.push(result);
