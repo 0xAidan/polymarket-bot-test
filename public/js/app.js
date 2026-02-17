@@ -850,6 +850,36 @@ async function loadFailedTrades() {
 
 let masterPassword = '';
 
+// Enter key handlers for password fields
+document.addEventListener('DOMContentLoaded', () => {
+  // Returning user: Enter on password field triggers unlock
+  const existingPwInput = document.getElementById('masterPasswordInput');
+  if (existingPwInput) {
+    existingPwInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') unlockVault();
+    });
+  }
+
+  // First-time user: Enter on confirm field triggers create
+  const confirmPwInput = document.getElementById('masterPasswordConfirm');
+  if (confirmPwInput) {
+    confirmPwInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') createMasterPassword();
+    });
+  }
+
+  // First-time user: Enter on new password field moves focus to confirm
+  const newPwInput = document.getElementById('masterPasswordNew');
+  if (newPwInput) {
+    newPwInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('masterPasswordConfirm').focus();
+      }
+    });
+  }
+});
+
 async function checkLockStatus() {
   try {
     const data = await API.getLockStatus();
@@ -866,6 +896,56 @@ async function checkLockStatus() {
   } catch (error) { console.error('Error checking lock status:', error); }
 }
 
+// First-time setup: create a new master password with confirmation
+async function createMasterPassword() {
+  const pw = document.getElementById('masterPasswordNew').value;
+  const confirm = document.getElementById('masterPasswordConfirm').value;
+  const errorEl = document.getElementById('passwordMatchError');
+
+  if (!pw) {
+    errorEl.textContent = 'Please enter a password.';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+
+  if (pw.length < 4) {
+    errorEl.textContent = 'Password is too short (minimum 4 characters).';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+
+  if (pw !== confirm) {
+    errorEl.textContent = 'Passwords do not match. Please re-enter.';
+    errorEl.classList.remove('hidden');
+    document.getElementById('masterPasswordConfirm').value = '';
+    document.getElementById('masterPasswordConfirm').focus();
+    return;
+  }
+
+  errorEl.classList.add('hidden');
+
+  try {
+    const result = await API.unlockWallets(pw);
+    masterPassword = pw;
+
+    // Clear the fields
+    document.getElementById('masterPasswordNew').value = '';
+    document.getElementById('masterPasswordConfirm').value = '';
+
+    if (result.migrated) {
+      alert('Existing .env private key was migrated to encrypted storage as your "main" wallet.');
+    }
+
+    document.getElementById('unlockSection').classList.add('hidden');
+    document.getElementById('tradingWalletsSection').classList.remove('hidden');
+    await loadTradingWallets();
+  } catch (error) {
+    errorEl.textContent = `Failed: ${error.message}`;
+    errorEl.classList.remove('hidden');
+  }
+}
+
+// Returning user: unlock with existing master password
 async function unlockVault() {
   const pw = document.getElementById('masterPasswordInput').value;
   if (!pw) { alert('Enter your master password'); return; }
@@ -873,6 +953,10 @@ async function unlockVault() {
   try {
     const result = await API.unlockWallets(pw);
     masterPassword = pw;
+
+    // Clear the field
+    document.getElementById('masterPasswordInput').value = '';
+
     if (result.migrated) {
       alert('Existing .env private key was migrated to encrypted storage as "main" wallet.');
     }

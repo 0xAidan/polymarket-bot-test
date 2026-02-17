@@ -214,40 +214,72 @@
           <div id="unlockSection" class="unlock-prompt">
             <div class="lock-icon">&#128274;</div>
 
-            <!-- First-time setup message (shown when no wallets exist yet) -->
+            <!-- ==========================================
+                 FIRST-TIME SETUP (no wallets exist yet)
+                 ========================================== -->
             <div id="unlockFirstTime" class="hidden">
-              <div class="mb-8"><strong>Set Up Wallet Encryption</strong></div>
-              <div class="text-sm text-muted mb-8" style="max-width:400px;margin:0 auto;">
-                Choose a master password to encrypt your trading wallet private keys.
-                This password is <strong>never stored anywhere</strong> -- pick something you will remember.
-                There is no recovery if you forget it.
+              <div class="mb-8" style="font-size:18px;"><strong>Create Your Master Password</strong></div>
+
+              <div class="win-warning mb-8" style="max-width:440px;margin-left:auto;margin-right:auto;text-align:left;">
+                <span style="font-size:18px;">&#9888;</span>
+                <div>
+                  <strong>This password cannot be changed or recovered.</strong><br>
+                  <span class="text-sm">It encrypts your wallet private keys and API credentials.
+                  If you forget it, you will lose access to all stored wallets and need to re-add them.</span>
+                </div>
               </div>
-              <div class="text-sm text-muted mb-8" style="max-width:400px;margin:0 auto;">
-                If you have a private key in your <code>.env</code> file, it will be automatically migrated to encrypted storage on first unlock.
+
+              <div class="text-sm text-muted mb-8" style="max-width:400px;margin:0 auto;text-align:left;">
+                Choose a strong password you will remember. It is <strong>never stored</strong> anywhere &mdash; only used
+                to encrypt/decrypt your data each session.
+              </div>
+
+              <div style="max-width:340px;margin:0 auto;">
+                <div class="form-row" style="margin-bottom:6px;">
+                  <label for="masterPasswordNew" style="min-width:130px;">Password:</label>
+                  <input type="password" id="masterPasswordNew" placeholder="Choose a password..." class="win-input" style="flex:1;" aria-label="New master password" autocomplete="new-password">
+                </div>
+                <div class="form-row" style="margin-bottom:6px;">
+                  <label for="masterPasswordConfirm" style="min-width:130px;">Confirm:</label>
+                  <input type="password" id="masterPasswordConfirm" placeholder="Type it again..." class="win-input" style="flex:1;" aria-label="Confirm master password" autocomplete="new-password">
+                </div>
+                <div id="passwordMatchError" class="hidden" style="color:var(--danger);font-size:13px;margin-left:138px;margin-bottom:6px;">
+                  Passwords do not match.
+                </div>
+                <div class="form-row">
+                  <label style="min-width:130px;"></label>
+                  <button class="win-btn win-btn-primary" onclick="createMasterPassword()" aria-label="Create master password and unlock" tabindex="0">Create Password &amp; Unlock</button>
+                </div>
+              </div>
+
+              <div class="text-sm text-muted mt-8" style="max-width:400px;margin-left:auto;margin-right:auto;">
+                If you have a private key in your <code>.env</code> file, it will be automatically migrated to encrypted storage.
               </div>
             </div>
 
-            <!-- Returning user message (shown when wallets already exist) -->
+            <!-- ==========================================
+                 RETURNING USER (wallets already exist)
+                 ========================================== -->
             <div id="unlockReturning">
               <div class="mb-8"><strong>Wallet Vault Locked</strong></div>
               <div class="text-sm text-muted mb-8">Enter your master password to unlock your encrypted trading wallets</div>
+
+              <div class="flex-row gap-8" style="justify-content:center;">
+                <input type="password" id="masterPasswordInput" placeholder="Master password..." class="win-input" style="width:250px;" aria-label="Master password" autocomplete="current-password">
+                <button class="win-btn win-btn-primary" onclick="unlockVault()" aria-label="Unlock wallet vault" tabindex="0">Unlock</button>
+              </div>
             </div>
 
-            <div class="flex-row gap-8" style="justify-content:center;">
-              <input type="password" id="masterPasswordInput" placeholder="Master password..." class="win-input" style="width:250px;" aria-label="Master password">
-              <button class="win-btn win-btn-primary" onclick="unlockVault()" aria-label="Unlock wallet vault" tabindex="0">Unlock</button>
-            </div>
-
-            <!-- Help section -->
+            <!-- Help section (always visible) -->
             <details style="margin-top:12px;max-width:400px;margin-left:auto;margin-right:auto;text-align:left;">
               <summary class="text-sm" style="cursor:pointer;color:var(--win-text);">How does the master password work?</summary>
               <div class="text-sm text-muted" style="padding:8px 0;">
                 <ul style="margin:0;padding-left:16px;">
-                  <li>Your trading wallet private keys are encrypted on disk using AES-256-GCM encryption.</li>
-                  <li>The master password is used to decrypt them -- it is <strong>never stored</strong>.</li>
-                  <li>When you lock the vault (or the bot restarts), all decrypted keys are cleared from memory.</li>
-                  <li>First-time users: if you have a <code>PRIVATE_KEY</code> in your <code>.env</code> file, it will be migrated to encrypted storage automatically.</li>
+                  <li>Your trading wallet private keys and API credentials are encrypted on disk using AES-256-GCM.</li>
+                  <li>The master password decrypts them &mdash; it is <strong>never stored</strong> anywhere.</li>
+                  <li>When you lock the vault (or the bot restarts), all decrypted data is cleared from memory.</li>
                   <li>You must unlock each time the bot restarts to enable trading wallets.</li>
+                  <li><strong>There is no password reset or recovery.</strong> If you forget it, you will need to re-add your wallets.</li>
                 </ul>
               </div>
             </details>
