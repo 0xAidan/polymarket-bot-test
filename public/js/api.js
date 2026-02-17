@@ -108,6 +108,10 @@ const API = {
     return this.patch(`/wallets/${address}/label`, { label });
   },
 
+  async updateWalletTags(address, tags) {
+    return this.patch(`/wallets/${address}/tags`, { tags });
+  },
+
   async updateWalletTradeConfig(address, config) {
     return this.patch(`/wallets/${address}/trade-config`, config);
   },
@@ -116,7 +120,7 @@ const API = {
     return this.delete(`/wallets/${address}/trade-config`);
   },
 
-  async getWalletBalance(address) {
+  async getTrackedWalletBalance(address) {
     return this.get(`/wallets/${address}/balance`);
   },
 
@@ -319,8 +323,12 @@ const API = {
     return this.get('/trading-wallets');
   },
 
-  async addTradingWallet(id, label, privateKey, masterPassword) {
-    return this.post('/trading-wallets', { id, label, privateKey, masterPassword });
+  async addTradingWallet(id, label, privateKey, masterPassword, apiKey, apiSecret, apiPassphrase) {
+    return this.post('/trading-wallets', { id, label, privateKey, masterPassword, apiKey, apiSecret, apiPassphrase });
+  },
+
+  async updateTradingWalletCredentials(id, apiKey, apiSecret, apiPassphrase, masterPassword) {
+    return this.patch(`/trading-wallets/${id}/credentials`, { apiKey, apiSecret, apiPassphrase, masterPassword });
   },
 
   async removeTradingWallet(id) {
@@ -439,7 +447,7 @@ const API = {
   },
 
   async generateHedgeRecommendations() {
-    return this.post('/hedge/generate-recommendations');
+    return this.post('/hedge/generate');
   },
 
   // ============================================================
@@ -464,6 +472,50 @@ const API = {
 
   async getMatchedMarkets() {
     return this.get('/matched-markets');
+  },
+
+  // ============================================================
+  // LADDER EXITS
+  // ============================================================
+
+  async getLadderStatus() {
+    return this.get('/ladder/status');
+  },
+
+  async getLadders(activeOnly = false) {
+    return this.get(`/ladder/all?active=${activeOnly}`);
+  },
+
+  async createLadder(params) {
+    return this.post('/ladder/create', params);
+  },
+
+  async cancelLadder(id) {
+    return this.post(`/ladder/cancel/${id}`);
+  },
+
+  async updateLadderConfig(config) {
+    return this.post('/ladder/config', config);
+  },
+
+  async getTradingWalletPositions(walletId) {
+    return this.get(`/trading-wallets/${walletId}/positions`);
+  },
+
+  // ============================================================
+  // PRICE MONITOR
+  // ============================================================
+
+  async getPriceMonitorStatus() {
+    return this.get('/pricemonitor/status');
+  },
+
+  async startPriceMonitor() {
+    return this.post('/pricemonitor/start');
+  },
+
+  async stopPriceMonitor() {
+    return this.post('/pricemonitor/stop');
   }
 };
 

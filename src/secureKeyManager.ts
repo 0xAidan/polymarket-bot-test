@@ -7,6 +7,14 @@ import { config } from './config.js';
 // In-memory store of decrypted wallets (populated at unlock time)
 const decryptedWallets = new Map<string, ethers.Wallet>();
 
+// In-memory store of decrypted Builder API credentials per wallet
+export interface BuilderCredentials {
+  apiKey: string;
+  apiSecret: string;
+  apiPassphrase: string;
+}
+const decryptedBuilderCreds = new Map<string, BuilderCredentials>();
+
 let isUnlocked = false;
 
 /**
@@ -66,12 +74,14 @@ function decryptPrivateKey(encryptedData: string, password: string): string {
 
 /**
  * Add a new wallet by encrypting its private key and storing it.
+ * Optionally also encrypts and stores Builder API credentials.
  * Returns the wallet address derived from the private key.
  */
 export async function addEncryptedWallet(
   walletId: string,
   privateKey: string,
-  masterPassword: string
+  masterPassword: string,
+  builderCreds?: BuilderCredentials
 ): Promise<string> {
   await ensureKeystoresDir();
 
@@ -99,11 +109,64 @@ export async function addEncryptedWallet(
   // Store decrypted wallet in memory
   decryptedWallets.set(walletId, wallet);
 
+  // Store Builder API credentials if provided
+  if (builderCreds && builderCreds.apiKey && builderCreds.apiSecret && builderCreds.apiPassphrase) {
+    await saveBuilderCredentials(walletId, builderCreds, masterPassword);
+    decryptedBuilderCreds.set(walletId, builderCreds);
+  }
+
   return wallet.address;
 }
 
 /**
- * Remove an encrypted wallet.
+ * Save Builder API credentials encrypted on disk for a wallet.
+ */
+async function saveBuilderCredentials(
+  walletId: string,
+  creds: BuilderCredentials,
+  masterPassword: string
+): Promise<void> {
+  await ensureKeystoresDir();
+  const credsJson = JSON.stringify(creds);
+  const encrypted = encryptPrivateKey(credsJson, masterPassword);
+  const filePath = path.join(keystoresDir(), `${walletId}.builder.json`);
+  await fs.writeFile(filePath, encrypted, 'utf-8');
+}
+
+/**
+ * Update Builder API credentials for an existing wallet.
+ */
+export async function updateBuilderCredentials(
+  walletId: string,
+  creds: BuilderCredentials,
+  masterPassword: string
+): Promise<void> {
+  await saveBuilderCredentials(walletId, creds, masterPassword);
+  decryptedBuilderCreds.set(walletId, creds);
+}
+
+/**
+ * Get decrypted Builder API credentials for a wallet (must be unlocked).
+ */
+export function getBuilderCredentials(walletId: string): BuilderCredentials | undefined {
+  return decryptedBuilderCreds.get(walletId);
+}
+
+/**
+ * Check if a wallet has stored Builder API credentials on disk.
+ */
+export async function hasBuilderCredentials(walletId: string): Promise<boolean> {
+  const filePath = path.join(keystoresDir(), `${walletId}.builder.json`);
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Remove an encrypted wallet and its Builder credentials.
  */
 export async function removeEncryptedWallet(walletId: string): Promise<void> {
   const filePath = path.join(keystoresDir(), `${walletId}.keystore.json`);
@@ -114,11 +177,20 @@ export async function removeEncryptedWallet(walletId: string): Promise<void> {
     throw err;
   }
   decryptedWallets.delete(walletId);
+
+  // Also remove Builder credentials file if it exists
+  const builderPath = path.join(keystoresDir(), `${walletId}.builder.json`);
+  try {
+    await fs.unlink(builderPath);
+  } catch {
+    // Ignore — file may not exist
+  }
+  decryptedBuilderCreds.delete(walletId);
 }
 
 /**
  * Unlock all stored wallets using the master password.
- * Decrypts all keystore files and holds wallets in memory.
+ * Decrypts all keystore files and Builder credential files, holds them in memory.
  */
 export async function unlockAllWallets(masterPassword: string): Promise<string[]> {
   await ensureKeystoresDir();
@@ -141,6 +213,21 @@ export async function unlockAllWallets(masterPassword: string): Promise<string[]
     } catch {
       console.error(`[SecureKeys] Failed to decrypt wallet "${walletId}" — wrong password or corrupted file`);
       throw new Error(`Failed to decrypt wallet "${walletId}". Check your master password.`);
+    }
+
+    // Also decrypt Builder credentials if they exist
+    const builderPath = path.join(keystoresDir(), `${walletId}.builder.json`);
+    try {
+      const builderData = await fs.readFile(builderPath, 'utf-8');
+      const credsJson = decryptPrivateKey(builderData, masterPassword);
+      const creds: BuilderCredentials = JSON.parse(credsJson);
+      decryptedBuilderCreds.set(walletId, creds);
+      console.log(`[SecureKeys] Loaded Builder credentials for wallet "${walletId}"`);
+    } catch (err: any) {
+      if (err.code !== 'ENOENT') {
+        console.warn(`[SecureKeys] Could not decrypt Builder credentials for "${walletId}":`, err.message);
+      }
+      // No builder creds file is fine — wallet just won't have them
     }
   }
 
@@ -194,10 +281,11 @@ export async function listStoredWalletIds(): Promise<string[]> {
 }
 
 /**
- * Lock all wallets (clear from memory).
+ * Lock all wallets (clear all decrypted data from memory).
  */
 export function lockAllWallets(): void {
   decryptedWallets.clear();
+  decryptedBuilderCreds.clear();
   isUnlocked = false;
 }
 

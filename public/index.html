@@ -114,6 +114,74 @@
             <div class="win-group-title">Active Issues</div>
             <div id="issuesList"></div>
           </div>
+
+          <!-- Ladder Exits -->
+          <div class="win-group">
+            <div class="win-group-title">Ladder Exits (Take-Profit)</div>
+            <div class="flex-between mb-8">
+              <div>
+                <span class="text-sm text-muted">Price Monitor:</span>
+                <span id="ladderPriceMonitorStatus" class="win-badge">OFF</span>
+                <span class="text-sm text-muted" style="margin-left:8px;">Mode:</span>
+                <span id="ladderModeStatus" class="win-badge">PAPER</span>
+              </div>
+              <div class="flex-row gap-4">
+                <button class="win-btn win-btn-sm" onclick="toggleLadderLiveMode()">Toggle Live</button>
+                <button class="win-btn win-btn-sm" onclick="openCreateLadderForm()">+ New Ladder</button>
+              </div>
+            </div>
+
+            <!-- Position Picker for Ladder Creation (hidden by default) -->
+            <div id="createLadderForm" class="hidden" style="background:var(--win-surface);border:1px solid var(--win-dark);padding:8px;margin-bottom:8px;">
+              <div class="flex-between mb-4">
+                <div class="text-bold">Select Position for Ladder Exit</div>
+                <button class="win-btn win-btn-sm" onclick="closeCreateLadderForm()" aria-label="Close ladder creation form" tabindex="0">Close</button>
+              </div>
+              <div class="flex-row gap-8 mb-4" style="align-items:center;">
+                <label class="text-sm">Trading Wallet:</label>
+                <select id="ladderWalletSelect" class="win-input" style="width:250px;" onchange="loadWalletPositionsForLadder()" aria-label="Select trading wallet">
+                  <option value="">-- Select a wallet --</option>
+                </select>
+                <button class="win-btn win-btn-sm" onclick="loadWalletPositionsForLadder()" aria-label="Refresh positions" tabindex="0">Refresh</button>
+              </div>
+              <div id="ladderPositionsList" style="max-height:400px;overflow-y:auto;">
+                <div class="text-center text-muted" style="padding:12px;">Select a trading wallet to see your positions</div>
+              </div>
+
+              <!-- Ladder Config Panel (shown when user clicks Add Ladder on a position) -->
+              <div id="ladderConfigPanel" class="hidden" style="background:var(--win-highlight);border:1px solid var(--win-dark);padding:8px;margin-top:8px;">
+                <div class="text-bold mb-4">Configure Ladder Steps</div>
+                <div class="text-sm mb-4" id="ladderConfigPositionSummary"></div>
+                <div class="flex-row gap-8 flex-wrap mb-4">
+                  <div>
+                    <label class="text-sm">Steps</label>
+                    <input type="number" id="ladderStepCount" class="win-input" value="4" min="2" max="10" style="width:70px;" aria-label="Number of ladder steps">
+                  </div>
+                  <div>
+                    <label class="text-sm">Start %</label>
+                    <input type="number" id="ladderStartPercent" class="win-input" value="10" min="1" max="100" style="width:70px;" aria-label="Start profit percent for first step">
+                  </div>
+                  <div>
+                    <label class="text-sm">Step Spread %</label>
+                    <input type="number" id="ladderStepSpread" class="win-input" value="10" min="1" max="100" style="width:70px;" aria-label="Percent spread between steps">
+                  </div>
+                  <div>
+                    <label class="text-sm">Sell % per step</label>
+                    <input type="number" id="ladderSellPercent" class="win-input" value="25" min="5" max="100" style="width:70px;" aria-label="Percent of remaining to sell at each step">
+                  </div>
+                </div>
+                <div class="flex-row gap-4">
+                  <button class="win-btn win-btn-primary win-btn-sm" onclick="confirmCreateLadder()" aria-label="Confirm and create ladder" tabindex="0">Create Ladder</button>
+                  <button class="win-btn win-btn-sm" onclick="cancelLadderConfig()" aria-label="Cancel ladder configuration" tabindex="0">Cancel</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Active Ladders -->
+            <div id="activeLaddersList">
+              <div class="text-center text-muted" style="padding:12px;">No active ladders</div>
+            </div>
+          </div>
         </div>
 
         <!-- ============================================================
@@ -145,12 +213,44 @@
           <!-- Unlock Prompt -->
           <div id="unlockSection" class="unlock-prompt">
             <div class="lock-icon">&#128274;</div>
-            <div class="mb-8"><strong>Wallet Vault Locked</strong></div>
-            <div class="text-sm text-muted mb-8">Enter your master password to unlock encrypted wallets</div>
-            <div class="flex-row gap-8" style="justify-content:center;">
-              <input type="password" id="masterPasswordInput" placeholder="Master password..." class="win-input" style="width:250px;">
-              <button class="win-btn win-btn-primary" onclick="unlockVault()">Unlock</button>
+
+            <!-- First-time setup message (shown when no wallets exist yet) -->
+            <div id="unlockFirstTime" class="hidden">
+              <div class="mb-8"><strong>Set Up Wallet Encryption</strong></div>
+              <div class="text-sm text-muted mb-8" style="max-width:400px;margin:0 auto;">
+                Choose a master password to encrypt your trading wallet private keys.
+                This password is <strong>never stored anywhere</strong> -- pick something you will remember.
+                There is no recovery if you forget it.
+              </div>
+              <div class="text-sm text-muted mb-8" style="max-width:400px;margin:0 auto;">
+                If you have a private key in your <code>.env</code> file, it will be automatically migrated to encrypted storage on first unlock.
+              </div>
             </div>
+
+            <!-- Returning user message (shown when wallets already exist) -->
+            <div id="unlockReturning">
+              <div class="mb-8"><strong>Wallet Vault Locked</strong></div>
+              <div class="text-sm text-muted mb-8">Enter your master password to unlock your encrypted trading wallets</div>
+            </div>
+
+            <div class="flex-row gap-8" style="justify-content:center;">
+              <input type="password" id="masterPasswordInput" placeholder="Master password..." class="win-input" style="width:250px;" aria-label="Master password">
+              <button class="win-btn win-btn-primary" onclick="unlockVault()" aria-label="Unlock wallet vault" tabindex="0">Unlock</button>
+            </div>
+
+            <!-- Help section -->
+            <details style="margin-top:12px;max-width:400px;margin-left:auto;margin-right:auto;text-align:left;">
+              <summary class="text-sm" style="cursor:pointer;color:var(--win-text);">How does the master password work?</summary>
+              <div class="text-sm text-muted" style="padding:8px 0;">
+                <ul style="margin:0;padding-left:16px;">
+                  <li>Your trading wallet private keys are encrypted on disk using AES-256-GCM encryption.</li>
+                  <li>The master password is used to decrypt them -- it is <strong>never stored</strong>.</li>
+                  <li>When you lock the vault (or the bot restarts), all decrypted keys are cleared from memory.</li>
+                  <li>First-time users: if you have a <code>PRIVATE_KEY</code> in your <code>.env</code> file, it will be migrated to encrypted storage automatically.</li>
+                  <li>You must unlock each time the bot restarts to enable trading wallets.</li>
+                </ul>
+              </div>
+            </details>
           </div>
 
           <!-- Trading Wallets (shown after unlock) -->
@@ -170,6 +270,26 @@
                 <label>Private Key:</label>
                 <input type="password" id="newTradingWalletKey" placeholder="0x..." class="win-input">
               </div>
+
+              <div style="border-top:1px solid var(--win-border);margin:8px 0;padding-top:8px;">
+                <div class="text-sm text-muted mb-4" style="margin-left:110px;">
+                  <strong>Polymarket Builder API Credentials</strong> &mdash; Required to place orders.
+                  <a href="https://polymarket.com/settings?tab=builder" target="_blank" rel="noopener noreferrer" style="color:var(--win-link);">Get them here</a>
+                </div>
+                <div class="form-row">
+                  <label>API Key:</label>
+                  <input type="password" id="newTradingWalletApiKey" placeholder="Your Builder API key" class="win-input" aria-label="Polymarket Builder API Key">
+                </div>
+                <div class="form-row">
+                  <label>API Secret:</label>
+                  <input type="password" id="newTradingWalletApiSecret" placeholder="Your Builder API secret" class="win-input" aria-label="Polymarket Builder API Secret">
+                </div>
+                <div class="form-row">
+                  <label>API Passphrase:</label>
+                  <input type="password" id="newTradingWalletApiPassphrase" placeholder="Your Builder API passphrase" class="win-input" aria-label="Polymarket Builder API Passphrase">
+                </div>
+              </div>
+
               <div class="form-row">
                 <label></label>
                 <button class="win-btn win-btn-primary" onclick="addNewTradingWallet()">Add Wallet</button>
@@ -621,6 +741,24 @@
         <div class="form-row mb-12">
           <label>Label:</label>
           <input type="text" id="modalWalletLabel" class="win-input" placeholder="e.g., WhaleTrader">
+        </div>
+
+        <div class="form-row mb-12">
+          <label>Tags:</label>
+          <div>
+            <div id="modalTagButtons" class="flex-row gap-4 flex-wrap mb-4">
+              <button type="button" class="tag-filter-btn" onclick="toggleModalTag('sports')" data-tag="sports" aria-label="Toggle sports tag" tabindex="0">sports</button>
+              <button type="button" class="tag-filter-btn" onclick="toggleModalTag('politics')" data-tag="politics" aria-label="Toggle politics tag" tabindex="0">politics</button>
+              <button type="button" class="tag-filter-btn" onclick="toggleModalTag('insider')" data-tag="insider" aria-label="Toggle insider tag" tabindex="0">insider</button>
+              <button type="button" class="tag-filter-btn" onclick="toggleModalTag('crypto')" data-tag="crypto" aria-label="Toggle crypto tag" tabindex="0">crypto</button>
+              <button type="button" class="tag-filter-btn" onclick="toggleModalTag('markets')" data-tag="markets" aria-label="Toggle markets tag" tabindex="0">markets</button>
+            </div>
+            <div class="flex-row gap-4">
+              <input type="text" id="modalCustomTag" class="win-input" placeholder="Custom tag..." style="width:140px;" aria-label="Custom tag name">
+              <button type="button" class="win-btn win-btn-sm" onclick="addCustomModalTag()" aria-label="Add custom tag" tabindex="0">Add</button>
+            </div>
+            <input type="hidden" id="modalWalletTags" value="">
+          </div>
         </div>
 
         <!-- Trade Size -->

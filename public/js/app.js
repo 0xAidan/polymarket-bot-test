@@ -902,8 +902,15 @@ async function loadTradingWallets() {
             <div class="text-bold">${w.label} <span class="win-badge ${w.isActive ? 'badge-success' : ''}">${w.id}</span></div>
             <div class="text-mono text-sm">${w.address}</div>
             <div class="text-sm text-muted">Created: ${new Date(w.createdAt).toLocaleDateString()}</div>
+            <div class="text-sm" style="margin-top:2px;">
+              ${w.hasCredentials
+                ? '<span style="color:var(--win-green,green);">Builder API: Configured</span>'
+                : '<span style="color:var(--win-red,#c00);font-weight:bold;">Builder API: Missing — cannot trade</span>'
+              }
+            </div>
           </div>
           <div class="flex-row gap-4">
+            ${!w.hasCredentials ? `<button class="win-btn win-btn-sm" onclick="promptBuilderCredentials('${w.id}')" title="Add Builder API credentials">Add Creds</button>` : ''}
             <label class="win-toggle">
               <input type="checkbox" ${w.isActive ? 'checked' : ''} onchange="toggleTradingWalletActive('${w.id}', this.checked)">
             </label>
@@ -950,15 +957,31 @@ async function addNewTradingWallet() {
   const id = document.getElementById('newTradingWalletId').value.trim();
   const label = document.getElementById('newTradingWalletLabel').value.trim();
   const pk = document.getElementById('newTradingWalletKey').value.trim();
+  const apiKey = document.getElementById('newTradingWalletApiKey').value.trim();
+  const apiSecret = document.getElementById('newTradingWalletApiSecret').value.trim();
+  const apiPassphrase = document.getElementById('newTradingWalletApiPassphrase').value.trim();
   
-  if (!id || !label || !pk) { alert('All fields are required'); return; }
+  if (!id || !label || !pk) { alert('Wallet ID, Label, and Private Key are required'); return; }
   if (!masterPassword) { alert('Wallets must be unlocked first'); return; }
   
+  if (!apiKey || !apiSecret || !apiPassphrase) {
+    const proceed = confirm(
+      'WARNING: You have not entered Builder API credentials.\n\n' +
+      'Without these, this wallet CANNOT place orders on Polymarket.\n' +
+      'Get them from: polymarket.com/settings → Builder tab\n\n' +
+      'Add wallet anyway (credentials can be added later)?'
+    );
+    if (!proceed) return;
+  }
+  
   try {
-    await API.addTradingWallet(id, label, pk, masterPassword);
+    await API.addTradingWallet(id, label, pk, masterPassword, apiKey, apiSecret, apiPassphrase);
     document.getElementById('newTradingWalletId').value = '';
     document.getElementById('newTradingWalletLabel').value = '';
     document.getElementById('newTradingWalletKey').value = '';
+    document.getElementById('newTradingWalletApiKey').value = '';
+    document.getElementById('newTradingWalletApiSecret').value = '';
+    document.getElementById('newTradingWalletApiPassphrase').value = '';
     alert('Trading wallet added!');
     await loadTradingWallets();
   } catch (error) {
@@ -975,6 +998,25 @@ async function removeTradingWalletUI(id) {
 async function toggleTradingWalletActive(id, active) {
   try { await API.toggleTradingWallet(id, active); await loadTradingWallets(); }
   catch (error) { alert(`Failed: ${error.message}`); await loadTradingWallets(); }
+}
+
+async function promptBuilderCredentials(walletId) {
+  const apiKey = prompt(`Enter Builder API Key for wallet "${walletId}":\n\nGet these from: polymarket.com/settings → Builder tab`);
+  if (!apiKey) return;
+  const apiSecret = prompt('Enter Builder API Secret:');
+  if (!apiSecret) return;
+  const apiPassphrase = prompt('Enter Builder API Passphrase:');
+  if (!apiPassphrase) return;
+
+  if (!masterPassword) { alert('Wallets must be unlocked first'); return; }
+
+  try {
+    await API.updateTradingWalletCredentials(walletId, apiKey.trim(), apiSecret.trim(), apiPassphrase.trim(), masterPassword);
+    alert('Builder credentials saved successfully! This wallet can now place orders.');
+    await loadTradingWallets();
+  } catch (error) {
+    alert(`Failed to save credentials: ${error.message}`);
+  }
 }
 
 async function loadCopyAssignments() {

@@ -761,6 +761,25 @@ body {
 .win-badge.badge-warning { background: #dcdcc0; border-color: var(--warning); }
 .win-badge.badge-info { background: #c0c0dc; border-color: var(--info); }
 
+/* Tag badges for wallet categories */
+.tag-badge {
+  display: inline-block;
+  padding: 0 5px;
+  font-size: 10px;
+  border: 1px solid var(--win-dark);
+  background: var(--win-highlight);
+  cursor: default;
+  margin-right: 2px;
+}
+.tag-badge.tag-sports { background: #d4edda; border-color: #28a745; color: #155724; }
+.tag-badge.tag-politics { background: #cce5ff; border-color: #004085; color: #004085; }
+.tag-badge.tag-insider { background: #fff3cd; border-color: #856404; color: #856404; }
+.tag-badge.tag-crypto { background: #e2d5f1; border-color: #6f42c1; color: #6f42c1; }
+.tag-badge.tag-markets { background: #d1ecf1; border-color: #0c5460; color: #0c5460; }
+.tag-filter-bar { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.tag-filter-btn { cursor: pointer; padding: 1px 8px; font-size: 11px; border: 1px solid var(--win-dark); background: var(--win-surface); }
+.tag-filter-btn:hover, .tag-filter-btn.active { background: var(--win-highlight); font-weight: bold; }
+
 /* ============================================================
    STATUS PILL
    ============================================================ */
