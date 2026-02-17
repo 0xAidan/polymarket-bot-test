@@ -2,6 +2,7 @@ import { config } from './config.js';
 import { CopyTrader } from './copyTrader.js';
 import { createServer, startServer } from './server.js';
 import { Storage } from './storage.js';
+import { initWalletManager } from './walletManager.js';
 import { existsSync, writeFileSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -244,6 +245,10 @@ async function main() {
       // Reload configuration after setup
       reloadConfig();
     }
+
+    // Initialize wallet manager early (so trading wallets are available to API routes)
+    console.log('🔑 Loading trading wallets...');
+    await initWalletManager();
 
     // Create and start web server first (so it's accessible even if bot init fails)
     console.log('🌐 Starting web server...');

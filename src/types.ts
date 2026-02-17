@@ -24,6 +24,7 @@ export interface TrackedWallet {
   active: boolean;  // Default: false for new wallets
   lastSeen?: Date;
   label?: string; // User-friendly label/name for the wallet
+  tags?: string[]; // Category tags e.g. "sports", "politics", "insider", "crypto"
   
   // ============================================================
   // TRADE SIZING MODE (Primary configuration)

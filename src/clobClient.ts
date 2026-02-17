@@ -123,9 +123,15 @@ export class PolymarketClobClient {
       this.isInitialized = true;
       console.log('✓ CLOB client initialized successfully');
       console.log(`   Host: ${HOST}`);
-      console.log(`   Wallet: ${this.signer.address}`);
+      console.log(`   Wallet (EOA): ${this.signer.address}`);
       console.log(`   Funder: ${funderAddress}`);
+      console.log(`   Signature Type: ${signatureType} (${signatureType === 0 ? 'EOA' : signatureType === 1 ? 'POLY_PROXY' : signatureType === 2 ? 'POLY_GNOSIS_SAFE' : 'UNKNOWN'})`);
       console.log(`   Builder Auth: ${builderConfig ? 'ENABLED' : 'DISABLED'}`);
+      console.log(`   Builder API Key: ${config.polymarketBuilderApiKey ? config.polymarketBuilderApiKey.substring(0, 8) + '...' : 'NOT SET'}`);
+      if (signatureType === 2 && funderAddress === this.signer.address) {
+        console.warn(`   ⚠️ WARNING: Signature type is 2 (POLY_GNOSIS_SAFE) but funder address = signer address!`);
+        console.warn(`      You probably need to set POLYMARKET_FUNDER_ADDRESS to your Polymarket proxy wallet address.`);
+      }
     } catch (error: any) {
       console.error('❌ Failed to initialize CLOB client:', error.message);
       if (error.stack) {

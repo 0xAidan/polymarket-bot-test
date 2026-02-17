@@ -204,6 +204,23 @@ export class Storage {
     return wallet;
   }
 
+  static async updateWalletTags(address: string, tags: string[]): Promise<TrackedWallet> {
+    const wallets = await this.loadTrackedWallets();
+    const wallet = wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
+
+    if (!wallet) {
+      throw new Error('Wallet not found');
+    }
+
+    // Normalize: lowercase, trim, deduplicate, remove empty
+    const normalizedTags = [...new Set(
+      tags.map(t => t.trim().toLowerCase()).filter(t => t.length > 0)
+    )];
+    wallet.tags = normalizedTags.length > 0 ? normalizedTags : undefined;
+    await this.saveTrackedWallets(wallets);
+    return wallet;
+  }
+
   static async updateWalletTradeConfig(
     address: string,
     walletConfig: {

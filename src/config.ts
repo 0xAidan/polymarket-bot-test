@@ -33,7 +33,7 @@ export const config = {
 
   // Blockchain configuration
   // Using Alchemy RPC for reliable balance fetching (needed for position threshold filter)
-  polygonRpcUrl: process.env.POLYGON_RPC_URL || 'https://polygon-mainnet.g.alchemy.com/v2/7mtxoY0fzCQRByZFL-YBg',
+  polygonRpcUrl: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
   
   // Server configuration
   port: parseInt(process.env.PORT || '3001', 10),
