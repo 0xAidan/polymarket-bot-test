@@ -529,13 +529,25 @@ export class WalletMonitor {
         side,
         timestamp: new Date(),
         transactionHash: `pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        tokenId: tokenId,  // Pass the asset/token ID through for CLOB client
-        negRisk: position.negativeRisk || false,  // Pass negative risk flag
-        // Per-wallet trade config
+        tokenId: tokenId,
+        negRisk: position.negativeRisk || false,
+        // Per-wallet trade config (ALL settings, not just sizing)
         tradeSizingMode: walletSettings?.tradeSizingMode,
         fixedTradeSize: walletSettings?.fixedTradeSize,
         thresholdEnabled: walletSettings?.thresholdEnabled,
         thresholdPercent: walletSettings?.thresholdPercent,
+        tradeSideFilter: walletSettings?.tradeSideFilter,
+        noRepeatEnabled: walletSettings?.noRepeatEnabled,
+        noRepeatPeriodHours: walletSettings?.noRepeatPeriodHours,
+        priceLimitsMin: walletSettings?.priceLimitsMin,
+        priceLimitsMax: walletSettings?.priceLimitsMax,
+        rateLimitEnabled: walletSettings?.rateLimitEnabled,
+        rateLimitPerHour: walletSettings?.rateLimitPerHour,
+        rateLimitPerDay: walletSettings?.rateLimitPerDay,
+        valueFilterEnabled: walletSettings?.valueFilterEnabled,
+        valueFilterMin: walletSettings?.valueFilterMin,
+        valueFilterMax: walletSettings?.valueFilterMax,
+        slippagePercent: walletSettings?.slippagePercent,
       };
     } catch (error: any) {
       console.error('[Monitor] Failed to parse position to trade:', error);
@@ -641,13 +653,25 @@ export class WalletMonitor {
         side,
         timestamp: tradeTimestamp,
         transactionHash: trade.transactionHash || trade.id || `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        tokenId: trade.asset,  // Token ID from trade data for CLOB client
-        negRisk: false,  // Default, not available in trade history
-        // Per-wallet trade config
+        tokenId: trade.asset,
+        negRisk: false,
+        // Per-wallet trade config (ALL settings, not just sizing)
         tradeSizingMode: walletSettings?.tradeSizingMode,
         fixedTradeSize: walletSettings?.fixedTradeSize,
         thresholdEnabled: walletSettings?.thresholdEnabled,
         thresholdPercent: walletSettings?.thresholdPercent,
+        tradeSideFilter: walletSettings?.tradeSideFilter,
+        noRepeatEnabled: walletSettings?.noRepeatEnabled,
+        noRepeatPeriodHours: walletSettings?.noRepeatPeriodHours,
+        priceLimitsMin: walletSettings?.priceLimitsMin,
+        priceLimitsMax: walletSettings?.priceLimitsMax,
+        rateLimitEnabled: walletSettings?.rateLimitEnabled,
+        rateLimitPerHour: walletSettings?.rateLimitPerHour,
+        rateLimitPerDay: walletSettings?.rateLimitPerDay,
+        valueFilterEnabled: walletSettings?.valueFilterEnabled,
+        valueFilterMin: walletSettings?.valueFilterMin,
+        valueFilterMax: walletSettings?.valueFilterMax,
+        slippagePercent: walletSettings?.slippagePercent,
       };
     } catch (error: any) {
       console.error('[Monitor] Failed to parse trade data:', error);

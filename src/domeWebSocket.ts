@@ -13,8 +13,8 @@ interface DomeOrderEvent {
   side: 'BUY' | 'SELL';
   market_slug: string;
   condition_id: string;
-  shares: number;
-  shares_normalized: number;
+  shares: number;             // Raw base units (6 decimals, e.g. 1000000 = 1 share)
+  shares_normalized: number;  // Human-readable shares (e.g. 1.0)
   price: number;
   tx_hash: string;
   title: string;
@@ -152,11 +152,16 @@ export class DomeWebSocketMonitor extends EventEmitter {
       outcome = data.token_label.toUpperCase() === 'NO' ? 'NO' : 'YES';
     }
 
+    // CRITICAL FIX: Use shares_normalized (human-readable, e.g. 14.56) instead of shares
+    // (raw base units with 6 decimals, e.g. 14560000). Previously used data.shares which
+    // caused amounts to be 1,000,000x too large, breaking threshold filters and display.
+    const normalizedShares = data.shares_normalized ?? (data.shares / 1_000_000);
+    
     const trade: DetectedTrade = {
       walletAddress: userAddress,
       marketId: data.condition_id,
       outcome,
-      amount: String(data.shares),
+      amount: String(normalizedShares),
       price: String(data.price),
       side: data.side,
       timestamp: new Date(data.timestamp * 1000),
