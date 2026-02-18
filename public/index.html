@@ -23,9 +23,9 @@
 
       <!-- Menu Bar -->
       <div class="win-menubar">
-        <button class="win-menu-item" id="menuBot" onclick="toggleBotMenu()">Bot</button>
-        <button class="win-menu-item" id="menuView">View</button>
-        <button class="win-menu-item" id="menuHelp">Help</button>
+        <button class="win-menu-item" id="menuBot" onclick="toggleBotMenu()" aria-label="Bot menu" tabindex="0">Bot</button>
+        <button class="win-menu-item" id="menuView" onclick="toggleViewMenu()" aria-label="View menu" tabindex="0">View</button>
+        <button class="win-menu-item" id="menuHelp" onclick="toggleHelpMenu()" aria-label="Help menu" tabindex="0">Help</button>
       </div>
 
       <!-- Tab Navigation -->
@@ -89,8 +89,8 @@
 
           <!-- Recent Trades -->
           <div class="win-group">
-            <div class="win-group-title">Recent Trades</div>
-            <div style="overflow-x: auto;">
+            <div class="win-group-title">Trade History</div>
+            <div class="trades-scroll-container" style="max-height:350px;overflow-y:auto;overflow-x:auto;">
               <table class="win-listview" id="tradesTable">
                 <thead>
                   <tr>
@@ -106,6 +106,10 @@
                   <tr class="empty-row"><td colspan="6">No trades yet</td></tr>
                 </tbody>
               </table>
+            </div>
+            <div class="flex-between mt-8">
+              <span class="text-sm text-muted" id="tradesCountLabel">0 trades</span>
+              <button class="win-btn win-btn-sm" id="loadMoreTradesBtn" onclick="loadMoreTrades()" style="display:none;">Load More</button>
             </div>
           </div>
 
@@ -124,6 +128,7 @@
                 <span id="ladderPriceMonitorStatus" class="win-badge">OFF</span>
                 <span class="text-sm text-muted" style="margin-left:8px;">Mode:</span>
                 <span id="ladderModeStatus" class="win-badge">PAPER</span>
+                <button class="win-btn" style="padding:0 4px;min-width:auto;font-size:11px;margin-left:2px;" onclick="openPaperModeModal()" title="What is Paper Mode?" aria-label="What is Paper Mode?" tabindex="0">?</button>
               </div>
               <div class="flex-row gap-4">
                 <button class="win-btn win-btn-sm" onclick="toggleLadderLiveMode()">Toggle Live</button>
@@ -387,32 +392,6 @@
               <input type="number" id="monitoringInterval" value="15" min="1" max="300" class="win-input" style="width:80px;" onchange="updateMonitoringInterval()">
             </div>
             <div class="form-hint">How often to check tracked wallets for new trades</div>
-          </div>
-
-          <!-- Security -->
-          <div class="win-group">
-            <div class="win-group-title">Security Configuration</div>
-            <div class="win-warning mb-8">
-              <strong>Warning:</strong> These credentials are stored in your .env file. Never share them.
-            </div>
-            <div class="form-row">
-              <label>Private Key:</label>
-              <input type="password" id="privateKey" placeholder="0x..." class="win-input">
-              <button class="win-btn win-btn-sm" onclick="updatePrivateKey()">Update</button>
-            </div>
-            <div class="form-row">
-              <label>Builder API Key:</label>
-              <input type="text" id="builderApiKey" placeholder="Your API key" class="win-input">
-            </div>
-            <div class="form-row">
-              <label>Builder Secret:</label>
-              <input type="password" id="builderSecret" placeholder="Your secret" class="win-input">
-            </div>
-            <div class="form-row">
-              <label>Builder Passphrase:</label>
-              <input type="password" id="builderPassphrase" placeholder="Your passphrase" class="win-input">
-              <button class="win-btn win-btn-sm" onclick="updateBuilderCredentials()">Update All</button>
-            </div>
             <hr style="margin: 12px 0; border-color: var(--win-dark);">
             <div class="form-row">
               <label>Proxy Wallet:</label>
@@ -527,7 +506,7 @@
             <div class="metrics-row" id="executorMetrics">
               <div class="metric-box">
                 <div class="metric-value" id="execPaperMode">ON</div>
-                <div class="metric-label">Paper Mode</div>
+                <div class="metric-label">Paper Mode <button class="win-btn" style="padding:0 4px;min-width:auto;font-size:11px;vertical-align:middle;" onclick="event.stopPropagation();openPaperModeModal()" title="What is Paper Mode?" aria-label="What is Paper Mode?" tabindex="0">?</button></div>
               </div>
               <div class="metric-box success">
                 <div class="metric-value" id="execSuccessful">0</div>
@@ -1078,6 +1057,167 @@
     </div>
   </div>
 
+  <!-- ============================================================
+       TRADE DETAIL MODAL
+       ============================================================ -->
+  <div id="tradeDetailModal" class="win-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="tradeDetailModalTitle">
+    <div class="win-modal" style="max-width:520px;">
+      <div class="win-titlebar">
+        <div class="win-titlebar-icon">&#128196;</div>
+        <div class="win-titlebar-text" id="tradeDetailModalTitle">Trade Details</div>
+        <div class="win-titlebar-buttons">
+          <button class="win-titlebar-btn" onclick="closeTradeDetailModal()" aria-label="Close" tabindex="0">X</button>
+        </div>
+      </div>
+      <div class="win-modal-body" id="tradeDetailModalBody">
+        <div class="trade-detail-grid" id="tradeDetailContent">
+        </div>
+      </div>
+      <div class="win-modal-footer">
+        <button class="win-btn" onclick="closeTradeDetailModal()" tabindex="0">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       PAPER MODE INFO MODAL
+       ============================================================ -->
+  <div id="paperModeModal" class="win-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="paperModeModalTitle">
+    <div class="win-modal" style="max-width:420px;">
+      <div class="win-titlebar">
+        <div class="win-titlebar-icon">&#9432;</div>
+        <div class="win-titlebar-text" id="paperModeModalTitle">What is Paper Mode?</div>
+        <div class="win-titlebar-buttons">
+          <button class="win-titlebar-btn" onclick="closePaperModeModal()" aria-label="Close" tabindex="0">X</button>
+        </div>
+      </div>
+      <div class="win-modal-body" style="padding:16px;">
+        <div style="display:flex;gap:12px;align-items:flex-start;">
+          <span style="font-size:32px;">&#128203;</span>
+          <div>
+            <div style="font-size:16px;font-weight:bold;margin-bottom:8px;">Paper Mode = Simulation</div>
+            <div class="text-sm" style="line-height:1.6;">
+              When Paper Mode is <strong>ON</strong>, the bot simulates trades without spending real money.
+              It logs what it <em>would</em> do &mdash; which orders it would place, at what price, and on which platform &mdash; but no actual orders are sent to the exchange.
+            </div>
+            <div style="margin:12px 0;border:1px solid var(--win-dark);background:var(--win-surface);padding:8px;">
+              <div class="text-sm"><strong>Use Paper Mode to:</strong></div>
+              <ul style="margin:4px 0 0 16px;padding:0;font-size:13px;line-height:1.6;">
+                <li>Test new strategies safely</li>
+                <li>Verify your filters work correctly</li>
+                <li>Check that the bot tracks wallets properly</li>
+                <li>Debug issues without financial risk</li>
+              </ul>
+            </div>
+            <div class="text-sm text-muted">
+              Toggle Paper Mode <strong>OFF</strong> when you are confident and ready to trade with real USDC.
+              You can always turn it back on at any time.
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="win-modal-footer">
+        <button class="win-btn win-btn-primary" onclick="closePaperModeModal()" tabindex="0">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       ABOUT MODAL
+       ============================================================ -->
+  <div id="aboutModal" class="win-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="aboutModalTitle">
+    <div class="win-modal" style="max-width:380px;">
+      <div class="win-titlebar">
+        <div class="win-titlebar-icon">&#128200;</div>
+        <div class="win-titlebar-text" id="aboutModalTitle">About CopyTrade95</div>
+        <div class="win-titlebar-buttons">
+          <button class="win-titlebar-btn" onclick="closeAboutModal()" aria-label="Close" tabindex="0">X</button>
+        </div>
+      </div>
+      <div class="win-modal-body" style="padding:20px;text-align:center;">
+        <div style="font-size:36px;margin-bottom:4px;">&#128200;</div>
+        <div style="font-size:22px;font-weight:bold;">CopyTrade95</div>
+        <div class="text-sm text-muted" style="margin-bottom:12px;">Copy trading, like it's 1995</div>
+        <div style="border:2px inset var(--win-surface);background:var(--win-field-bg);padding:12px;text-align:left;font-size:13px;line-height:1.5;">
+          <div>Polymarket Copy Trading Bot</div>
+          <div class="text-muted">Monitors tracked wallets and automatically copies their trades to your wallets with configurable filters and risk controls.</div>
+          <hr style="margin:8px 0;border-color:var(--win-dark);">
+          <div>Features: Multi-wallet, Ladder Exits, Cross-Platform Arb, Stop-Loss, Auto-Redemption</div>
+        </div>
+        <div style="margin-top:12px;">
+          <a href="https://github.com/0xAidan/polymarket-bot-test" target="_blank" rel="noopener noreferrer" id="aboutGithubLink" class="win-btn" style="text-decoration:none;display:inline-block;">View on GitHub</a>
+        </div>
+      </div>
+      <div class="win-modal-footer">
+        <button class="win-btn win-btn-primary" onclick="closeAboutModal()" tabindex="0">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       TRADING WALLET SETTINGS MODAL
+       ============================================================ -->
+  <div id="tradingWalletSettingsModal" class="win-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="twSettingsModalTitle">
+    <div class="win-modal" style="max-width:480px;">
+      <div class="win-titlebar">
+        <div class="win-titlebar-icon">&#9881;</div>
+        <div class="win-titlebar-text" id="twSettingsModalTitle">Wallet Settings</div>
+        <div class="win-titlebar-buttons">
+          <button class="win-titlebar-btn" onclick="closeTradingWalletSettingsModal()" aria-label="Close" tabindex="0">X</button>
+        </div>
+      </div>
+      <div class="win-modal-body" style="padding:12px;">
+        <input type="hidden" id="twSettingsWalletId">
+        <!-- Auto-Redemption -->
+        <div class="win-group">
+          <div class="win-group-title">Auto-Redemption</div>
+          <div class="text-sm text-muted mb-8">Automatically redeem winning positions when markets resolve. Your USDC is returned without manual action.</div>
+          <div class="flex-row gap-8 mb-8">
+            <label class="win-checkbox">
+              <input type="checkbox" id="twAutoRedeemEnabled" onchange="handleAutoRedeemToggle()">
+              <span>Enable Auto-Redemption</span>
+            </label>
+          </div>
+          <div id="twAutoRedeemInputs" class="hidden">
+            <div class="form-row">
+              <label>Min value ($):</label>
+              <input type="number" id="twMinRedeemValue" value="0.10" min="0.01" step="0.01" class="win-input" style="width:80px;">
+            </div>
+            <div class="form-hint">Skip redeeming positions worth less than this amount</div>
+          </div>
+        </div>
+
+        <!-- Auto-Merge -->
+        <div class="win-group">
+          <div class="win-group-title">Auto-Merge</div>
+          <div class="text-sm text-muted mb-8">Automatically merge complementary position fragments to recover USDC</div>
+          <div class="flex-row gap-8">
+            <label class="win-checkbox">
+              <input type="checkbox" id="twAutoMergeEnabled">
+              <span>Enable Auto-Merge</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Redeemable Positions -->
+        <div class="win-group">
+          <div class="win-group-title">Redeemable Now</div>
+          <div id="twRedeemableList">
+            <div class="text-center text-muted" style="padding:8px;">Click "Check Now" to scan</div>
+          </div>
+          <div class="flex-row gap-8 mt-8">
+            <button class="win-btn win-btn-sm" onclick="checkRedeemablePositions()">Check Now</button>
+            <button class="win-btn win-btn-sm win-btn-primary" onclick="redeemAllPositions()">Redeem All</button>
+          </div>
+        </div>
+      </div>
+      <div class="win-modal-footer">
+        <button class="win-btn" onclick="closeTradingWalletSettingsModal()" tabindex="0">Cancel</button>
+        <button class="win-btn win-btn-primary" onclick="saveTradingWalletSettings()" tabindex="0">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Taskbar -->
   <div class="taskbar">
     <button class="start-btn" id="startStopBtn" onclick="toggleBot()">
@@ -1086,7 +1226,7 @@
     </button>
     <div class="taskbar-divider"></div>
     <div class="taskbar-items">
-      <div class="taskbar-item active">CopyTrade95</div>
+      <div class="taskbar-item active" id="taskbarCopyTrade" onclick="window.open('https://github.com/0xAidan/polymarket-bot-test', '_blank')" style="cursor:pointer;" title="Visit GitHub repository" tabindex="0" role="link" aria-label="CopyTrade95 - click to visit GitHub">CopyTrade95</div>
     </div>
     <div class="taskbar-status">
       <div class="status-indicator stopped" id="taskbarIndicator"></div>
