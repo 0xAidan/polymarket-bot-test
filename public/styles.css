@@ -702,7 +702,33 @@ body {
 
 .wallet-entry.inactive-wallet {
   border-left: 4px solid var(--win-dark);
-  opacity: 0.8;
+  opacity: 0.55;
+}
+
+.wallet-entry.inactive-wallet .balance-val {
+  color: var(--win-dark) !important;
+  font-size: 13px;
+}
+
+.wallet-entry.inactive-wallet .win-badge {
+  opacity: 0.45;
+}
+
+.wallet-entry.inactive-wallet .wallet-entry-config {
+  opacity: 0.4;
+}
+
+.paused-badge {
+  display: inline-block;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: bold;
+  border: 1px solid var(--win-dark);
+  background: var(--win-surface);
+  color: var(--win-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-left: 6px;
 }
 
 .wallet-entry-info {
@@ -778,7 +804,7 @@ body {
 .tag-badge.tag-markets { background: #d1ecf1; border-color: #0c5460; color: #0c5460; }
 .tag-filter-bar { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
 .tag-filter-btn { cursor: pointer; padding: 1px 8px; font-size: 11px; border: 1px solid var(--win-dark); background: var(--win-surface); }
-.tag-filter-btn:hover, .tag-filter-btn.active { background: var(--win-highlight); font-weight: bold; }
+.tag-filter-btn:hover, .tag-filter-btn.active { background: var(--win-highlight); color: var(--win-selected-text); font-weight: bold; }
 
 /* ============================================================
    STATUS PILL
@@ -1281,3 +1307,104 @@ body {
 .text-warning { color: #aa8800; }
 .text-danger { color: #cc0000; }
 .text-muted { color: #888; }
+
+/* ============================================================
+   TRADE DETAIL MODAL
+   ============================================================ */
+.trade-detail-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font-size: 14px;
+}
+
+.trade-detail-grid .detail-label {
+  font-weight: bold;
+  color: var(--win-dark);
+  text-align: right;
+  white-space: nowrap;
+  padding: 2px 0;
+}
+
+.trade-detail-grid .detail-value {
+  padding: 2px 0;
+  word-break: break-all;
+}
+
+.trade-detail-grid .detail-divider {
+  grid-column: 1 / -1;
+  border-bottom: 1px solid var(--win-dark);
+  margin: 4px 0;
+}
+
+.win-listview tr.clickable-row {
+  cursor: pointer;
+}
+
+.win-listview tr.clickable-row:hover td {
+  background: var(--win-selection);
+  color: var(--win-selected-text);
+}
+
+.trades-scroll-container {
+  border: 2px inset var(--win-surface);
+}
+
+/* ============================================================
+   DROPDOWN MENUS (Win95 style)
+   ============================================================ */
+.win-menubar {
+  position: relative;
+}
+
+.win-menu-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.win-menu-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background: var(--win-surface);
+  border: 2px outset var(--win-surface);
+  box-shadow: 2px 2px 0 rgba(0,0,0,0.3);
+  min-width: 200px;
+  z-index: 100;
+  padding: 2px;
+}
+
+.win-menu-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 3px 24px 3px 8px;
+  font-family: var(--font-system);
+  font-size: 14px;
+  cursor: pointer;
+  color: var(--win-black);
+  background: none;
+  border: none;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.win-menu-dropdown-item:hover {
+  background: var(--win-selection);
+  color: var(--win-selected-text);
+}
+
+.win-menu-dropdown-item:disabled {
+  color: var(--win-dark);
+}
+
+.win-menu-dropdown-item:disabled:hover {
+  background: none;
+  color: var(--win-dark);
+}
+
+.win-menu-separator {
+  height: 1px;
+  background: var(--win-dark);
+  margin: 3px 2px;
+  border-bottom: 1px solid var(--win-white);
+}

@@ -516,6 +516,34 @@ const API = {
 
   async stopPriceMonitor() {
     return this.post('/pricemonitor/stop');
+  },
+
+  // ============================================================
+  // POSITION LIFECYCLE (Auto-Redemption)
+  // ============================================================
+
+  async getLifecycleStatus() {
+    return this.get('/lifecycle/status');
+  },
+
+  async updateLifecycleConfig(config) {
+    return this.post('/lifecycle/config', config);
+  },
+
+  async getRedeemablePositions() {
+    return this.get('/lifecycle/redeemable');
+  },
+
+  async redeemAll() {
+    return this.post('/lifecycle/redeem-all');
+  },
+
+  async startLifecycle() {
+    return this.post('/lifecycle/start');
+  },
+
+  async stopLifecycle() {
+    return this.post('/lifecycle/stop');
   }
 };
 
