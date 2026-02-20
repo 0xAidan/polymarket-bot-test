@@ -1,0 +1,44 @@
+---
+description: Critical trade safety invariants that must NEVER be broken. Apply when editing trade execution, dedup, no-repeat, stop-loss, or wallet monitoring code.
+globs: src/copyTrader.ts,src/walletMonitor.ts,src/tradeExecutor.ts,src/clobClient.ts,src/domeWebSocket.ts
+alwaysApply: false
+---
+
+# Trade Safety Invariants
+
+These rules protect real money. Violating any of them has caused actual financial losses.
+
+## 1. No-Repeat Trades: ALWAYS active, ALWAYS recorded
+
+- The no-repeat check (`Storage.isPositionBlocked`) MUST run for EVERY trade, not gated on `trade.noRepeatEnabled`.
+- When `noRepeatEnabled` is true, use the configured `noRepeatPeriodHours`. When false/undefined, use a 5-minute safety minimum.
+- `Storage.addExecutedPosition` MUST be called after EVERY successful trade, not gated on `noRepeatEnabled`.
+- If the no-repeat storage read fails, BLOCK the trade (fail-safe). Never proceed on error.
+
+## 2. Concurrency Guard: inFlightTrades.add() BEFORE any await
+
+- `inFlightTrades.add(tradeKey)` and `inFlightTrades.add(compoundKey)` MUST be called IMMEDIATELY after the in-flight check, BEFORE any `await` call.
+- A `try/finally` block MUST wrap everything after the add to guarantee cleanup on any return path.
+- There must be ZERO async operations between the in-flight check and the add.
+
+## 3. USDC Commitment Stop-Loss: Fail-Safe
+
+- If any API call (USDC balance, positions) fails inside `getUsageStopLossStatus`, return `active: true` (block trades).
+- The caller catch block must also block on error. Never proceed with a trade if stop-loss status is unknown.
+- Position value MUST use `curPrice` (market price), not `avgPrice` (cost basis).
+
+## 4. Wallet Settings: ALL fields passed through
+
+- `parsePositionToTrade` and `parseTradeData` in `walletMonitor.ts` MUST pass ALL wallet settings to `DetectedTrade`.
+- `enrichFromWallet` in `domeWebSocket.ts` MUST also pass ALL wallet settings.
+- If a new wallet setting is added, it MUST be added to all three locations.
+
+## 5. Order Size Safety Cap
+
+- Every trade MUST be checked against a maximum order size (2x the configured `fixedTradeSize` or global trade size).
+- This check must happen AFTER trade sizing calculation but BEFORE the order is sent to the CLOB.
+
+## 6. Always Rebuild After Code Changes
+
+- After any code change to `src/`, the bot MUST be rebuilt with `npm run build` before restarting.
+- The compiled `dist/` files are what actually runs. Source changes have no effect until compiled.

@@ -389,6 +389,15 @@ export class CopyTrader {
       console.log(`[CopyTrader] ⏭️  Trade currently in-flight, skipping concurrent processing`);
       return;
     }
+
+    // CRITICAL: Mark as in-flight IMMEDIATELY after the check, BEFORE any async code.
+    // This closes the race window where concurrent Dome WS events could all pass the
+    // check above before any of them reached the old add() location 300 lines below.
+    this.inFlightTrades.add(tradeKey);
+    this.inFlightTrades.add(compoundKey);
+
+    try {
+    // === Everything below is wrapped in try/finally to guarantee inFlightTrades cleanup ===
     
     console.log(`\n${'='.repeat(60)}`);
     console.log(`🔔 TRADE DETECTED`);
@@ -490,12 +499,20 @@ export class CopyTrader {
     }
 
     // ============================================================
-    // NO-REPEAT-TRADES FILTER (Per-Wallet)
+    // NO-REPEAT-TRADES FILTER (ALWAYS ACTIVE)
     // ============================================================
-    // Check if we've already traded this market+side within the wallet's block period
-    if (trade.noRepeatEnabled) {
+    // ALWAYS check if we've already traded this market+outcome, regardless of per-wallet
+    // noRepeatEnabled setting. This provides two levels of protection:
+    //  - noRepeatEnabled=true: Uses configured blockPeriod (forever, 24h, etc.)
+    //  - noRepeatEnabled=false/undefined: Uses 5-minute safety minimum to catch
+    //    rapid-fire duplicates from bot restarts and concurrent Dome WS events.
+    // FAIL-SAFE: If the storage read fails, BLOCK the trade rather than allowing it.
+    {
+      const SAFETY_MINIMUM_HOURS = 5 / 60; // 5 minutes
+      const blockPeriod = trade.noRepeatEnabled
+        ? (trade.noRepeatPeriodHours ?? 24)
+        : SAFETY_MINIMUM_HOURS;
       try {
-        const blockPeriod = trade.noRepeatPeriodHours ?? 24;  // Default: 24 hours
         const isBlocked = await Storage.isPositionBlocked(
           trade.marketId,
           trade.outcome,
@@ -503,12 +520,12 @@ export class CopyTrader {
         );
         
         if (isBlocked) {
-          const periodLabel = blockPeriod === 0 ? 'forever' : `${blockPeriod}h`;
+          const periodLabel = blockPeriod === 0 ? 'forever' : blockPeriod < 1 ? `${Math.round(blockPeriod * 60)}min` : `${blockPeriod}h`;
           console.log(`\n⏭️  [CopyTrader] FILTERED - No-repeat-trades (already have position)`);
           console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
           console.log(`   Market: ${trade.marketId}`);
           console.log(`   Side: ${trade.side} | Outcome: ${trade.outcome}`);
-          console.log(`   Block period: ${periodLabel}`);
+          console.log(`   Block period: ${periodLabel}${!trade.noRepeatEnabled ? ' (global safety minimum)' : ''}`);
           console.log(`   💡 You already have a ${trade.outcome} position in this market. Skipping repeat trade.\n`);
           
           await this.performanceTracker.recordTrade({
@@ -529,7 +546,8 @@ export class CopyTrader {
           return;
         }
       } catch (noRepeatError: any) {
-        console.warn(`[CopyTrader] No-repeat check error (proceeding with trade): ${noRepeatError.message}`);
+        console.error(`[CopyTrader] No-repeat check FAILED — BLOCKING trade for safety: ${noRepeatError.message}`);
+        return;
       }
     }
 
@@ -684,14 +702,11 @@ export class CopyTrader {
         return; // Skip this trade
       }
     } catch (stopLossError: any) {
-      // Don't block trade if stop-loss check fails
-      console.warn(`[CopyTrader] Stop-loss check error (proceeding with trade): ${stopLossError.message}`);
+      // FAIL-SAFE: If we can't verify stop-loss status, BLOCK the trade.
+      // Better to miss one trade than to overcommit capital.
+      console.error(`[CopyTrader] Stop-loss check FAILED — BLOCKING trade for safety: ${stopLossError.message}`);
+      return;
     }
-
-    // Mark as in-flight to prevent concurrent processing of the same trade.
-    // Actual dedup marking happens AFTER successful execution so failed trades can retry.
-    this.inFlightTrades.add(tradeKey);
-    this.inFlightTrades.add(compoundKey);
 
     const executionStart = Date.now();
 
@@ -835,6 +850,24 @@ export class CopyTrader {
           'trade_execution',
           `Invalid calculated trade size: $${tradeSizeUsdcNum} USDC`,
           { trade, tradeSizeSource }
+        );
+        return;
+      }
+
+      // SAFETY CAP: Reject any order that exceeds a reasonable maximum.
+      // This catches bugs in pricing, unit conversion, or sizing logic before
+      // real money leaves the wallet.
+      const configuredSize = trade.fixedTradeSize || parseFloat(await Storage.getTradeSize() || '50');
+      const maxAllowedUsd = configuredSize * 2;
+      if (tradeSizeUsdcNum > maxAllowedUsd) {
+        console.error(`\n❌ [CopyTrader] SAFETY CAP: Order $${tradeSizeUsdcNum.toFixed(2)} exceeds 2x configured size of $${configuredSize}`);
+        console.error(`   Mode: ${tradeSizeSource}`);
+        console.error(`   This likely indicates a bug in trade sizing. Trade BLOCKED.\n`);
+        await this.performanceTracker.logIssue(
+          'error',
+          'trade_execution',
+          `Safety cap: Order $${tradeSizeUsdcNum.toFixed(2)} exceeds max $${maxAllowedUsd.toFixed(2)} (2x $${configuredSize})`,
+          { trade, tradeSizeSource, tradeSizeUsdcNum, maxAllowedUsd }
         );
         return;
       }
@@ -1021,14 +1054,14 @@ export class CopyTrader {
           }
         }
         
-        // Record executed position for no-repeat-trades feature (per-wallet)
-        if (trade.noRepeatEnabled) {
-          try {
-            await Storage.addExecutedPosition(trade.marketId, trade.outcome, trade.walletAddress);
-            console.log(`[CopyTrader] Recorded position for no-repeat-trades: ${trade.marketId} ${trade.outcome}`);
-          } catch (recordError: any) {
-            console.warn(`[CopyTrader] Failed to record executed position: ${recordError.message}`);
-          }
+        // ALWAYS record executed position for cross-restart dedup.
+        // Not gated on noRepeatEnabled — every successful trade is persisted so the
+        // no-repeat safety check (5-min minimum for all trades) has data to work with.
+        try {
+          await Storage.addExecutedPosition(trade.marketId, trade.outcome, trade.walletAddress);
+          console.log(`[CopyTrader] Recorded position for no-repeat-trades: ${trade.marketId} ${trade.outcome}`);
+        } catch (recordError: any) {
+          console.error(`[CopyTrader] CRITICAL: Failed to record executed position: ${recordError.message}`);
         }
       } else {
         // Check if this is a "market closed" error (expected behavior, not a failure)
@@ -1090,8 +1123,11 @@ export class CopyTrader {
         `Error handling trade: ${error.message}`,
         { trade, error: error.stack }
       );
+    }
     } finally {
-      // Always clear in-flight status so the trade can be retried on failure
+      // Always clear in-flight status so the trade can be retried on failure.
+      // This finally block covers the ENTIRE function after the inFlightTrades.add()
+      // at the top, ensuring cleanup on ANY return path (filters, errors, success).
       this.inFlightTrades.delete(tradeKey);
       this.inFlightTrades.delete(compoundKey);
     }
@@ -1273,12 +1309,12 @@ export class CopyTrader {
         const clobClient = this.executor.getClobClient();
         freeUsdc = await clobClient.getUsdcBalance();
       } catch (error: any) {
-        console.warn(`[CopyTrader] Cannot fetch USDC balance for stop-loss check: ${error.message}`);
+        console.error(`[CopyTrader] Cannot fetch USDC balance for stop-loss check — BLOCKING trades for safety: ${error.message}`);
         return {
           enabled: true,
           maxCommitmentPercent: stopLossConfig.maxCommitmentPercent,
           commitmentPercent: null,
-          active: false,
+          active: true,
           error: `Cannot fetch USDC balance: ${error.message}`
         };
       }
@@ -1289,16 +1325,16 @@ export class CopyTrader {
         const positions = await this.monitor.getApi().getUserPositions(walletToCheck);
         for (const position of positions) {
           const size = parseFloat(position.size || '0');
-          const price = parseFloat(position.avgPrice || position.curPrice || '0.5');
+          const price = parseFloat(position.curPrice || position.avgPrice || '0.5');
           positionsValue += size * price;
         }
       } catch (error: any) {
-        console.warn(`[CopyTrader] Cannot fetch positions for stop-loss check: ${error.message}`);
+        console.error(`[CopyTrader] Cannot fetch positions for stop-loss check — BLOCKING trades for safety: ${error.message}`);
         return {
           enabled: true,
           maxCommitmentPercent: stopLossConfig.maxCommitmentPercent,
           commitmentPercent: null,
-          active: false,
+          active: true,
           error: `Cannot fetch positions: ${error.message}`
         };
       }
@@ -1330,12 +1366,12 @@ export class CopyTrader {
         active
       };
     } catch (error: any) {
-      console.warn(`[CopyTrader] Stop-loss check error: ${error.message}`);
+      console.error(`[CopyTrader] Stop-loss check error — BLOCKING trades for safety: ${error.message}`);
       return {
-        enabled: false,
+        enabled: true,
         maxCommitmentPercent: 0,
         commitmentPercent: null,
-        active: false,
+        active: true,
         error: error.message
       };
     }
