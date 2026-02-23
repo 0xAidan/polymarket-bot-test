@@ -32,6 +32,7 @@ export interface StopLossOrder {
   isActive: boolean;
   triggeredAt?: string;
   triggeredPrice?: number;
+  cancelledAt?: string;           // Set when manually cancelled (vs triggered by price)
   createdAt: string;
 }
 
@@ -85,7 +86,7 @@ export class SmartStopLossManager {
   ): StopLossOrder {
     const trailingPercent = overrides?.trailingPercent ?? this.config.defaultTrailingPercent;
     const initialStopPrice = overrides?.initialStopPrice
-      ?? Math.max(0.01, entryPrice - (this.config.defaultInitialStopPercent / 100));
+      ?? Math.max(0.01, entryPrice * (1 - this.config.defaultInitialStopPercent / 100));
 
     const order: StopLossOrder = {
       id: `sl-${tokenId}-${Date.now()}`,
@@ -137,12 +138,14 @@ export class SmartStopLossManager {
       }
 
       // Profit lock: once price exceeds entry + threshold, lock stop at break-even
+      let justLocked = false;
       if (
         order.profitLockEnabled &&
         !order.profitLocked &&
         currentPrice >= order.entryPrice + order.profitLockThreshold
       ) {
         order.profitLocked = true;
+        justLocked = true;
         // Raise stop to at least break-even
         if (order.currentStopPrice < order.profitLockLevel) {
           order.currentStopPrice = order.profitLockLevel;
@@ -153,8 +156,9 @@ export class SmartStopLossManager {
         );
       }
 
-      // Check if triggered
-      if (currentPrice <= order.currentStopPrice) {
+      // Check if triggered (skip if profit lock just activated this tick —
+      // give the position one more price check before potentially selling)
+      if (!justLocked && currentPrice <= order.currentStopPrice) {
         order.isActive = false;
         order.triggeredAt = new Date().toISOString();
         order.triggeredPrice = currentPrice;
@@ -180,7 +184,7 @@ export class SmartStopLossManager {
     const order = this.orders.find(o => o.id === orderId);
     if (order) {
       order.isActive = false;
-      order.triggeredAt = new Date().toISOString();
+      order.cancelledAt = new Date().toISOString();
       this.saveState().catch(err => console.error('[StopLoss] Save failed:', err.message));
     }
   }
