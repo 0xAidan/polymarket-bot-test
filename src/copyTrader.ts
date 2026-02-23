@@ -28,7 +28,7 @@ export class CopyTrader {
   private processedTrades = new Map<string, number>(); // Track processed trades by tx hash to prevent duplicates
   private processedCompoundKeys = new Map<string, number>(); // Track by compound key (wallet-market-outcome-side-timeWindow) to catch same trade with different hashes
   private inFlightTrades = new Set<string>(); // Prevent concurrent processing of the same trade
-  
+
   // Per-wallet rate limiting state (in-memory, keyed by wallet address)
   private perWalletRateLimits: PerWalletRateLimitStates = new Map();
 
@@ -50,16 +50,16 @@ export class CopyTrader {
       await this.websocketMonitor.initialize();
       await this.executor.authenticate();
       await this.balanceTracker.initialize();
-      
+
       // Initialize multi-wallet manager
       await initWalletManager();
-      
+
       // Initialize Dome WebSocket if API key is configured
       if (isDomeConfigured()) {
         this.domeWsMonitor = new DomeWebSocketMonitor();
         console.log('[CopyTrader] Dome API key detected — WebSocket monitoring available');
       }
-      
+
       // Record initial balance for user wallet only (not tracked wallets to reduce RPC calls)
       const userWallet = this.getWalletAddress();
       if (userWallet) {
@@ -69,7 +69,7 @@ export class CopyTrader {
           console.warn(`Failed to record initial balance for ${userWallet}:`, error.message);
         }
       }
-      
+
       // Cleanup expired executed positions (for no-repeat-trades feature)
       // Find the shortest non-zero block period from all wallets to determine cleanup threshold
       try {
@@ -77,7 +77,7 @@ export class CopyTrader {
         const blockPeriods = wallets
           .filter(w => w.noRepeatEnabled && w.noRepeatPeriodHours !== 0) // Skip 'forever' (0)
           .map(w => w.noRepeatPeriodHours ?? 24);
-        
+
         if (blockPeriods.length > 0) {
           // Use the longest block period to avoid removing positions that are still valid
           const maxBlockPeriod = Math.max(...blockPeriods);
@@ -89,7 +89,7 @@ export class CopyTrader {
       } catch (cleanupError: any) {
         console.warn(`[CopyTrader] Failed to cleanup expired positions: ${cleanupError.message}`);
       }
-      
+
       console.log('Copy trader initialized');
     } catch (error: any) {
       await this.performanceTracker.logIssue(
@@ -221,14 +221,14 @@ export class CopyTrader {
 
     console.log('Stopping copy trading bot...');
     this.isRunning = false;
-    
+
     // Stop Dome WebSocket if running
     if (this.domeWsMonitor) {
-      this.domeWsMonitor.stop().catch(err => 
+      this.domeWsMonitor.stop().catch(err =>
         console.error('[DomeWS] Error during stop:', err)
       );
     }
-    
+
     this.websocketMonitor.stopMonitoring();
     this.monitor.stopMonitoring();
     this.balanceTracker.stopTracking();
@@ -241,50 +241,50 @@ export class CopyTrader {
    */
   async reinitializeCredentials(): Promise<{ success: boolean; walletAddress: string | null; error?: string }> {
     console.log('[CopyTrader] Reinitializing with new credentials...');
-    
+
     const wasRunning = this.isRunning;
-    
+
     // Stop the bot if running
     if (wasRunning) {
       this.stop();
     }
-    
+
     try {
       // Reload environment variables to get the new private key
       const dotenv = await import('dotenv');
       dotenv.config({ override: true });
-      
+
       // Update config with new private key
       config.privateKey = process.env.PRIVATE_KEY || '';
-      
+
       if (!config.privateKey) {
         return { success: false, walletAddress: null, error: 'Private key not found in environment' };
       }
-      
+
       // Recreate executor with new credentials (this reinitializes the CLOB client)
       this.executor = new TradeExecutor();
       await this.executor.authenticate();
-      
+
       // Reinitialize monitor (this reinitializes the PolymarketApi)
       this.monitor = new WalletMonitor();
       await this.monitor.initialize();
-      
+
       // Reinitialize websocket monitor
       this.websocketMonitor = new WebSocketMonitor();
       await this.websocketMonitor.initialize();
-      
+
       // Reinitialize balance tracker
       this.balanceTracker = new BalanceTracker();
       await this.balanceTracker.initialize();
-      
+
       const walletAddress = this.getWalletAddress();
       console.log(`[CopyTrader] ✓ Reinitialized with wallet: ${walletAddress}`);
-      
+
       // Restart the bot if it was running
       if (wasRunning) {
         await this.start();
       }
-      
+
       return { success: true, walletAddress };
     } catch (error: any) {
       console.error('[CopyTrader] Reinitialization failed:', error.message);
@@ -301,13 +301,13 @@ export class CopyTrader {
     console.log(`${'='.repeat(60)}`);
     console.log(`   Trade object:`, JSON.stringify(trade, null, 2));
     console.log(`${'='.repeat(60)}\n`);
-    
+
     // CRITICAL: Verify the wallet is actually in the active tracked wallets list
     // This prevents executing trades from wallets that were removed or never tracked
     const activeWallets = await Storage.getActiveWallets();
     const tradeWalletLower = trade.walletAddress.toLowerCase();
     const isWalletTracked = activeWallets.some(w => w.address.toLowerCase() === tradeWalletLower);
-    
+
     if (!isWalletTracked) {
       console.error(`\n❌ [CopyTrader] SECURITY: Trade from wallet ${trade.walletAddress.substring(0, 8)}... is NOT in active tracked wallets!`);
       console.error(`   Active tracked wallets: ${activeWallets.map(w => w.address.substring(0, 8) + '...').join(', ')}`);
@@ -320,7 +320,7 @@ export class CopyTrader {
       );
       return;
     }
-    
+
     // Also check if this is the user's own wallet (should not be tracked)
     const userWallet = this.getWalletAddress();
     if (userWallet && userWallet.toLowerCase() === tradeWalletLower) {
@@ -335,13 +335,13 @@ export class CopyTrader {
       );
       return;
     }
-    
+
     // Prevent duplicate execution using transaction hash
     if (this.executedTrades.has(trade.transactionHash)) {
       console.log(`[CopyTrader] ⏭️  Trade ${trade.transactionHash} already executed, skipping`);
       return;
     }
-    
+
     // CRITICAL FIX: Use a COMPOUND KEY for deduplication
     // Problem: Position monitoring generates synthetic hashes (pos-...) while trade history has real hashes
     // This caused the SAME underlying trade to be detected twice and executed twice
@@ -355,10 +355,10 @@ export class CopyTrader {
     // Round timestamp to 1-hour windows (was 5-minute, but that caused issues when window rolled over)
     const timeWindow = Math.floor(tradeTimestamp / (60 * 60 * 1000));
     const compoundKey = `${trade.walletAddress.toLowerCase()}-${trade.marketId}-${trade.outcome}-${trade.side}-${timeWindow}`;
-    
+
     // Also track by transaction hash for exact duplicates
     const tradeKey = trade.transactionHash;
-    
+
     // Clean up old entries (older than 1 hour)
     const now = Date.now();
     for (const [key, timestamp] of this.processedTrades.entries()) {
@@ -371,25 +371,30 @@ export class CopyTrader {
         this.processedCompoundKeys.delete(key);
       }
     }
-    
+
     // CHECK 1: By transaction hash (exact duplicate)
     if (this.processedTrades.has(tradeKey)) {
-      console.log(`[CopyTrader] ⏭️  Trade already processed (txHash: ${tradeKey?.substring(0,20)}...), skipping duplicate`);
+      console.log(`[CopyTrader] ⏭️  Trade already processed (txHash: ${tradeKey?.substring(0, 20)}...), skipping duplicate`);
       return;
     }
-    
+
     // CHECK 2: By compound key (same trade detected with different hash - e.g., position vs trade history)
     if (this.processedCompoundKeys.has(compoundKey)) {
       console.log(`[CopyTrader] ⏭️  Trade already processed (compound key: ${compoundKey.substring(0, 30)}...), skipping duplicate detection`);
       return;
     }
-    
+
     // CHECK 3: Currently in-flight (being executed right now, not yet finished)
     if (this.inFlightTrades.has(tradeKey) || this.inFlightTrades.has(compoundKey)) {
       console.log(`[CopyTrader] ⏭️  Trade currently in-flight, skipping concurrent processing`);
       return;
     }
-    
+
+    // Mark as in-flight to prevent concurrent processing of the same trade.
+    // Actual dedup marking happens AFTER successful execution so failed trades can retry.
+    this.inFlightTrades.add(tradeKey);
+    this.inFlightTrades.add(compoundKey);
+
     console.log(`\n${'='.repeat(60)}`);
     console.log(`🔔 TRADE DETECTED`);
     console.log(`${'='.repeat(60)}`);
@@ -405,7 +410,7 @@ export class CopyTrader {
     // Validate trade data before attempting execution
     const priceNum = parseFloat(trade.price || '0');
     let amountNum = parseFloat(trade.amount || '0');
-    
+
     // SANITY CHECK: Detect values that appear to be in USDC base units (6 decimals)
     // If amount * price > $10M, the amount is almost certainly in base units and needs conversion
     // This guards against Dome WebSocket or API returning raw values instead of normalized ones
@@ -419,7 +424,7 @@ export class CopyTrader {
         trade.amount = correctedAmount.toString();
       }
     }
-    
+
     if (!trade.marketId || trade.marketId === 'unknown') {
       console.error(`❌ Invalid marketId (${trade.marketId}), cannot execute trade`);
       await this.performanceTracker.logIssue(
@@ -430,7 +435,7 @@ export class CopyTrader {
       );
       return;
     }
-    
+
     if (!trade.price || trade.price === '0' || isNaN(priceNum) || priceNum <= 0 || priceNum > 1) {
       console.error(`❌ Invalid price (${trade.price}), cannot execute trade`);
       await this.performanceTracker.logIssue(
@@ -441,13 +446,13 @@ export class CopyTrader {
       );
       return;
     }
-    
+
     // ============================================================
     // TRADE SIDE FILTER (Per-Wallet)
     // ============================================================
     // Check if we should copy this trade based on wallet's side filter
     const walletSideFilter: TradeSideFilter = trade.tradeSideFilter || 'all';
-    
+
     if (walletSideFilter === 'buy_only' && trade.side === 'SELL') {
       console.log(`\n⏭️  [CopyTrader] FILTERED - Trade side filter (BUY only mode)`);
       console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
@@ -455,7 +460,7 @@ export class CopyTrader {
       console.log(`   💡 This SELL trade is blocked by this wallet's side filter settings.\n`);
       return;
     }
-    
+
     if (walletSideFilter === 'sell_only' && trade.side === 'BUY') {
       console.log(`\n⏭️  [CopyTrader] FILTERED - Trade side filter (SELL only mode)`);
       console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
@@ -470,7 +475,7 @@ export class CopyTrader {
     // Skip trades where price is outside wallet's configured limits
     const minPrice = trade.priceLimitsMin ?? 0.01;  // Default: 0.01
     const maxPrice = trade.priceLimitsMax ?? 0.99;  // Default: 0.99
-    
+
     if (priceNum < minPrice) {
       console.log(`\n⏭️  [CopyTrader] FILTERED - Price below wallet minimum`);
       console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
@@ -479,7 +484,7 @@ export class CopyTrader {
       console.log(`   💡 Adjust this wallet's price limits to copy low-price trades.\n`);
       return;
     }
-    
+
     if (priceNum > maxPrice) {
       console.log(`\n⏭️  [CopyTrader] FILTERED - Price above wallet maximum`);
       console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
@@ -501,7 +506,7 @@ export class CopyTrader {
           trade.outcome,
           blockPeriod
         );
-        
+
         if (isBlocked) {
           const periodLabel = blockPeriod === 0 ? 'forever' : `${blockPeriod}h`;
           console.log(`\n⏭️  [CopyTrader] FILTERED - No-repeat-trades (already have position)`);
@@ -510,7 +515,7 @@ export class CopyTrader {
           console.log(`   Side: ${trade.side} | Outcome: ${trade.outcome}`);
           console.log(`   Block period: ${periodLabel}`);
           console.log(`   💡 You already have a ${trade.outcome} position in this market. Skipping repeat trade.\n`);
-          
+
           await this.performanceTracker.recordTrade({
             timestamp: new Date(),
             walletAddress: trade.walletAddress,
@@ -525,7 +530,7 @@ export class CopyTrader {
             detectedTxHash: trade.transactionHash,
             tokenId: trade.tokenId
           });
-          
+
           return;
         }
       } catch (noRepeatError: any) {
@@ -539,7 +544,7 @@ export class CopyTrader {
     // Check if the detected trade value is within wallet's configured limits
     if (trade.valueFilterEnabled) {
       const detectedTradeValue = amountNum * priceNum;
-      
+
       if (trade.valueFilterMin !== null && trade.valueFilterMin !== undefined && detectedTradeValue < trade.valueFilterMin) {
         console.log(`\n⏭️  [CopyTrader] FILTERED - Trade value below wallet minimum`);
         console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
@@ -548,7 +553,7 @@ export class CopyTrader {
         console.log(`   💡 This trade is too small based on this wallet's value filter.\n`);
         return;
       }
-      
+
       if (trade.valueFilterMax !== null && trade.valueFilterMax !== undefined && detectedTradeValue > trade.valueFilterMax) {
         console.log(`\n⏭️  [CopyTrader] FILTERED - Trade value above wallet maximum`);
         console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
@@ -567,7 +572,7 @@ export class CopyTrader {
       const walletAddress = trade.walletAddress.toLowerCase();
       const maxPerHour = trade.rateLimitPerHour ?? 10;   // Default: 10
       const maxPerDay = trade.rateLimitPerDay ?? 50;     // Default: 50
-      
+
       // Get or create rate limit state for this wallet
       let walletRateState = this.perWalletRateLimits.get(walletAddress);
       if (!walletRateState) {
@@ -579,29 +584,29 @@ export class CopyTrader {
         };
         this.perWalletRateLimits.set(walletAddress, walletRateState);
       }
-      
+
       // Update rate limit state (reset counters if window has passed)
       const now = Date.now();
       const hourMs = 60 * 60 * 1000;
       const dayMs = 24 * 60 * 60 * 1000;
-      
+
       if (now - walletRateState.hourStartTime > hourMs) {
         walletRateState.tradesThisHour = 0;
         walletRateState.hourStartTime = now;
       }
-      
+
       if (now - walletRateState.dayStartTime > dayMs) {
         walletRateState.tradesThisDay = 0;
         walletRateState.dayStartTime = now;
       }
-      
+
       // Check limits
       if (walletRateState.tradesThisHour >= maxPerHour) {
         console.log(`\n⏭️  [CopyTrader] RATE LIMITED - Max trades per hour for wallet`);
         console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
         console.log(`   Trades this hour: ${walletRateState.tradesThisHour}/${maxPerHour}`);
         console.log(`   💡 Adjust this wallet's rate limit or wait for the next hour.\n`);
-        
+
         await this.performanceTracker.recordTrade({
           timestamp: new Date(),
           walletAddress: trade.walletAddress,
@@ -616,16 +621,16 @@ export class CopyTrader {
           detectedTxHash: trade.transactionHash,
           tokenId: trade.tokenId
         });
-        
+
         return;
       }
-      
+
       if (walletRateState.tradesThisDay >= maxPerDay) {
         console.log(`\n⏭️  [CopyTrader] RATE LIMITED - Max trades per day for wallet`);
         console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
         console.log(`   Trades today: ${walletRateState.tradesThisDay}/${maxPerDay}`);
         console.log(`   💡 Adjust this wallet's rate limit or wait until tomorrow.\n`);
-        
+
         await this.performanceTracker.recordTrade({
           timestamp: new Date(),
           walletAddress: trade.walletAddress,
@@ -640,11 +645,11 @@ export class CopyTrader {
           detectedTxHash: trade.transactionHash,
           tokenId: trade.tokenId
         });
-        
+
         return;
       }
     }
-    
+
     if (!trade.side || (trade.side !== 'BUY' && trade.side !== 'SELL')) {
       console.error(`❌ Invalid side (${trade.side}), cannot execute trade`);
       await this.performanceTracker.logIssue(
@@ -665,7 +670,7 @@ export class CopyTrader {
       if (stopLossActive) {
         console.log(`\n⏭️  [CopyTrader] STOP-LOSS ACTIVE - Too much USDC committed to positions`);
         console.log(`   💡 Close some positions to resume copy trading.\n`);
-        
+
         await this.performanceTracker.recordTrade({
           timestamp: new Date(),
           walletAddress: trade.walletAddress,
@@ -680,7 +685,7 @@ export class CopyTrader {
           detectedTxHash: trade.transactionHash,
           tokenId: trade.tokenId
         });
-        
+
         return; // Skip this trade
       }
     } catch (stopLossError: any) {
@@ -688,10 +693,6 @@ export class CopyTrader {
       console.warn(`[CopyTrader] Stop-loss check error (proceeding with trade): ${stopLossError.message}`);
     }
 
-    // Mark as in-flight to prevent concurrent processing of the same trade.
-    // Actual dedup marking happens AFTER successful execution so failed trades can retry.
-    this.inFlightTrades.add(tradeKey);
-    this.inFlightTrades.add(compoundKey);
 
     const executionStart = Date.now();
 
@@ -703,14 +704,14 @@ export class CopyTrader {
       // - undefined (default): Use global trade size, NO filtering - copy ALL trades
       // - 'fixed': Use wallet-specific USDC amount + optional threshold filter
       // - 'proportional': Match their portfolio % with your portfolio %
-      
+
       let tradeSizeUsdcNum: number;
       let tradeSizeSource: string;
-      
+
       if (trade.tradeSizingMode === 'proportional') {
         // PROPORTIONAL MODE: Match their portfolio % with our portfolio %
         console.log(`[Trade] Mode: PROPORTIONAL (matching their % of portfolio)`);
-        
+
         // Get tracked wallet's TOTAL portfolio value (USDC balance + positions)
         // USDC is fetched from their proxy wallet on-chain via Alchemy RPC
         let theirPortfolioValue = 0;
@@ -722,7 +723,7 @@ export class CopyTrader {
         } catch (balanceError: any) {
           console.warn(`[CopyTrader] Could not fetch tracked wallet portfolio: ${balanceError.message}`);
         }
-        
+
         // Get OUR USDC balance from Polymarket CLOB API (our tradable funds)
         let ourBalance = 0;
         try {
@@ -732,16 +733,16 @@ export class CopyTrader {
         } catch (balanceError: any) {
           console.warn(`[CopyTrader] Could not fetch our USDC balance: ${balanceError.message}`);
         }
-        
+
         if (theirPortfolioValue > 0 && ourBalance > 0) {
           // Calculate what % of their portfolio this trade represents
           const tradeValueUsd = amountNum * priceNum;
           const theirTradePercent = (tradeValueUsd / theirPortfolioValue) * 100;
-          
+
           // Apply the same % to our tradable balance
           tradeSizeUsdcNum = (theirTradePercent / 100) * ourBalance;
           tradeSizeSource = `proportional (${theirTradePercent.toFixed(2)}% of their $${theirPortfolioValue.toFixed(2)} portfolio = ${theirTradePercent.toFixed(2)}% of our $${ourBalance.toFixed(2)})`;
-          
+
           console.log(`[Trade] Their trade: $${tradeValueUsd.toFixed(2)} (${theirTradePercent.toFixed(2)}% of their $${theirPortfolioValue.toFixed(2)} portfolio)`);
           console.log(`[Trade] Our trade: $${tradeSizeUsdcNum.toFixed(2)} (${theirTradePercent.toFixed(2)}% of our $${ourBalance.toFixed(2)} USDC)`);
         } else {
@@ -756,11 +757,11 @@ export class CopyTrader {
           }
           console.warn(`[Trade] Proportional mode failed (their portfolio: $${theirPortfolioValue}, our balance: $${ourBalance}), using ${tradeSizeSource}: $${tradeSizeUsdcNum}`);
         }
-        
+
       } else if (trade.tradeSizingMode === 'fixed') {
         // FIXED MODE: Use wallet-specific USDC amount + optional threshold filter
         console.log(`[Trade] Mode: FIXED (wallet-specific settings)`);
-        
+
         // Use wallet's fixed trade size, or fall back to global
         if (trade.fixedTradeSize && trade.fixedTradeSize > 0) {
           tradeSizeUsdcNum = trade.fixedTradeSize;
@@ -770,7 +771,7 @@ export class CopyTrader {
           tradeSizeUsdcNum = parseFloat(globalTradeSize || '2');
           tradeSizeSource = `global (wallet fixed not set)`;
         }
-        
+
         // Check threshold filter if enabled for this wallet
         if (trade.thresholdEnabled && trade.thresholdPercent && trade.thresholdPercent > 0) {
           // Get tracked wallet's TOTAL portfolio value (USDC + positions)
@@ -783,18 +784,18 @@ export class CopyTrader {
           } catch (balanceError: any) {
             console.warn(`[CopyTrader] Could not fetch wallet portfolio for threshold check: ${balanceError.message}`);
           }
-          
+
           if (walletPortfolioValue > 0) {
             const tradeValueUsd = amountNum * priceNum;
             const tradePercent = (tradeValueUsd / walletPortfolioValue) * 100;
-            
+
             if (tradePercent < trade.thresholdPercent) {
               console.log(`\n⏭️  [CopyTrader] FILTERED - Trade below wallet threshold`);
               console.log(`   Trade value: $${tradeValueUsd.toFixed(2)} (${tradePercent.toFixed(2)}% of portfolio)`);
               console.log(`   Wallet portfolio value: $${walletPortfolioValue.toFixed(2)}`);
               console.log(`   Wallet threshold: ${trade.thresholdPercent}%`);
               console.log(`   💡 This trade is below the configured threshold for this wallet. Skipping.\n`);
-              
+
               await this.performanceTracker.recordTrade({
                 timestamp: new Date(),
                 walletAddress: trade.walletAddress,
@@ -809,7 +810,7 @@ export class CopyTrader {
                 detectedTxHash: trade.transactionHash,
                 tokenId: trade.tokenId
               });
-              
+
               return; // Skip this trade
             } else {
               console.log(`[CopyTrader] ✓ Trade passes wallet threshold: $${tradeValueUsd.toFixed(2)} (${tradePercent.toFixed(2)}% of $${walletPortfolioValue.toFixed(2)}) >= ${trade.thresholdPercent}%`);
@@ -818,7 +819,7 @@ export class CopyTrader {
             console.warn(`[CopyTrader] ⚠️ Could not get portfolio value for threshold check - proceeding with trade`);
           }
         }
-        
+
       } else {
         // DEFAULT MODE: Use global trade size, NO filtering - copy ALL trades
         console.log(`[Trade] Mode: DEFAULT (global size, no filtering)`);
@@ -826,7 +827,7 @@ export class CopyTrader {
         tradeSizeUsdcNum = parseFloat(globalTradeSize || '2');
         tradeSizeSource = `global ($${globalTradeSize})`;
       }
-      
+
       // Validate final trade size
       if (isNaN(tradeSizeUsdcNum) || tradeSizeUsdcNum <= 0) {
         console.error(`❌ Invalid calculated trade size ($${tradeSizeUsdcNum} USDC), cannot execute trade`);
@@ -838,16 +839,16 @@ export class CopyTrader {
         );
         return;
       }
-      
+
       // Calculate number of shares based on USDC amount and price
       // shares = USDC amount / price per share
       const sharesAmount = tradeSizeUsdcNum / priceNum;
       const sharesAmountRounded = parseFloat(sharesAmount.toFixed(2)); // Round to 2 decimal places
-      
+
       console.log(`[Trade] Trade size: $${tradeSizeUsdcNum.toFixed(2)} USDC (${tradeSizeSource})`);
       console.log(`[Trade] Price per share: $${trade.price}`);
       console.log(`[Trade] Calculated shares: ${sharesAmountRounded} shares ($${tradeSizeUsdcNum.toFixed(2)} / $${priceNum})`);
-      
+
       // ============================================================
       // POLYMARKET MINIMUM ORDER SIZE CHECK
       // ============================================================
@@ -864,12 +865,12 @@ export class CopyTrader {
           console.warn(`[Trade] Could not fetch market min_order_size, using default of 5:`, minSizeError.message);
         }
       }
-      
+
       // Check if calculated shares are below market minimum
       let finalCalculatedShares = sharesAmountRounded;
       if (sharesAmountRounded < marketMinShares) {
         const minUsdcRequired = marketMinShares * priceNum;
-        
+
         // Reject trade - order size below minimum
         console.log(`\n❌ [CopyTrader] ORDER SIZE BELOW MARKET MINIMUM`);
         console.log(`   Calculated shares: ${sharesAmountRounded} (market minimum: ${marketMinShares})`);
@@ -892,35 +893,35 @@ export class CopyTrader {
         });
         return;
       }
-      
+
       // ============================================================
       // SELL ORDER - CHECK IF WE OWN SHARES
       // ============================================================
       let finalSharesAmount = finalCalculatedShares;
-      
+
       if (trade.side === 'SELL') {
         console.log(`\n🔍 [CopyTrader] SELL ORDER - Checking if we own shares...`);
-        
+
         // Get user's positions to check if we own this token
         const sellUserWallet = this.getWalletAddress();
         if (!sellUserWallet) {
           console.log(`⏭️  [CopyTrader] SKIPPING SELL - Cannot determine user wallet`);
           return;
         }
-        
+
         // Get proxy wallet for positions lookup
         const proxyWallet = await this.getProxyWalletAddress();
         const walletToCheck = proxyWallet || sellUserWallet;
-        
+
         try {
           const userPositions = await this.monitor.getApi().getUserPositions(walletToCheck);
-          
+
           // Find position matching this tokenId
           const matchingPosition = userPositions.find((pos: any) => {
             // Match by asset (tokenId) - this is the unique identifier
             return pos.asset === trade.tokenId;
           });
-          
+
           if (!matchingPosition || parseFloat(matchingPosition.size || '0') <= 0) {
             console.log(`\n⏭️  [CopyTrader] SKIPPING SELL ORDER - No shares owned`);
             console.log(`   Token ID: ${trade.tokenId?.substring(0, 20)}...`);
@@ -930,27 +931,27 @@ export class CopyTrader {
             // Don't log as error - this is expected behavior
             return;
           }
-          
+
           const ownedShares = parseFloat(matchingPosition.size);
           console.log(`   ✓ Found position! You own ${ownedShares.toFixed(2)} shares`);
-          
+
           // Limit sell to owned shares (can't sell more than we have)
           if (finalSharesAmount > ownedShares) {
             console.log(`   ⚠️  Adjusting sell amount: ${finalSharesAmount} → ${ownedShares.toFixed(2)} (can't sell more than owned)`);
             finalSharesAmount = parseFloat(ownedShares.toFixed(2));
           }
-          
+
           console.log(`   ✓ Proceeding to sell ${finalSharesAmount} shares\n`);
-          
+
         } catch (positionError: any) {
           console.error(`❌ [CopyTrader] Failed to check positions:`, positionError.message);
           console.log(`⏭️  [CopyTrader] SKIPPING SELL - Cannot verify share ownership\n`);
           return;
         }
       }
-      
+
       const sharesAmountStr = finalSharesAmount.toFixed(2);
-      
+
       // Convert detected trade to trade order
       const order: TradeOrder = {
         marketId: trade.marketId,
@@ -969,11 +970,11 @@ export class CopyTrader {
       console.log(`   Outcome: ${order.outcome}`);
       console.log(`   Price: ${order.price}`);
       console.log(`   Time: ${new Date().toISOString()}`);
-      
+
       // Execute the trade
       const result: TradeResult = await this.executor.executeTrade(order);
       const executionTime = Date.now() - executionStart;
-      
+
       // Record metrics
       // NOTE: result.success is now only true if order was actually executed (not just placed)
       await this.performanceTracker.recordTrade({
@@ -994,7 +995,7 @@ export class CopyTrader {
         executedAmount: order.amount, // Store actual executed amount (configured trade size)
         executedPrice: order.price // Store price used
       });
-      
+
       if (result.success) {
         console.log(`\n${'='.repeat(60)}`);
         console.log(`✅ [Execute] TRADE EXECUTED SUCCESSFULLY!`);
@@ -1007,11 +1008,11 @@ export class CopyTrader {
         console.log(`   Side: ${order.side} $${tradeSizeUsdcNum.toFixed(2)} USDC (${order.amount} shares) @ ${order.price}`);
         console.log(`${'='.repeat(60)}\n`);
         this.executedTrades.add(trade.transactionHash);
-        
+
         // Mark as processed now that execution succeeded (enables retry on failure)
         this.processedTrades.set(tradeKey, Date.now());
         this.processedCompoundKeys.set(compoundKey, Date.now());
-        
+
         // Increment per-wallet rate limit counters (if rate limiting was enabled for this wallet)
         if (trade.rateLimitEnabled) {
           const walletRateState = this.perWalletRateLimits.get(trade.walletAddress.toLowerCase());
@@ -1020,7 +1021,7 @@ export class CopyTrader {
             walletRateState.tradesThisDay++;
           }
         }
-        
+
         // Record executed position for no-repeat-trades feature (per-wallet)
         if (trade.noRepeatEnabled) {
           try {
@@ -1032,9 +1033,9 @@ export class CopyTrader {
         }
       } else {
         // Check if this is a "market closed" error (expected behavior, not a failure)
-        const isMarketClosed = result.error?.includes('MARKET_CLOSED') || 
-                               result.error?.includes('orderbook') && result.error?.includes('does not exist');
-        
+        const isMarketClosed = result.error?.includes('MARKET_CLOSED') ||
+          result.error?.includes('orderbook') && result.error?.includes('does not exist');
+
         if (isMarketClosed) {
           // Market is resolved/closed - this is expected, log as info not error
           console.log(`\n${'='.repeat(60)}`);
@@ -1100,8 +1101,8 @@ export class CopyTrader {
   /**
    * Get status of the copy trader
    */
-  getStatus(): { 
-    running: boolean; 
+  getStatus(): {
+    running: boolean;
     executedTradesCount: number;
     websocketStatus: ReturnType<WebSocketMonitor['getStatus']>;
     monitoringMode: 'polling' | 'websocket';
@@ -1164,7 +1165,7 @@ export class CopyTrader {
     if (this.isRunning) {
       await this.websocketMonitor.reloadWallets();
       await this.monitor.reloadWallets();
-      
+
       // Balance tracking only for user wallet (not tracked wallets)
       // This reduces RPC calls significantly
     }
@@ -1255,7 +1256,7 @@ export class CopyTrader {
       const userWallet = this.getWalletAddress();
       const proxyWallet = await this.getProxyWalletAddress();
       const walletToCheck = proxyWallet || userWallet;
-      
+
       if (!walletToCheck) {
         console.warn(`[CopyTrader] Cannot check stop-loss: wallet address not available`);
         return {
@@ -1315,7 +1316,7 @@ export class CopyTrader {
       }
 
       const commitmentPercent = (positionsValue / totalValue) * 100;
-      
+
       console.log(`[CopyTrader] Stop-loss check: ${commitmentPercent.toFixed(2)}% committed ($${positionsValue.toFixed(2)} in positions / $${totalValue.toFixed(2)} total), limit: ${stopLossConfig.maxCommitmentPercent}%`);
 
       const active = commitmentPercent >= stopLossConfig.maxCommitmentPercent;
@@ -1349,7 +1350,7 @@ export class CopyTrader {
     const now = Date.now();
     const hourMs = 60 * 60 * 1000;
     const dayMs = 24 * 60 * 60 * 1000;
-    
+
     // If specific wallet requested
     if (walletAddress) {
       const walletRateState = this.perWalletRateLimits.get(walletAddress.toLowerCase());
@@ -1362,7 +1363,7 @@ export class CopyTrader {
           dayStartTime: now
         };
       }
-      
+
       // Update state first (reset counters if window has passed)
       if (now - walletRateState.hourStartTime > hourMs) {
         walletRateState.tradesThisHour = 0;
@@ -1372,10 +1373,10 @@ export class CopyTrader {
         walletRateState.tradesThisDay = 0;
         walletRateState.dayStartTime = now;
       }
-      
+
       return { ...walletRateState };
     }
-    
+
     // Return all wallets' rate limit states (for aggregated view)
     // Update all states and return a copy
     const result = new Map<string, RateLimitState>();
