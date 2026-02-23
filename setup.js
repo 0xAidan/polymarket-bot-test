@@ -1,10 +1,13 @@
-import fs from 'fs';
-import path from 'path';
-import readline from 'readline';
-import { fileURLToPath } from 'url';
+#!/usr/bin/env node
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+/**
+ * Simple setup script to configure your wallet
+ * Runs automatically when no .env file exists
+ */
+
+const fs = require('fs');
+const path = require('path');
+const readline = require('readline');
 
 const ENV_EXAMPLE_PATH = path.join(__dirname, 'ENV_EXAMPLE.txt');
 const ENV_PATH = path.join(__dirname, '.env');
