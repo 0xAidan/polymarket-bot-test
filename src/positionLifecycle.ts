@@ -194,65 +194,100 @@ export class PositionLifecycleManager {
 
   /**
    * Get positions that are redeemable or mergeable.
-   * Iterates over all trading wallets so every wallet's resolved
-   * positions are caught, not just the legacy single-wallet address.
+   * Uses the Polymarket Data API's native redeemable/mergeable filters
+   * instead of heuristic price checks. Iterates all trading wallets.
    */
   async getRedeemablePositions(): Promise<RedeemablePosition[]> {
-    const redeemable: RedeemablePosition[] = [];
+    const results: RedeemablePosition[] = [];
 
     try {
       const wallets = getTradingWallets();
 
       if (wallets.length === 0) {
         console.log('[Lifecycle] No trading wallets configured');
-        return redeemable;
+        return results;
       }
 
       for (const wallet of wallets) {
         if (!wallet.address) continue;
 
         try {
-          const positions = await this.api.getUserPositions(wallet.address);
-          if (!positions || positions.length === 0) continue;
+          // Query the Data API with redeemable=true to get only redeemable positions.
+          // sizeThreshold=0 ensures we don't miss small positions.
+          const redeemablePositions = await this.api.getFilteredPositions(wallet.address, {
+            redeemable: true,
+            sizeThreshold: 0,
+          });
 
-          for (const pos of positions) {
-            const size = parseFloat(pos.size || '0');
+          // Also query mergeable positions
+          const mergeablePositions = await this.api.getFilteredPositions(wallet.address, {
+            mergeable: true,
+            sizeThreshold: 0,
+          });
+
+          // Build a set of already-seen tokenIds to avoid duplicates
+          const seen = new Set<string>();
+
+          for (const pos of redeemablePositions) {
+            const tokenId = pos.asset || '';
+            if (seen.has(tokenId)) continue;
+            seen.add(tokenId);
+
+            const size = typeof pos.size === 'number' ? pos.size : parseFloat(pos.size || '0');
             if (size <= 0) continue;
 
-            const curPrice = parseFloat(pos.curPrice || pos.currentPrice || '0');
-            const outcome = pos.outcome || 'Unknown';
-            const conditionId = pos.conditionId || '';
+            results.push({
+              conditionId: pos.conditionId || '',
+              tokenId,
+              outcome: pos.outcome || 'Unknown',
+              size,
+              currentPrice: typeof pos.curPrice === 'number' ? pos.curPrice : parseFloat(pos.curPrice || '1'),
+              marketTitle: pos.title || pos.slug || 'Unknown Market',
+              marketSlug: pos.slug || pos.eventSlug || '',
+              negRisk: pos.negativeRisk === true || pos.negRisk === true,
+              redeemable: true,
+              mergeable: false,
+              estimatedPayout: typeof pos.currentValue === 'number' ? pos.currentValue : size,
+              walletId: wallet.id,
+            });
+          }
+
+          for (const pos of mergeablePositions) {
             const tokenId = pos.asset || '';
+            if (seen.has(tokenId)) continue;
+            seen.add(tokenId);
 
-            // Price = 1 means winning position (redeemable for USDC)
-            const isWinning = curPrice >= 0.999;
+            const size = typeof pos.size === 'number' ? pos.size : parseFloat(pos.size || '0');
+            if (size <= 0) continue;
 
-            if (isWinning) {
-              redeemable.push({
-                conditionId,
-                tokenId,
-                outcome,
-                size,
-                currentPrice: curPrice,
-                marketTitle: pos.title || pos.marketSlug || 'Unknown Market',
-                marketSlug: pos.slug || '',
-                negRisk: pos.negRisk === true,
-                redeemable: true,
-                mergeable: false,
-                estimatedPayout: size * curPrice,
-                walletId: wallet.id,
-              });
-            }
+            results.push({
+              conditionId: pos.conditionId || '',
+              tokenId,
+              outcome: pos.outcome || 'Unknown',
+              size,
+              currentPrice: typeof pos.curPrice === 'number' ? pos.curPrice : parseFloat(pos.curPrice || '0'),
+              marketTitle: pos.title || pos.slug || 'Unknown Market',
+              marketSlug: pos.slug || pos.eventSlug || '',
+              negRisk: pos.negativeRisk === true || pos.negRisk === true,
+              redeemable: false,
+              mergeable: true,
+              estimatedPayout: size,
+              walletId: wallet.id,
+            });
+          }
+
+          if (redeemablePositions.length > 0 || mergeablePositions.length > 0) {
+            console.log(`[Lifecycle] Wallet ${wallet.id}: ${redeemablePositions.length} redeemable, ${mergeablePositions.length} mergeable`);
           }
         } catch (walletErr: any) {
-          console.error(`[Lifecycle] Error fetching positions for wallet ${wallet.id}:`, walletErr.message);
+          console.error(`[Lifecycle] Error fetching positions for wallet ${wallet.id} (${wallet.address?.substring(0, 10)}...):`, walletErr.message);
         }
       }
 
-      return redeemable;
+      return results;
     } catch (err: any) {
       console.error('[Lifecycle] Error fetching redeemable positions:', err.message);
-      return redeemable;
+      return results;
     }
   }
 

@@ -2278,7 +2278,7 @@ const checkRedeemablePositions = async () => {
           <span class="win-badge badge-success">${pos.outcome || 'YES'}</span>
           <span class="text-sm">${pos.size ? pos.size.toFixed(1) + ' shares' : ''}</span>
         </div>
-        <div class="text-success text-bold">$${(pos.estimatedValue || 0).toFixed(2)}</div>
+        <div class="text-success text-bold">$${(pos.estimatedPayout || pos.estimatedValue || 0).toFixed(2)}</div>
       </div>
     `).join('');
   } catch (err) {

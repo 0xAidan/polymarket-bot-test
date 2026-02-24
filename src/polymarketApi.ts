@@ -475,6 +475,42 @@ export class PolymarketApi {
   }
 
   /**
+   * Query the Data API for positions with specific filters (redeemable, mergeable, etc.).
+   * Uses the documented query parameters:
+   *   redeemable=true  — only positions that can be redeemed (market resolved, winning side)
+   *   mergeable=true   — only positions that can be merged (hold both YES and NO)
+   *   sizeThreshold=0  — include all positions regardless of size
+   */
+  async getFilteredPositions(
+    userAddress: string,
+    filters: { redeemable?: boolean; mergeable?: boolean; sizeThreshold?: number } = {}
+  ): Promise<any[]> {
+    return this.retryRequest(async () => {
+      try {
+        const params: Record<string, any> = {
+          user: userAddress.toLowerCase(),
+          limit: 500,
+        };
+        if (filters.redeemable !== undefined) params.redeemable = filters.redeemable;
+        if (filters.mergeable !== undefined) params.mergeable = filters.mergeable;
+        if (filters.sizeThreshold !== undefined) params.sizeThreshold = filters.sizeThreshold;
+
+        const response = await this.dataApiClient.get('/positions', { params });
+        const positions = response.data || [];
+
+        if (positions.length > 0) {
+          console.log(`[API] Filtered positions for ${userAddress.substring(0, 8)}...: ${positions.length} result(s) (filters: ${JSON.stringify(filters)})`);
+        }
+
+        return positions;
+      } catch (error: any) {
+        if (error.response?.status === 404) return [];
+        throw error;
+      }
+    }, `getFilteredPositions(${userAddress.substring(0, 8)}...)`);
+  }
+
+  /**
    * Get market information from Gamma API
    */
   async getMarket(marketId: string): Promise<any> {
