@@ -12,7 +12,6 @@ export class WalletMonitor {
   private provider: any | null = null;
   private api: PolymarketApi;
   private isMonitoring = false;
-  private monitoredPositions = new Map<string, Map<string, any>>(); // wallet -> tokenId -> position
   private pollingInterval: NodeJS.Timeout | null = null;
   private currentIntervalMs: number = config.monitoringIntervalMs;
   private onTradeDetectedCallback: ((trade: DetectedTrade) => void) | null = null;
@@ -51,10 +50,7 @@ export class WalletMonitor {
     this.currentIntervalMs = config.monitoringIntervalMs;
     console.log('Starting wallet monitoring...');
 
-    // Get initial positions for all tracked wallets
-    await this.initializePositions();
-
-    // Start polling for position changes
+    // Start polling for trade history
     // Run immediately on start, then at intervals
     console.log(`[Monitor] Running initial trade check...`);
     await this.checkWalletsForTrades(onTradeDetected);
@@ -107,29 +103,6 @@ export class WalletMonitor {
   }
 
   /**
-   * Pause polling (e.g. when Dome WebSocket is connected).
-   * Does NOT re-initialize positions; just clears the timer.
-   */
-  pausePolling(): void {
-    if (this.pollingInterval) {
-      clearInterval(this.pollingInterval);
-      this.pollingInterval = null;
-      console.log('[Monitor] Polling paused');
-    }
-  }
-
-  /**
-   * Resume polling (e.g. when Dome WebSocket disconnects).
-   * Re-starts the timer without re-initializing positions.
-   */
-  resumePolling(): void {
-    if (!this.isMonitoring || !this.onTradeDetectedCallback) return;
-    if (this.pollingInterval) return; // Already running
-    this.startPolling();
-    console.log('[Monitor] Polling resumed');
-  }
-
-  /**
    * Update the monitoring interval (takes effect immediately if monitoring is active)
    */
   async updateMonitoringInterval(intervalMs: number): Promise<void> {
@@ -150,59 +123,7 @@ export class WalletMonitor {
   }
 
   /**
-   * Initialize position tracking for all wallets
-   */
-  private async initializePositions(): Promise<void> {
-    const wallets = await Storage.getActiveWallets();
-    
-    for (const wallet of wallets) {
-      try {
-        const eoaAddress = wallet.address.toLowerCase();
-        
-        // First try to get positions directly - Polymarket Data API works with EOA addresses
-        // The API response will include proxyWallet field if one exists
-        let positions = await this.api.getUserPositions(eoaAddress);
-        let monitoringAddress = eoaAddress;
-        
-        // DEBUG: Log the first position structure to understand the API response
-        if (positions.length > 0) {
-          console.log(`[Monitor] DEBUG: First position structure for ${eoaAddress.substring(0, 8)}...:`, 
-            JSON.stringify(positions[0], null, 2).substring(0, 500) + '...');
-          
-          // Extract proxy wallet from positions if available
-          const proxyWallet = positions[0].proxyWallet;
-          if (proxyWallet) {
-            monitoringAddress = proxyWallet.toLowerCase();
-            console.log(`[Monitor] Extracted proxy wallet from positions: ${monitoringAddress.substring(0, 8)}... for EOA: ${eoaAddress.substring(0, 8)}...`);
-          }
-        } else {
-          console.log(`[Monitor] No positions found for ${eoaAddress.substring(0, 8)}... (new wallet or empty)`);
-        }
-        
-        const positionMap = new Map<string, any>();
-        
-        for (const position of positions) {
-          // FIXED: Use 'asset' field which is the token ID in Polymarket API
-          // The API returns: asset (token ID), conditionId (market ID), size, avgPrice, outcome, etc.
-          const tokenId = position.asset;
-          if (tokenId) {
-            positionMap.set(tokenId, position);
-          } else {
-            console.warn(`[Monitor] Position missing 'asset' field:`, JSON.stringify(position).substring(0, 200));
-          }
-        }
-        
-        // Use EOA address as key for consistency (we can look up positions by either)
-        this.monitoredPositions.set(eoaAddress, positionMap);
-        console.log(`[Monitor] Initialized ${positionMap.size} positions for ${eoaAddress.substring(0, 8)}...`);
-      } catch (error: any) {
-        console.warn(`[Monitor] Failed to initialize positions for ${wallet.address}:`, error.message);
-      }
-    }
-  }
-
-  /**
-   * Check tracked wallets for new trades by comparing position changes
+   * Check tracked wallets for new trades via trade history API only
    */
   private async checkWalletsForTrades(
     onTradeDetected: (trade: DetectedTrade) => void
@@ -220,130 +141,9 @@ export class WalletMonitor {
     for (const wallet of wallets) {
       try {
         const eoaAddress = wallet.address.toLowerCase();
-        console.log(`[Monitor] Checking wallet ${eoaAddress.substring(0, 8)}... for positions and trades`);
-        
-        // Polymarket Data API works directly with EOA addresses
-        // The positions response includes proxyWallet field if one exists
-        let currentPositions: any[] = [];
-        
-        try {
-          currentPositions = await this.api.getUserPositions(eoaAddress);
-          console.log(`[Monitor] Found ${currentPositions.length} current position(s) for ${eoaAddress.substring(0, 8)}...`);
-        } catch (error: any) {
-          console.error(`[Monitor] Failed to get positions for ${eoaAddress.substring(0, 8)}...:`, error.message);
-          continue; // Skip to next wallet
-        }
-        
-        // Use EOA address as the key for tracking (consistent with initializePositions)
-        const previousPositions = this.monitoredPositions.get(eoaAddress) || new Map();
-        console.log(`[Monitor] Tracking ${previousPositions.size} previous position(s) for ${eoaAddress.substring(0, 8)}...`);
+        console.log(`[Monitor] Checking wallet ${eoaAddress.substring(0, 8)}... for trades (trade history)`);
 
-        // Create map of current positions using CORRECT field name: 'asset'
-        const currentPositionMap = new Map<string, any>();
-        for (const position of currentPositions) {
-          // FIXED: Use 'asset' field which is the token ID in Polymarket API
-          const tokenId = position.asset;
-          if (tokenId) {
-            currentPositionMap.set(tokenId, position);
-          }
-        }
-        
-        console.log(`[Monitor] Built position map with ${currentPositionMap.size} entries for ${eoaAddress.substring(0, 8)}...`);
-
-        // Detect changes (new positions or position size changes)
-        for (const [tokenId, currentPos] of currentPositionMap.entries()) {
-          const previousPos = previousPositions.get(tokenId);
-
-          if (!previousPos) {
-            // New position detected - this indicates a BUY
-            // FIXED: Use 'size' field from Polymarket API
-            const currentSize = parseFloat(currentPos.size || '0');
-            if (currentSize > 0) {
-              console.log(`[Monitor] 🆕 New position detected for ${eoaAddress.substring(0, 8)}...: ${currentSize} tokens of ${tokenId.substring(0, 20)}...`);
-              const trade = await this.parsePositionToTrade(eoaAddress, currentPos, tokenId, 'BUY', null);
-              if (trade) {
-                console.log(`\n🔔 [Monitor] TRADE DETECTED: New position`);
-                console.log(`   Side: ${trade.side}`);
-                console.log(`   Amount: ${trade.amount} shares`);
-                console.log(`   Price: ${trade.price}`);
-                console.log(`   Market: ${trade.marketId}`);
-                console.log(`   Outcome: ${trade.outcome}`);
-                console.log(`[Monitor] 📤 Calling onTradeDetected callback...`);
-                try {
-                  await onTradeDetected(trade);
-                  console.log(`[Monitor] ✅ Callback completed successfully`);
-                } catch (callbackError: any) {
-                  console.error(`[Monitor] ❌ Callback failed:`, callbackError.message);
-                  console.error(`[Monitor]    Stack:`, callbackError.stack);
-                }
-              } else {
-                console.warn(`[Monitor] Failed to parse new position as trade for token ${tokenId}`);
-              }
-            }
-          } else {
-            // Check if position size changed significantly (indicating a trade)
-            // FIXED: Use 'size' field from Polymarket API
-            const currentSize = parseFloat(currentPos.size || '0');
-            const previousSize = parseFloat(previousPos.size || '0');
-            const sizeDiff = currentSize - previousSize; // Positive = BUY, Negative = SELL
-
-            // If size changed by more than 1% or 0.01 tokens, consider it a trade
-            const absDiff = Math.abs(sizeDiff);
-            const percentChange = previousSize > 0 ? Math.abs(sizeDiff) / previousSize : 0;
-            
-            // CRITICAL FIX: Only detect BUYs from position monitoring
-            // SELL detection from position changes is unreliable because:
-            // 1. API data can be inconsistent/cached between polls
-            // 2. Position sizes can fluctuate due to rounding
-            // 3. No way to distinguish real SELLs from API noise
-            // SELLs should only be copied when explicitly detected in trade history API
-            if (sizeDiff <= 0) {
-              // Position decreased or unchanged - skip, don't false-detect as SELL
-              // SELLs will be properly detected from trade history API instead
-              continue;
-            }
-            
-            if (absDiff > 0.01 || percentChange > 0.01) {
-              const side: 'BUY' | 'SELL' = 'BUY'; // Only BUYs from position monitoring
-              console.log(`[Monitor] 📊 Position change detected for ${eoaAddress.substring(0, 8)}...: ${side} ${absDiff.toFixed(4)} tokens (${(percentChange * 100).toFixed(2)}% change) of ${tokenId.substring(0, 20)}...`);
-              const trade = await this.parsePositionToTrade(eoaAddress, currentPos, tokenId, side, previousPos);
-              if (trade) {
-                console.log(`\n🔔 [Monitor] TRADE DETECTED: Position change`);
-                console.log(`   Side: ${trade.side}`);
-                console.log(`   Amount: ${trade.amount} shares`);
-                console.log(`   Price: ${trade.price}`);
-                console.log(`   Market: ${trade.marketId}`);
-                console.log(`   Outcome: ${trade.outcome}`);
-                console.log(`   Size change: ${sizeDiff > 0 ? '+' : ''}${sizeDiff.toFixed(4)} (${(percentChange * 100).toFixed(2)}%)`);
-                console.log(`[Monitor] 📤 Calling onTradeDetected callback...`);
-                try {
-                  await onTradeDetected(trade);
-                  console.log(`[Monitor] ✅ Callback completed successfully`);
-                } catch (callbackError: any) {
-                  console.error(`[Monitor] ❌ Callback failed:`, callbackError.message);
-                  console.error(`[Monitor]    Stack:`, callbackError.stack);
-                }
-              } else {
-                console.warn(`[Monitor] Failed to parse position change as trade for token ${tokenId} (size diff: ${sizeDiff})`);
-              }
-            }
-          }
-        }
-        
-        // NOTE: Position closed detection is DISABLED
-        // Previously, we detected when a position disappeared from the API as a SELL.
-        // This was unreliable because:
-        // 1. API responses can be incomplete/cached
-        // 2. Positions might temporarily not appear due to API lag
-        // 3. This caused false SELL detections and unintended liquidations
-        // 
-        // SELLs are now ONLY detected from the trade history API (below), which has
-        // explicit and authoritative side information.
-        //
-        // If you need to copy SELLs, they will be detected from trade history.
-
-        // Also check for recent trades directly from trade history
-        // This helps catch trades that might have been missed by position monitoring
+        // Check for recent trades from trade history API
         try {
           console.log(`[Monitor] Fetching trade history for ${eoaAddress.substring(0, 8)}...`);
           let recentTrades: any[] = [];
@@ -418,15 +218,10 @@ export class WalletMonitor {
           }
           console.log(`[Monitor] Processed ${processedTradeCount} trade(s) from history for ${eoaAddress.substring(0, 8)}...`);
         } catch (error: any) {
-          // Trade history might not be available, continue with position monitoring
           if (error.response?.status !== 404) {
             console.warn(`[Monitor] ⚠️ Trade history not available for ${eoaAddress.substring(0, 8)}...:`, error.message);
           }
         }
-
-        // Update stored positions using EOA address as key (consistent with initialization)
-        this.monitoredPositions.set(eoaAddress, currentPositionMap);
-        console.log(`[Monitor] ✓ Updated position map (${currentPositionMap.size} positions) for ${eoaAddress.substring(0, 8)}...`);
       } catch (error: any) {
         // Log error but continue monitoring other wallets
         const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
@@ -439,120 +234,6 @@ export class WalletMonitor {
     }
     
     console.log(`[Monitor] ✓ Completed trade check cycle for all wallets`);
-  }
-
-  /**
-   * Parse a position change into a DetectedTrade
-   * FIXED: Uses correct Polymarket API field names (asset, conditionId, size, avgPrice, outcome)
-   */
-  private async parsePositionToTrade(
-    walletAddress: string,
-    position: any,
-    tokenId: string,
-    side: 'BUY' | 'SELL',
-    previousPosition: any | null
-  ): Promise<DetectedTrade | null> {
-    try {
-      // FIXED: Use conditionId from position (this is the market ID in Polymarket)
-      let marketId = position.conditionId;
-      
-      // If no conditionId, we can't proceed
-      if (!marketId) {
-        console.warn(`[Monitor] Cannot determine marketId from position (no conditionId), skipping trade`);
-        return null;
-      }
-      
-      // FIXED: Use 'outcome' field directly from Polymarket API
-      // The API returns "Yes" or "No" as strings, we need to convert to uppercase
-      let outcome: 'YES' | 'NO' = 'YES';
-      if (position.outcome) {
-        outcome = position.outcome.toUpperCase() === 'NO' ? 'NO' : 'YES';
-      } else if (position.outcomeIndex !== undefined) {
-        // outcomeIndex: 0 = Yes, 1 = No
-        outcome = position.outcomeIndex === 1 ? 'NO' : 'YES';
-      }
-
-      // FIXED: Use 'size' field for amount
-      // For SELL, use the absolute change in position size
-      let amount: string;
-      if (side === 'SELL' && previousPosition) {
-        const currentSize = parseFloat(position.size || '0');
-        const previousSize = parseFloat(previousPosition.size || '0');
-        amount = Math.abs(currentSize - previousSize).toString();
-      } else {
-        amount = (position.size || '0').toString();
-      }
-      
-      // FIXED: Use avgPrice or curPrice from Polymarket API
-      let price = position.avgPrice || position.curPrice;
-      
-      // If price is missing, try to get from market API
-      if (!price || parseFloat(price) <= 0 || parseFloat(price) > 1) {
-        try {
-          const orderBook = await this.api.getOrderBook(tokenId);
-          if (orderBook?.bids?.[0] && orderBook?.asks?.[0]) {
-            const bidPrice = parseFloat(orderBook.bids[0].price || '0');
-            const askPrice = parseFloat(orderBook.asks[0].price || '0');
-            if (bidPrice > 0 && askPrice > 0) {
-              price = ((bidPrice + askPrice) / 2).toString();
-            }
-          }
-        } catch (orderBookError: any) {
-          console.warn(`[Monitor] Could not get order book price for ${tokenId}:`, orderBookError.message);
-        }
-      }
-      
-      // Validate price before proceeding
-      const priceNum = parseFloat(price || '0');
-      if (!price || isNaN(priceNum) || priceNum <= 0 || priceNum > 1) {
-        console.warn(`[Monitor] Invalid or missing price (${price}) for trade on market ${marketId}, skipping`);
-        return null;
-      }
-      
-      // Validate amount
-      const amountNum = parseFloat(amount || '0');
-      if (!amount || isNaN(amountNum) || amountNum <= 0) {
-        console.warn(`[Monitor] Invalid or missing amount (${amount}) for trade on market ${marketId}, skipping`);
-        return null;
-      }
-
-      // Look up wallet settings to get trade config
-      const wallets = await Storage.getActiveWallets();
-      const walletSettings = wallets.find(w => w.address.toLowerCase() === walletAddress.toLowerCase());
-      
-      return {
-        walletAddress: walletAddress.toLowerCase(),
-        marketId,
-        outcome,
-        amount: amount.toString(),
-        price: price.toString(),
-        side,
-        timestamp: new Date(),
-        transactionHash: `pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        tokenId: tokenId,
-        negRisk: position.negativeRisk || false,
-        // Per-wallet trade config (ALL settings, not just sizing)
-        tradeSizingMode: walletSettings?.tradeSizingMode,
-        fixedTradeSize: walletSettings?.fixedTradeSize,
-        thresholdEnabled: walletSettings?.thresholdEnabled,
-        thresholdPercent: walletSettings?.thresholdPercent,
-        tradeSideFilter: walletSettings?.tradeSideFilter,
-        noRepeatEnabled: walletSettings?.noRepeatEnabled,
-        noRepeatPeriodHours: walletSettings?.noRepeatPeriodHours,
-        priceLimitsMin: walletSettings?.priceLimitsMin,
-        priceLimitsMax: walletSettings?.priceLimitsMax,
-        rateLimitEnabled: walletSettings?.rateLimitEnabled,
-        rateLimitPerHour: walletSettings?.rateLimitPerHour,
-        rateLimitPerDay: walletSettings?.rateLimitPerDay,
-        valueFilterEnabled: walletSettings?.valueFilterEnabled,
-        valueFilterMin: walletSettings?.valueFilterMin,
-        valueFilterMax: walletSettings?.valueFilterMax,
-        slippagePercent: walletSettings?.slippagePercent,
-      };
-    } catch (error: any) {
-      console.error('[Monitor] Failed to parse position to trade:', error);
-      return null;
-    }
   }
 
   /**
@@ -680,52 +361,15 @@ export class WalletMonitor {
   }
 
   /**
-   * Reload wallets and initialize positions for newly added wallets
-   * This should be called when a wallet is added or removed
+   * Reload wallets (called when a wallet is added or removed).
+   * Trade history polling uses Storage.getActiveWallets() each cycle, so no state to sync.
    */
   async reloadWallets(): Promise<void> {
     if (!this.isMonitoring) {
       return;
     }
-
     const wallets = await Storage.getActiveWallets();
-    
-    // Initialize positions for any new wallets that aren't in monitoredPositions
-    for (const wallet of wallets) {
-      const eoaAddress = wallet.address.toLowerCase();
-      
-      // Use EOA address directly - Polymarket Data API works with EOA
-      // and returns proxyWallet in the response if one exists
-      if (!this.monitoredPositions.has(eoaAddress)) {
-        try {
-          const positions = await this.api.getUserPositions(eoaAddress);
-          const positionMap = new Map<string, any>();
-          
-          for (const position of positions) {
-            // FIXED: Use 'asset' field which is the token ID in Polymarket API
-            const tokenId = position.asset;
-            if (tokenId) {
-              positionMap.set(tokenId, position);
-            }
-          }
-          
-          this.monitoredPositions.set(eoaAddress, positionMap);
-          console.log(`[Monitor] Initialized ${positionMap.size} positions for newly added wallet ${eoaAddress.substring(0, 8)}...`);
-        } catch (error: any) {
-          console.warn(`[Monitor] Failed to initialize positions for new wallet ${wallet.address}:`, error.message);
-        }
-      } else {
-      }
-    }
-
-    // Remove wallets that are no longer tracked
-    const trackedAddresses = new Set(wallets.map(w => w.address.toLowerCase()));
-    for (const [address] of this.monitoredPositions.entries()) {
-      if (!trackedAddresses.has(address)) {
-        this.monitoredPositions.delete(address);
-        console.log(`[Monitor] Removed wallet ${address.substring(0, 8)}... from monitoring`);
-      }
-    }
+    console.log(`[Monitor] Wallets reloaded: ${wallets.length} tracked`);
   }
 
   /**
