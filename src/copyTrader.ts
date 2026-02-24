@@ -296,6 +296,7 @@ export class CopyTrader {
    * Handle a detected trade from a tracked wallet
    */
   private async handleDetectedTrade(trade: DetectedTrade): Promise<void> {
+    console.log(`[DIAG] Trade source hash format: ${trade.transactionHash?.substring(0, 10)}... (synthetic=${trade.transactionHash?.startsWith('pos-') || trade.transactionHash?.startsWith('trade-')})`);
     console.log(`\n${'='.repeat(60)}`);
     console.log(`🔔 [CopyTrader] HANDLE_DETECTED_TRADE CALLED`);
     console.log(`${'='.repeat(60)}`);

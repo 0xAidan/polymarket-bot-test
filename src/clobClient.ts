@@ -466,7 +466,8 @@ export class PolymarketClobClient {
       
       const balanceStr = response?.balance || '0';
       const balanceNum = parseFloat(balanceStr);
-      
+      console.log(`[DIAG] Raw balance response: ${JSON.stringify(response)}, parsed: ${balanceNum}`);
+
       // Determine if balance is in wei (large number) or already human-readable
       // USDC has 6 decimals, so $4.00 in wei = 4000000
       // If the number is > 1000, it's likely in wei format
