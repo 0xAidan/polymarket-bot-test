@@ -2,6 +2,8 @@ import * as ethers from 'ethers';
 import { config } from './config.js';
 import { PolymarketApi } from './polymarketApi.js';
 import { Storage } from './storage.js';
+import { getTradingWallets } from './walletManager.js';
+import { getSigner, isWalletUnlocked } from './secureKeyManager.js';
 
 // Polymarket contract addresses on Polygon
 const CTF_ADDRESS = '0x4D97DCd97eC945f40cF65F87097ACe5EA0476045';
@@ -32,6 +34,7 @@ export interface RedeemablePosition {
   redeemable: boolean;
   mergeable: boolean;
   estimatedPayout: number;
+  walletId: string;   // Which trading wallet owns this position
 }
 
 /** Result of a redeem/merge operation */
@@ -191,49 +194,58 @@ export class PositionLifecycleManager {
 
   /**
    * Get positions that are redeemable or mergeable.
-   * Uses the Polymarket Data API to find resolved markets.
+   * Iterates over all trading wallets so every wallet's resolved
+   * positions are caught, not just the legacy single-wallet address.
    */
   async getRedeemablePositions(): Promise<RedeemablePosition[]> {
     const redeemable: RedeemablePosition[] = [];
 
     try {
-      // Fetch our positions from the Data API
-      const walletAddress = config.userWalletAddress;
-      if (!walletAddress) return redeemable;
+      const wallets = getTradingWallets();
 
-      const positions = await this.api.getUserPositions(walletAddress);
-      if (!positions || positions.length === 0) return redeemable;
+      if (wallets.length === 0) {
+        console.log('[Lifecycle] No trading wallets configured');
+        return redeemable;
+      }
 
-      for (const pos of positions) {
-        const size = parseFloat(pos.size || '0');
-        if (size <= 0) continue;
+      for (const wallet of wallets) {
+        if (!wallet.address) continue;
 
-        const curPrice = parseFloat(pos.curPrice || pos.currentPrice || '0');
-        const outcome = pos.outcome || 'Unknown';
-        const conditionId = pos.conditionId || '';
-        const tokenId = pos.asset || '';
+        try {
+          const positions = await this.api.getUserPositions(wallet.address);
+          if (!positions || positions.length === 0) continue;
 
-        // A position is "resolved" when the market is closed and the price is 0 or 1
-        // Price = 1 means winning position (redeemable)
-        // Price = 0 means losing position
-        // Check for resolved status
-        const isResolved = curPrice === 0 || curPrice === 1 || curPrice >= 0.999 || curPrice <= 0.001;
-        const isWinning = curPrice >= 0.999;
+          for (const pos of positions) {
+            const size = parseFloat(pos.size || '0');
+            if (size <= 0) continue;
 
-        if (isResolved && isWinning) {
-          redeemable.push({
-            conditionId,
-            tokenId,
-            outcome,
-            size,
-            currentPrice: curPrice,
-            marketTitle: pos.title || pos.marketSlug || 'Unknown Market',
-            marketSlug: pos.slug || '',
-            negRisk: pos.negRisk === true,
-            redeemable: true,
-            mergeable: false,
-            estimatedPayout: size * curPrice,
-          });
+            const curPrice = parseFloat(pos.curPrice || pos.currentPrice || '0');
+            const outcome = pos.outcome || 'Unknown';
+            const conditionId = pos.conditionId || '';
+            const tokenId = pos.asset || '';
+
+            // Price = 1 means winning position (redeemable for USDC)
+            const isWinning = curPrice >= 0.999;
+
+            if (isWinning) {
+              redeemable.push({
+                conditionId,
+                tokenId,
+                outcome,
+                size,
+                currentPrice: curPrice,
+                marketTitle: pos.title || pos.marketSlug || 'Unknown Market',
+                marketSlug: pos.slug || '',
+                negRisk: pos.negRisk === true,
+                redeemable: true,
+                mergeable: false,
+                estimatedPayout: size * curPrice,
+                walletId: wallet.id,
+              });
+            }
+          }
+        } catch (walletErr: any) {
+          console.error(`[Lifecycle] Error fetching positions for wallet ${wallet.id}:`, walletErr.message);
         }
       }
 
@@ -258,11 +270,17 @@ export class PositionLifecycleManager {
     };
 
     try {
-      if (!config.privateKey) {
-        return { ...baseResult, error: 'No private key configured' };
+      if (!isWalletUnlocked()) {
+        return { ...baseResult, error: 'Wallets are locked — unlock wallets first' };
       }
 
-      const signer = new ethers.Wallet(config.privateKey, this.provider);
+      let baseSigner: ethers.Wallet;
+      try {
+        baseSigner = getSigner(pos.walletId);
+      } catch {
+        return { ...baseResult, error: `Wallet "${pos.walletId}" not found or not unlocked` };
+      }
+      const signer = baseSigner.connect(this.provider);
       const conditionIdBytes = pos.conditionId;
 
       if (pos.negRisk) {
@@ -317,11 +335,17 @@ export class PositionLifecycleManager {
     };
 
     try {
-      if (!config.privateKey) {
-        return { ...baseResult, error: 'No private key configured' };
+      if (!isWalletUnlocked()) {
+        return { ...baseResult, error: 'Wallets are locked — unlock wallets first' };
       }
 
-      const signer = new ethers.Wallet(config.privateKey, this.provider);
+      let baseSigner: ethers.Wallet;
+      try {
+        baseSigner = getSigner(pos.walletId);
+      } catch {
+        return { ...baseResult, error: `Wallet "${pos.walletId}" not found or not unlocked` };
+      }
+      const signer = baseSigner.connect(this.provider);
       const ctf = new ethers.Contract(CTF_ADDRESS, CTF_ABI, signer);
 
       const parentCollectionId = ethers.constants.HashZero;
