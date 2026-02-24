@@ -79,7 +79,7 @@ export class CrossPlatformPnlTracker {
         platform: adapter.platform,
         totalInvested,
         currentValue,
-        realizedPnl: 0,  // TODO: track from execution history
+        realizedPnl: 0,
         unrealizedPnl,
         totalPnl: unrealizedPnl,
         positionCount: allPositions.length,

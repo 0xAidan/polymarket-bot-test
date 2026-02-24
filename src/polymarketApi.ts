@@ -647,22 +647,4 @@ export class PolymarketApi {
     }
   }
 
-  /**
-   * Get client instances for direct access if needed
-   */
-  getDataApiClient(): AxiosInstance {
-    return this.dataApiClient;
-  }
-
-  getClobApiClient(): AxiosInstance {
-    return this.clobApiClient;
-  }
-
-  getGammaApiClient(): AxiosInstance {
-    return this.gammaApiClient;
-  }
-
-  getSigner(): ethers.Wallet | null {
-    return this.signer;
-  }
 }

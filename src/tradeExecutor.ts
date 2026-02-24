@@ -377,18 +377,6 @@ export class TradeExecutor {
   }
 
   /**
-   * Get market information
-   */
-  async getMarketInfo(marketId: string): Promise<any> {
-    try {
-      return await this.api.getMarket(marketId);
-    } catch (error: any) {
-      console.error('Failed to get market info:', error.message);
-      throw error;
-    }
-  }
-
-  /**
    * Get the wallet address used for executing trades
    */
   getWalletAddress(): string | null {
