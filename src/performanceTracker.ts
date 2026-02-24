@@ -13,6 +13,7 @@ export class PerformanceTracker {
   private startTime: Date;
   private metrics: TradeMetrics[] = [];
   private issues: SystemIssue[] = [];
+  private recentTradeKeys = new Map<string, number>();
 
   constructor() {
     this.startTime = new Date();
@@ -84,9 +85,26 @@ export class PerformanceTracker {
    * Record a trade execution
    */
   async recordTrade(metrics: Omit<TradeMetrics, 'id'>): Promise<void> {
+    // Dedup: prevent the same trade from being recorded multiple times in the feed.
+    // Uses market+outcome+side+status+5min window as the key so identical rejected/failed
+    // entries from repeated polling cycles don't spam the trade feed.
+    const ts = metrics.timestamp instanceof Date ? metrics.timestamp.getTime() : Date.now();
+    const timeWindow = Math.floor(ts / (5 * 60 * 1000));
+    const dedupKey = `${metrics.walletAddress}-${metrics.marketId}-${metrics.outcome}-${metrics.status || 'unknown'}-${timeWindow}`;
+
+    const now = Date.now();
+    for (const [key, time] of this.recentTradeKeys.entries()) {
+      if (now - time > 5 * 60 * 1000) this.recentTradeKeys.delete(key);
+    }
+
+    if (this.recentTradeKeys.has(dedupKey)) {
+      return;
+    }
+    this.recentTradeKeys.set(dedupKey, now);
+
     const tradeMetric: TradeMetrics = {
       ...metrics,
-      id: `${metrics.timestamp.getTime()}-${Math.random().toString(36).substr(2, 9)}`
+      id: `${ts}-${Math.random().toString(36).substr(2, 9)}`
     };
 
     this.metrics.push(tradeMetric);

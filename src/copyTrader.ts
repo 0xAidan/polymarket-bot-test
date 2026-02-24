@@ -360,6 +360,13 @@ export class CopyTrader {
     this.inFlightTrades.add(tradeKey);
     this.inFlightTrades.add(compoundKey);
 
+    // Mark as processed IMMEDIATELY so the next polling cycle won't re-detect this trade.
+    // Previously, filtered/rejected trades were never added to these maps, causing
+    // the same trades to be re-detected, re-filtered, and re-recorded as "rejected"
+    // on every single poll cycle until they fell out of the 5-minute API window.
+    this.processedTrades.set(tradeKey, Date.now());
+    this.processedCompoundKeys.set(compoundKey, Date.now());
+
     try {
     // === Everything below is wrapped in try/finally to guarantee inFlightTrades cleanup ===
     
