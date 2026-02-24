@@ -174,33 +174,37 @@ async function loadPerformance() {
   }
 }
 
+// Trade pagination state
+let allLoadedTrades = [];
+let tradesPageSize = 50;
+let tradesCurrentLimit = 50;
+
 async function loadTrades() {
   try {
-    const data = await API.getTrades(10);
+    const data = await API.getTrades(tradesCurrentLimit);
     const tbody = document.getElementById('tradesTableBody');
+    const countLabel = document.getElementById('tradesCountLabel');
+    const loadMoreBtn = document.getElementById('loadMoreTradesBtn');
     
     if (!data.trades || data.trades.length === 0) {
       tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No trades yet</td></tr>';
+      if (countLabel) countLabel.textContent = '0 trades';
+      if (loadMoreBtn) loadMoreBtn.style.display = 'none';
       return;
     }
     
-    const sortedTrades = [...data.trades].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    allLoadedTrades = [...data.trades].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
     
-    tbody.innerHTML = sortedTrades.map(trade => {
-      // Show the executed amount (bot's trade size) if available, otherwise detected amount
+    tbody.innerHTML = allLoadedTrades.map((trade, idx) => {
       const displayAmount = trade.executedAmount
         ? parseFloat(trade.executedAmount)
         : parseFloat(trade.amount || 0);
       const displayPrice = trade.executedPrice
         ? parseFloat(trade.executedPrice)
         : parseFloat(trade.price || 0);
-      // Calculate USD value: shares * price
       const usdValue = displayAmount * displayPrice;
-      // Format: show USD value for executed trades, share count for detected-only
-      const amountDisplay = trade.executedAmount
-        ? `$${usdValue.toFixed(2)}`
-        : `$${usdValue.toFixed(2)}`;
-      return `<tr>
+      const amountDisplay = `$${usdValue.toFixed(2)}`;
+      return `<tr class="clickable-row" onclick="openTradeDetailModal(${idx})" tabindex="0" role="button" aria-label="View trade details">
         <td>${new Date(trade.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
         <td>${trade.walletLabel || trade.walletAddress.slice(0, 8)}...${(trade.walletTags && trade.walletTags.length > 0) ? ' ' + trade.walletTags.map(t => `<span class="tag-badge ${TAG_COLOR_MAP[t] || ''}">${t}</span>`).join('') : ''}</td>
         <td>${trade.marketId?.slice(0, 12)}...</td>
@@ -209,10 +213,107 @@ async function loadTrades() {
         <td><span class="status-pill ${trade.success ? 'success' : (trade.status === 'pending' ? 'pending' : 'failed')}">${trade.status || (trade.success ? 'OK' : 'FAIL')}</span></td>
       </tr>`;
     }).join('');
+
+    if (countLabel) countLabel.textContent = `${allLoadedTrades.length} trade${allLoadedTrades.length !== 1 ? 's' : ''} shown`;
+    if (loadMoreBtn) {
+      loadMoreBtn.style.display = (data.trades.length >= tradesCurrentLimit) ? '' : 'none';
+    }
   } catch (error) {
     console.error('Error loading trades:', error);
   }
 }
+
+const loadMoreTrades = async () => {
+  tradesCurrentLimit += tradesPageSize;
+  await loadTrades();
+};
+
+const openTradeDetailModal = (idx) => {
+  const trade = allLoadedTrades[idx];
+  if (!trade) return;
+
+  const displayAmount = trade.executedAmount
+    ? parseFloat(trade.executedAmount)
+    : parseFloat(trade.amount || 0);
+  const displayPrice = trade.executedPrice
+    ? parseFloat(trade.executedPrice)
+    : parseFloat(trade.price || 0);
+  const usdValue = displayAmount * displayPrice;
+  const statusText = trade.status || (trade.success ? 'Success' : 'Failed');
+  const statusClass = trade.success ? 'text-success' : (trade.status === 'pending' ? 'text-warning' : 'text-danger');
+
+  const content = document.getElementById('tradeDetailContent');
+  content.innerHTML = `
+    <div class="detail-label">Time:</div>
+    <div class="detail-value">${new Date(trade.timestamp).toLocaleString()}</div>
+
+    <div class="detail-label">Status:</div>
+    <div class="detail-value"><span class="${statusClass}" style="font-weight:bold;">${statusText.toUpperCase()}</span></div>
+
+    <div class="detail-divider"></div>
+
+    <div class="detail-label">Wallet:</div>
+    <div class="detail-value">${trade.walletLabel || 'Unknown'} <span class="text-mono text-sm">(${trade.walletAddress || '?'})</span></div>
+
+    ${(trade.walletTags && trade.walletTags.length > 0) ? `
+    <div class="detail-label">Tags:</div>
+    <div class="detail-value">${trade.walletTags.map(t => `<span class="tag-badge ${TAG_COLOR_MAP[t] || ''}">${t}</span>`).join(' ')}</div>
+    ` : ''}
+
+    <div class="detail-divider"></div>
+
+    <div class="detail-label">Market:</div>
+    <div class="detail-value">${trade.marketTitle || trade.marketId || 'Unknown'}</div>
+
+    <div class="detail-label">Market ID:</div>
+    <div class="detail-value"><span class="text-mono text-sm">${trade.marketId || '?'}</span></div>
+
+    <div class="detail-label">Outcome:</div>
+    <div class="detail-value">${trade.outcome || '?'}</div>
+
+    <div class="detail-label">Side:</div>
+    <div class="detail-value">${trade.side || 'BUY'}</div>
+
+    <div class="detail-divider"></div>
+
+    <div class="detail-label">Price:</div>
+    <div class="detail-value">$${displayPrice.toFixed(4)}</div>
+
+    <div class="detail-label">Amount:</div>
+    <div class="detail-value">${displayAmount.toFixed(2)} shares ($${usdValue.toFixed(2)} USDC)</div>
+
+    ${trade.executedAmount ? `
+    <div class="detail-label">Exec Price:</div>
+    <div class="detail-value">$${parseFloat(trade.executedPrice || 0).toFixed(4)}</div>
+
+    <div class="detail-label">Exec Amount:</div>
+    <div class="detail-value">${parseFloat(trade.executedAmount).toFixed(2)} shares</div>
+    ` : ''}
+
+    ${trade.latencyMs ? `
+    <div class="detail-label">Latency:</div>
+    <div class="detail-value">${trade.latencyMs}ms</div>
+    ` : ''}
+
+    ${trade.error ? `
+    <div class="detail-divider"></div>
+    <div class="detail-label">Error:</div>
+    <div class="detail-value text-danger">${trade.error}</div>
+    ` : ''}
+
+    ${trade.orderId ? `
+    <div class="detail-label">Order ID:</div>
+    <div class="detail-value"><span class="text-mono text-sm">${trade.orderId}</span></div>
+    ` : ''}
+  `;
+
+  document.getElementById('tradeDetailModalTitle').textContent = `Trade: ${trade.outcome || '?'} ${trade.side || 'BUY'} - ${statusText}`;
+  document.getElementById('tradeDetailModal').classList.remove('hidden');
+};
+
+const closeTradeDetailModal = () => {
+  document.getElementById('tradeDetailModal').classList.add('hidden');
+};
 
 // ============================================================
 // BOT CONTROL
@@ -231,10 +332,6 @@ async function toggleBot() {
   }
 }
 
-function toggleBotMenu() {
-  toggleBot();
-}
-
 async function startBot() {
   try { await API.startBot(); await loadStatus(); }
   catch (error) { alert(`Failed to start bot: ${error.message}`); }
@@ -250,6 +347,10 @@ async function stopBot() {
 // ============================================================
 
 let currentWalletAddress = null;
+
+// Wallet list cache to prevent full DOM rebuilds (fixes balance blinking)
+let lastWalletHash = '';
+let cachedWalletAddresses = [];
 
 // Active tag filter (empty string = show all)
 let activeTagFilter = '';
@@ -292,15 +393,33 @@ function applyWalletTagFilter() {
   });
 }
 
-async function loadWallets() {
+async function loadWallets(forceRebuild = false) {
   try {
     const data = await API.getWallets();
     const list = document.getElementById('walletsList');
     
     if (!data.wallets || data.wallets.length === 0) {
+      lastWalletHash = '';
+      cachedWalletAddresses = [];
       list.innerHTML = '<div class="text-center text-muted" style="padding:20px;">No wallets tracked yet. Add a wallet address above to start copy trading.</div>';
       return;
     }
+
+    // Build a hash of the wallet list state to detect actual changes
+    const newHash = data.wallets.map(w =>
+      `${w.address}:${w.active}:${w.label || ''}:${(w.tags || []).join(',')}:${w.tradeSizingMode || ''}:${w.fixedTradeSize || ''}`
+    ).join('|');
+
+    // If nothing changed, just refresh balances in-place (no DOM rebuild = no blink)
+    if (!forceRebuild && newHash === lastWalletHash) {
+      for (const wallet of data.wallets) {
+        loadTrackedWalletBalance(wallet.address);
+      }
+      return;
+    }
+
+    lastWalletHash = newHash;
+    cachedWalletAddresses = data.wallets.map(w => w.address);
 
     // Collect all unique tags across wallets for the filter bar
     const allTags = new Set();
@@ -322,6 +441,7 @@ async function loadWallets() {
       const configBadges = getWalletConfigBadges(wallet);
       const tagBadges = renderTagBadges(wallet.tags);
       const tagsDataAttr = (wallet.tags || []).join(',');
+      const pausedBadge = isActive ? '' : '<span class="paused-badge">Paused</span>';
       
       return `
         <div class="wallet-entry ${isActive ? 'active-wallet' : 'inactive-wallet'}" id="wallet-${wallet.address}" data-tags="${tagsDataAttr}">
@@ -329,6 +449,7 @@ async function loadWallets() {
             <div class="wallet-entry-address">
               ${wallet.label ? `<span class="wallet-entry-label">${wallet.label}</span>` : ''}
               <span class="text-mono">${wallet.address.slice(0, 10)}...${wallet.address.slice(-8)}</span>
+              ${pausedBadge}
               ${tagBadges}
             </div>
             <div class="wallet-entry-config">${configBadges}</div>
@@ -428,7 +549,8 @@ async function addWallet() {
   try {
     await API.addWallet(address);
     input.value = '';
-    await loadWallets();
+    lastWalletHash = '';
+    await loadWallets(true);
     if (confirm('Wallet added (inactive by default). Configure it now?')) {
       openWalletModal(address.toLowerCase());
     }
@@ -439,13 +561,13 @@ async function addWallet() {
 
 async function removeWallet(address) {
   if (!confirm('Remove this tracked wallet?')) return;
-  try { await API.removeWallet(address); await loadWallets(); }
+  try { lastWalletHash = ''; await API.removeWallet(address); await loadWallets(true); }
   catch (error) { alert(`Failed to remove wallet: ${error.message}`); }
 }
 
 async function toggleWallet(address, active) {
-  try { await API.toggleWallet(address, active); await loadWallets(); }
-  catch (error) { alert(`Failed to toggle wallet: ${error.message}`); await loadWallets(); }
+  try { lastWalletHash = ''; await API.toggleWallet(address, active); await loadWallets(true); }
+  catch (error) { alert(`Failed to toggle wallet: ${error.message}`); await loadWallets(true); }
 }
 
 // ============================================================
@@ -685,7 +807,8 @@ async function saveWalletConfig() {
     await API.updateWalletTradeConfig(currentWalletAddress, config);
     alert('Configuration saved (wallet remains inactive until enabled)');
     closeWalletModal();
-    await loadWallets();
+    lastWalletHash = '';
+    await loadWallets(true);
   } catch (error) { alert(`Failed to save: ${error.message}`); }
 }
 
@@ -700,7 +823,8 @@ async function saveWalletConfigAndEnable() {
     await API.toggleWallet(currentWalletAddress, true);
     alert('Configuration saved and wallet enabled!');
     closeWalletModal();
-    await loadWallets();
+    lastWalletHash = '';
+    await loadWallets(true);
   } catch (error) { alert(`Failed to save: ${error.message}`); }
 }
 
@@ -762,28 +886,6 @@ async function updateStopLoss() {
 async function updateMonitoringInterval() {
   try { await API.setMonitoringInterval(parseInt(document.getElementById('monitoringInterval').value)); }
   catch (error) { alert(`Failed: ${error.message}`); }
-}
-
-async function updatePrivateKey() {
-  const pk = document.getElementById('privateKey').value;
-  if (!pk) { alert('Please enter a private key'); return; }
-  try { await API.updatePrivateKey(pk); document.getElementById('privateKey').value = ''; alert('Private key updated!'); loadWalletBalance(); }
-  catch (error) { alert(`Failed: ${error.message}`); }
-}
-
-async function updateBuilderCredentials() {
-  const apiKey = document.getElementById('builderApiKey').value;
-  const secret = document.getElementById('builderSecret').value;
-  const passphrase = document.getElementById('builderPassphrase').value;
-  if (!apiKey || !secret || !passphrase) { alert('Please fill in all fields'); return; }
-  try {
-    await API.updateBuilderCredentials(apiKey, secret, passphrase);
-    document.getElementById('builderApiKey').value = '';
-    document.getElementById('builderSecret').value = '';
-    document.getElementById('builderPassphrase').value = '';
-    alert('Builder credentials updated.');
-    loadWalletBalance();
-  } catch (error) { alert(`Failed: ${error.message}`); }
 }
 
 async function updateProxyWallet() {
@@ -850,6 +952,36 @@ async function loadFailedTrades() {
 
 let masterPassword = '';
 
+// Enter key handlers for password fields
+document.addEventListener('DOMContentLoaded', () => {
+  // Returning user: Enter on password field triggers unlock
+  const existingPwInput = document.getElementById('masterPasswordInput');
+  if (existingPwInput) {
+    existingPwInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') unlockVault();
+    });
+  }
+
+  // First-time user: Enter on confirm field triggers create
+  const confirmPwInput = document.getElementById('masterPasswordConfirm');
+  if (confirmPwInput) {
+    confirmPwInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') createMasterPassword();
+    });
+  }
+
+  // First-time user: Enter on new password field moves focus to confirm
+  const newPwInput = document.getElementById('masterPasswordNew');
+  if (newPwInput) {
+    newPwInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('masterPasswordConfirm').focus();
+      }
+    });
+  }
+});
+
 async function checkLockStatus() {
   try {
     const data = await API.getLockStatus();
@@ -866,6 +998,56 @@ async function checkLockStatus() {
   } catch (error) { console.error('Error checking lock status:', error); }
 }
 
+// First-time setup: create a new master password with confirmation
+async function createMasterPassword() {
+  const pw = document.getElementById('masterPasswordNew').value;
+  const confirm = document.getElementById('masterPasswordConfirm').value;
+  const errorEl = document.getElementById('passwordMatchError');
+
+  if (!pw) {
+    errorEl.textContent = 'Please enter a password.';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+
+  if (pw.length < 4) {
+    errorEl.textContent = 'Password is too short (minimum 4 characters).';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+
+  if (pw !== confirm) {
+    errorEl.textContent = 'Passwords do not match. Please re-enter.';
+    errorEl.classList.remove('hidden');
+    document.getElementById('masterPasswordConfirm').value = '';
+    document.getElementById('masterPasswordConfirm').focus();
+    return;
+  }
+
+  errorEl.classList.add('hidden');
+
+  try {
+    const result = await API.unlockWallets(pw);
+    masterPassword = pw;
+
+    // Clear the fields
+    document.getElementById('masterPasswordNew').value = '';
+    document.getElementById('masterPasswordConfirm').value = '';
+
+    if (result.migrated) {
+      alert('Existing .env private key was migrated to encrypted storage as your "main" wallet.');
+    }
+
+    document.getElementById('unlockSection').classList.add('hidden');
+    document.getElementById('tradingWalletsSection').classList.remove('hidden');
+    await loadTradingWallets();
+  } catch (error) {
+    errorEl.textContent = `Failed: ${error.message}`;
+    errorEl.classList.remove('hidden');
+  }
+}
+
+// Returning user: unlock with existing master password
 async function unlockVault() {
   const pw = document.getElementById('masterPasswordInput').value;
   if (!pw) { alert('Enter your master password'); return; }
@@ -873,6 +1055,10 @@ async function unlockVault() {
   try {
     const result = await API.unlockWallets(pw);
     masterPassword = pw;
+
+    // Clear the field
+    document.getElementById('masterPasswordInput').value = '';
+
     if (result.migrated) {
       alert('Existing .env private key was migrated to encrypted storage as "main" wallet.');
     }
@@ -895,7 +1081,9 @@ async function loadTradingWallets() {
       return;
     }
     
-    list.innerHTML = data.wallets.map(w => `
+    list.innerHTML = data.wallets.map(w => {
+      const escapedLabel = w.label.replace(/'/g, "\\'");
+      return `
       <div class="trading-wallet-card ${w.isActive ? 'active-card' : 'inactive-card'}">
         <div class="flex-between flex-wrap gap-8">
           <div>
@@ -910,7 +1098,8 @@ async function loadTradingWallets() {
             </div>
           </div>
           <div class="flex-row gap-4">
-            ${!w.hasCredentials ? `<button class="win-btn win-btn-sm" onclick="openBuilderCredsModal('${w.id}', '${w.label.replace(/'/g, "\\'")}')" title="Add Builder API credentials">Add Creds</button>` : `<button class="win-btn win-btn-sm" onclick="openBuilderCredsModal('${w.id}', '${w.label.replace(/'/g, "\\'")}')" title="Update Builder API credentials">Update Creds</button>`}
+            <button class="win-btn win-btn-sm" onclick="openTradingWalletSettingsModal('${w.id}', '${escapedLabel}')" title="Wallet settings (auto-redemption, etc.)">Settings</button>
+            ${!w.hasCredentials ? `<button class="win-btn win-btn-sm" onclick="openBuilderCredsModal('${w.id}', '${escapedLabel}')" title="Add Builder API credentials">Add Creds</button>` : `<button class="win-btn win-btn-sm" onclick="openBuilderCredsModal('${w.id}', '${escapedLabel}')" title="Update Builder API credentials">Update Creds</button>`}
             <label class="win-toggle">
               <input type="checkbox" ${w.isActive ? 'checked' : ''} onchange="toggleTradingWalletActive('${w.id}', this.checked)">
             </label>
@@ -918,7 +1107,7 @@ async function loadTradingWallets() {
           </div>
         </div>
       </div>
-    `).join('');
+    `;}).join('');
     
     updateTradingWalletDropdown(data.wallets);
     loadCopyAssignments();
@@ -1088,20 +1277,17 @@ async function submitBuilderCredentials() {
   }
 }
 
-// Close modal on Escape key
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    const modal = document.getElementById('builderCredsModal');
-    if (modal && !modal.classList.contains('hidden')) {
-      closeBuilderCredsModal();
-    }
-  }
-});
-
 // Close modal when clicking the overlay background
 document.addEventListener('click', (e) => {
   if (e.target.id === 'builderCredsModal') {
     closeBuilderCredsModal();
+  }
+  if (e.target.classList.contains('win-modal-overlay')) {
+    const id = e.target.id;
+    if (id === 'tradeDetailModal') closeTradeDetailModal();
+    if (id === 'paperModeModal') closePaperModeModal();
+    if (id === 'aboutModal') closeAboutModal();
+    if (id === 'tradingWalletSettingsModal') closeTradingWalletSettingsModal();
   }
 });
 
@@ -1998,3 +2184,232 @@ async function saveExecutorConfig() {
     alert(`Failed: ${err.message}`);
   }
 }
+
+// ============================================================
+// PAPER MODE INFO MODAL
+// ============================================================
+
+const openPaperModeModal = () => {
+  document.getElementById('paperModeModal').classList.remove('hidden');
+};
+
+const closePaperModeModal = () => {
+  document.getElementById('paperModeModal').classList.add('hidden');
+};
+
+// ============================================================
+// ABOUT MODAL
+// ============================================================
+
+const openAboutModal = () => {
+  document.getElementById('aboutModal').classList.remove('hidden');
+};
+
+const closeAboutModal = () => {
+  document.getElementById('aboutModal').classList.add('hidden');
+};
+
+// ============================================================
+// TRADING WALLET SETTINGS MODAL (Auto-Redemption)
+// ============================================================
+
+const openTradingWalletSettingsModal = async (walletId, walletLabel) => {
+  document.getElementById('twSettingsWalletId').value = walletId || '';
+  document.getElementById('twSettingsModalTitle').textContent = `Settings: ${walletLabel || walletId || 'Global'}`;
+  document.getElementById('twRedeemableList').innerHTML = '<div class="text-center text-muted" style="padding:8px;">Click "Check Now" to scan</div>';
+
+  try {
+    const status = await API.getLifecycleStatus();
+    const cfg = status.config || {};
+    document.getElementById('twAutoRedeemEnabled').checked = cfg.autoRedeemEnabled || false;
+    document.getElementById('twMinRedeemValue').value = cfg.minRedeemValue ?? 0.10;
+    document.getElementById('twAutoMergeEnabled').checked = cfg.autoMergeEnabled || false;
+    document.getElementById('twAutoRedeemInputs').className = cfg.autoRedeemEnabled ? '' : 'hidden';
+  } catch {
+    document.getElementById('twAutoRedeemEnabled').checked = false;
+    document.getElementById('twAutoMergeEnabled').checked = false;
+    document.getElementById('twAutoRedeemInputs').className = 'hidden';
+  }
+
+  document.getElementById('tradingWalletSettingsModal').classList.remove('hidden');
+};
+
+const closeTradingWalletSettingsModal = () => {
+  document.getElementById('tradingWalletSettingsModal').classList.add('hidden');
+};
+
+const handleAutoRedeemToggle = () => {
+  const enabled = document.getElementById('twAutoRedeemEnabled').checked;
+  document.getElementById('twAutoRedeemInputs').className = enabled ? '' : 'hidden';
+};
+
+const saveTradingWalletSettings = async () => {
+  try {
+    const config = {
+      autoRedeemEnabled: document.getElementById('twAutoRedeemEnabled').checked,
+      autoMergeEnabled: document.getElementById('twAutoMergeEnabled').checked,
+      minRedeemValue: parseFloat(document.getElementById('twMinRedeemValue').value) || 0.10,
+    };
+    await API.updateLifecycleConfig(config);
+    alert('Settings saved!');
+    closeTradingWalletSettingsModal();
+  } catch (err) {
+    alert(`Failed to save: ${err.message}`);
+  }
+};
+
+const checkRedeemablePositions = async () => {
+  const container = document.getElementById('twRedeemableList');
+  container.innerHTML = '<div class="text-center text-muted" style="padding:8px;">Scanning...</div>';
+
+  try {
+    const data = await API.getRedeemablePositions();
+    const positions = data.positions || [];
+
+    if (positions.length === 0) {
+      container.innerHTML = '<div class="text-center text-muted" style="padding:8px;">No redeemable positions found</div>';
+      return;
+    }
+
+    container.innerHTML = positions.map(pos => `
+      <div style="border:1px solid var(--win-dark);padding:4px 8px;margin-bottom:2px;display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <span class="text-bold">${pos.marketTitle || pos.tokenId?.slice(0, 12) || 'Unknown'}</span>
+          <span class="win-badge badge-success">${pos.outcome || 'YES'}</span>
+          <span class="text-sm">${pos.size ? pos.size.toFixed(1) + ' shares' : ''}</span>
+        </div>
+        <div class="text-success text-bold">$${(pos.estimatedValue || 0).toFixed(2)}</div>
+      </div>
+    `).join('');
+  } catch (err) {
+    container.innerHTML = `<div class="text-center text-danger" style="padding:8px;">Error: ${err.message}</div>`;
+  }
+};
+
+const redeemAllPositions = async () => {
+  if (!confirm('Redeem all eligible winning positions now?')) return;
+  try {
+    const result = await API.redeemAll();
+    const count = result.results ? result.results.length : 0;
+    const succeeded = result.results ? result.results.filter(r => r.success).length : 0;
+    alert(`Redeemed ${succeeded}/${count} position(s).`);
+    checkRedeemablePositions();
+  } catch (err) {
+    alert(`Redemption failed: ${err.message}`);
+  }
+};
+
+// ============================================================
+// DROPDOWN MENUS (Bot, View, Help)
+// ============================================================
+
+let activeMenu = null;
+
+const closeAllMenus = () => {
+  document.querySelectorAll('.win-menu-dropdown').forEach(m => m.remove());
+  document.querySelectorAll('.win-menu-item').forEach(b => b.classList.remove('active'));
+  activeMenu = null;
+};
+
+const showMenu = (menuId, items) => {
+  if (activeMenu === menuId) {
+    closeAllMenus();
+    return;
+  }
+  closeAllMenus();
+
+  const btn = document.getElementById(menuId);
+  btn.classList.add('active');
+  activeMenu = menuId;
+
+  const dropdown = document.createElement('div');
+  dropdown.className = 'win-menu-dropdown';
+
+  items.forEach(item => {
+    if (item.separator) {
+      const sep = document.createElement('div');
+      sep.className = 'win-menu-separator';
+      dropdown.appendChild(sep);
+      return;
+    }
+    const el = document.createElement('button');
+    el.className = 'win-menu-dropdown-item';
+    el.textContent = item.label;
+    el.disabled = !!item.disabled;
+    if (item.action) {
+      el.onclick = () => {
+        closeAllMenus();
+        item.action();
+      };
+    }
+    dropdown.appendChild(el);
+  });
+
+  const wrapper = btn.closest('.win-menu-wrapper') || btn.parentElement;
+  const rect = btn.getBoundingClientRect();
+  dropdown.style.position = 'fixed';
+  dropdown.style.top = rect.bottom + 'px';
+  dropdown.style.left = rect.left + 'px';
+  document.body.appendChild(dropdown);
+};
+
+const toggleBotMenu = () => {
+  showMenu('menuBot', [
+    { label: botRunning ? 'Stop Bot' : 'Start Bot', action: toggleBot },
+    { label: 'Paper Mode Info...', action: openPaperModeModal },
+    { separator: true },
+    { label: 'Lock Vault', action: async () => {
+      if (confirm('Lock the wallet vault? You will need to re-enter your master password to trade.')) {
+        masterPassword = '';
+        document.getElementById('unlockSection').classList.remove('hidden');
+        document.getElementById('tradingWalletsSection').classList.add('hidden');
+      }
+    }},
+  ]);
+};
+
+const toggleViewMenu = () => {
+  showMenu('menuView', [
+    { label: 'Dashboard', action: () => switchTab('dashboard') },
+    { label: 'Tracked Wallets', action: () => switchTab('wallets') },
+    { label: 'Trading Wallets', action: () => switchTab('trading-wallets') },
+    { label: 'Platforms', action: () => switchTab('platforms') },
+    { label: 'Cross-Platform', action: () => switchTab('cross-platform') },
+    { label: 'Settings', action: () => switchTab('settings') },
+    { label: 'Diagnostics', action: () => switchTab('diagnostics') },
+    { separator: true },
+    { label: 'Refresh Now', action: () => refreshCurrentTab() },
+  ]);
+};
+
+const toggleHelpMenu = () => {
+  showMenu('menuHelp', [
+    { label: 'About CopyTrade95...', action: openAboutModal },
+    { label: 'What is Paper Mode?', action: openPaperModeModal },
+    { separator: true },
+    { label: 'GitHub Repository', action: () => window.open('https://github.com/0xAidan/polymarket-bot-test', '_blank') },
+  ]);
+};
+
+// Close menus when clicking outside
+document.addEventListener('click', (e) => {
+  if (activeMenu && !e.target.closest('.win-menu-dropdown') && !e.target.closest('.win-menu-item')) {
+    closeAllMenus();
+  }
+});
+
+// Close all modals and menus on Escape
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeAllMenus();
+    const modalIds = ['tradeDetailModal', 'paperModeModal', 'aboutModal', 'tradingWalletSettingsModal', 'builderCredsModal', 'walletModal', 'mirrorModal'];
+    const closeFns = { tradeDetailModal: closeTradeDetailModal, paperModeModal: closePaperModeModal, aboutModal: closeAboutModal, tradingWalletSettingsModal: closeTradingWalletSettingsModal, builderCredsModal: closeBuilderCredsModal, walletModal: closeWalletModal, mirrorModal: closeMirrorModal };
+    for (const id of modalIds) {
+      const el = document.getElementById(id);
+      if (el && !el.classList.contains('hidden') && closeFns[id]) {
+        closeFns[id]();
+        break;
+      }
+    }
+  }
+});
