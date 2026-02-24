@@ -22,8 +22,8 @@ export class CopyTrader {
   private balanceTracker: BalanceTracker;
   private isRunning = false;
   private monitoringMode: 'polling' | 'websocket' = 'polling';
-  private executedTrades = new Set<string>(); // Track executed trades by tx hash
   private processedTrades = new Map<string, number>(); // Track processed trades by tx hash to prevent duplicates
+  private executedTradesCount = 0; // Number of trades successfully executed this session
   private processedCompoundKeys = new Map<string, number>(); // Track by compound key (wallet-market-outcome-side-timeWindow) to catch same trade with different hashes
   private inFlightTrades = new Set<string>(); // Prevent concurrent processing of the same trade
   
@@ -304,12 +304,6 @@ export class CopyTrader {
         `Trade detected from user's own wallet (should not be tracked): ${userWallet.substring(0, 8)}...`,
         { trade }
       );
-      return;
-    }
-    
-    // Prevent duplicate execution using transaction hash
-    if (this.executedTrades.has(trade.transactionHash)) {
-      console.log(`[CopyTrader] ⏭️  Trade ${trade.transactionHash} already executed, skipping`);
       return;
     }
     
@@ -1010,8 +1004,8 @@ export class CopyTrader {
         console.log(`   Outcome: ${order.outcome}`);
         console.log(`   Side: ${order.side} $${tradeSizeUsdcNum.toFixed(2)} USDC (${order.amount} shares) @ ${order.price}`);
         console.log(`${'='.repeat(60)}\n`);
-        this.executedTrades.add(trade.transactionHash);
-        
+        this.executedTradesCount++;
+
         // Mark as processed now that execution succeeded (enables retry on failure)
         this.processedTrades.set(tradeKey, Date.now());
         this.processedCompoundKeys.set(compoundKey, Date.now());
@@ -1115,7 +1109,7 @@ export class CopyTrader {
   } {
     return {
       running: this.isRunning,
-      executedTradesCount: this.executedTrades.size,
+      executedTradesCount: this.executedTradesCount,
       monitoringMode: this.monitoringMode,
       domeWs: this.domeWsMonitor?.getStatus() ?? null,
     };

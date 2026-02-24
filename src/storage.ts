@@ -379,22 +379,6 @@ export class Storage {
     await this.saveConfig(cfg);
   }
 
-  static async getPositionThreshold(): Promise<{ enabled: boolean; percent: number }> {
-    const cfg = await this.loadConfig();
-    return {
-      enabled: cfg.positionThresholdEnabled || false,
-      percent: cfg.positionThresholdPercent || 10
-    };
-  }
-
-  /** @deprecated Use per-wallet trade config instead (updateWalletTradeConfig) */
-  static async setPositionThreshold(enabled: boolean, percent: number): Promise<void> {
-    const cfg = await this.loadConfig();
-    cfg.positionThresholdEnabled = enabled;
-    cfg.positionThresholdPercent = percent;
-    await this.saveConfig(cfg);
-  }
-
   static async getUsageStopLoss(): Promise<{ enabled: boolean; maxCommitmentPercent: number }> {
     const cfg = await this.loadConfig();
     return {
