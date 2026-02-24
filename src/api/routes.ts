@@ -105,8 +105,38 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       console.error(`[LadderExit] SELL execution error: ${err.message} — step NOT marked executed, will retry next tick`);
     }
   });
-  priceMonitor.on('stoploss-trigger', (data: any) => {
-    console.log(`[PriceMonitor] Stop-loss sell: ${data.order.marketTitle} ${data.order.outcome}, ${data.order.shares} shares`);
+  priceMonitor.on('stoploss-trigger', async (data: any) => {
+    console.log(
+      `[StopLoss] TRIGGERED: ${data.order.marketTitle} ${data.order.outcome}, ` +
+      `${data.order.shares} shares @ $${data.currentPrice?.toFixed(4)}`
+    );
+
+    try {
+      const tradeExecutor = copyTrader.getTradeExecutor();
+      const order = {
+        marketId: data.order.conditionId || data.order.tokenId,
+        outcome: (data.order.outcome || 'YES') as 'YES' | 'NO',
+        amount: data.order.shares.toFixed(2),
+        price: data.currentPrice.toFixed(4),
+        side: 'SELL' as const,
+        tokenId: data.order.tokenId,
+        negRisk: false,
+      };
+
+      console.log(
+        `[StopLoss] Executing SELL: ${order.amount} shares of ` +
+        `${data.order.marketTitle} @ $${order.price}`
+      );
+      const result = await tradeExecutor.executeTrade(order);
+
+      if (result.success) {
+        console.log(`[StopLoss] ✅ SELL executed successfully (order: ${result.orderId})`);
+      } else {
+        console.error(`[StopLoss] ❌ SELL failed: ${result.error}`);
+      }
+    } catch (err: any) {
+      console.error(`[StopLoss] SELL execution error: ${err.message}`);
+    }
   });
 
   // ============================================================================
@@ -151,39 +181,39 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.post('/wallets', async (req: Request, res: Response) => {
     try {
       const { address } = req.body;
-      
+
       if (!address || typeof address !== 'string') {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Wallet address is required' 
+        return res.status(400).json({
+          success: false,
+          error: 'Wallet address is required'
         });
       }
 
       // Basic address validation
       if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Invalid wallet address format' 
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid wallet address format'
         });
       }
 
       await Storage.addWallet(address);
-      
+
       // Reload wallets in the monitor so the new wallet is tracked immediately
       await copyTrader.reloadWallets();
-      
+
       // Also add to Dome WebSocket subscription if available
       const domeWs = copyTrader.getDomeWsMonitor();
       if (domeWs) {
         await domeWs.addWallet(address);
       }
-      
+
       // Return the updated wallet list so the UI can update immediately
       const wallets = await Storage.loadTrackedWallets();
       const addedWallet = wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: 'Wallet added successfully',
         wallet: addedWallet,
         wallets: wallets
@@ -198,16 +228,16 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     try {
       const { address } = req.params;
       await Storage.removeWallet(address);
-      
+
       // Also remove from Dome WebSocket subscription if available
       const domeWsRemove = copyTrader.getDomeWsMonitor();
       if (domeWsRemove) {
         await domeWsRemove.removeWallet(address);
       }
-      
+
       // Reload wallets in the monitor to remove the wallet from monitoring
       await copyTrader.reloadWallets();
-      
+
       res.json({ success: true, message: 'Wallet removed successfully' });
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
@@ -874,9 +904,11 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const order = stopLossManager.createStopLoss(
         tokenId, conditionId || '', marketTitle || '', outcome || 'YES',
         parseFloat(entryPrice), parseFloat(shares),
-        { initialStopPrice: initialStopPrice ? parseFloat(initialStopPrice) : undefined,
+        {
+          initialStopPrice: initialStopPrice ? parseFloat(initialStopPrice) : undefined,
           trailingPercent: trailingPercent ? parseFloat(trailingPercent) : undefined,
-          profitLockThreshold: profitLockThreshold ? parseFloat(profitLockThreshold) : undefined }
+          profitLockThreshold: profitLockThreshold ? parseFloat(profitLockThreshold) : undefined
+        }
       );
 
       // Auto-start price monitor if not already running
@@ -941,11 +973,11 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const recentTrades = performanceTracker.getRecentTrades(1);
       const issues = performanceTracker.getIssues(false, 100);
       const unresolvedIssues = issues.filter(i => !i.resolved);
-      
+
       // Get last detected/executed trade
       const lastExecutedTrade = recentTrades.find(t => t.success) || null;
       const lastDetectedTrade = recentTrades.length > 0 ? recentTrades[0] : null;
-      
+
       res.json({
         success: true,
         running: status.running,
@@ -1029,10 +1061,10 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.get('/trades', async (req: Request, res: Response) => {
     try {
       const limit = parseInt(req.query.limit as string) || 50;
-      
+
       // Step 1: Get trades first (core data - always return this even if enrichment fails)
       const trades = performanceTracker.getRecentTrades(limit);
-      
+
       // Step 2: Load wallets for labels and tags (safe, local operation)
       let walletLabelMap = new Map<string, string>();
       let walletTagsMap = new Map<string, string[]>();
@@ -1048,20 +1080,20 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         // If wallet lookup fails, use empty maps (no labels/tags shown)
         console.warn('[API] Failed to load wallet labels for trades:', error.message);
       }
-      
+
       // Step 3: Enrich trades with labels and tags (safe, synchronous)
       trades.forEach(t => {
         (t as any).walletLabel = walletLabelMap.get(t.walletAddress.toLowerCase()) || '';
         (t as any).walletTags = walletTagsMap.get(t.walletAddress.toLowerCase()) || [];
       });
-      
+
       // Step 4: Enrich trades with market names
       // NOTE: Market name fetching is disabled to prevent blocking
       // For now, we just use marketId - market names can be added later with a better caching strategy
       trades.forEach(t => {
         (t as any).marketName = t.marketId;
       });
-      
+
       // Step 5: Return enriched trades
       res.json({ success: true, trades });
     } catch (error: any) {
@@ -1092,13 +1124,13 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         .map(t => ({
           ...t,
           is400Error: t.error?.includes('HTTP 400') || t.error?.includes('HTTP error 400'),
-          errorType: t.error?.includes('HTTP 400') ? 'CLOB API Rejection' : 
-                     t.error?.includes('HTTP 403') ? 'Cloudflare Block' :
-                     t.error?.includes('HTTP 401') ? 'Authentication Failed' :
-                     t.error?.includes('HTTP 429') ? 'Rate Limited' :
-                     'Other Error'
+          errorType: t.error?.includes('HTTP 400') ? 'CLOB API Rejection' :
+            t.error?.includes('HTTP 403') ? 'Cloudflare Block' :
+              t.error?.includes('HTTP 401') ? 'Authentication Failed' :
+                t.error?.includes('HTTP 429') ? 'Rate Limited' :
+                  'Other Error'
         }));
-      
+
       // Analyze common patterns
       const analysis = {
         totalFailed: failedTrades.length,
@@ -1106,7 +1138,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         commonMarkets: {} as Record<string, number>,
         commonTokenIds: {} as Record<string, number>
       };
-      
+
       failedTrades.forEach(t => {
         analysis.errorTypes[t.errorType] = (analysis.errorTypes[t.errorType] || 0) + 1;
         analysis.commonMarkets[t.marketId] = (analysis.commonMarkets[t.marketId] || 0) + 1;
@@ -1114,9 +1146,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
           analysis.commonTokenIds[t.tokenId] = (analysis.commonTokenIds[t.tokenId] || 0) + 1;
         }
       });
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         trades: failedTrades,
         analysis
       });
@@ -1195,9 +1227,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     try {
       const eoaAddress = copyTrader.getWalletAddress();
       const proxyWalletAddress = eoaAddress ? await copyTrader.getProxyWalletAddress() : null;
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         walletAddress: eoaAddress || null,
         proxyWalletAddress: proxyWalletAddress,
         configured: !!eoaAddress
@@ -1213,11 +1245,11 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     try {
       const eoaAddress = copyTrader.getWalletAddress();
       console.log(`[API] /wallet/balance requested. EOA address: ${eoaAddress || 'NOT SET'}`);
-      
+
       if (!eoaAddress) {
         console.log('[API] No wallet address configured, returning 0 balance');
-        return res.json({ 
-          success: true, 
+        return res.json({
+          success: true,
           currentBalance: 0,
           change24h: 0,
           balance24hAgo: null,
@@ -1227,7 +1259,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
       // Get balance directly from CLOB API - this is what builder credentials are for
       let currentBalance = 0;
-      
+
       try {
         const clobClient = copyTrader.getClobClient();
         currentBalance = await clobClient.getUsdcBalance();
@@ -1237,11 +1269,11 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         // Log full error for debugging
         console.error(`[API] Full error:`, clobError);
       }
-      
+
       console.log(`[API] Final balance: $${currentBalance.toFixed(2)}`)
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         currentBalance,
         change24h: 0,
         balance24hAgo: null,
@@ -1250,8 +1282,8 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     } catch (error: any) {
       console.error('[API] Error fetching wallet balance:', error);
       console.error('[API] Error stack:', error.stack);
-      res.status(500).json({ 
-        success: false, 
+      res.status(500).json({
+        success: false,
         error: error.message || 'Failed to fetch balance',
         currentBalance: 0,
         change24h: 0,
@@ -1264,10 +1296,10 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.get('/wallet/balance-history', async (req: Request, res: Response) => {
     try {
       const eoaAddress = copyTrader.getWalletAddress();
-      
+
       if (!eoaAddress) {
-        return res.json({ 
-          success: true, 
+        return res.json({
+          success: true,
           dataPoints: [],
           walletAddress: null
         });
@@ -1279,7 +1311,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
       const balanceTracker = copyTrader.getBalanceTracker();
       const history = balanceTracker.getBalanceHistory(balanceAddress);
-      
+
       // Also get current balance to add as latest point
       let currentBalance = 0;
       try {
@@ -1290,24 +1322,24 @@ export function createRoutes(copyTrader: CopyTrader): Router {
           currentBalance = history[history.length - 1].balance;
         }
       }
-      
+
       // Add current balance as the latest data point if history exists
       const dataPoints = history.map(h => ({
         timestamp: h.timestamp.toISOString(),
         balance: h.balance
       }));
-      
+
       // Add current point if different from last
-      if (dataPoints.length === 0 || 
-          new Date(dataPoints[dataPoints.length - 1].timestamp).getTime() < Date.now() - 60000) {
+      if (dataPoints.length === 0 ||
+        new Date(dataPoints[dataPoints.length - 1].timestamp).getTime() < Date.now() - 60000) {
         dataPoints.push({
           timestamp: new Date().toISOString(),
           balance: currentBalance
         });
       }
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         dataPoints,
         walletAddress: eoaAddress,
         proxyWalletAddress,
@@ -1315,8 +1347,8 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       });
     } catch (error: any) {
       console.error('[API] Error fetching balance history:', error);
-      res.status(500).json({ 
-        success: false, 
+      res.status(500).json({
+        success: false,
         error: error.message || 'Failed to fetch balance history',
         dataPoints: []
       });
@@ -1330,18 +1362,18 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const { address } = req.params;
       const polymarketApi = copyTrader.getPolymarketApi();
       const balanceTracker = copyTrader.getBalanceTracker();
-      
+
       console.log(`[API] Fetching tracked wallet portfolio for: ${address}`);
-      
+
       // Get full portfolio value (USDC + positions)
       const portfolioData = await polymarketApi.getPortfolioValue(address, balanceTracker);
-      
+
       console.log(`[API] Tracked wallet ${address.substring(0, 8)}... portfolio: $${portfolioData.totalValue.toFixed(2)}`);
       console.log(`[API]   USDC: $${portfolioData.usdcBalance.toFixed(2)}`);
       console.log(`[API]   Positions: $${portfolioData.positionsValue.toFixed(2)} (${portfolioData.positionCount} positions)`);
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         currentBalance: portfolioData.totalValue,
         usdcBalance: portfolioData.usdcBalance,
         positionsValue: portfolioData.positionsValue,
@@ -1352,8 +1384,8 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       });
     } catch (error: any) {
       console.error(`[API] Error fetching tracked wallet balance:`, error.message);
-      res.status(500).json({ 
-        success: false, 
+      res.status(500).json({
+        success: false,
         error: error.message,
         currentBalance: 0
       });
@@ -1365,14 +1397,14 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     try {
       const { address } = req.params;
       const { active } = req.body;
-      
+
       const wallet = await Storage.toggleWalletActive(address, active);
       await copyTrader.reloadWallets();
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: wallet.active ? 'Wallet copy trading enabled' : 'Wallet copy trading disabled',
-        wallet 
+        wallet
       });
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
@@ -1384,20 +1416,20 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     try {
       const { address } = req.params;
       const { label } = req.body;
-      
+
       if (typeof label !== 'string') {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Label must be a string' 
+        return res.status(400).json({
+          success: false,
+          error: 'Label must be a string'
         });
       }
 
       const wallet = await Storage.updateWalletLabel(address, label);
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: 'Wallet label updated',
-        wallet 
+        wallet
       });
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
@@ -1447,117 +1479,117 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         valueFilterEnabled, valueFilterMin, valueFilterMax,
         slippagePercent
       } = req.body;
-      
+
       // Validate tradeSizingMode
       if (tradeSizingMode !== undefined && tradeSizingMode !== null) {
         if (tradeSizingMode !== 'fixed' && tradeSizingMode !== 'proportional') {
-          return res.status(400).json({ 
-            success: false, 
-            error: 'tradeSizingMode must be "fixed", "proportional", or null' 
+          return res.status(400).json({
+            success: false,
+            error: 'tradeSizingMode must be "fixed", "proportional", or null'
           });
         }
       }
-      
+
       // Validate fixedTradeSize
       if (fixedTradeSize !== undefined && fixedTradeSize !== null) {
         const sizeNum = parseFloat(fixedTradeSize);
         if (isNaN(sizeNum) || sizeNum <= 0) {
-          return res.status(400).json({ 
-            success: false, 
-            error: 'fixedTradeSize must be a positive number (USDC amount)' 
+          return res.status(400).json({
+            success: false,
+            error: 'fixedTradeSize must be a positive number (USDC amount)'
           });
         }
       }
-      
+
       // Validate thresholdPercent
       if (thresholdPercent !== undefined && thresholdPercent !== null) {
         const percentNum = parseFloat(thresholdPercent);
         if (isNaN(percentNum) || percentNum < 0.1 || percentNum > 100) {
-          return res.status(400).json({ 
-            success: false, 
-            error: 'thresholdPercent must be between 0.1 and 100' 
+          return res.status(400).json({
+            success: false,
+            error: 'thresholdPercent must be between 0.1 and 100'
           });
         }
       }
-      
+
       // Validate tradeSideFilter
       if (tradeSideFilter !== undefined && tradeSideFilter !== null) {
         if (!['all', 'buy_only', 'sell_only'].includes(tradeSideFilter)) {
-          return res.status(400).json({ 
-            success: false, 
-            error: 'tradeSideFilter must be "all", "buy_only", or "sell_only"' 
+          return res.status(400).json({
+            success: false,
+            error: 'tradeSideFilter must be "all", "buy_only", or "sell_only"'
           });
         }
       }
-      
+
       // Validate noRepeatPeriodHours (0 = forever, or 1-168 hours)
       if (noRepeatPeriodHours !== undefined && noRepeatPeriodHours !== null) {
         const hours = parseInt(noRepeatPeriodHours);
         const validPeriods = [0, 1, 6, 12, 24, 48, 168]; // 0 = forever
         if (isNaN(hours) || !validPeriods.includes(hours)) {
-          return res.status(400).json({ 
-            success: false, 
-            error: `noRepeatPeriodHours must be one of: ${validPeriods.join(', ')} (0 = forever)` 
+          return res.status(400).json({
+            success: false,
+            error: `noRepeatPeriodHours must be one of: ${validPeriods.join(', ')} (0 = forever)`
           });
         }
       }
-      
+
       // Validate price limits
       if (priceLimitsMin !== undefined && priceLimitsMin !== null) {
         const min = parseFloat(priceLimitsMin);
         if (isNaN(min) || min < 0.01 || min > 0.98) {
-          return res.status(400).json({ 
-            success: false, 
-            error: 'priceLimitsMin must be between 0.01 and 0.98' 
+          return res.status(400).json({
+            success: false,
+            error: 'priceLimitsMin must be between 0.01 and 0.98'
           });
         }
       }
       if (priceLimitsMax !== undefined && priceLimitsMax !== null) {
         const max = parseFloat(priceLimitsMax);
         if (isNaN(max) || max < 0.02 || max > 0.99) {
-          return res.status(400).json({ 
-            success: false, 
-            error: 'priceLimitsMax must be between 0.02 and 0.99' 
+          return res.status(400).json({
+            success: false,
+            error: 'priceLimitsMax must be between 0.02 and 0.99'
           });
         }
       }
-      
+
       // Validate rate limits
       if (rateLimitPerHour !== undefined && rateLimitPerHour !== null) {
         const hour = parseInt(rateLimitPerHour);
         if (isNaN(hour) || hour < 1 || hour > 100) {
-          return res.status(400).json({ 
-            success: false, 
-            error: 'rateLimitPerHour must be between 1 and 100' 
+          return res.status(400).json({
+            success: false,
+            error: 'rateLimitPerHour must be between 1 and 100'
           });
         }
       }
       if (rateLimitPerDay !== undefined && rateLimitPerDay !== null) {
         const day = parseInt(rateLimitPerDay);
         if (isNaN(day) || day < 1 || day > 500) {
-          return res.status(400).json({ 
-            success: false, 
-            error: 'rateLimitPerDay must be between 1 and 500' 
+          return res.status(400).json({
+            success: false,
+            error: 'rateLimitPerDay must be between 1 and 500'
           });
         }
       }
-      
+
       // Validate slippage
       if (slippagePercent !== undefined && slippagePercent !== null) {
         const slip = parseFloat(slippagePercent);
         if (isNaN(slip) || slip < 0.5 || slip > 10) {
-          return res.status(400).json({ 
-            success: false, 
-            error: 'slippagePercent must be between 0.5 and 10' 
+          return res.status(400).json({
+            success: false,
+            error: 'slippagePercent must be between 0.5 and 10'
           });
         }
       }
-      
+
       // Helper to convert value: undefined=don't change, null=clear, value=set
       const parseNum = (v: any) => v !== null && v !== undefined ? parseFloat(v) : (v === null ? null : undefined);
       const parseInt2 = (v: any) => v !== null && v !== undefined ? parseInt(v) : (v === null ? null : undefined);
       const parseBool = (v: any): boolean | null | undefined => parseNullableBooleanInput(v);
-      
+
       const wallet = await Storage.updateWalletTradeConfig(address, {
         // Trade sizing
         tradeSizingMode: tradeSizingMode,
@@ -1579,13 +1611,13 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         valueFilterMax: parseNum(valueFilterMax),
         slippagePercent: parseNum(slippagePercent)
       });
-      
+
       await copyTrader.reloadWallets();
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: 'Wallet configuration updated',
-        wallet 
+        wallet
       });
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
@@ -1596,14 +1628,14 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.delete('/wallets/:address/trade-config', async (req: Request, res: Response) => {
     try {
       const { address } = req.params;
-      
+
       const wallet = await Storage.clearWalletTradeConfig(address);
       await copyTrader.reloadWallets();
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: 'Wallet trade config cleared - using global defaults (copy all trades at global size)',
-        wallet 
+        wallet
       });
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
@@ -1629,7 +1661,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const { address } = req.params;
       const limit = parseInt(req.query.limit as string) || 100;
       const allTrades = performanceTracker.getRecentTrades(limit);
-      const walletTrades = allTrades.filter(t => 
+      const walletTrades = allTrades.filter(t =>
         t.walletAddress.toLowerCase() === address.toLowerCase()
       );
       res.json({ success: true, trades: walletTrades });
@@ -1648,40 +1680,40 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     try {
       const { address } = req.params;
       const { slippageTolerance } = req.body;
-      
+
       // Validate wallet is being tracked
       const wallets = await Storage.loadTrackedWallets();
       const wallet = wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
-      
+
       if (!wallet) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Wallet not found in tracked wallets' 
+        return res.status(404).json({
+          success: false,
+          error: 'Wallet not found in tracked wallets'
         });
       }
-      
+
       // Get the position mirror and calculate preview
       const positionMirror = copyTrader.getPositionMirror();
       const tolerance = slippageTolerance !== undefined ? parseFloat(slippageTolerance) : 10;
-      
+
       if (isNaN(tolerance) || tolerance < 0 || tolerance > 100) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'slippageTolerance must be a number between 0 and 100' 
+        return res.status(400).json({
+          success: false,
+          error: 'slippageTolerance must be a number between 0 and 100'
         });
       }
-      
+
       const preview = await positionMirror.calculateMirrorPreview(address, tolerance);
-      
-      res.json({ 
+
+      res.json({
         success: true,
         ...preview
       });
     } catch (error: any) {
       console.error('[API] Mirror preview error:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: error.message 
+      res.status(500).json({
+        success: false,
+        error: error.message
       });
     }
   });
@@ -1690,50 +1722,50 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.post('/wallets/:address/mirror-execute', async (req: Request, res: Response) => {
     console.log(`[API] Mirror execute request received for ${req.params.address}`);
     console.log(`[API] Request body keys:`, Object.keys(req.body || {}));
-    
+
     try {
       const { address } = req.params;
       const { trades, slippagePercent } = req.body;
-      
+
       console.log(`[API] trades is array: ${Array.isArray(trades)}, count: ${trades?.length || 0}`);
-      
+
       if (!trades || !Array.isArray(trades)) {
         console.log(`[API] Invalid trades param`);
-        return res.status(400).json({ 
-          success: false, 
-          error: 'trades array is required' 
+        return res.status(400).json({
+          success: false,
+          error: 'trades array is required'
         });
       }
-      
+
       // Filter to only selected trades
       const selectedTrades = trades.filter((t: MirrorTrade) => t.selected && t.action !== 'SKIP');
-      
+
       if (selectedTrades.length === 0) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'No trades selected for execution' 
+        return res.status(400).json({
+          success: false,
+          error: 'No trades selected for execution'
         });
       }
-      
+
       // Validate slippage
       const slippage = slippagePercent !== undefined ? parseFloat(slippagePercent) : 2;
       if (isNaN(slippage) || slippage < 0.5 || slippage > 10) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'slippagePercent must be between 0.5 and 10' 
+        return res.status(400).json({
+          success: false,
+          error: 'slippagePercent must be between 0.5 and 10'
         });
       }
-      
+
       // Execute the trades
       const positionMirror = copyTrader.getPositionMirror();
       const result = await positionMirror.executeMirrorTrades(selectedTrades, slippage);
-      
+
       res.json(result);
     } catch (error: any) {
       console.error('[API] Mirror execute error:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: error.message 
+      res.status(500).json({
+        success: false,
+        error: error.message
       });
     }
   });
@@ -1752,11 +1784,11 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.post('/config/trade-size', async (req: Request, res: Response) => {
     try {
       const { tradeSize } = req.body;
-      
+
       if (!tradeSize || typeof tradeSize !== 'string') {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Trade size is required (in USDC)' 
+        return res.status(400).json({
+          success: false,
+          error: 'Trade size is required (in USDC)'
         });
       }
 
@@ -1764,9 +1796,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       // Note: tradeSize is in USD, not shares. Share count will be calculated at execution time.
       const sizeNum = parseFloat(tradeSize);
       if (isNaN(sizeNum) || sizeNum <= 0) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Trade size must be a positive number (in USDC)' 
+        return res.status(400).json({
+          success: false,
+          error: 'Trade size must be a positive number (in USDC)'
         });
       }
 
@@ -1793,29 +1825,29 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.post('/config/usage-stop-loss', async (req: Request, res: Response) => {
     try {
       const { enabled, maxCommitmentPercent } = req.body;
-      
+
       // Validate enabled is boolean
       if (typeof enabled !== 'boolean') {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'enabled must be a boolean' 
+        return res.status(400).json({
+          success: false,
+          error: 'enabled must be a boolean'
         });
       }
 
       // Validate maxCommitmentPercent is a number between 1 and 99
       const percentNum = parseFloat(maxCommitmentPercent);
       if (isNaN(percentNum) || percentNum < 1 || percentNum > 99) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'maxCommitmentPercent must be a number between 1 and 99' 
+        return res.status(400).json({
+          success: false,
+          error: 'maxCommitmentPercent must be a number between 1 and 99'
         });
       }
 
       await Storage.setUsageStopLoss(enabled, percentNum);
-      res.json({ 
-        success: true, 
-        message: enabled 
-          ? `Stop-loss enabled: Will stop taking new trades when ${percentNum}% of USDC is committed to open positions` 
+      res.json({
+        success: true,
+        message: enabled
+          ? `Stop-loss enabled: Will stop taking new trades when ${percentNum}% of USDC is committed to open positions`
           : 'Stop-loss disabled',
         enabled,
         maxCommitmentPercent: percentNum
@@ -1839,34 +1871,34 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.post('/config/monitoring-interval', async (req: Request, res: Response) => {
     try {
       const { intervalSeconds } = req.body;
-      
+
       if (intervalSeconds === undefined || intervalSeconds === null) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Interval in seconds is required' 
+        return res.status(400).json({
+          success: false,
+          error: 'Interval in seconds is required'
         });
       }
 
       const intervalNum = parseFloat(intervalSeconds);
       if (isNaN(intervalNum) || intervalNum < 1) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Interval must be at least 1 second' 
+        return res.status(400).json({
+          success: false,
+          error: 'Interval must be at least 1 second'
         });
       }
 
       if (intervalNum > 300) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Interval must be at most 300 seconds (5 minutes)' 
+        return res.status(400).json({
+          success: false,
+          error: 'Interval must be at most 300 seconds (5 minutes)'
         });
       }
 
       const intervalMs = Math.round(intervalNum * 1000);
-      
+
       // Update in storage
       await Storage.setMonitoringInterval(intervalMs);
-      
+
       // Update in running bot if active
       try {
         await copyTrader.updateMonitoringInterval(intervalMs);
@@ -1874,12 +1906,12 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         // Bot might not be running, that's okay
         console.log('[API] Bot not running, interval will apply on next start');
       }
-      
-      res.json({ 
-        success: true, 
-        message: 'Monitoring interval updated', 
-        intervalMs, 
-        intervalSeconds: intervalNum 
+
+      res.json({
+        success: true,
+        message: 'Monitoring interval updated',
+        intervalMs,
+        intervalSeconds: intervalNum
       });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
@@ -1908,19 +1940,19 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.post('/config/private-key', async (req: Request, res: Response) => {
     try {
       const { privateKey } = req.body;
-      
+
       if (!privateKey || typeof privateKey !== 'string') {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Private key is required' 
+        return res.status(400).json({
+          success: false,
+          error: 'Private key is required'
         });
       }
 
       // Validate private key format
       if (!/^0x[a-fA-F0-9]{64}$/.test(privateKey)) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Invalid private key format (must be 0x followed by 64 hex characters)' 
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid private key format (must be 0x followed by 64 hex characters)'
         });
       }
 
@@ -1928,7 +1960,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const fs = await import('fs/promises');
       const path = await import('path');
       const envPath = path.join(process.cwd(), '.env');
-      
+
       let envContent = '';
       try {
         envContent = await fs.readFile(envPath, 'utf-8');
@@ -1952,20 +1984,20 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       }
 
       await fs.writeFile(envPath, lines.join('\n'));
-      
+
       // Reinitialize all components with the new private key
       console.log('[API] Reinitializing bot with new private key...');
       const result = await copyTrader.reinitializeCredentials();
-      
+
       if (result.success) {
-        res.json({ 
-          success: true, 
+        res.json({
+          success: true,
           message: 'Private key updated and bot reinitialized',
           walletAddress: result.walletAddress
         });
       } else {
-        res.json({ 
-          success: true, 
+        res.json({
+          success: true,
           message: 'Private key saved but reinitialization failed: ' + result.error,
           requiresRestart: true
         });
@@ -1979,25 +2011,25 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.post('/config/builder-credentials', async (req: Request, res: Response) => {
     try {
       const { apiKey, secret, passphrase } = req.body;
-      
+
       if (!apiKey || typeof apiKey !== 'string') {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Builder API Key is required' 
+        return res.status(400).json({
+          success: false,
+          error: 'Builder API Key is required'
         });
       }
 
       if (!secret || typeof secret !== 'string') {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Builder API Secret is required' 
+        return res.status(400).json({
+          success: false,
+          error: 'Builder API Secret is required'
         });
       }
 
       if (!passphrase || typeof passphrase !== 'string') {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Builder API Passphrase is required' 
+        return res.status(400).json({
+          success: false,
+          error: 'Builder API Passphrase is required'
         });
       }
 
@@ -2005,7 +2037,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const fs = await import('fs/promises');
       const path = await import('path');
       const envPath = path.join(process.cwd(), '.env');
-      
+
       let envContent = '';
       try {
         envContent = await fs.readFile(envPath, 'utf-8');
@@ -2037,20 +2069,20 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       }
 
       await fs.writeFile(envPath, lines.join('\n'));
-      
+
       // Reinitialize all components with the new builder credentials
       console.log('[API] Reinitializing bot with new builder credentials...');
       const result = await copyTrader.reinitializeCredentials();
-      
+
       if (result.success) {
-        res.json({ 
-          success: true, 
+        res.json({
+          success: true,
           message: 'Builder credentials updated and bot reinitialized',
           walletAddress: result.walletAddress
         });
       } else {
-        res.json({ 
-          success: true, 
+        res.json({
+          success: true,
           message: 'Builder credentials saved but reinitialization failed: ' + result.error,
           requiresRestart: true
         });
@@ -2130,9 +2162,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     try {
       const funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS || '';
       const eoaAddress = copyTrader.getWalletAddress();
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         proxyWalletAddress: funderAddress,
         eoaAddress: eoaAddress,
         configured: !!funderAddress
@@ -2147,20 +2179,20 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.post('/config/proxy-wallet', async (req: Request, res: Response) => {
     try {
       const { proxyWalletAddress } = req.body;
-      
+
       if (!proxyWalletAddress || typeof proxyWalletAddress !== 'string') {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Proxy wallet address is required' 
+        return res.status(400).json({
+          success: false,
+          error: 'Proxy wallet address is required'
         });
       }
 
       // Validate address format (0x followed by 40 hex chars)
       const trimmedAddress = proxyWalletAddress.trim();
       if (!/^0x[a-fA-F0-9]{40}$/.test(trimmedAddress)) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Invalid address format (must be 0x followed by 40 hex characters)' 
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid address format (must be 0x followed by 40 hex characters)'
         });
       }
 
@@ -2168,7 +2200,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const fs = await import('fs/promises');
       const path = await import('path');
       const envPath = path.join(process.cwd(), '.env');
-      
+
       let envContent = '';
       try {
         envContent = await fs.readFile(envPath, 'utf-8');
@@ -2192,23 +2224,23 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       }
 
       await fs.writeFile(envPath, lines.join('\n'));
-      
+
       // Update environment variable in memory
       process.env.POLYMARKET_FUNDER_ADDRESS = trimmedAddress;
-      
+
       // Reinitialize to pick up the new proxy wallet
       console.log('[API] Reinitializing bot with new proxy wallet address...');
       const result = await copyTrader.reinitializeCredentials();
-      
+
       if (result.success) {
-        res.json({ 
-          success: true, 
+        res.json({
+          success: true,
           message: 'Proxy wallet address saved and bot reinitialized',
           proxyWalletAddress: trimmedAddress
         });
       } else {
-        res.json({ 
-          success: true, 
+        res.json({
+          success: true,
           message: 'Proxy wallet address saved. Balance should update on next refresh.',
           proxyWalletAddress: trimmedAddress
         });
@@ -2236,34 +2268,34 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.post('/config/no-repeat-trades', async (req: Request, res: Response) => {
     try {
       const { enabled, blockPeriodHours } = req.body;
-      
+
       if (typeof enabled !== 'boolean') {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'enabled must be a boolean' 
+        return res.status(400).json({
+          success: false,
+          error: 'enabled must be a boolean'
         });
       }
 
       const periodNum = parseInt(blockPeriodHours);
       const validPeriods = [1, 6, 12, 24, 48, 168]; // 1h, 6h, 12h, 24h, 48h, 7 days
       if (isNaN(periodNum) || !validPeriods.includes(periodNum)) {
-        return res.status(400).json({ 
-          success: false, 
-          error: `blockPeriodHours must be one of: ${validPeriods.join(', ')}` 
+        return res.status(400).json({
+          success: false,
+          error: `blockPeriodHours must be one of: ${validPeriods.join(', ')}`
         });
       }
 
       await Storage.setNoRepeatTrades(enabled, periodNum);
-      
+
       // Cleanup expired positions when enabling or changing period
       if (enabled) {
         await Storage.cleanupExpiredPositions(periodNum);
       }
-      
-      res.json({ 
-        success: true, 
-        message: enabled 
-          ? `No-repeat-trades enabled: Will block repeat trades in same market+side for ${periodNum} hours` 
+
+      res.json({
+        success: true,
+        message: enabled
+          ? `No-repeat-trades enabled: Will block repeat trades in same market+side for ${periodNum} hours`
           : 'No-repeat-trades disabled',
         enabled,
         blockPeriodHours: periodNum
@@ -2280,7 +2312,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const config = await Storage.getNoRepeatTrades();
       const blockPeriodMs = config.blockPeriodHours * 60 * 60 * 1000;
       const cutoffTime = Date.now() - blockPeriodMs;
-      
+
       // Mark which positions are currently blocking
       const positionsWithStatus = positions.map(p => ({
         ...p,
@@ -2288,9 +2320,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         expiresAt: new Date(p.timestamp + blockPeriodMs).toISOString(),
         age: Math.round((Date.now() - p.timestamp) / (60 * 60 * 1000)) + ' hours'
       }));
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         positions: positionsWithStatus,
         totalPositions: positions.length,
         activeBlocks: positionsWithStatus.filter(p => p.isBlocking).length
@@ -2304,9 +2336,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.delete('/config/no-repeat-trades/history', async (req: Request, res: Response) => {
     try {
       await Storage.clearExecutedPositions();
-      res.json({ 
-        success: true, 
-        message: 'No-repeat-trades history cleared. All markets are now unblocked.' 
+      res.json({
+        success: true,
+        message: 'No-repeat-trades history cleared. All markets are now unblocked.'
       });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
@@ -2327,34 +2359,34 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.post('/config/price-limits', async (req: Request, res: Response) => {
     try {
       const { minPrice, maxPrice } = req.body;
-      
+
       const minNum = parseFloat(minPrice);
       const maxNum = parseFloat(maxPrice);
-      
+
       if (isNaN(minNum) || minNum < 0.01 || minNum > 0.98) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'minPrice must be between 0.01 and 0.98' 
+        return res.status(400).json({
+          success: false,
+          error: 'minPrice must be between 0.01 and 0.98'
         });
       }
-      
+
       if (isNaN(maxNum) || maxNum < 0.02 || maxNum > 0.99) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'maxPrice must be between 0.02 and 0.99' 
+        return res.status(400).json({
+          success: false,
+          error: 'maxPrice must be between 0.02 and 0.99'
         });
       }
-      
+
       if (minNum >= maxNum) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'minPrice must be less than maxPrice' 
+        return res.status(400).json({
+          success: false,
+          error: 'minPrice must be less than maxPrice'
         });
       }
 
       await Storage.setPriceLimits(minNum, maxNum);
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         message: `Price limits updated: Only copy trades between $${minNum.toFixed(2)} and $${maxNum.toFixed(2)}`,
         minPrice: minNum,
         maxPrice: maxNum
@@ -2378,18 +2410,18 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.post('/config/slippage', async (req: Request, res: Response) => {
     try {
       const { slippagePercent } = req.body;
-      
+
       const percentNum = parseFloat(slippagePercent);
       if (isNaN(percentNum) || percentNum < 0.5 || percentNum > 10) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'slippagePercent must be between 0.5 and 10' 
+        return res.status(400).json({
+          success: false,
+          error: 'slippagePercent must be between 0.5 and 10'
         });
       }
 
       await Storage.setSlippagePercent(percentNum);
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         message: `Slippage updated to ${percentNum}%`,
         slippagePercent: percentNum
       });
@@ -2412,21 +2444,21 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.post('/config/trade-side-filter', async (req: Request, res: Response) => {
     try {
       const { tradeSideFilter } = req.body;
-      
+
       if (!['all', 'buy_only', 'sell_only'].includes(tradeSideFilter)) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'tradeSideFilter must be "all", "buy_only", or "sell_only"' 
+        return res.status(400).json({
+          success: false,
+          error: 'tradeSideFilter must be "all", "buy_only", or "sell_only"'
         });
       }
 
       await Storage.setTradeSideFilter(tradeSideFilter);
-      
-      const filterLabel = tradeSideFilter === 'buy_only' ? 'BUY trades only' : 
-                          tradeSideFilter === 'sell_only' ? 'SELL trades only' : 'All trades (BUY and SELL)';
-      
-      res.json({ 
-        success: true, 
+
+      const filterLabel = tradeSideFilter === 'buy_only' ? 'BUY trades only' :
+        tradeSideFilter === 'sell_only' ? 'SELL trades only' : 'All trades (BUY and SELL)';
+
+      res.json({
+        success: true,
         message: `Trade side filter set to: ${filterLabel}`,
         tradeSideFilter
       });
@@ -2449,42 +2481,42 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.post('/config/rate-limiting', async (req: Request, res: Response) => {
     try {
       const { enabled, maxTradesPerHour, maxTradesPerDay } = req.body;
-      
+
       if (typeof enabled !== 'boolean') {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'enabled must be a boolean' 
+        return res.status(400).json({
+          success: false,
+          error: 'enabled must be a boolean'
         });
       }
 
       const hourNum = parseInt(maxTradesPerHour);
       if (isNaN(hourNum) || hourNum < 1 || hourNum > 100) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'maxTradesPerHour must be between 1 and 100' 
+        return res.status(400).json({
+          success: false,
+          error: 'maxTradesPerHour must be between 1 and 100'
         });
       }
 
       const dayNum = parseInt(maxTradesPerDay);
       if (isNaN(dayNum) || dayNum < 1 || dayNum > 500) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'maxTradesPerDay must be between 1 and 500' 
+        return res.status(400).json({
+          success: false,
+          error: 'maxTradesPerDay must be between 1 and 500'
         });
       }
 
       if (hourNum > dayNum) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'maxTradesPerHour cannot exceed maxTradesPerDay' 
+        return res.status(400).json({
+          success: false,
+          error: 'maxTradesPerHour cannot exceed maxTradesPerDay'
         });
       }
 
       await Storage.setRateLimiting(enabled, hourNum, dayNum);
-      res.json({ 
-        success: true, 
-        message: enabled 
-          ? `Rate limiting enabled: Max ${hourNum} trades/hour, ${dayNum} trades/day` 
+      res.json({
+        success: true,
+        message: enabled
+          ? `Rate limiting enabled: Max ${hourNum} trades/hour, ${dayNum} trades/day`
           : 'Rate limiting disabled',
         enabled,
         maxTradesPerHour: hourNum,
@@ -2500,21 +2532,21 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.get('/config/rate-limiting/status', async (req: Request, res: Response) => {
     try {
       const walletAddress = req.query.wallet as string | undefined;
-      
+
       if (walletAddress) {
         // Get specific wallet's rate limit status
         const walletRateState = copyTrader.getRateLimitStatus(walletAddress);
         const wallet = await Storage.getWallet(walletAddress);
-        
+
         // Use wallet's rate limit settings or defaults
         const maxPerHour = wallet?.rateLimitPerHour ?? 10;
         const maxPerDay = wallet?.rateLimitPerDay ?? 50;
         const enabled = wallet?.rateLimitEnabled ?? false;
-        
+
         // walletRateState is a single RateLimitState when address is provided
         const state = walletRateState as { tradesThisHour: number; tradesThisDay: number };
-        
-        res.json({ 
+
+        res.json({
           success: true,
           wallet: walletAddress,
           enabled,
@@ -2527,10 +2559,10 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         // Get all wallets' rate limit status
         const allStates = copyTrader.getRateLimitStatus();
         const wallets = await Storage.loadTrackedWallets();
-        
+
         // Convert Map to object for JSON response
         const perWalletStatus: Record<string, any> = {};
-        
+
         if (allStates instanceof Map) {
           for (const [addr, state] of allStates) {
             const wallet = wallets.find(w => w.address.toLowerCase() === addr);
@@ -2544,8 +2576,8 @@ export function createRoutes(copyTrader: CopyTrader): Router {
             };
           }
         }
-        
-        res.json({ 
+
+        res.json({
           success: true,
           perWallet: perWalletStatus,
           walletsWithRateLimiting: wallets.filter(w => w.rateLimitEnabled).length
@@ -2570,11 +2602,11 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.post('/config/trade-value-filters', async (req: Request, res: Response) => {
     try {
       const { enabled, minTradeValueUSD, maxTradeValueUSD } = req.body;
-      
+
       if (typeof enabled !== 'boolean') {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'enabled must be a boolean' 
+        return res.status(400).json({
+          success: false,
+          error: 'enabled must be a boolean'
         });
       }
 
@@ -2584,9 +2616,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       if (minTradeValueUSD !== null && minTradeValueUSD !== undefined) {
         minVal = parseFloat(minTradeValueUSD);
         if (isNaN(minVal) || minVal < 0) {
-          return res.status(400).json({ 
-            success: false, 
-            error: 'minTradeValueUSD must be a non-negative number or null' 
+          return res.status(400).json({
+            success: false,
+            error: 'minTradeValueUSD must be a non-negative number or null'
           });
         }
       }
@@ -2594,22 +2626,22 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       if (maxTradeValueUSD !== null && maxTradeValueUSD !== undefined) {
         maxVal = parseFloat(maxTradeValueUSD);
         if (isNaN(maxVal) || maxVal < 0) {
-          return res.status(400).json({ 
-            success: false, 
-            error: 'maxTradeValueUSD must be a non-negative number or null' 
+          return res.status(400).json({
+            success: false,
+            error: 'maxTradeValueUSD must be a non-negative number or null'
           });
         }
       }
 
       if (minVal !== null && maxVal !== null && minVal >= maxVal) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'minTradeValueUSD must be less than maxTradeValueUSD' 
+        return res.status(400).json({
+          success: false,
+          error: 'minTradeValueUSD must be less than maxTradeValueUSD'
         });
       }
 
       await Storage.setTradeValueFilters(enabled, minVal, maxVal);
-      
+
       let message = enabled ? 'Trade value filters enabled: ' : 'Trade value filters disabled';
       if (enabled) {
         const parts = [];
@@ -2617,9 +2649,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         if (maxVal !== null) parts.push(`max $${maxVal}`);
         message += parts.length > 0 ? parts.join(', ') : 'no limits set';
       }
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message,
         enabled,
         minTradeValueUSD: minVal,
@@ -2655,7 +2687,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         Storage.getMonitoringInterval()
       ]);
 
-      res.json({ 
+      res.json({
         success: true,
         config: {
           tradeSize,
@@ -2749,9 +2781,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
       // Check for trade value filter conflicts
       if (tradeValueFilters.enabled) {
-        if (tradeValueFilters.minTradeValueUSD !== null && 
-            tradeValueFilters.maxTradeValueUSD !== null &&
-            tradeValueFilters.minTradeValueUSD >= tradeValueFilters.maxTradeValueUSD) {
+        if (tradeValueFilters.minTradeValueUSD !== null &&
+          tradeValueFilters.maxTradeValueUSD !== null &&
+          tradeValueFilters.minTradeValueUSD >= tradeValueFilters.maxTradeValueUSD) {
           conflicts.push({
             type: 'error',
             code: 'INVALID_VALUE_FILTER',
@@ -2787,7 +2819,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         });
       }
 
-      res.json({ 
+      res.json({
         success: true,
         valid: conflicts.filter(c => c.type === 'error').length === 0,
         conflicts,
@@ -2810,12 +2842,12 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         timestamp: new Date().toISOString(),
         tests: []
       };
-      
+
       const clobUrl = config.polymarketClobApiUrl || 'https://clob.polymarket.com';
-      
+
       // Test 1: CLOB time endpoint - reliable connectivity check
       try {
-        const serverTimeResponse = await axios.get(`${clobUrl}/time`, { 
+        const serverTimeResponse = await axios.get(`${clobUrl}/time`, {
           timeout: 10000,
           validateStatus: () => true
         });
@@ -2853,21 +2885,21 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       // Summary
       const allTestsPassed = results.tests.every((t: any) => t.success);
       const anyCloudflareBlocks = results.tests.some((t: any) => t.isCloudflareBlock);
-      
+
       results.summary = {
         allTestsPassed,
         anyCloudflareBlocks,
-        diagnosis: anyCloudflareBlocks 
+        diagnosis: anyCloudflareBlocks
           ? 'CLOUDFLARE BLOCKING DETECTED - Your server IP is blocked by Polymarket. Try running locally or using a different server.'
-          : allTestsPassed 
+          : allTestsPassed
             ? 'CLOB API is accessible - credentials configured correctly'
             : 'CLOB API unreachable - network or configuration issue'
       };
 
       res.json({ success: true, ...results });
     } catch (error: any) {
-      res.status(500).json({ 
-        success: false, 
+      res.status(500).json({
+        success: false,
         error: error.message,
         stack: error.stack
       });
@@ -2879,26 +2911,26 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     try {
       const { address } = req.params;
       console.log(`[API] Test balance check for: ${address}`);
-      
+
       if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Invalid address format' 
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid address format'
         });
       }
 
       const balanceTracker = copyTrader.getBalanceTracker();
       const balanceData = await balanceTracker.getBalanceWithChange(address);
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         ...balanceData,
         address: address
       });
     } catch (error: any) {
       console.error('[API] Test balance error:', error);
-      res.status(500).json({ 
-        success: false, 
+      res.status(500).json({
+        success: false,
         error: error.message || 'Failed to fetch balance'
       });
     }

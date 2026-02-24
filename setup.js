@@ -59,9 +59,9 @@ async function main() {
   console.log('\nThis is the private key from your crypto wallet.');
   console.log('It should start with "0x" and be 66 characters long.');
   console.log('\n⚠️  IMPORTANT: Never share this with anyone!\n');
-  
+
   const privateKey = await question('Enter your private key: ');
-  
+
   if (!privateKey || !privateKey.trim()) {
     console.log('\n❌ Error: Private key cannot be empty!\n');
     rl.close();
@@ -69,7 +69,7 @@ async function main() {
   }
 
   const trimmedKey = privateKey.trim();
-  
+
   // Basic validation with option to continue
   if (!trimmedKey.startsWith('0x')) {
     console.log('\n⚠️  Warning: Private key should start with "0x"');
@@ -99,9 +99,9 @@ async function main() {
   console.log('\nGo to: https://polymarket.com/settings?tab=builder');
   console.log('Click "Create API Key" and copy the API Key here.');
   console.log('\n(This is REQUIRED for trading to work)\n');
-  
+
   const builderApiKey = await question('Enter your Builder API Key: ');
-  
+
   if (!builderApiKey || !builderApiKey.trim()) {
     console.log('\n⚠️  Warning: Without Builder API credentials, trading will fail!');
   }
@@ -113,7 +113,7 @@ async function main() {
   console.log('─'.repeat(60));
   console.log('\nThis is shown once when you create the API key.');
   console.log('If you didn\'t save it, you may need to create a new key.\n');
-  
+
   const builderSecret = await question('Enter your Builder API Secret: ');
 
   // ========== STEP 4: Builder Passphrase ==========
@@ -122,20 +122,20 @@ async function main() {
   console.log('STEP 4 of 4: Polymarket Builder API Passphrase');
   console.log('─'.repeat(60));
   console.log('\nThis is the passphrase you created with your API key.\n');
-  
+
   const builderPassphrase = await question('Enter your Builder API Passphrase: ');
 
   // Replace placeholders in env content
   envContent = envContent.replace('PRIVATE_KEY=your_private_key_here', `PRIVATE_KEY=${trimmedKey}`);
-  
+
   if (builderApiKey && builderApiKey.trim()) {
     envContent = envContent.replace('POLYMARKET_BUILDER_API_KEY=your_builder_api_key_here', `POLYMARKET_BUILDER_API_KEY=${builderApiKey.trim()}`);
   }
-  
+
   if (builderSecret && builderSecret.trim()) {
     envContent = envContent.replace('POLYMARKET_BUILDER_SECRET=your_builder_secret_here', `POLYMARKET_BUILDER_SECRET=${builderSecret.trim()}`);
   }
-  
+
   if (builderPassphrase && builderPassphrase.trim()) {
     envContent = envContent.replace('POLYMARKET_BUILDER_PASSPHRASE=your_builder_passphrase_here', `POLYMARKET_BUILDER_PASSPHRASE=${builderPassphrase.trim()}`);
   }
