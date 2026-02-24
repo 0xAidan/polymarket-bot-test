@@ -946,15 +946,13 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const lastExecutedTrade = recentTrades.find(t => t.success) || null;
       const lastDetectedTrade = recentTrades.length > 0 ? recentTrades[0] : null;
       
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         running: status.running,
         executedTradesCount: status.executedTradesCount,
         websocket: {
-          connected: status.websocketStatus.isConnected,
-          monitoring: status.websocketStatus.isMonitoring,
-          lastConnectionTime: status.websocketStatus.lastConnectionTime,
-          trackedWalletsCount: status.websocketStatus.trackedWalletsCount
+          connected: status.domeWs?.connected ?? false,
+          trackedWallets: status.domeWs?.trackedWallets ?? 0
         },
         polling: {
           active: status.running,
@@ -965,7 +963,6 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         monitoringMethods: {
           primary: status.monitoringMode === 'websocket' ? 'dome-websocket' : 'polling',
           domeWebsocket: status.domeWs?.connected ?? false,
-          legacyWebsocket: status.websocketStatus.isConnected,
           polling: status.running
         },
         wallets: {

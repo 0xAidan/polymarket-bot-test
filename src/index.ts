@@ -303,21 +303,15 @@ async function main() {
       
       // Get status after starting
       const status = copyTrader.getStatus();
-      const wsStatus = status.websocketStatus;
-      
+      const domeWs = status.domeWs;
+
       console.log(`\n${'='.repeat(60)}`);
       console.log(`✅ BOT STARTED SUCCESSFULLY`);
       console.log(`${'='.repeat(60)}`);
       console.log(`Monitoring Methods:`);
-      console.log(`   📡 WebSocket: ${wsStatus.isConnected ? '✅ CONNECTED' : '❌ DISCONNECTED'}`);
-      if (wsStatus.isConnected && wsStatus.lastConnectionTime) {
-        const connectionAge = Math.floor((Date.now() - wsStatus.lastConnectionTime.getTime()) / 1000);
-        console.log(`      Last connected: ${connectionAge}s ago`);
-      }
-      console.log(`      Tracked wallets: ${wsStatus.trackedWalletsCount}`);
+      console.log(`   🌐 Dome WebSocket: ${domeWs?.connected ? '✅ CONNECTED' : '⏳ Not connected'} — ${domeWs?.trackedWallets ?? 0} wallets`);
       console.log(`   🔄 Polling: ${status.running ? '✅ ACTIVE' : '⏸️  INACTIVE'}`);
-      console.log(`      Fallback mode: ${!wsStatus.isConnected && status.running ? 'Yes (WebSocket unavailable)' : 'No'}`);
-      console.log(`\n💡 Status: ${wsStatus.isConnected ? 'Real-time monitoring active' : 'Polling mode (fallback)'}`);
+      console.log(`\n💡 Status: ${domeWs?.connected ? 'Real-time (Dome) + polling' : 'Polling mode'}`);
       console.log(`${'='.repeat(60)}\n`);
     } catch (error: any) {
       console.error('⚠️  Failed to initialize or start bot:', error.message);

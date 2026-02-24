@@ -1,5 +1,4 @@
 import { WalletMonitor } from './walletMonitor.js';
-import { WebSocketMonitor } from './websocketMonitor.js';
 import { DomeWebSocketMonitor } from './domeWebSocket.js';
 import { isDomeConfigured } from './domeClient.js';
 import { TradeExecutor } from './tradeExecutor.js';
@@ -17,7 +16,6 @@ import { initWalletManager } from './walletManager.js';
  */
 export class CopyTrader {
   private monitor: WalletMonitor;
-  private websocketMonitor: WebSocketMonitor;
   private domeWsMonitor: DomeWebSocketMonitor | null = null;
   private executor: TradeExecutor;
   private performanceTracker: PerformanceTracker;
@@ -34,7 +32,6 @@ export class CopyTrader {
 
   constructor() {
     this.monitor = new WalletMonitor();
-    this.websocketMonitor = new WebSocketMonitor();
     this.executor = new TradeExecutor();
     this.performanceTracker = new PerformanceTracker();
     this.balanceTracker = new BalanceTracker();
@@ -47,7 +44,6 @@ export class CopyTrader {
     try {
       await this.performanceTracker.initialize();
       await this.monitor.initialize();
-      await this.websocketMonitor.initialize();
       await this.executor.authenticate();
       await this.balanceTracker.initialize();
       
@@ -123,26 +119,7 @@ export class CopyTrader {
     });
     console.log('✅ Polling monitoring active');
 
-    // Start WebSocket monitoring (secondary - only works for your own trades)
-    // Note: WebSocket API can only monitor the authenticated user's trades, not other wallets
-    console.log('📡 Starting WebSocket monitoring (secondary - your trades only)...');
-    try {
-      await this.websocketMonitor.startMonitoring(async (trade: DetectedTrade) => {
-        console.log(`[CopyTrader] 📥 WebSocket callback triggered with trade:`, JSON.stringify(trade, null, 2));
-        await this.handleDetectedTrade(trade);
-      });
-      const wsStatus = this.websocketMonitor.getStatus();
-      if (wsStatus.isConnected) {
-        console.log('✅ WebSocket monitoring active (for your own trades only)');
-      } else {
-        console.log('⚠️ WebSocket not connected (this is OK - polling is primary)');
-      }
-    } catch (error: any) {
-      console.error('❌ Failed to start WebSocket monitoring:', error.message);
-      console.log('⚠️ Continuing with polling-based monitoring (this is fine)');
-    }
-
-    // Start Dome WebSocket monitoring if available (replaces polling as primary)
+    // Start Dome WebSocket monitoring if available (primary for tracked wallets)
     if (this.domeWsMonitor) {
       console.log('📡 Starting Dome WebSocket monitoring (PRIMARY)...');
       try {
@@ -203,9 +180,7 @@ export class CopyTrader {
     if (domeWsStatus) {
       console.log(`   🌐 Dome WebSocket: ${domeWsStatus.connected ? '✅ CONNECTED (PRIMARY)' : '⏳ CONNECTING...'} — ${domeWsStatus.trackedWallets} wallets`);
     }
-    console.log(`   🔄 Polling: ✅ ${this.monitoringMode === 'websocket' ? 'STANDBY (fallback)' : 'ACTIVE (Primary)'} — every ${config.monitoringIntervalMs / 1000}s`);
-    const wsStatus = this.websocketMonitor.getStatus();
-    console.log(`   📡 Legacy WS: ${wsStatus.isConnected ? '✅ CONNECTED' : '⚠️  DISCONNECTED'} (your trades only)`);
+    console.log(`   🔄 Polling: ✅ ACTIVE — every ${config.monitoringIntervalMs / 1000}s`);
     console.log(`\n💡 The bot will automatically detect and copy trades from tracked wallets.`);
     console.log(`   Check the logs above for trade detection and execution.`);
     console.log('='.repeat(60) + '\n');
@@ -229,7 +204,6 @@ export class CopyTrader {
       );
     }
     
-    this.websocketMonitor.stopMonitoring();
     this.monitor.stopMonitoring();
     this.balanceTracker.stopTracking();
     console.log('Copy trading bot stopped');
@@ -268,10 +242,6 @@ export class CopyTrader {
       // Reinitialize monitor (this reinitializes the PolymarketApi)
       this.monitor = new WalletMonitor();
       await this.monitor.initialize();
-      
-      // Reinitialize websocket monitor
-      this.websocketMonitor = new WebSocketMonitor();
-      await this.websocketMonitor.initialize();
       
       // Reinitialize balance tracker
       this.balanceTracker = new BalanceTracker();
@@ -1137,17 +1107,15 @@ export class CopyTrader {
   /**
    * Get status of the copy trader
    */
-  getStatus(): { 
-    running: boolean; 
+  getStatus(): {
+    running: boolean;
     executedTradesCount: number;
-    websocketStatus: ReturnType<WebSocketMonitor['getStatus']>;
     monitoringMode: 'polling' | 'websocket';
     domeWs: { connected: boolean; subscriptionId: string | null; trackedWallets: number } | null;
   } {
     return {
       running: this.isRunning,
       executedTradesCount: this.executedTrades.size,
-      websocketStatus: this.websocketMonitor.getStatus(),
       monitoringMode: this.monitoringMode,
       domeWs: this.domeWsMonitor?.getStatus() ?? null,
     };
@@ -1199,26 +1167,8 @@ export class CopyTrader {
    */
   async reloadWallets(): Promise<void> {
     if (this.isRunning) {
-      await this.websocketMonitor.reloadWallets();
       await this.monitor.reloadWallets();
-      
-      // Balance tracking only for user wallet (not tracked wallets)
-      // This reduces RPC calls significantly
     }
-  }
-
-  /**
-   * Get the wallet monitor instance (for direct access if needed)
-   */
-  getMonitor(): WalletMonitor {
-    return this.monitor;
-  }
-
-  /**
-   * Get the WebSocket monitor instance (for direct access if needed)
-   */
-  getWebSocketMonitor(): WebSocketMonitor {
-    return this.websocketMonitor;
   }
 
   /**
