@@ -217,8 +217,8 @@ export class PolymarketClobClient {
     if (!isNaN(tickSizeNum) && tickSizeNum > 0) {
       // Round price to nearest tick
       const roundedPrice = Math.round(params.price / tickSizeNum) * tickSizeNum;
-      // Ensure it's still between 0 and 1
-      if (roundedPrice > 0 && roundedPrice <= 1) {
+      // Polymarket allows (0, 1) only; reject 0 and 1
+      if (roundedPrice > 0 && roundedPrice < 1) {
         if (Math.abs(roundedPrice - params.price) > 0.0001) {
           console.log(`[CLOB] Price rounded from ${params.price} to ${roundedPrice} to match tickSize ${tickSize}`);
         }

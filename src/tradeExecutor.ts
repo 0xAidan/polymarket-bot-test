@@ -87,27 +87,23 @@ export class TradeExecutor {
       }
       
       // ============================================================
-      // AGGRESSIVE PRICING FOR IMMEDIATE FILLS (Configurable Slippage)
+      // AGGRESSIVE PRICING FOR IMMEDIATE FILLS (Order or storage slippage)
       // ============================================================
-      // Instead of placing limit orders at the detected price (which wait to fill),
-      // we adjust the price to cross the spread and fill immediately:
-      // - BUY orders: Price X% HIGHER to take from asks
-      // - SELL orders: Price X% LOWER to hit bids
-      // This ensures trades execute instantly rather than waiting minutes
-      let slippagePercent = 2; // Default 2%
-      try {
-        slippagePercent = await Storage.getSlippagePercent();
-      } catch (slippageError: any) {
-        console.warn(`[Execute] Could not load slippage config (using default 2%): ${slippageError.message}`);
+      // Per-wallet slippage from order, else global from storage. Then CLOB client does tick alignment.
+      let slippagePercent = order.slippagePercent ?? 2;
+      if (slippagePercent === 2 && order.slippagePercent === undefined) {
+        try {
+          slippagePercent = await Storage.getSlippagePercent();
+        } catch (slippageError: any) {
+          console.warn(`[Execute] Could not load slippage config (using default 2%): ${slippageError.message}`);
+        }
       }
-      const PRICE_SLIPPAGE = slippagePercent / 100; // Convert percent to decimal
+      const PRICE_SLIPPAGE = slippagePercent / 100;
       const originalPrice = price;
       
       if (order.side === 'BUY') {
-        // For buys, increase price to ensure we take from the ask side
         price = Math.min(price * (1 + PRICE_SLIPPAGE), 0.99);
       } else {
-        // For sells, decrease price to ensure we hit bids
         price = Math.max(price * (1 - PRICE_SLIPPAGE), 0.01);
       }
       
@@ -115,57 +111,39 @@ export class TradeExecutor {
       console.log(`   Original price: $${originalPrice.toFixed(4)}`);
       console.log(`   Adjusted price: $${price.toFixed(4)} (${order.side === 'BUY' ? '+' : '-'}${slippagePercent.toFixed(1)}% slippage)`);
       
-      // CRITICAL FIX: Round price to tick size alignment
-      // Polymarket CLOB API requires prices to be exact multiples of tick size
-      // e.g., with tickSize=0.01, price must be 0.74, 0.75, NOT 0.7421
-      const tickSizeNum = parseFloat(tickSize);
-      const rawPrice = price;
-      price = Math.round(price / tickSizeNum) * tickSizeNum;
-      // Fix floating point precision issues (e.g., 0.7000000001 -> 0.7)
-      price = parseFloat(price.toFixed(2));
+      // Tick alignment is done in CLOB client; we only enforce Polymarket price bounds here.
       
       // POLYMARKET PRICE LIMITS: Must be between 0.01 and 0.99
       const MIN_PRICE = 0.01;
       const MAX_PRICE = 0.99;
       
       if (price < MIN_PRICE) {
-        console.log(`[Execute] ⚠️ Price ${rawPrice} rounds to ${price}, below minimum ${MIN_PRICE}`);
-        // Return failure instead of throwing - allows caller to handle gracefully
+        console.log(`[Execute] ⚠️ Price ${price} below minimum ${MIN_PRICE}`);
         return {
           success: false,
-          error: `Price too low: ${rawPrice} rounds to ${price}. Polymarket requires price >= ${MIN_PRICE}. This is a "long shot" bet that cannot be copied.`,
+          error: `Price too low: ${price}. Polymarket requires price >= ${MIN_PRICE}. This is a "long shot" bet that cannot be copied.`,
           executionTimeMs: Date.now() - executionStart
         };
       }
       
       if (price > MAX_PRICE) {
-        console.log(`[Execute] ⚠️ Price ${rawPrice} rounds to ${price}, above maximum ${MAX_PRICE}`);
-        // Return failure instead of throwing - allows caller to handle gracefully
+        console.log(`[Execute] ⚠️ Price ${price} above maximum ${MAX_PRICE}`);
         return {
           success: false,
-          error: `Price too high: ${rawPrice} rounds to ${price}. Polymarket requires price <= ${MAX_PRICE}. This market is nearly resolved.`,
+          error: `Price too high: ${price}. Polymarket requires price <= ${MAX_PRICE}. This market is nearly resolved.`,
           executionTimeMs: Date.now() - executionStart
         };
       }
       
-      // CRITICAL FIX: Round size to 2 decimal places
-      // Prevents floating-point precision errors like "14.430000000000291"
+      // Round size to 2 decimal places to avoid floating-point issues; CLOB client handles price tick alignment
       const rawSize = size;
       size = parseFloat(size.toFixed(2));
       
-      // Ensure minimum size of 0.01
       if (size < 0.01) {
         throw new Error(`Order size too small after rounding: ${size}. Minimum is 0.01`);
       }
       
-      console.log(`[Execute] Price/Size rounding applied:`);
-      console.log(`   Raw price: ${rawPrice} -> Rounded: ${price} (tick size: ${tickSize})`);
-      console.log(`   Raw size: ${rawSize} -> Rounded: ${size}`);
-
-      // Round price to match tick size (critical for CLOB API)
-      // Most Polymarket markets use 0.01 tick size, but we'll round to 4 decimal places as a safe default
-      // The CLOB client will handle further rounding based on actual market tick size
-      price = Math.round(price * 10000) / 10000; // Round to 4 decimal places
+      console.log(`[Execute] Size rounded: ${rawSize} -> ${size} (price ${price} sent to CLOB for tick alignment)`);
       
       // Ensure price is still valid after rounding
       if (price <= 0 || price > 1) {

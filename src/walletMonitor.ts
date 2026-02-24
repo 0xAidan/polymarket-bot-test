@@ -335,7 +335,7 @@ export class WalletMonitor {
         timestamp: tradeTimestamp,
         transactionHash: trade.transactionHash || trade.id || `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         tokenId: trade.asset,
-        negRisk: false,
+        negRisk: (trade as any).negativeRisk ?? undefined, // CLOB client looks up when undefined
         // Per-wallet trade config (ALL settings, not just sizing)
         tradeSizingMode: walletSettings?.tradeSizingMode,
         fixedTradeSize: walletSettings?.fixedTradeSize,

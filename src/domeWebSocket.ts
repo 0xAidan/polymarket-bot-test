@@ -99,9 +99,12 @@ export class DomeWebSocketMonitor extends EventEmitter {
         },
       });
 
-      // Listen for order events
+      // Listen for order events (catch so handler errors don't break the socket)
       this.ws.on('order', (data: DomeOrderEvent) => {
-        this.handleOrderEvent(data);
+        this.handleOrderEvent(data).catch((err: any) => {
+          console.error('[DomeWS] Error in order event handler:', err);
+          this.emit('error', err);
+        });
       });
 
       // Connect
@@ -167,6 +170,7 @@ export class DomeWebSocketMonitor extends EventEmitter {
       timestamp: new Date(data.timestamp * 1000),
       transactionHash: data.tx_hash || data.order_hash,
       tokenId: data.token_id,
+      negRisk: undefined, // CLOB client looks up from market data when undefined
 
       // Enrichment from wallet config
       ...(wallet ? this.enrichFromWallet(wallet) : {}),

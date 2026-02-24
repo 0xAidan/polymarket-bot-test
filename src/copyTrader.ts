@@ -266,7 +266,6 @@ export class CopyTrader {
    * Handle a detected trade from a tracked wallet
    */
   private async handleDetectedTrade(trade: DetectedTrade): Promise<void> {
-    console.log(`[DIAG] Trade source hash format: ${trade.transactionHash?.substring(0, 10)}... (synthetic=${trade.transactionHash?.startsWith('pos-') || trade.transactionHash?.startsWith('trade-')})`);
     console.log(`\n${'='.repeat(60)}`);
     console.log(`🔔 [CopyTrader] HANDLE_DETECTED_TRADE CALLED`);
     console.log(`${'='.repeat(60)}`);
@@ -317,14 +316,14 @@ export class CopyTrader {
     // when the trade appears in multiple polling cycles from the trade history API.
     // The primary deduplication is by transaction hash - this is a backup.
     const tradeTimestamp = trade.timestamp instanceof Date ? trade.timestamp.getTime() : Date.now();
-    // Round timestamp to 1-hour windows (was 5-minute, but that caused issues when window rolled over)
-    const timeWindow = Math.floor(tradeTimestamp / (60 * 60 * 1000));
+    // 5-minute compound-key window for same-market dedup (trade history vs Dome can have different hashes)
+    const timeWindow = Math.floor(tradeTimestamp / (5 * 60 * 1000));
     const compoundKey = `${trade.walletAddress.toLowerCase()}-${trade.marketId}-${trade.outcome}-${trade.side}-${timeWindow}`;
     
     // Also track by transaction hash for exact duplicates
     const tradeKey = trade.transactionHash;
     
-    // Clean up old entries (older than 1 hour)
+    // Clean up old entries (older than 5 minutes for compound keys; 1 hour for tx hashes)
     const now = Date.now();
     for (const [key, timestamp] of this.processedTrades.entries()) {
       if (now - timestamp > 60 * 60 * 1000) {
@@ -332,7 +331,7 @@ export class CopyTrader {
       }
     }
     for (const [key, timestamp] of this.processedCompoundKeys.entries()) {
-      if (now - timestamp > 60 * 60 * 1000) {
+      if (now - timestamp > 5 * 60 * 1000) {
         this.processedCompoundKeys.delete(key);
       }
     }
@@ -820,18 +819,19 @@ export class CopyTrader {
       }
 
       // SAFETY CAP: Reject any order that exceeds a reasonable maximum.
-      // This catches bugs in pricing, unit conversion, or sizing logic before
-      // real money leaves the wallet.
-      const configuredSize = trade.fixedTradeSize || parseFloat(await Storage.getTradeSize() || '50');
-      const maxAllowedUsd = configuredSize * 2;
+      // Proportional mode: cap at 2x calculated size with a floor of $500. Fixed/global: 2x configured size.
+      const configuredSize = trade.fixedTradeSize ?? parseFloat(await Storage.getTradeSize() || '50');
+      const maxAllowedUsd = trade.tradeSizingMode === 'proportional'
+        ? Math.max(tradeSizeUsdcNum * 2, 500)
+        : configuredSize * 2;
       if (tradeSizeUsdcNum > maxAllowedUsd) {
-        console.error(`\n❌ [CopyTrader] SAFETY CAP: Order $${tradeSizeUsdcNum.toFixed(2)} exceeds 2x configured size of $${configuredSize}`);
+        console.error(`\n❌ [CopyTrader] SAFETY CAP: Order $${tradeSizeUsdcNum.toFixed(2)} exceeds max $${maxAllowedUsd.toFixed(2)} (${trade.tradeSizingMode === 'proportional' ? 'proportional 2x / $500 floor' : `2x configured $${configuredSize}`})`);
         console.error(`   Mode: ${tradeSizeSource}`);
         console.error(`   This likely indicates a bug in trade sizing. Trade BLOCKED.\n`);
         await this.performanceTracker.logIssue(
           'error',
           'trade_execution',
-          `Safety cap: Order $${tradeSizeUsdcNum.toFixed(2)} exceeds max $${maxAllowedUsd.toFixed(2)} (2x $${configuredSize})`,
+          `Safety cap: Order $${tradeSizeUsdcNum.toFixed(2)} exceeds max $${maxAllowedUsd.toFixed(2)}`,
           { trade, tradeSizeSource, tradeSizeUsdcNum, maxAllowedUsd }
         );
         return;
@@ -958,6 +958,7 @@ export class CopyTrader {
         side: trade.side, // Use the side detected from the tracked wallet's trade
         tokenId: trade.tokenId,    // Pass token ID for direct CLOB execution (bypasses Gamma API)
         negRisk: trade.negRisk,    // Pass negative risk flag
+        slippagePercent: trade.slippagePercent,  // Per-wallet slippage (executor falls back to storage)
       };
 
       console.log(`\n🚀 [Execute] EXECUTING TRADE:`);
@@ -1056,6 +1057,8 @@ export class CopyTrader {
           console.error(`   Market: ${order.marketId}`);
           console.error(`   Side: ${order.side} $${tradeSizeUsdcNum.toFixed(2)} USDC (${order.amount} shares) @ ${order.price}`);
           console.error(`${'='.repeat(60)}\n`);
+          this.processedTrades.set(tradeKey, Date.now());
+          this.processedCompoundKeys.set(compoundKey, Date.now());
           await this.performanceTracker.logIssue(
             'error',
             'trade_execution',
