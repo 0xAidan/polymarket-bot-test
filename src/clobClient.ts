@@ -443,9 +443,9 @@ export class PolymarketClobClient {
   }
 
   /**
-   * Get USDC (collateral) balance for the authenticated wallet
-   * Uses Polymarket's internal balance, not raw on-chain USDC
-   * This is the actual trading balance available on Polymarket
+   * Get USDC (collateral) balance for the authenticated wallet.
+   * The CLOB API returns raw micro-USDC (6 decimals on Polygon),
+   * so we divide by 1e6 to return a human-readable dollar value.
    */
   async getUsdcBalance(): Promise<number> {
     if (!this.client) {
@@ -455,15 +455,19 @@ export class PolymarketClobClient {
       throw new Error('CLOB client not initialized');
     }
 
+    const USDC_DECIMALS = 1_000_000; // 10^6
+
     try {
       const response = await (this.client as any).getBalanceAllowance({
         asset_type: 'COLLATERAL'
       });
       const balanceStr = response?.balance || '0';
-      const balance = parseFloat(balanceStr);
-      if (isNaN(balance) || balance < 0) {
+      const rawBalance = parseFloat(balanceStr);
+      if (isNaN(rawBalance) || rawBalance < 0) {
         throw new Error(`Invalid balance response from CLOB API: ${balanceStr}`);
       }
+      const balance = rawBalance / USDC_DECIMALS;
+      console.log(`[CLOB] Balance: raw=${rawBalance}, converted=$${balance.toFixed(2)} USDC`);
       return balance;
     } catch (error: any) {
       console.error('[CLOB] Failed to get USDC balance:', error.message);
