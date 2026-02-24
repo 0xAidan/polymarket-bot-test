@@ -62,7 +62,7 @@ export interface LifecycleConfig {
 const DEFAULT_CONFIG: LifecycleConfig = {
   autoRedeemEnabled: false,
   autoMergeEnabled: false,
-  checkIntervalMs: 300_000,
+  checkIntervalMs: 60_000,
   minRedeemValue: 0.10,
 };
 
@@ -130,14 +130,19 @@ export class PositionLifecycleManager {
     const results: RedemptionResult[] = [];
 
     try {
-      const positions = await this.getRedeemablePositions();
-
-      if (positions.length === 0) {
-        console.log('[Lifecycle] No redeemable or mergeable positions found');
+      if (!isWalletUnlocked()) {
+        console.log('[Lifecycle] Auto-check skipped — wallets are locked');
         return results;
       }
 
-      console.log(`[Lifecycle] Found ${positions.length} position(s) to process`);
+      const positions = await this.getRedeemablePositions();
+
+      if (positions.length === 0) {
+        console.log('[Lifecycle] Auto-check: no redeemable or mergeable positions');
+        return results;
+      }
+
+      console.log(`[Lifecycle] Auto-check: found ${positions.length} position(s) to process`);
 
       for (const pos of positions) {
         if (pos.estimatedPayout < this.lifecycleConfig.minRedeemValue) {
@@ -146,20 +151,28 @@ export class PositionLifecycleManager {
         }
 
         if (pos.redeemable && this.lifecycleConfig.autoRedeemEnabled) {
+          console.log(`[Lifecycle] Auto-redeeming: ${pos.marketTitle} (~$${pos.estimatedPayout.toFixed(2)})`);
           const result = await this.redeemPosition(pos);
           results.push(result);
           if (result.success) {
             this.totalRedemptions++;
             this.totalRecovered += result.amountRecovered;
+            console.log(`[Lifecycle] ✓ Redeemed ${pos.marketTitle} — tx ${result.txHash}`);
+          } else {
+            console.error(`[Lifecycle] ✗ Redeem failed: ${pos.marketTitle} — ${result.error}`);
           }
         }
 
         if (pos.mergeable && this.lifecycleConfig.autoMergeEnabled) {
+          console.log(`[Lifecycle] Auto-merging: ${pos.marketTitle}`);
           const result = await this.mergePosition(pos);
           results.push(result);
           if (result.success) {
             this.totalMerges++;
             this.totalRecovered += result.amountRecovered;
+            console.log(`[Lifecycle] ✓ Merged ${pos.marketTitle} — tx ${result.txHash}`);
+          } else {
+            console.error(`[Lifecycle] ✗ Merge failed: ${pos.marketTitle} — ${result.error}`);
           }
         }
       }
@@ -167,7 +180,7 @@ export class PositionLifecycleManager {
       this.lastResults = results;
       return results;
     } catch (err: any) {
-      console.error('[Lifecycle] Error during check:', err.message);
+      console.error('[Lifecycle] Error during auto-check:', err.message);
       return results;
     }
   }
@@ -439,6 +452,26 @@ export class PositionLifecycleManager {
     } catch (err: any) {
       console.error(`[Lifecycle] Merge failed for ${pos.marketTitle}:`, err.message);
       return { ...baseResult, error: err.message };
+    }
+  }
+
+  /**
+   * Called externally when wallets are unlocked or when we want
+   * to force an immediate check outside the scheduled interval.
+   */
+  async triggerCheck(): Promise<void> {
+    if (!this.isRunning) return;
+    if (!this.lifecycleConfig.autoRedeemEnabled && !this.lifecycleConfig.autoMergeEnabled) return;
+
+    console.log('[Lifecycle] Triggered immediate check (e.g. wallets just unlocked)');
+    try {
+      const results = await this.checkAndProcess();
+      if (results.length > 0) {
+        const succeeded = results.filter(r => r.success).length;
+        console.log(`[Lifecycle] Triggered check completed: ${succeeded}/${results.length} succeeded`);
+      }
+    } catch (err: any) {
+      console.error('[Lifecycle] Triggered check failed:', err.message);
     }
   }
 

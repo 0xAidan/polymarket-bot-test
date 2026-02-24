@@ -274,6 +274,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       }
       const result = await unlockWallets(masterPassword);
       res.json({ success: true, ...result });
+
+      // Wallets are now available — trigger an immediate lifecycle check
+      lifecycleManager.triggerCheck().catch(() => {});
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
     }
