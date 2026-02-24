@@ -360,12 +360,14 @@ export class CopyTrader {
     this.inFlightTrades.add(tradeKey);
     this.inFlightTrades.add(compoundKey);
 
-    // Mark as processed IMMEDIATELY so the next polling cycle won't re-detect this trade.
-    // Previously, filtered/rejected trades were never added to these maps, causing
-    // the same trades to be re-detected, re-filtered, and re-recorded as "rejected"
-    // on every single poll cycle until they fell out of the 5-minute API window.
+    // Mark tx hash as processed IMMEDIATELY so the next polling cycle won't re-detect
+    // this exact trade. Previously, filtered/rejected trades were never added here,
+    // causing the same trades to be re-detected and re-recorded as "rejected" every cycle.
+    // NOTE: Only set processedTrades (tx hash) here, NOT processedCompoundKeys.
+    // The compound key groups ALL trades on the same market+outcome+side within 5 minutes,
+    // so setting it up front would block legitimate different trades from the same whale
+    // on the same market (e.g. 7x $960 buys on Timberwolves spread within minutes).
     this.processedTrades.set(tradeKey, Date.now());
-    this.processedCompoundKeys.set(compoundKey, Date.now());
 
     try {
     // === Everything below is wrapped in try/finally to guarantee inFlightTrades cleanup ===

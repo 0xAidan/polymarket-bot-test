@@ -85,12 +85,14 @@ export class PerformanceTracker {
    * Record a trade execution
    */
   async recordTrade(metrics: Omit<TradeMetrics, 'id'>): Promise<void> {
-    // Dedup: prevent the same trade from being recorded multiple times in the feed.
-    // Uses market+outcome+side+status+5min window as the key so identical rejected/failed
-    // entries from repeated polling cycles don't spam the trade feed.
+    // Dedup: prevent the exact same trade from being recorded multiple times.
+    // Uses the detected tx hash (unique per on-chain trade) so different trades
+    // on the same market are NOT blocked. Falls back to a timestamp-based key
+    // for trades without a tx hash.
     const ts = metrics.timestamp instanceof Date ? metrics.timestamp.getTime() : Date.now();
-    const timeWindow = Math.floor(ts / (5 * 60 * 1000));
-    const dedupKey = `${metrics.walletAddress}-${metrics.marketId}-${metrics.outcome}-${metrics.status || 'unknown'}-${timeWindow}`;
+    const dedupKey = metrics.detectedTxHash
+      ? `${metrics.detectedTxHash}-${metrics.status || 'unknown'}`
+      : `${metrics.walletAddress}-${metrics.marketId}-${metrics.outcome}-${ts}`;
 
     const now = Date.now();
     for (const [key, time] of this.recentTradeKeys.entries()) {
