@@ -212,15 +212,21 @@ export class PositionLifecycleManager {
         if (!wallet.address) continue;
 
         try {
+          // The Data API indexes positions by PROXY wallet address, not EOA.
+          // Resolve the EOA to its proxy first; fall back to EOA if no proxy found.
+          const proxyAddress = await this.api.getProxyWalletAddress(wallet.address);
+          const queryAddress = proxyAddress || wallet.address;
+          console.log(`[Lifecycle] Checking wallet ${wallet.id}: EOA=${wallet.address.substring(0, 10)}... → query=${queryAddress.substring(0, 10)}...`);
+
           // Query the Data API with redeemable=true to get only redeemable positions.
           // sizeThreshold=0 ensures we don't miss small positions.
-          const redeemablePositions = await this.api.getFilteredPositions(wallet.address, {
+          const redeemablePositions = await this.api.getFilteredPositions(queryAddress, {
             redeemable: true,
             sizeThreshold: 0,
           });
 
           // Also query mergeable positions
-          const mergeablePositions = await this.api.getFilteredPositions(wallet.address, {
+          const mergeablePositions = await this.api.getFilteredPositions(queryAddress, {
             mergeable: true,
             sizeThreshold: 0,
           });
