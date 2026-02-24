@@ -10,7 +10,6 @@ const CTF_ADDRESS = '0x4D97DCd97eC945f40cF65F87097ACe5EA0476045';
 const NEG_RISK_ADAPTER_ADDRESS = '0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296';
 const USDC_ADDRESS = '0x2791bca1f2de4661ed88a30c99a7a9449aa84174';
 
-// Minimal ABIs for the functions we need
 const CTF_ABI = [
   'function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets) external',
   'function mergePositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets, uint256 amount) external',
@@ -21,7 +20,13 @@ const NEG_RISK_ABI = [
   'function redeemPositions(bytes32 conditionId, uint256[] amounts) external',
 ];
 
-/** Represents a position that can be redeemed or merged */
+// Gnosis Safe ABI — Polymarket proxy wallets are Gnosis Safe contracts
+const GNOSIS_SAFE_ABI = [
+  'function nonce() view returns (uint256)',
+  'function getTransactionHash(address to, uint256 value, bytes data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address refundReceiver, uint256 _nonce) view returns (bytes32)',
+  'function execTransaction(address to, uint256 value, bytes data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address payable refundReceiver, bytes signatures) payable returns (bool success)',
+];
+
 export interface RedeemablePosition {
   conditionId: string;
   tokenId: string;
@@ -34,10 +39,10 @@ export interface RedeemablePosition {
   redeemable: boolean;
   mergeable: boolean;
   estimatedPayout: number;
-  walletId: string;   // Which trading wallet owns this position
+  walletId: string;
+  proxyWallet: string;
 }
 
-/** Result of a redeem/merge operation */
 export interface RedemptionResult {
   conditionId: string;
   tokenId: string;
@@ -49,25 +54,20 @@ export interface RedemptionResult {
   amountRecovered: number;
 }
 
-/** Configuration for the position lifecycle manager */
 export interface LifecycleConfig {
   autoRedeemEnabled: boolean;
   autoMergeEnabled: boolean;
   checkIntervalMs: number;
-  minRedeemValue: number; // Min USDC value to bother redeeming
+  minRedeemValue: number;
 }
 
 const DEFAULT_CONFIG: LifecycleConfig = {
   autoRedeemEnabled: false,
   autoMergeEnabled: false,
-  checkIntervalMs: 300_000, // 5 minutes
+  checkIntervalMs: 300_000,
   minRedeemValue: 0.10,
 };
 
-/**
- * PositionLifecycleManager handles auto-redemption and auto-merge
- * of resolved Polymarket positions.
- */
 export class PositionLifecycleManager {
   private api: PolymarketApi;
   private provider: ethers.providers.JsonRpcProvider;
@@ -77,7 +77,6 @@ export class PositionLifecycleManager {
   private lastResults: RedemptionResult[] = [];
   private lifecycleConfig: LifecycleConfig;
 
-  // Stats
   private totalRedemptions = 0;
   private totalMerges = 0;
   private totalRecovered = 0;
@@ -88,14 +87,10 @@ export class PositionLifecycleManager {
     this.lifecycleConfig = { ...DEFAULT_CONFIG };
   }
 
-  /**
-   * Start the lifecycle manager with periodic checks.
-   */
   async start(): Promise<void> {
     if (this.isRunning) return;
     this.isRunning = true;
 
-    // Load saved config
     await this.loadConfig();
 
     console.log('[Lifecycle] Position lifecycle manager started');
@@ -103,15 +98,11 @@ export class PositionLifecycleManager {
     console.log(`[Lifecycle]   Auto-merge: ${this.lifecycleConfig.autoMergeEnabled ? 'ON' : 'OFF'}`);
     console.log(`[Lifecycle]   Check interval: ${this.lifecycleConfig.checkIntervalMs / 1000}s`);
 
-    // Run initial check
     if (this.lifecycleConfig.autoRedeemEnabled || this.lifecycleConfig.autoMergeEnabled) {
       this.scheduleCheck();
     }
   }
 
-  /**
-   * Stop the lifecycle manager.
-   */
   stop(): void {
     this.isRunning = false;
     if (this.checkInterval) {
@@ -121,9 +112,6 @@ export class PositionLifecycleManager {
     console.log('[Lifecycle] Position lifecycle manager stopped');
   }
 
-  /**
-   * Schedule periodic position checks.
-   */
   private scheduleCheck(): void {
     if (this.checkInterval) clearInterval(this.checkInterval);
 
@@ -136,19 +124,14 @@ export class PositionLifecycleManager {
       }
     }, this.lifecycleConfig.checkIntervalMs);
 
-    // Also run immediately
     this.checkAndProcess().catch(err => console.error('[Lifecycle] Initial check failed:', err.message));
   }
 
-  /**
-   * Check for redeemable/mergeable positions and process them.
-   */
   async checkAndProcess(): Promise<RedemptionResult[]> {
     this.lastCheckTime = Date.now();
     const results: RedemptionResult[] = [];
 
     try {
-      // Get our positions
       const positions = await this.getRedeemablePositions();
 
       if (positions.length === 0) {
@@ -159,7 +142,6 @@ export class PositionLifecycleManager {
       console.log(`[Lifecycle] Found ${positions.length} position(s) to process`);
 
       for (const pos of positions) {
-        // Skip if below minimum value
         if (pos.estimatedPayout < this.lifecycleConfig.minRedeemValue) {
           console.log(`[Lifecycle] Skipping ${pos.marketTitle} — payout $${pos.estimatedPayout.toFixed(2)} below min $${this.lifecycleConfig.minRedeemValue}`);
           continue;
@@ -194,8 +176,11 @@ export class PositionLifecycleManager {
 
   /**
    * Get positions that are redeemable or mergeable.
-   * Uses the Polymarket Data API's native redeemable/mergeable filters
-   * instead of heuristic price checks. Iterates all trading wallets.
+   * Uses the Data API's redeemable/mergeable filters.
+   * Queries with the PROXY wallet address (not EOA) because that's
+   * how Polymarket indexes positions.
+   * Filters out $0-value positions (losing bets that technically
+   * resolve but yield nothing).
    */
   async getRedeemablePositions(): Promise<RedeemablePosition[]> {
     const results: RedeemablePosition[] = [];
@@ -212,26 +197,20 @@ export class PositionLifecycleManager {
         if (!wallet.address) continue;
 
         try {
-          // The Data API indexes positions by PROXY wallet address, not EOA.
-          // Resolve the EOA to its proxy first; fall back to EOA if no proxy found.
           const proxyAddress = await this.api.getProxyWalletAddress(wallet.address);
           const queryAddress = proxyAddress || wallet.address;
           console.log(`[Lifecycle] Checking wallet ${wallet.id}: EOA=${wallet.address.substring(0, 10)}... → query=${queryAddress.substring(0, 10)}...`);
 
-          // Query the Data API with redeemable=true to get only redeemable positions.
-          // sizeThreshold=0 ensures we don't miss small positions.
           const redeemablePositions = await this.api.getFilteredPositions(queryAddress, {
             redeemable: true,
             sizeThreshold: 0,
           });
 
-          // Also query mergeable positions
           const mergeablePositions = await this.api.getFilteredPositions(queryAddress, {
             mergeable: true,
             sizeThreshold: 0,
           });
 
-          // Build a set of already-seen tokenIds to avoid duplicates
           const seen = new Set<string>();
 
           for (const pos of redeemablePositions) {
@@ -241,6 +220,10 @@ export class PositionLifecycleManager {
 
             const size = typeof pos.size === 'number' ? pos.size : parseFloat(pos.size || '0');
             if (size <= 0) continue;
+
+            const currentValue = typeof pos.currentValue === 'number' ? pos.currentValue : parseFloat(pos.currentValue || '0');
+            // Skip losing positions — API marks them redeemable but they pay $0
+            if (currentValue <= 0) continue;
 
             results.push({
               conditionId: pos.conditionId || '',
@@ -253,8 +236,9 @@ export class PositionLifecycleManager {
               negRisk: pos.negativeRisk === true || pos.negRisk === true,
               redeemable: true,
               mergeable: false,
-              estimatedPayout: typeof pos.currentValue === 'number' ? pos.currentValue : size,
+              estimatedPayout: currentValue,
               walletId: wallet.id,
+              proxyWallet: queryAddress,
             });
           }
 
@@ -279,11 +263,12 @@ export class PositionLifecycleManager {
               mergeable: true,
               estimatedPayout: size,
               walletId: wallet.id,
+              proxyWallet: queryAddress,
             });
           }
 
           if (redeemablePositions.length > 0 || mergeablePositions.length > 0) {
-            console.log(`[Lifecycle] Wallet ${wallet.id}: ${redeemablePositions.length} redeemable, ${mergeablePositions.length} mergeable`);
+            console.log(`[Lifecycle] Wallet ${wallet.id}: ${redeemablePositions.length} redeemable (${results.filter(r => r.walletId === wallet.id && r.redeemable).length} with value), ${mergeablePositions.length} mergeable`);
           }
         } catch (walletErr: any) {
           console.error(`[Lifecycle] Error fetching positions for wallet ${wallet.id} (${wallet.address?.substring(0, 10)}...):`, walletErr.message);
@@ -297,9 +282,64 @@ export class PositionLifecycleManager {
     }
   }
 
+  // ============================================================
+  // ON-CHAIN EXECUTION VIA GNOSIS SAFE PROXY
+  // ============================================================
+
   /**
-   * Redeem a winning position on-chain.
+   * Execute a contract call through the Gnosis Safe proxy wallet.
+   * Polymarket proxy wallets are Gnosis Safe contracts with the trading
+   * wallet's EOA as the sole owner (threshold=1). To redeem tokens held
+   * by the proxy, we encode the target call and submit it via
+   * Safe.execTransaction, signed by the owner.
    */
+  private async executeViaSafe(
+    proxyAddress: string,
+    targetContract: string,
+    callData: string,
+    signer: ethers.Wallet,
+  ): Promise<ethers.providers.TransactionReceipt> {
+    const safe = new ethers.Contract(proxyAddress, GNOSIS_SAFE_ABI, signer);
+
+    const nonce = await safe.nonce();
+
+    const txHash: string = await safe.getTransactionHash(
+      targetContract,
+      0,
+      callData,
+      0,                                // operation = Call
+      0,                                // safeTxGas
+      0,                                // baseGas
+      0,                                // gasPrice
+      ethers.constants.AddressZero,     // gasToken
+      ethers.constants.AddressZero,     // refundReceiver
+      nonce,
+    );
+
+    // Sign the raw hash (no EIP-191 prefix) — Gnosis Safe expects v=27|28
+    const signingKey = signer._signingKey();
+    const sig = signingKey.signDigest(txHash);
+    const signature = ethers.utils.joinSignature(sig);
+
+    console.log(`[Lifecycle] Submitting Safe tx: proxy=${proxyAddress.substring(0, 10)}..., target=${targetContract.substring(0, 10)}..., nonce=${nonce}`);
+
+    const tx = await safe.execTransaction(
+      targetContract,
+      0,
+      callData,
+      0,
+      0,
+      0,
+      0,
+      ethers.constants.AddressZero,
+      ethers.constants.AddressZero,
+      signature,
+      { gasLimit: 500_000 },
+    );
+
+    return await tx.wait();
+  }
+
   async redeemPosition(pos: RedeemablePosition): Promise<RedemptionResult> {
     const baseResult: RedemptionResult = {
       conditionId: pos.conditionId,
@@ -322,49 +362,44 @@ export class PositionLifecycleManager {
         return { ...baseResult, error: `Wallet "${pos.walletId}" not found or not unlocked` };
       }
       const signer = baseSigner.connect(this.provider);
-      const conditionIdBytes = pos.conditionId;
+
+      // Encode the inner call that the proxy wallet will execute
+      let targetContract: string;
+      let callData: string;
 
       if (pos.negRisk) {
-        // NegRisk markets use the NegRisk Adapter
-        const negRisk = new ethers.Contract(NEG_RISK_ADAPTER_ADDRESS, NEG_RISK_ABI, signer);
-        const amounts = [ethers.utils.parseUnits(pos.size.toString(), 6), 0]; // [yesAmount, noAmount]
-
-        console.log(`[Lifecycle] Redeeming negRisk position: ${pos.marketTitle} (${pos.size} shares)`);
-        const tx = await negRisk.redeemPositions(conditionIdBytes, amounts);
-        const receipt = await tx.wait();
-
-        return {
-          ...baseResult,
-          success: true,
-          txHash: receipt.hash,
-          amountRecovered: pos.estimatedPayout,
-        };
+        const iface = new ethers.utils.Interface(NEG_RISK_ABI);
+        const amounts = [ethers.utils.parseUnits(pos.size.toString(), 6), 0];
+        callData = iface.encodeFunctionData('redeemPositions', [pos.conditionId, amounts]);
+        targetContract = NEG_RISK_ADAPTER_ADDRESS;
       } else {
-        // Standard CTF redemption
-        const ctf = new ethers.Contract(CTF_ADDRESS, CTF_ABI, signer);
-        const parentCollectionId = ethers.constants.HashZero;
-        const indexSets = [1, 2]; // Both outcomes for binary market
-
-        console.log(`[Lifecycle] Redeeming CTF position: ${pos.marketTitle} (${pos.size} shares)`);
-        const tx = await ctf.redeemPositions(USDC_ADDRESS, parentCollectionId, conditionIdBytes, indexSets);
-        const receipt = await tx.wait();
-
-        return {
-          ...baseResult,
-          success: true,
-          txHash: receipt.hash,
-          amountRecovered: pos.estimatedPayout,
-        };
+        const iface = new ethers.utils.Interface(CTF_ABI);
+        callData = iface.encodeFunctionData('redeemPositions', [
+          USDC_ADDRESS,
+          ethers.constants.HashZero,
+          pos.conditionId,
+          [1, 2],
+        ]);
+        targetContract = CTF_ADDRESS;
       }
+
+      console.log(`[Lifecycle] Redeeming: ${pos.marketTitle} (${pos.size} shares, ~$${pos.estimatedPayout.toFixed(2)}) via proxy ${pos.proxyWallet.substring(0, 10)}...`);
+
+      // Tokens are held by the proxy wallet, so we execute through the Safe
+      const receipt = await this.executeViaSafe(pos.proxyWallet, targetContract, callData, signer);
+
+      return {
+        ...baseResult,
+        success: true,
+        txHash: receipt.transactionHash,
+        amountRecovered: pos.estimatedPayout,
+      };
     } catch (err: any) {
       console.error(`[Lifecycle] Redeem failed for ${pos.marketTitle}:`, err.message);
       return { ...baseResult, error: err.message };
     }
   }
 
-  /**
-   * Merge positions where we hold both YES and NO tokens.
-   */
   async mergePosition(pos: RedeemablePosition): Promise<RedemptionResult> {
     const baseResult: RedemptionResult = {
       conditionId: pos.conditionId,
@@ -387,22 +422,26 @@ export class PositionLifecycleManager {
         return { ...baseResult, error: `Wallet "${pos.walletId}" not found or not unlocked` };
       }
       const signer = baseSigner.connect(this.provider);
-      const ctf = new ethers.Contract(CTF_ADDRESS, CTF_ABI, signer);
 
-      const parentCollectionId = ethers.constants.HashZero;
-      const conditionIdBytes = pos.conditionId;
-      const indexSets = [1, 2];
+      const iface = new ethers.utils.Interface(CTF_ABI);
       const mergeAmount = ethers.utils.parseUnits(pos.size.toString(), 6);
+      const callData = iface.encodeFunctionData('mergePositions', [
+        USDC_ADDRESS,
+        ethers.constants.HashZero,
+        pos.conditionId,
+        [1, 2],
+        mergeAmount,
+      ]);
 
-      console.log(`[Lifecycle] Merging position: ${pos.marketTitle} (${pos.size} shares)`);
-      const tx = await ctf.mergePositions(USDC_ADDRESS, parentCollectionId, conditionIdBytes, indexSets, mergeAmount);
-      const receipt = await tx.wait();
+      console.log(`[Lifecycle] Merging: ${pos.marketTitle} (${pos.size} shares) via proxy ${pos.proxyWallet.substring(0, 10)}...`);
+
+      const receipt = await this.executeViaSafe(pos.proxyWallet, CTF_ADDRESS, callData, signer);
 
       return {
         ...baseResult,
         success: true,
-        txHash: receipt.hash,
-        amountRecovered: pos.size, // Merge returns USDC equal to the merge amount
+        txHash: receipt.transactionHash,
+        amountRecovered: pos.size,
       };
     } catch (err: any) {
       console.error(`[Lifecycle] Merge failed for ${pos.marketTitle}:`, err.message);
@@ -410,9 +449,6 @@ export class PositionLifecycleManager {
     }
   }
 
-  /**
-   * Get the current status of the lifecycle manager.
-   */
   getStatus() {
     return {
       running: this.isRunning,
@@ -427,14 +463,10 @@ export class PositionLifecycleManager {
     };
   }
 
-  /**
-   * Update lifecycle configuration.
-   */
   async updateConfig(updates: Partial<LifecycleConfig>): Promise<void> {
     Object.assign(this.lifecycleConfig, updates);
     await this.saveConfig();
 
-    // Restart interval if enabled
     if (this.isRunning) {
       if (this.lifecycleConfig.autoRedeemEnabled || this.lifecycleConfig.autoMergeEnabled) {
         this.scheduleCheck();
@@ -445,9 +477,6 @@ export class PositionLifecycleManager {
     }
   }
 
-  /**
-   * Manual trigger to redeem all eligible positions.
-   */
   async redeemAll(): Promise<RedemptionResult[]> {
     const positions = await this.getRedeemablePositions();
     const results: RedemptionResult[] = [];
