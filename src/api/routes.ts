@@ -39,6 +39,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   const router = Router();
   const performanceTracker = copyTrader.getPerformanceTracker();
   const lifecycleManager = new PositionLifecycleManager();
+  lifecycleManager.start().catch(err => console.error('[Lifecycle] Failed to start:', err.message));
   const arbScanner = new ArbScanner();
   const entityManager = new EntityManager();
   entityManager.init().catch(err => console.error('[Routes] EntityManager init failed:', err.message));
