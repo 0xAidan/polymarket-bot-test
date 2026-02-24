@@ -43,22 +43,6 @@ export async function domeGetMarketPrice(tokenId: string): Promise<{ price: numb
 }
 
 /**
- * Fetch wallet info (EOA, proxy, type) from Dome.
- */
-export async function domeGetWallet(address: string): Promise<any | null> {
-  const dome = getDomeClient();
-  if (!dome) return null;
-
-  try {
-    const result = await dome.polymarket.wallet.getWallet({ eoa: address });
-    return result;
-  } catch (err) {
-    console.error('[DomeClient] Failed to fetch wallet:', err);
-    return null;
-  }
-}
-
-/**
  * Fetch positions for a Polymarket wallet.
  */
 export async function domeGetPositions(address: string): Promise<any[]> {
@@ -70,22 +54,6 @@ export async function domeGetPositions(address: string): Promise<any[]> {
     return (result as any)?.positions ?? [];
   } catch (err) {
     console.error('[DomeClient] Failed to fetch positions:', err);
-    return [];
-  }
-}
-
-/**
- * Search Polymarket markets.
- */
-export async function domeGetMarkets(params: { market_slug?: string[]; status?: 'open' | 'closed'; limit?: number } = {}): Promise<any[]> {
-  const dome = getDomeClient();
-  if (!dome) return [];
-
-  try {
-    const result = await dome.polymarket.markets.getMarkets(params as any);
-    return (result as any)?.markets ?? [];
-  } catch (err) {
-    console.error('[DomeClient] Failed to search markets:', err);
     return [];
   }
 }
@@ -106,18 +74,3 @@ export async function domeGetKalshiMarkets(params: { event_ticker?: string[]; st
   }
 }
 
-/**
- * Get matching sports markets across platforms.
- */
-export async function domeGetMatchingMarkets(slug: string): Promise<any> {
-  const dome = getDomeClient();
-  if (!dome) return null;
-
-  try {
-    const result = await dome.matchingMarkets.getMatchingMarkets({ slug } as any);
-    return result;
-  } catch (err) {
-    console.error('[DomeClient] Failed to fetch matching markets:', err);
-    return null;
-  }
-}

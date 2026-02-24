@@ -217,8 +217,8 @@ export class PolymarketClobClient {
     if (!isNaN(tickSizeNum) && tickSizeNum > 0) {
       // Round price to nearest tick
       const roundedPrice = Math.round(params.price / tickSizeNum) * tickSizeNum;
-      // Ensure it's still between 0 and 1
-      if (roundedPrice > 0 && roundedPrice <= 1) {
+      // Polymarket allows (0, 1) only; reject 0 and 1
+      if (roundedPrice > 0 && roundedPrice < 1) {
         if (Math.abs(roundedPrice - params.price) > 0.0001) {
           console.log(`[CLOB] Price rounded from ${params.price} to ${roundedPrice} to match tickSize ${tickSize}`);
         }
@@ -456,32 +456,14 @@ export class PolymarketClobClient {
     }
 
     try {
-      // Get balance for COLLATERAL (USDC) asset type
-      console.log(`[CLOB] Fetching USDC balance via getBalanceAllowance...`);
       const response = await (this.client as any).getBalanceAllowance({
         asset_type: 'COLLATERAL'
       });
-      
-      console.log(`[CLOB] getBalanceAllowance response:`, JSON.stringify(response));
-      
       const balanceStr = response?.balance || '0';
-      const balanceNum = parseFloat(balanceStr);
-      
-      // Determine if balance is in wei (large number) or already human-readable
-      // USDC has 6 decimals, so $4.00 in wei = 4000000
-      // If the number is > 1000, it's likely in wei format
-      let balance: number;
-      if (balanceNum > 1000) {
-        // Balance is in wei (smallest unit), convert to USDC
-        balance = balanceNum / 1_000_000;
-        console.log(`[CLOB] Balance appears to be in wei format, converting: ${balanceStr} -> $${balance.toFixed(2)}`);
-      } else {
-        // Balance is already in human-readable USDC format
-        balance = balanceNum;
-        console.log(`[CLOB] Balance appears to be in USDC format: $${balance.toFixed(2)}`);
+      const balance = parseFloat(balanceStr);
+      if (isNaN(balance) || balance < 0) {
+        throw new Error(`Invalid balance response from CLOB API: ${balanceStr}`);
       }
-      
-      console.log(`[CLOB] USDC balance: $${balance.toFixed(2)}`);
       return balance;
     } catch (error: any) {
       console.error('[CLOB] Failed to get USDC balance:', error.message);

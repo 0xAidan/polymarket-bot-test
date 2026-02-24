@@ -1,5 +1,4 @@
 import { WalletMonitor } from './walletMonitor.js';
-import { WebSocketMonitor } from './websocketMonitor.js';
 import { DomeWebSocketMonitor } from './domeWebSocket.js';
 import { isDomeConfigured } from './domeClient.js';
 import { TradeExecutor } from './tradeExecutor.js';
@@ -17,15 +16,14 @@ import { initWalletManager } from './walletManager.js';
  */
 export class CopyTrader {
   private monitor: WalletMonitor;
-  private websocketMonitor: WebSocketMonitor;
   private domeWsMonitor: DomeWebSocketMonitor | null = null;
   private executor: TradeExecutor;
   private performanceTracker: PerformanceTracker;
   private balanceTracker: BalanceTracker;
   private isRunning = false;
   private monitoringMode: 'polling' | 'websocket' = 'polling';
-  private executedTrades = new Set<string>(); // Track executed trades by tx hash
   private processedTrades = new Map<string, number>(); // Track processed trades by tx hash to prevent duplicates
+  private executedTradesCount = 0; // Number of trades successfully executed this session
   private processedCompoundKeys = new Map<string, number>(); // Track by compound key (wallet-market-outcome-side-timeWindow) to catch same trade with different hashes
   private inFlightTrades = new Set<string>(); // Prevent concurrent processing of the same trade
   
@@ -34,7 +32,6 @@ export class CopyTrader {
 
   constructor() {
     this.monitor = new WalletMonitor();
-    this.websocketMonitor = new WebSocketMonitor();
     this.executor = new TradeExecutor();
     this.performanceTracker = new PerformanceTracker();
     this.balanceTracker = new BalanceTracker();
@@ -47,7 +44,6 @@ export class CopyTrader {
     try {
       await this.performanceTracker.initialize();
       await this.monitor.initialize();
-      await this.websocketMonitor.initialize();
       await this.executor.authenticate();
       await this.balanceTracker.initialize();
       
@@ -123,26 +119,7 @@ export class CopyTrader {
     });
     console.log('✅ Polling monitoring active');
 
-    // Start WebSocket monitoring (secondary - only works for your own trades)
-    // Note: WebSocket API can only monitor the authenticated user's trades, not other wallets
-    console.log('📡 Starting WebSocket monitoring (secondary - your trades only)...');
-    try {
-      await this.websocketMonitor.startMonitoring(async (trade: DetectedTrade) => {
-        console.log(`[CopyTrader] 📥 WebSocket callback triggered with trade:`, JSON.stringify(trade, null, 2));
-        await this.handleDetectedTrade(trade);
-      });
-      const wsStatus = this.websocketMonitor.getStatus();
-      if (wsStatus.isConnected) {
-        console.log('✅ WebSocket monitoring active (for your own trades only)');
-      } else {
-        console.log('⚠️ WebSocket not connected (this is OK - polling is primary)');
-      }
-    } catch (error: any) {
-      console.error('❌ Failed to start WebSocket monitoring:', error.message);
-      console.log('⚠️ Continuing with polling-based monitoring (this is fine)');
-    }
-
-    // Start Dome WebSocket monitoring if available (replaces polling as primary)
+    // Start Dome WebSocket monitoring if available (primary for tracked wallets)
     if (this.domeWsMonitor) {
       console.log('📡 Starting Dome WebSocket monitoring (PRIMARY)...');
       try {
@@ -203,9 +180,7 @@ export class CopyTrader {
     if (domeWsStatus) {
       console.log(`   🌐 Dome WebSocket: ${domeWsStatus.connected ? '✅ CONNECTED (PRIMARY)' : '⏳ CONNECTING...'} — ${domeWsStatus.trackedWallets} wallets`);
     }
-    console.log(`   🔄 Polling: ✅ ${this.monitoringMode === 'websocket' ? 'STANDBY (fallback)' : 'ACTIVE (Primary)'} — every ${config.monitoringIntervalMs / 1000}s`);
-    const wsStatus = this.websocketMonitor.getStatus();
-    console.log(`   📡 Legacy WS: ${wsStatus.isConnected ? '✅ CONNECTED' : '⚠️  DISCONNECTED'} (your trades only)`);
+    console.log(`   🔄 Polling: ✅ ACTIVE — every ${config.monitoringIntervalMs / 1000}s`);
     console.log(`\n💡 The bot will automatically detect and copy trades from tracked wallets.`);
     console.log(`   Check the logs above for trade detection and execution.`);
     console.log('='.repeat(60) + '\n');
@@ -229,7 +204,6 @@ export class CopyTrader {
       );
     }
     
-    this.websocketMonitor.stopMonitoring();
     this.monitor.stopMonitoring();
     this.balanceTracker.stopTracking();
     console.log('Copy trading bot stopped');
@@ -268,10 +242,6 @@ export class CopyTrader {
       // Reinitialize monitor (this reinitializes the PolymarketApi)
       this.monitor = new WalletMonitor();
       await this.monitor.initialize();
-      
-      // Reinitialize websocket monitor
-      this.websocketMonitor = new WebSocketMonitor();
-      await this.websocketMonitor.initialize();
       
       // Reinitialize balance tracker
       this.balanceTracker = new BalanceTracker();
@@ -336,12 +306,6 @@ export class CopyTrader {
       return;
     }
     
-    // Prevent duplicate execution using transaction hash
-    if (this.executedTrades.has(trade.transactionHash)) {
-      console.log(`[CopyTrader] ⏭️  Trade ${trade.transactionHash} already executed, skipping`);
-      return;
-    }
-    
     // CRITICAL FIX: Use a COMPOUND KEY for deduplication
     // Problem: Position monitoring generates synthetic hashes (pos-...) while trade history has real hashes
     // This caused the SAME underlying trade to be detected twice and executed twice
@@ -352,14 +316,14 @@ export class CopyTrader {
     // when the trade appears in multiple polling cycles from the trade history API.
     // The primary deduplication is by transaction hash - this is a backup.
     const tradeTimestamp = trade.timestamp instanceof Date ? trade.timestamp.getTime() : Date.now();
-    // Round timestamp to 1-hour windows (was 5-minute, but that caused issues when window rolled over)
-    const timeWindow = Math.floor(tradeTimestamp / (60 * 60 * 1000));
+    // 5-minute compound-key window for same-market dedup (trade history vs Dome can have different hashes)
+    const timeWindow = Math.floor(tradeTimestamp / (5 * 60 * 1000));
     const compoundKey = `${trade.walletAddress.toLowerCase()}-${trade.marketId}-${trade.outcome}-${trade.side}-${timeWindow}`;
     
     // Also track by transaction hash for exact duplicates
     const tradeKey = trade.transactionHash;
     
-    // Clean up old entries (older than 1 hour)
+    // Clean up old entries (older than 5 minutes for compound keys; 1 hour for tx hashes)
     const now = Date.now();
     for (const [key, timestamp] of this.processedTrades.entries()) {
       if (now - timestamp > 60 * 60 * 1000) {
@@ -367,7 +331,7 @@ export class CopyTrader {
       }
     }
     for (const [key, timestamp] of this.processedCompoundKeys.entries()) {
-      if (now - timestamp > 60 * 60 * 1000) {
+      if (now - timestamp > 5 * 60 * 1000) {
         this.processedCompoundKeys.delete(key);
       }
     }
@@ -855,18 +819,19 @@ export class CopyTrader {
       }
 
       // SAFETY CAP: Reject any order that exceeds a reasonable maximum.
-      // This catches bugs in pricing, unit conversion, or sizing logic before
-      // real money leaves the wallet.
-      const configuredSize = trade.fixedTradeSize || parseFloat(await Storage.getTradeSize() || '50');
-      const maxAllowedUsd = configuredSize * 2;
+      // Proportional mode: cap at 2x calculated size with a floor of $500. Fixed/global: 2x configured size.
+      const configuredSize = trade.fixedTradeSize ?? parseFloat(await Storage.getTradeSize() || '50');
+      const maxAllowedUsd = trade.tradeSizingMode === 'proportional'
+        ? Math.max(tradeSizeUsdcNum * 2, 500)
+        : configuredSize * 2;
       if (tradeSizeUsdcNum > maxAllowedUsd) {
-        console.error(`\n❌ [CopyTrader] SAFETY CAP: Order $${tradeSizeUsdcNum.toFixed(2)} exceeds 2x configured size of $${configuredSize}`);
+        console.error(`\n❌ [CopyTrader] SAFETY CAP: Order $${tradeSizeUsdcNum.toFixed(2)} exceeds max $${maxAllowedUsd.toFixed(2)} (${trade.tradeSizingMode === 'proportional' ? 'proportional 2x / $500 floor' : `2x configured $${configuredSize}`})`);
         console.error(`   Mode: ${tradeSizeSource}`);
         console.error(`   This likely indicates a bug in trade sizing. Trade BLOCKED.\n`);
         await this.performanceTracker.logIssue(
           'error',
           'trade_execution',
-          `Safety cap: Order $${tradeSizeUsdcNum.toFixed(2)} exceeds max $${maxAllowedUsd.toFixed(2)} (2x $${configuredSize})`,
+          `Safety cap: Order $${tradeSizeUsdcNum.toFixed(2)} exceeds max $${maxAllowedUsd.toFixed(2)}`,
           { trade, tradeSizeSource, tradeSizeUsdcNum, maxAllowedUsd }
         );
         return;
@@ -993,6 +958,7 @@ export class CopyTrader {
         side: trade.side, // Use the side detected from the tracked wallet's trade
         tokenId: trade.tokenId,    // Pass token ID for direct CLOB execution (bypasses Gamma API)
         negRisk: trade.negRisk,    // Pass negative risk flag
+        slippagePercent: trade.slippagePercent,  // Per-wallet slippage (executor falls back to storage)
       };
 
       console.log(`\n🚀 [Execute] EXECUTING TRADE:`);
@@ -1039,8 +1005,8 @@ export class CopyTrader {
         console.log(`   Outcome: ${order.outcome}`);
         console.log(`   Side: ${order.side} $${tradeSizeUsdcNum.toFixed(2)} USDC (${order.amount} shares) @ ${order.price}`);
         console.log(`${'='.repeat(60)}\n`);
-        this.executedTrades.add(trade.transactionHash);
-        
+        this.executedTradesCount++;
+
         // Mark as processed now that execution succeeded (enables retry on failure)
         this.processedTrades.set(tradeKey, Date.now());
         this.processedCompoundKeys.set(compoundKey, Date.now());
@@ -1091,6 +1057,8 @@ export class CopyTrader {
           console.error(`   Market: ${order.marketId}`);
           console.error(`   Side: ${order.side} $${tradeSizeUsdcNum.toFixed(2)} USDC (${order.amount} shares) @ ${order.price}`);
           console.error(`${'='.repeat(60)}\n`);
+          this.processedTrades.set(tradeKey, Date.now());
+          this.processedCompoundKeys.set(compoundKey, Date.now());
           await this.performanceTracker.logIssue(
             'error',
             'trade_execution',
@@ -1136,17 +1104,15 @@ export class CopyTrader {
   /**
    * Get status of the copy trader
    */
-  getStatus(): { 
-    running: boolean; 
+  getStatus(): {
+    running: boolean;
     executedTradesCount: number;
-    websocketStatus: ReturnType<WebSocketMonitor['getStatus']>;
     monitoringMode: 'polling' | 'websocket';
     domeWs: { connected: boolean; subscriptionId: string | null; trackedWallets: number } | null;
   } {
     return {
       running: this.isRunning,
-      executedTradesCount: this.executedTrades.size,
-      websocketStatus: this.websocketMonitor.getStatus(),
+      executedTradesCount: this.executedTradesCount,
       monitoringMode: this.monitoringMode,
       domeWs: this.domeWsMonitor?.getStatus() ?? null,
     };
@@ -1198,26 +1164,8 @@ export class CopyTrader {
    */
   async reloadWallets(): Promise<void> {
     if (this.isRunning) {
-      await this.websocketMonitor.reloadWallets();
       await this.monitor.reloadWallets();
-      
-      // Balance tracking only for user wallet (not tracked wallets)
-      // This reduces RPC calls significantly
     }
-  }
-
-  /**
-   * Get the wallet monitor instance (for direct access if needed)
-   */
-  getMonitor(): WalletMonitor {
-    return this.monitor;
-  }
-
-  /**
-   * Get the WebSocket monitor instance (for direct access if needed)
-   */
-  getWebSocketMonitor(): WebSocketMonitor {
-    return this.websocketMonitor;
   }
 
   /**

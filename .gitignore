@@ -5,3 +5,15 @@ dist/
 data/
 .DS_Store
 *.env.local
+
+# Keystores and credentials
+*.keystore.json
+*.keystore
+data/keystores/
+
+# SQLite
+*.db
+*.sqlite
+
+# Editor
+.cursor/

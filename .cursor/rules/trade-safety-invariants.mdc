@@ -29,9 +29,9 @@ These rules protect real money. Violating any of them has caused actual financia
 
 ## 4. Wallet Settings: ALL fields passed through
 
-- `parsePositionToTrade` and `parseTradeData` in `walletMonitor.ts` MUST pass ALL wallet settings to `DetectedTrade`.
+- `parseTradeData` in `walletMonitor.ts` MUST pass ALL wallet settings to `DetectedTrade`.
 - `enrichFromWallet` in `domeWebSocket.ts` MUST also pass ALL wallet settings.
-- If a new wallet setting is added, it MUST be added to all three locations.
+- If a new wallet setting is added, it MUST be added to both locations.
 
 ## 5. Order Size Safety Cap
 

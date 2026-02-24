@@ -15,11 +15,7 @@ POLYMARKET_BUILDER_API_KEY=your_builder_api_key_here
 POLYMARKET_BUILDER_SECRET=your_builder_secret_here
 POLYMARKET_BUILDER_PASSPHRASE=your_builder_passphrase_here
 
-# Polymarket API endpoints
-# IMPORTANT: Use direct URLs with Builder credentials - proxies don't help!
-# Builder credentials (above) authenticate your requests to bypass Cloudflare blocking.
-# DO NOT use a Cloudflare Worker proxy - it won't work because Polymarket's 
-# Cloudflare still blocks requests from Workers. Just use the direct URLs below.
+# Polymarket API endpoints (use direct URLs with Builder credentials)
 POLYMARKET_CLOB_API_URL=https://clob.polymarket.com
 POLYMARKET_DATA_API_URL=https://data-api.polymarket.com
 POLYMARKET_GAMMA_API_URL=https://gamma-api.polymarket.com
@@ -57,11 +53,20 @@ POLYMARKET_SIGNATURE_TYPE=0
 # and looking for token transfers to your Polymarket account.
 POLYMARKET_FUNDER_ADDRESS=0x_your_proxy_wallet_address_here
 
-# Server configuration
-PORT=3000
+# Server configuration (default 3001 in config)
+PORT=3001
 
 # Monitoring interval in milliseconds (how often to check for new trades)
 MONITORING_INTERVAL_MS=15000
 
 # Optional: Database for tracking (using JSON file for simplicity)
 DATA_DIR=./data
+
+# Optional: Dome API key for real-time WebSocket trade detection (faster than polling)
+DOME_API_KEY=
+
+# Optional: Storage backend (json | sqlite). Default: json
+STORAGE_BACKEND=json
+
+# Optional: Master password for encrypted wallet/keystore unlock (multi-wallet mode)
+MASTER_PASSWORD=

@@ -109,19 +109,6 @@ export async function kalshiPlaceOrder(params: KalshiOrderParams): Promise<Kalsh
   }
 }
 
-/**
- * Cancel a Kalshi order.
- */
-export async function kalshiCancelOrder(orderId: string): Promise<{ success: boolean; error?: string }> {
-  try {
-    const { portfolioApi: api } = await ensureInit();
-    await api.cancelOrder({ orderId });
-    return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err.message };
-  }
-}
-
 // ============================================================================
 // ACCOUNT DATA
 // ============================================================================
@@ -157,16 +144,3 @@ export async function kalshiGetPositions(): Promise<any[]> {
   }
 }
 
-/**
- * Get Kalshi open orders.
- */
-export async function kalshiGetOrders(): Promise<any[]> {
-  try {
-    const { portfolioApi: api } = await ensureInit();
-    const result = await api.getOrders({});
-    return result?.orders || [];
-  } catch (err: any) {
-    console.error('[KalshiClient] Failed to get orders:', err.message);
-    return [];
-  }
-}

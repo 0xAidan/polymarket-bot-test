@@ -3,8 +3,6 @@ import { config } from './config.js';
 import {
   addEncryptedWallet,
   removeEncryptedWallet,
-  getSigner,
-  getWalletAddress,
   getUnlockedWalletIds,
   isWalletUnlocked,
   unlockAllWallets,
@@ -223,16 +221,6 @@ export function getCopyAssignments(): CopyAssignment[] {
   return [...copyAssignments];
 }
 
-/**
- * Get copy assignments for a specific tracked wallet.
- * Returns which of our trading wallets should copy this tracked wallet's trades.
- */
-export function getAssignmentsForTrackedWallet(trackedWalletAddress: string): CopyAssignment[] {
-  return copyAssignments.filter(
-    a => a.trackedWalletAddress.toLowerCase() === trackedWalletAddress.toLowerCase()
-  );
-}
-
 // ============================================================================
 // WALLET UNLOCK / LOCK
 // ============================================================================
@@ -313,11 +301,6 @@ export { lockAllWallets };
  * Check if wallets are unlocked.
  */
 export { isWalletUnlocked };
-
-/**
- * Get signer for a trading wallet.
- */
-export { getSigner, getWalletAddress };
 
 /**
  * Get Builder API credentials for a wallet (must be unlocked).

@@ -119,6 +119,7 @@ export interface TradeOrder {
   side: 'BUY' | 'SELL';
   tokenId?: string;   // Token ID for CLOB client
   negRisk?: boolean;  // Negative risk flag
+  slippagePercent?: number;  // Per-wallet slippage override (default from storage if not set)
 }
 
 /**
