@@ -4,11 +4,16 @@ import { PolymarketApi } from './polymarketApi.js';
 import { Storage } from './storage.js';
 import { getTradingWallets } from './walletManager.js';
 import { getSigner, isWalletUnlocked } from './secureKeyManager.js';
+import { RelayClient, RelayerTxType } from '@polymarket/builder-relayer-client';
+import { BuilderConfig } from '@polymarket/builder-signing-sdk';
+
+const RELAYER_URL = 'https://relayer-v2.polymarket.com/';
+const POLYGON_CHAIN_ID = 137;
 
 // Polymarket contract addresses on Polygon
 const CTF_ADDRESS = '0x4D97DCd97eC945f40cF65F87097ACe5EA0476045';
 const NEG_RISK_ADAPTER_ADDRESS = '0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296';
-const USDC_ADDRESS = '0x2791bca1f2de4661ed88a30c99a7a9449aa84174';
+const USDC_ADDRESS = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
 
 const CTF_ABI = [
   'function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets) external',
@@ -18,13 +23,6 @@ const CTF_ABI = [
 
 const NEG_RISK_ABI = [
   'function redeemPositions(bytes32 conditionId, uint256[] amounts) external',
-];
-
-// Gnosis Safe ABI — Polymarket proxy wallets are Gnosis Safe contracts
-const GNOSIS_SAFE_ABI = [
-  'function nonce() view returns (uint256)',
-  'function getTransactionHash(address to, uint256 value, bytes data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address refundReceiver, uint256 _nonce) view returns (bytes32)',
-  'function execTransaction(address to, uint256 value, bytes data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address payable refundReceiver, bytes signatures) payable returns (bool success)',
 ];
 
 export interface RedeemablePosition {
@@ -70,7 +68,6 @@ const DEFAULT_CONFIG: LifecycleConfig = {
 
 export class PositionLifecycleManager {
   private api: PolymarketApi;
-  private provider: ethers.providers.JsonRpcProvider;
   private checkInterval: ReturnType<typeof setInterval> | null = null;
   private isRunning = false;
   private lastCheckTime: number = 0;
@@ -83,7 +80,6 @@ export class PositionLifecycleManager {
 
   constructor() {
     this.api = new PolymarketApi();
-    this.provider = new ethers.providers.JsonRpcProvider(config.polygonRpcUrl);
     this.lifecycleConfig = { ...DEFAULT_CONFIG };
   }
 
@@ -222,7 +218,6 @@ export class PositionLifecycleManager {
             if (size <= 0) continue;
 
             const currentValue = typeof pos.currentValue === 'number' ? pos.currentValue : parseFloat(pos.currentValue || '0');
-            // Skip losing positions — API marks them redeemable but they pay $0
             if (currentValue <= 0) continue;
 
             results.push({
@@ -283,61 +278,29 @@ export class PositionLifecycleManager {
   }
 
   // ============================================================
-  // ON-CHAIN EXECUTION VIA GNOSIS SAFE PROXY
+  // GASLESS EXECUTION VIA POLYMARKET RELAYER
   // ============================================================
 
   /**
-   * Execute a contract call through the Gnosis Safe proxy wallet.
-   * Polymarket proxy wallets are Gnosis Safe contracts with the trading
-   * wallet's EOA as the sole owner (threshold=1). To redeem tokens held
-   * by the proxy, we encode the target call and submit it via
-   * Safe.execTransaction, signed by the owner.
+   * Create a RelayClient for a given wallet. The relayer submits
+   * transactions on-chain and pays gas — the wallet only signs.
    */
-  private async executeViaSafe(
-    proxyAddress: string,
-    targetContract: string,
-    callData: string,
-    signer: ethers.Wallet,
-  ): Promise<ethers.providers.TransactionReceipt> {
-    const safe = new ethers.Contract(proxyAddress, GNOSIS_SAFE_ABI, signer);
+  private createRelayClient(signer: ethers.Wallet): RelayClient {
+    const builderConfig = new BuilderConfig({
+      localBuilderCreds: {
+        key: config.polymarketBuilderApiKey,
+        secret: config.polymarketBuilderSecret,
+        passphrase: config.polymarketBuilderPassphrase,
+      },
+    });
 
-    const nonce = await safe.nonce();
-
-    const txHash: string = await safe.getTransactionHash(
-      targetContract,
-      0,
-      callData,
-      0,                                // operation = Call
-      0,                                // safeTxGas
-      0,                                // baseGas
-      0,                                // gasPrice
-      ethers.constants.AddressZero,     // gasToken
-      ethers.constants.AddressZero,     // refundReceiver
-      nonce,
+    return new RelayClient(
+      RELAYER_URL,
+      POLYGON_CHAIN_ID,
+      signer as any,
+      builderConfig,
+      RelayerTxType.SAFE,
     );
-
-    // Sign the raw hash (no EIP-191 prefix) — Gnosis Safe expects v=27|28
-    const signingKey = signer._signingKey();
-    const sig = signingKey.signDigest(txHash);
-    const signature = ethers.utils.joinSignature(sig);
-
-    console.log(`[Lifecycle] Submitting Safe tx: proxy=${proxyAddress.substring(0, 10)}..., target=${targetContract.substring(0, 10)}..., nonce=${nonce}`);
-
-    const tx = await safe.execTransaction(
-      targetContract,
-      0,
-      callData,
-      0,
-      0,
-      0,
-      0,
-      ethers.constants.AddressZero,
-      ethers.constants.AddressZero,
-      signature,
-      { gasLimit: 500_000 },
-    );
-
-    return await tx.wait();
   }
 
   async redeemPosition(pos: RedeemablePosition): Promise<RedemptionResult> {
@@ -355,15 +318,17 @@ export class PositionLifecycleManager {
         return { ...baseResult, error: 'Wallets are locked — unlock wallets first' };
       }
 
+      if (!config.polymarketBuilderApiKey || !config.polymarketBuilderSecret) {
+        return { ...baseResult, error: 'Builder API credentials required for gasless redemption' };
+      }
+
       let baseSigner: ethers.Wallet;
       try {
         baseSigner = getSigner(pos.walletId);
       } catch {
         return { ...baseResult, error: `Wallet "${pos.walletId}" not found or not unlocked` };
       }
-      const signer = baseSigner.connect(this.provider);
 
-      // Encode the inner call that the proxy wallet will execute
       let targetContract: string;
       let callData: string;
 
@@ -383,15 +348,25 @@ export class PositionLifecycleManager {
         targetContract = CTF_ADDRESS;
       }
 
-      console.log(`[Lifecycle] Redeeming: ${pos.marketTitle} (${pos.size} shares, ~$${pos.estimatedPayout.toFixed(2)}) via proxy ${pos.proxyWallet.substring(0, 10)}...`);
+      console.log(`[Lifecycle] Redeeming via relayer: ${pos.marketTitle} (${pos.size} shares, ~$${pos.estimatedPayout.toFixed(2)})`);
 
-      // Tokens are held by the proxy wallet, so we execute through the Safe
-      const receipt = await this.executeViaSafe(pos.proxyWallet, targetContract, callData, signer);
+      const relayClient = this.createRelayClient(baseSigner);
+      const response = await relayClient.execute(
+        [{ to: targetContract, data: callData, value: '0' }],
+        `Redeem: ${pos.marketTitle}`,
+      );
+      const result = await response.wait();
+
+      if (!result) {
+        return { ...baseResult, error: 'Relayer transaction failed or timed out' };
+      }
+
+      console.log(`[Lifecycle] Redeemed: ${pos.marketTitle} — tx ${result.transactionHash}`);
 
       return {
         ...baseResult,
         success: true,
-        txHash: receipt.transactionHash,
+        txHash: result.transactionHash,
         amountRecovered: pos.estimatedPayout,
       };
     } catch (err: any) {
@@ -415,13 +390,16 @@ export class PositionLifecycleManager {
         return { ...baseResult, error: 'Wallets are locked — unlock wallets first' };
       }
 
+      if (!config.polymarketBuilderApiKey || !config.polymarketBuilderSecret) {
+        return { ...baseResult, error: 'Builder API credentials required for gasless merge' };
+      }
+
       let baseSigner: ethers.Wallet;
       try {
         baseSigner = getSigner(pos.walletId);
       } catch {
         return { ...baseResult, error: `Wallet "${pos.walletId}" not found or not unlocked` };
       }
-      const signer = baseSigner.connect(this.provider);
 
       const iface = new ethers.utils.Interface(CTF_ABI);
       const mergeAmount = ethers.utils.parseUnits(pos.size.toString(), 6);
@@ -433,14 +411,25 @@ export class PositionLifecycleManager {
         mergeAmount,
       ]);
 
-      console.log(`[Lifecycle] Merging: ${pos.marketTitle} (${pos.size} shares) via proxy ${pos.proxyWallet.substring(0, 10)}...`);
+      console.log(`[Lifecycle] Merging via relayer: ${pos.marketTitle} (${pos.size} shares)`);
 
-      const receipt = await this.executeViaSafe(pos.proxyWallet, CTF_ADDRESS, callData, signer);
+      const relayClient = this.createRelayClient(baseSigner);
+      const response = await relayClient.execute(
+        [{ to: CTF_ADDRESS, data: callData, value: '0' }],
+        `Merge: ${pos.marketTitle}`,
+      );
+      const result = await response.wait();
+
+      if (!result) {
+        return { ...baseResult, error: 'Relayer transaction failed or timed out' };
+      }
+
+      console.log(`[Lifecycle] Merged: ${pos.marketTitle} — tx ${result.transactionHash}`);
 
       return {
         ...baseResult,
         success: true,
-        txHash: receipt.transactionHash,
+        txHash: result.transactionHash,
         amountRecovered: pos.size,
       };
     } catch (err: any) {

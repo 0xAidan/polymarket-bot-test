@@ -2290,9 +2290,19 @@ const redeemAllPositions = async () => {
   if (!confirm('Redeem all eligible winning positions now?')) return;
   try {
     const result = await API.redeemAll();
-    const count = result.results ? result.results.length : 0;
-    const succeeded = result.results ? result.results.filter(r => r.success).length : 0;
-    alert(`Redeemed ${succeeded}/${count} position(s).`);
+    const results = result.results || [];
+    const count = results.length;
+    const succeeded = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success);
+
+    if (succeeded === count && count > 0) {
+      alert(`Successfully redeemed ${succeeded} position(s)!`);
+    } else if (failed.length > 0) {
+      const errorMsg = failed[0].error || 'Unknown error';
+      alert(`Redeemed ${succeeded}/${count} position(s).\n\nError: ${errorMsg}`);
+    } else {
+      alert(`Redeemed ${succeeded}/${count} position(s).`);
+    }
     checkRedeemablePositions();
   } catch (err) {
     alert(`Redemption failed: ${err.message}`);
