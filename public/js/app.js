@@ -9,6 +9,143 @@ let refreshInterval = null;
 let botRunning = false;
 
 // ============================================================
+// WIN95 DIALOG SYSTEM (replaces native alert/confirm/prompt)
+// ============================================================
+
+const win95Dialog = (() => {
+  let container = null;
+
+  const ensureContainer = () => {
+    if (container) return container;
+    container = document.createElement('div');
+    container.id = 'win95DialogContainer';
+    document.body.appendChild(container);
+    return container;
+  };
+
+  const createOverlay = () => {
+    const overlay = document.createElement('div');
+    overlay.className = 'win-modal-overlay';
+    overlay.style.zIndex = '9999';
+    return overlay;
+  };
+
+  const createDialog = (title, bodyHtml, buttons) => {
+    return new Promise((resolve) => {
+      const overlay = createOverlay();
+      const modal = document.createElement('div');
+      modal.className = 'win-modal';
+      modal.style.maxWidth = '440px';
+      modal.setAttribute('role', 'dialog');
+      modal.setAttribute('aria-label', title);
+
+      const titleBar = document.createElement('div');
+      titleBar.className = 'win-title-bar';
+      titleBar.innerHTML = `
+        <span class="win-title-bar-text">${title}</span>
+        <div class="win-title-bar-controls">
+          <button class="win-title-bar-btn" aria-label="Close" data-action="close">&times;</button>
+        </div>`;
+
+      const body = document.createElement('div');
+      body.className = 'win-modal-body';
+      body.style.padding = '16px';
+      body.innerHTML = bodyHtml;
+
+      const footer = document.createElement('div');
+      footer.className = 'win-modal-footer';
+
+      let resolved = false;
+      const close = (value) => {
+        if (resolved) return;
+        resolved = true;
+        overlay.remove();
+        resolve(value);
+      };
+
+      titleBar.querySelector('[data-action="close"]').addEventListener('click', () => close(null));
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) close(null); });
+
+      buttons.forEach((btn, i) => {
+        const button = document.createElement('button');
+        button.className = 'win-btn';
+        button.textContent = btn.label;
+        button.style.minWidth = '80px';
+        if (btn.primary) button.style.fontWeight = 'bold';
+        button.addEventListener('click', () => close(btn.value));
+        if (i === 0) setTimeout(() => button.focus(), 50);
+        footer.appendChild(button);
+      });
+
+      document.addEventListener('keydown', function handler(e) {
+        if (resolved) { document.removeEventListener('keydown', handler); return; }
+        if (e.key === 'Escape') { close(null); document.removeEventListener('keydown', handler); }
+        if (e.key === 'Enter') {
+          const primaryBtn = buttons.find(b => b.primary);
+          if (primaryBtn) close(primaryBtn.value);
+          document.removeEventListener('keydown', handler);
+        }
+      });
+
+      modal.appendChild(titleBar);
+      modal.appendChild(body);
+      modal.appendChild(footer);
+      overlay.appendChild(modal);
+      ensureContainer().appendChild(overlay);
+    });
+  };
+
+  return {
+    alert: (message, title = 'CopyTrade95') => {
+      const escaped = String(message).replace(/</g, '&lt;').replace(/\n/g, '<br>');
+      return createDialog(title, `<p style="margin:0;line-height:1.5">${escaped}</p>`, [
+        { label: 'OK', value: true, primary: true },
+      ]);
+    },
+
+    success: (message, title = 'Success') => {
+      const escaped = String(message).replace(/</g, '&lt;').replace(/\n/g, '<br>');
+      return createDialog(title, `<p style="margin:0;line-height:1.5;color:var(--win-success,#008000)">${escaped}</p>`, [
+        { label: 'OK', value: true, primary: true },
+      ]);
+    },
+
+    error: (message, title = 'Error') => {
+      const escaped = String(message).replace(/</g, '&lt;').replace(/\n/g, '<br>');
+      return createDialog(title, `<p style="margin:0;line-height:1.5;color:#cc0000">${escaped}</p>`, [
+        { label: 'OK', value: true, primary: true },
+      ]);
+    },
+
+    confirm: (message, title = 'Confirm') => {
+      const escaped = String(message).replace(/</g, '&lt;').replace(/\n/g, '<br>');
+      return createDialog(title, `<p style="margin:0;line-height:1.5">${escaped}</p>`, [
+        { label: 'OK', value: true, primary: true },
+        { label: 'Cancel', value: false },
+      ]);
+    },
+
+    prompt: (message, defaultValue = '', title = 'Input') => {
+      const escaped = String(message).replace(/</g, '&lt;').replace(/\n/g, '<br>');
+      const inputId = 'win95PromptInput_' + Date.now();
+      return createDialog(title, `
+        <p style="margin:0 0 8px;line-height:1.5">${escaped}</p>
+        <input id="${inputId}" class="win-input" style="width:100%;box-sizing:border-box" value="${String(defaultValue).replace(/"/g, '&quot;')}" />
+      `, [
+        { label: 'OK', value: '__OK__', primary: true },
+        { label: 'Cancel', value: null },
+      ]).then(val => {
+        if (val === '__OK__') {
+          const input = document.getElementById(inputId);
+          return input ? input.value : defaultValue;
+        }
+        return null;
+      });
+    },
+  };
+})();
+
+// ============================================================
 // INITIALIZATION
 // ============================================================
 
@@ -328,18 +465,18 @@ async function toggleBot() {
     }
     await loadStatus();
   } catch (error) {
-    alert(`Failed: ${error.message}`);
+    await win95Dialog.error(`Failed: ${error.message}`);
   }
 }
 
 async function startBot() {
   try { await API.startBot(); await loadStatus(); }
-  catch (error) { alert(`Failed to start bot: ${error.message}`); }
+  catch (error) { await win95Dialog.error(`Failed to start bot: ${error.message}`); }
 }
 
 async function stopBot() {
   try { await API.stopBot(); await loadStatus(); }
-  catch (error) { alert(`Failed to stop bot: ${error.message}`); }
+  catch (error) { await win95Dialog.error(`Failed to stop bot: ${error.message}`); }
 }
 
 // ============================================================
@@ -544,30 +681,30 @@ function getWalletConfigBadges(wallet) {
 async function addWallet() {
   const input = document.getElementById('newWalletAddress');
   const address = input.value.trim();
-  if (!address) { alert('Please enter a wallet address'); return; }
+  if (!address) { await win95Dialog.alert('Please enter a wallet address'); return; }
   
   try {
     await API.addWallet(address);
     input.value = '';
     lastWalletHash = '';
     await loadWallets(true);
-    if (confirm('Wallet added (inactive by default). Configure it now?')) {
+    if (await win95Dialog.confirm('Wallet added (inactive by default). Configure it now?')) {
       openWalletModal(address.toLowerCase());
     }
   } catch (error) {
-    alert(`Failed to add wallet: ${error.message}`);
+    await win95Dialog.error(`Failed to add wallet: ${error.message}`);
   }
 }
 
 async function removeWallet(address) {
-  if (!confirm('Remove this tracked wallet?')) return;
+  if (!await win95Dialog.confirm('Remove this tracked wallet?')) return;
   try { lastWalletHash = ''; await API.removeWallet(address); await loadWallets(true); }
-  catch (error) { alert(`Failed to remove wallet: ${error.message}`); }
+  catch (error) { await win95Dialog.error(`Failed to remove wallet: ${error.message}`); }
 }
 
 async function toggleWallet(address, active) {
   try { lastWalletHash = ''; await API.toggleWallet(address, active); await loadWallets(true); }
-  catch (error) { alert(`Failed to toggle wallet: ${error.message}`); await loadWallets(true); }
+  catch (error) { await win95Dialog.error(`Failed to toggle wallet: ${error.message}`); await loadWallets(true); }
 }
 
 // ============================================================
@@ -580,7 +717,7 @@ async function openWalletModal(address) {
   try {
     const data = await API.getWallets();
     const wallet = data.wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
-    if (!wallet) { alert('Wallet not found'); return; }
+    if (!wallet) { await win95Dialog.error('Wallet not found'); return; }
     
     document.getElementById('walletModalTitle').textContent = `Configure: ${wallet.label || address.slice(0, 10) + '...'}`;
     document.getElementById('modalWalletAddress').textContent = address;
@@ -632,7 +769,7 @@ async function openWalletModal(address) {
     document.getElementById('walletModal').classList.remove('hidden');
     setupModalEventListeners();
   } catch (error) {
-    alert(`Failed to load wallet: ${error.message}`);
+    await win95Dialog.error(`Failed to load wallet: ${error.message}`);
   }
 }
 
@@ -805,11 +942,11 @@ async function saveWalletConfig() {
     await API.updateWalletLabel(currentWalletAddress, document.getElementById('modalWalletLabel').value.trim());
     await API.updateWalletTags(currentWalletAddress, tags);
     await API.updateWalletTradeConfig(currentWalletAddress, config);
-    alert('Configuration saved (wallet remains inactive until enabled)');
+    await win95Dialog.success('Configuration saved (wallet remains inactive until enabled)');
     closeWalletModal();
     lastWalletHash = '';
     await loadWallets(true);
-  } catch (error) { alert(`Failed to save: ${error.message}`); }
+  } catch (error) { await win95Dialog.error(`Failed to save: ${error.message}`); }
 }
 
 async function saveWalletConfigAndEnable() {
@@ -821,11 +958,11 @@ async function saveWalletConfigAndEnable() {
     await API.updateWalletTags(currentWalletAddress, tags);
     await API.updateWalletTradeConfig(currentWalletAddress, config);
     await API.toggleWallet(currentWalletAddress, true);
-    alert('Configuration saved and wallet enabled!');
+    await win95Dialog.success('Configuration saved and wallet enabled!');
     closeWalletModal();
     lastWalletHash = '';
     await loadWallets(true);
-  } catch (error) { alert(`Failed to save: ${error.message}`); }
+  } catch (error) { await win95Dialog.error(`Failed to save: ${error.message}`); }
 }
 
 function collectModalConfig() {
@@ -880,27 +1017,27 @@ async function updateStopLoss() {
   const enabled = document.getElementById('stopLossEnabled').checked;
   const percent = parseInt(document.getElementById('stopLossPercent').value);
   document.getElementById('stopLossInputs').className = enabled ? '' : 'hidden';
-  try { await API.setStopLoss(enabled, percent); } catch (error) { alert(`Failed: ${error.message}`); }
+  try { await API.setStopLoss(enabled, percent); } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
 }
 
 async function updateMonitoringInterval() {
   try { await API.setMonitoringInterval(parseInt(document.getElementById('monitoringInterval').value)); }
-  catch (error) { alert(`Failed: ${error.message}`); }
+  catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
 }
 
 async function updateProxyWallet() {
   const addr = document.getElementById('proxyWalletAddress').value.trim();
-  if (!addr) { alert('Please enter your proxy wallet address'); return; }
-  if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) { alert('Invalid address format.'); return; }
+  if (!addr) { await win95Dialog.alert('Please enter your proxy wallet address'); return; }
+  if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) { await win95Dialog.error('Invalid address format.'); return; }
   try {
     const response = await fetch('/api/config/proxy-wallet', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ proxyWalletAddress: addr })
     });
     const data = await response.json();
-    if (data.success) { alert('Proxy wallet saved!'); loadWalletBalance(); }
-    else alert(`Failed: ${data.error}`);
-  } catch (error) { alert(`Failed: ${error.message}`); }
+    if (data.success) { await win95Dialog.success('Proxy wallet saved!'); loadWalletBalance(); }
+    else await win95Dialog.error(`Failed: ${data.error}`);
+  } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
 }
 
 // ============================================================
@@ -1035,7 +1172,7 @@ async function createMasterPassword() {
     document.getElementById('masterPasswordConfirm').value = '';
 
     if (result.migrated) {
-      alert('Existing .env private key was migrated to encrypted storage as your "main" wallet.');
+      await win95Dialog.alert('Existing .env private key was migrated to encrypted storage as your "main" wallet.');
     }
 
     document.getElementById('unlockSection').classList.add('hidden');
@@ -1050,7 +1187,7 @@ async function createMasterPassword() {
 // Returning user: unlock with existing master password
 async function unlockVault() {
   const pw = document.getElementById('masterPasswordInput').value;
-  if (!pw) { alert('Enter your master password'); return; }
+  if (!pw) { await win95Dialog.alert('Enter your master password'); return; }
   
   try {
     const result = await API.unlockWallets(pw);
@@ -1060,13 +1197,13 @@ async function unlockVault() {
     document.getElementById('masterPasswordInput').value = '';
 
     if (result.migrated) {
-      alert('Existing .env private key was migrated to encrypted storage as "main" wallet.');
+      await win95Dialog.alert('Existing .env private key was migrated to encrypted storage as "main" wallet.');
     }
     document.getElementById('unlockSection').classList.add('hidden');
     document.getElementById('tradingWalletsSection').classList.remove('hidden');
     await loadTradingWallets();
   } catch (error) {
-    alert(`Unlock failed: ${error.message}`);
+    await win95Dialog.error(`Unlock failed: ${error.message}`);
   }
 }
 
@@ -1150,11 +1287,11 @@ async function addNewTradingWallet() {
   const apiSecret = document.getElementById('newTradingWalletApiSecret').value.trim();
   const apiPassphrase = document.getElementById('newTradingWalletApiPassphrase').value.trim();
   
-  if (!id || !label || !pk) { alert('Wallet ID, Label, and Private Key are required'); return; }
-  if (!masterPassword) { alert('Wallets must be unlocked first'); return; }
+  if (!id || !label || !pk) { await win95Dialog.alert('Wallet ID, Label, and Private Key are required'); return; }
+  if (!masterPassword) { await win95Dialog.alert('Wallets must be unlocked first'); return; }
   
   if (!apiKey || !apiSecret || !apiPassphrase) {
-    const proceed = confirm(
+    const proceed = await win95Dialog.confirm(
       'WARNING: You have not entered Builder API credentials.\n\n' +
       'Without these, this wallet CANNOT place orders on Polymarket.\n' +
       'Get them from: polymarket.com/settings → Builder tab\n\n' +
@@ -1171,30 +1308,30 @@ async function addNewTradingWallet() {
     document.getElementById('newTradingWalletApiKey').value = '';
     document.getElementById('newTradingWalletApiSecret').value = '';
     document.getElementById('newTradingWalletApiPassphrase').value = '';
-    alert('Trading wallet added!');
+    await win95Dialog.success('Trading wallet added!');
     await loadTradingWallets();
   } catch (error) {
-    alert(`Failed: ${error.message}`);
+    await win95Dialog.error(`Failed: ${error.message}`);
   }
 }
 
 async function removeTradingWalletUI(id) {
-  if (!confirm(`Remove trading wallet "${id}"? This will delete the encrypted keystore.`)) return;
+  if (!await win95Dialog.confirm(`Remove trading wallet "${id}"? This will delete the encrypted keystore.`)) return;
   try { await API.removeTradingWallet(id); await loadTradingWallets(); }
-  catch (error) { alert(`Failed: ${error.message}`); }
+  catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
 }
 
 async function toggleTradingWalletActive(id, active) {
   try { await API.toggleTradingWallet(id, active); await loadTradingWallets(); }
-  catch (error) { alert(`Failed: ${error.message}`); await loadTradingWallets(); }
+  catch (error) { await win95Dialog.error(`Failed: ${error.message}`); await loadTradingWallets(); }
 }
 
 // ============================================================
 // BUILDER CREDENTIALS MODAL
 // ============================================================
 
-function openBuilderCredsModal(walletId, walletLabel) {
-  if (!masterPassword) { alert('Wallets must be unlocked first'); return; }
+async function openBuilderCredsModal(walletId, walletLabel) {
+  if (!masterPassword) { await win95Dialog.alert('Wallets must be unlocked first'); return; }
 
   document.getElementById('builderCredsWalletId').value = walletId;
   document.getElementById('builderCredsWalletLabel').textContent = `${walletLabel} (${walletId})`;
@@ -1330,17 +1467,17 @@ async function loadCopyAssignments() {
 async function addAssignment() {
   const tracked = document.getElementById('assignTrackedWallet').value;
   const trading = document.getElementById('assignTradingWallet').value;
-  if (!tracked || !trading) { alert('Select both wallets'); return; }
+  if (!tracked || !trading) { await win95Dialog.alert('Select both wallets'); return; }
   
   try {
     await API.addCopyAssignment(tracked, trading, false);
     await loadCopyAssignments();
-  } catch (error) { alert(`Failed: ${error.message}`); }
+  } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
 }
 
 async function removeAssignment(tracked, trading) {
   try { await API.removeCopyAssignment(tracked, trading); await loadCopyAssignments(); }
-  catch (error) { alert(`Failed: ${error.message}`); }
+  catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
 }
 
 // ============================================================
@@ -1476,8 +1613,8 @@ function updateMirrorSummary() {
 
 async function executeMirrorTrades() {
   const selected = currentMirrorTrades.filter(t => t.selected && t.action !== 'SKIP');
-  if (selected.length === 0) { alert('No trades selected'); return; }
-  if (!confirm(`Execute ${selected.length} trade(s)? This will place real orders.`)) return;
+  if (selected.length === 0) { await win95Dialog.alert('No trades selected'); return; }
+  if (!await win95Dialog.confirm(`Execute ${selected.length} trade(s)? This will place real orders.`)) return;
   
   const btn = document.getElementById('mirrorExecuteBtn');
   btn.disabled = true;
@@ -1498,10 +1635,10 @@ async function executeMirrorTrades() {
     if (result.success) msg = `All ${result.executedTrades} trade(s) executed!\n\n` + msg;
     else msg = `Partial: ${result.executedTrades} succeeded, ${result.failedTrades} failed\n\n` + msg;
     
-    alert(msg);
+    result.success ? await win95Dialog.success(msg) : await win95Dialog.error(msg);
     closeMirrorModal();
   } catch (error) {
-    alert(`Execution failed: ${error.message}`);
+    await win95Dialog.error(`Execution failed: ${error.message}`);
     btn.disabled = false;
     btn.textContent = 'Execute Selected';
   }
@@ -1744,7 +1881,7 @@ function cancelLadderConfig() {
 
 async function confirmCreateLadder() {
   if (!selectedLadderPosition) {
-    alert('No position selected. Please select a position first.');
+    await win95Dialog.alert('No position selected. Please select a position first.');
     return;
   }
 
@@ -1778,17 +1915,17 @@ async function confirmCreateLadder() {
     closeCreateLadderForm();
     await loadLadderStatus();
   } catch (error) {
-    alert(`Failed to create ladder: ${error.message}`);
+    await win95Dialog.error(`Failed to create ladder: ${error.message}`);
   }
 }
 
 async function cancelLadder(id) {
-  if (!confirm('Cancel this ladder exit? No further steps will execute.')) return;
+  if (!await win95Dialog.confirm('Cancel this ladder exit? No further steps will execute.')) return;
   try {
     await API.cancelLadder(id);
     await loadLadderStatus();
   } catch (error) {
-    alert(`Failed to cancel ladder: ${error.message}`);
+    await win95Dialog.error(`Failed to cancel ladder: ${error.message}`);
   }
 }
 
@@ -1798,14 +1935,14 @@ async function toggleLadderLiveMode() {
     const currentLive = status.config?.liveMode || false;
     const newMode = !currentLive;
 
-    if (newMode && !confirm('Enable LIVE mode? Ladder steps will execute REAL sell orders on Polymarket. Make sure you understand the risks.')) {
+    if (newMode && !await win95Dialog.confirm('Enable LIVE mode? Ladder steps will execute REAL sell orders on Polymarket. Make sure you understand the risks.')) {
       return;
     }
 
     await API.updateLadderConfig({ liveMode: newMode });
     await loadLadderStatus();
   } catch (error) {
-    alert(`Failed to toggle mode: ${error.message}`);
+    await win95Dialog.error(`Failed to toggle mode: ${error.message}`);
   }
 }
 
@@ -1884,15 +2021,15 @@ async function saveKalshiConfig() {
   const apiKeyId = document.getElementById('kalshiApiKeyId').value.trim();
   const privateKeyPem = document.getElementById('kalshiPrivateKeyPem').value.trim();
   if (!apiKeyId || !privateKeyPem) {
-    alert('Both API Key ID and Private Key PEM are required');
+    await win95Dialog.alert('Both API Key ID and Private Key PEM are required');
     return;
   }
   try {
     await API.post('/config/kalshi', { apiKeyId, privateKeyPem });
-    alert('Kalshi configuration saved');
+    await win95Dialog.success('Kalshi configuration saved');
     loadPlatformStatus();
   } catch (err) {
-    alert(`Failed to save: ${err.message}`);
+    await win95Dialog.error(`Failed to save: ${err.message}`);
   }
 }
 
@@ -1942,27 +2079,34 @@ async function loadEntityPlatformMap() {
   }
 }
 
-function addPlatformWalletDialog() {
-  const entityId = prompt('Entity ID:');
+async function addPlatformWalletDialog() {
+  const entityId = await win95Dialog.prompt('Entity ID:');
   if (!entityId) return;
-  const platform = prompt('Platform (polymarket or kalshi):');
+  const platform = await win95Dialog.prompt('Platform (polymarket or kalshi):');
   if (!platform || !['polymarket', 'kalshi'].includes(platform)) {
-    alert('Platform must be "polymarket" or "kalshi"');
+    await win95Dialog.error('Platform must be "polymarket" or "kalshi"');
     return;
   }
-  const identifier = prompt(`${platform === 'polymarket' ? 'Wallet address (0x...)' : 'Kalshi account ID'}:`);
+  const identifier = await win95Dialog.prompt(`${platform === 'polymarket' ? 'Wallet address (0x...)' : 'Kalshi account ID'}:`);
   if (!identifier) return;
 
-  API.addPlatformWallet(entityId, platform, identifier)
-    .then(() => { alert('Platform wallet linked!'); loadEntityPlatformMap(); })
-    .catch(err => alert(`Failed: ${err.message}`));
+  try {
+    await API.addPlatformWallet(entityId, platform, identifier);
+    await win95Dialog.success('Platform wallet linked!');
+    loadEntityPlatformMap();
+  } catch (err) {
+    await win95Dialog.error(`Failed: ${err.message}`);
+  }
 }
 
-function removePlatformWalletUI(entityId, platform, identifier) {
-  if (!confirm(`Remove ${platform} wallet ${identifier.slice(0, 12)}... from entity?`)) return;
-  API.removePlatformWallet(entityId, platform, identifier)
-    .then(() => loadEntityPlatformMap())
-    .catch(err => alert(`Failed: ${err.message}`));
+async function removePlatformWalletUI(entityId, platform, identifier) {
+  if (!await win95Dialog.confirm(`Remove ${platform} wallet ${identifier.slice(0, 12)}... from entity?`)) return;
+  try {
+    await API.removePlatformWallet(entityId, platform, identifier);
+    loadEntityPlatformMap();
+  } catch (err) {
+    await win95Dialog.error(`Failed: ${err.message}`);
+  }
 }
 
 // ============================================================
@@ -1989,7 +2133,7 @@ async function toggleExecutorPaperMode() {
     await API.updateExecutorConfig({ paperMode: !current.config.paperMode });
     refreshExecutorStatus();
   } catch (err) {
-    alert(`Failed: ${err.message}`);
+    await win95Dialog.error(`Failed: ${err.message}`);
   }
 }
 
@@ -2021,12 +2165,12 @@ async function scanArbitrageOpportunities() {
       </tr>
     `).join('');
   } catch (err) {
-    alert(`Scan failed: ${err.message}`);
+    await win95Dialog.error(`Scan failed: ${err.message}`);
   }
 }
 
 async function executeArbFromTable(opp) {
-  if (!confirm(`Execute arb on "${opp.eventTitle}"?\nSpread: ${opp.spreadPercent.toFixed(1)}%`)) return;
+  if (!await win95Dialog.confirm(`Execute arb on "${opp.eventTitle}"?\nSpread: ${opp.spreadPercent.toFixed(1)}%`)) return;
 
   try {
     const trade = {
@@ -2048,15 +2192,15 @@ async function executeArbFromTable(opp) {
 
     const result = await API.executeArb(trade);
     if (result.result.bothSucceeded) {
-      alert('Arb executed successfully!');
+      await win95Dialog.success('Arb executed successfully!');
     } else if (result.result.partialFill) {
-      alert('WARNING: Partial fill — one leg failed. Check execution history.');
+      await win95Dialog.error('WARNING: Partial fill — one leg failed. Check execution history.');
     } else {
-      alert('Execution failed. Check execution history for details.');
+      await win95Dialog.error('Execution failed. Check execution history for details.');
     }
     refreshExecutorStatus();
   } catch (err) {
-    alert(`Execution failed: ${err.message}`);
+    await win95Dialog.error(`Execution failed: ${err.message}`);
   }
 }
 
@@ -2084,7 +2228,7 @@ async function detectCrossPlatformHedges() {
       </tr>
     `).join('');
   } catch (err) {
-    alert(`Hedge detection failed: ${err.message}`);
+    await win95Dialog.error(`Hedge detection failed: ${err.message}`);
   }
 }
 
@@ -2122,12 +2266,12 @@ async function generateHedgeRecommendations() {
       </div>
     `).join('');
   } catch (err) {
-    alert(`Failed: ${err.message}`);
+    await win95Dialog.error(`Failed: ${err.message}`);
   }
 }
 
 async function executeHedgeRec(rec) {
-  if (!confirm(`Execute ${rec.action} ${rec.outcome} on ${rec.platform}?`)) return;
+  if (!await win95Dialog.confirm(`Execute ${rec.action} ${rec.outcome} on ${rec.platform}?`)) return;
   try {
     const result = await API.executeHedge({
       platform: rec.platform,
@@ -2137,10 +2281,14 @@ async function executeHedgeRec(rec) {
       size: rec.size,
       price: rec.estimatedPrice,
     });
-    alert(result.result.success ? 'Hedge executed!' : `Failed: ${result.result.error}`);
+    if (result.result.success) {
+      await win95Dialog.success('Hedge executed!');
+    } else {
+      await win95Dialog.error(`Failed: ${result.result.error}`);
+    }
     refreshExecutorStatus();
   } catch (err) {
-    alert(`Failed: ${err.message}`);
+    await win95Dialog.error(`Failed: ${err.message}`);
   }
 }
 
@@ -2179,9 +2327,9 @@ async function saveExecutorConfig() {
       minSpread: parseFloat(document.getElementById('execMinSpread').value),
       simultaneousExecution: document.getElementById('execSimultaneous').checked,
     });
-    alert('Executor config saved');
+    await win95Dialog.success('Executor config saved');
   } catch (err) {
-    alert(`Failed: ${err.message}`);
+    await win95Dialog.error(`Failed: ${err.message}`);
   }
 }
 
@@ -2251,10 +2399,10 @@ const saveTradingWalletSettings = async () => {
       minRedeemValue: parseFloat(document.getElementById('twMinRedeemValue').value) || 0.10,
     };
     await API.updateLifecycleConfig(config);
-    alert('Settings saved!');
+    await win95Dialog.success('Settings saved!');
     closeTradingWalletSettingsModal();
   } catch (err) {
-    alert(`Failed to save: ${err.message}`);
+    await win95Dialog.error(`Failed to save: ${err.message}`);
   }
 };
 
@@ -2287,7 +2435,7 @@ const checkRedeemablePositions = async () => {
 };
 
 const redeemAllPositions = async () => {
-  if (!confirm('Redeem all eligible winning positions now?')) return;
+  if (!await win95Dialog.confirm('Redeem all eligible winning positions now?')) return;
   try {
     const result = await API.redeemAll();
     const results = result.results || [];
@@ -2296,16 +2444,16 @@ const redeemAllPositions = async () => {
     const failed = results.filter(r => !r.success);
 
     if (succeeded === count && count > 0) {
-      alert(`Successfully redeemed ${succeeded} position(s)!`);
+      await win95Dialog.success(`Successfully redeemed ${succeeded} position(s)!`);
     } else if (failed.length > 0) {
       const errorMsg = failed[0].error || 'Unknown error';
-      alert(`Redeemed ${succeeded}/${count} position(s).\n\nError: ${errorMsg}`);
+      await win95Dialog.error(`Redeemed ${succeeded}/${count} position(s).\n\nError: ${errorMsg}`);
     } else {
-      alert(`Redeemed ${succeeded}/${count} position(s).`);
+      await win95Dialog.alert(`Redeemed ${succeeded}/${count} position(s).`);
     }
     checkRedeemablePositions();
   } catch (err) {
-    alert(`Redemption failed: ${err.message}`);
+    await win95Dialog.error(`Redemption failed: ${err.message}`);
   }
 };
 
@@ -2369,7 +2517,7 @@ const toggleBotMenu = () => {
     { label: 'Paper Mode Info...', action: openPaperModeModal },
     { separator: true },
     { label: 'Lock Vault', action: async () => {
-      if (confirm('Lock the wallet vault? You will need to re-enter your master password to trade.')) {
+      if (await win95Dialog.confirm('Lock the wallet vault? You will need to re-enter your master password to trade.')) {
         masterPassword = '';
         document.getElementById('unlockSection').classList.remove('hidden');
         document.getElementById('tradingWalletsSection').classList.add('hidden');
