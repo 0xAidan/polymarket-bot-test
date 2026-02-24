@@ -21,8 +21,8 @@ RUN npm run build
 # Remove dev dependencies after build to reduce image size
 RUN npm prune --production
 
-# Expose port (default 3000, can be overridden via PORT env var)
-EXPOSE 3000
+# Expose port (default 3001, can be overridden via PORT env var)
+EXPOSE 3001
 
-# Start the application
-CMD ["npm", "start"]
+# Start the application (node runs built output; tsx is pruned in production)
+CMD ["node", "dist/index.js"]
