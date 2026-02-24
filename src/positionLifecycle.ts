@@ -363,7 +363,8 @@ export class PositionLifecycleManager {
       }
       const signer = baseSigner.connect(this.provider);
 
-      // Encode the inner call that the proxy wallet will execute
+      await this.checkGasBalance(signer.address);
+
       let targetContract: string;
       let callData: string;
 
@@ -422,6 +423,8 @@ export class PositionLifecycleManager {
         return { ...baseResult, error: `Wallet "${pos.walletId}" not found or not unlocked` };
       }
       const signer = baseSigner.connect(this.provider);
+
+      await this.checkGasBalance(signer.address);
 
       const iface = new ethers.utils.Interface(CTF_ABI);
       const mergeAmount = ethers.utils.parseUnits(pos.size.toString(), 6);
@@ -494,6 +497,24 @@ export class PositionLifecycleManager {
 
     this.lastResults = results;
     return results;
+  }
+
+  /**
+   * Check if the EOA has enough MATIC/POL to pay gas for on-chain transactions.
+   * Returns the balance in MATIC or throws with a helpful message.
+   */
+  private async checkGasBalance(signerAddress: string): Promise<number> {
+    const balance = await this.provider.getBalance(signerAddress);
+    const maticBalance = parseFloat(ethers.utils.formatEther(balance));
+
+    if (maticBalance < 0.001) {
+      throw new Error(
+        `Insufficient gas: your wallet ${signerAddress} has ${maticBalance.toFixed(6)} POL (MATIC). ` +
+        `Send at least 0.1 POL to this address on the Polygon network to enable redemptions.`
+      );
+    }
+
+    return maticBalance;
   }
 
   // ============================================================
