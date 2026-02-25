@@ -434,35 +434,59 @@ export class PolymarketApi {
   async getUserTrades(userAddress: string, limit = 50): Promise<any[]> {
     return this.retryRequest(async () => {
       try {
-        // Try the /activity endpoint first as it may be more real-time than /trades
-        // /activity?user={address}&type=TRADE returns more recent data
-        const response = await this.dataApiClient.get('/activity', {
-          params: { 
-            user: userAddress.toLowerCase(),
-            type: 'TRADE',
-            limit,
-            sortBy: 'TIMESTAMP',
-            sortDirection: 'DESC',
-            _t: Date.now() // Cache buster
-          },
-          headers: {
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
+        const PAGE_SIZE = 50;
+        const MAX_PAGES = 4; // Cap at 200 trades to avoid excessive API calls
+        const allTrades: any[] = [];
+
+        for (let page = 0; page < MAX_PAGES; page++) {
+          const response = await this.dataApiClient.get('/activity', {
+            params: { 
+              user: userAddress.toLowerCase(),
+              type: 'TRADE',
+              limit: PAGE_SIZE,
+              offset: page * PAGE_SIZE,
+              sortBy: 'TIMESTAMP',
+              sortDirection: 'DESC',
+              _t: Date.now()
+            },
+            headers: {
+              'Cache-Control': 'no-cache',
+              'Pragma': 'no-cache'
+            }
+          });
+          
+          const trades = response.data || [];
+
+          if (page === 0 && trades.length > 0) {
+            console.log(`[API] Trade fields available: ${Object.keys(trades[0]).join(', ')}`);
           }
-        });
-        
-        const trades = response.data || [];
-        
-        // DEBUG: Log first trade structure to help with field name issues
-        if (trades.length > 0) {
-          console.log(`[API] ✓ Fetched ${trades.length} trade(s) for ${userAddress.substring(0, 8)}...`);
-          const sampleTrade = trades[0];
-          console.log(`[API] Trade fields available: ${Object.keys(sampleTrade).join(', ')}`);
+
+          if (trades.length === 0) break;
+          allTrades.push(...trades);
+
+          // Stop paginating if the oldest trade on this page is older than 5 minutes
+          const oldestTrade = trades[trades.length - 1];
+          if (oldestTrade?.timestamp) {
+            let oldestTime: number;
+            if (typeof oldestTrade.timestamp === 'number') {
+              oldestTime = oldestTrade.timestamp < 1e12 ? oldestTrade.timestamp * 1000 : oldestTrade.timestamp;
+            } else {
+              oldestTime = new Date(oldestTrade.timestamp).getTime();
+            }
+            if (Date.now() - oldestTime > 5 * 60 * 1000) break;
+          }
+
+          // Stop if this page was smaller than PAGE_SIZE (no more results)
+          if (trades.length < PAGE_SIZE) break;
+        }
+
+        if (allTrades.length > 0) {
+          console.log(`[API] ✓ Fetched ${allTrades.length} trade(s) for ${userAddress.substring(0, 8)}...`);
         } else {
           console.log(`[API] No trades found for ${userAddress.substring(0, 8)}...`);
         }
         
-        return trades;
+        return allTrades;
       } catch (error: any) {
         if (error.response?.status === 404) {
           console.log(`[API] No trades found for ${userAddress.substring(0, 8)}... (404)`);

@@ -360,12 +360,14 @@ export class CopyTrader {
     this.inFlightTrades.add(tradeKey);
     this.inFlightTrades.add(compoundKey);
 
-    // Mark as processed IMMEDIATELY so the next polling cycle won't re-detect this trade.
-    // Previously, filtered/rejected trades were never added to these maps, causing
-    // the same trades to be re-detected, re-filtered, and re-recorded as "rejected"
-    // on every single poll cycle until they fell out of the 5-minute API window.
+    // Mark tx hash as processed IMMEDIATELY so the next polling cycle won't re-detect
+    // this exact trade. Previously, filtered/rejected trades were never added here,
+    // causing the same trades to be re-detected and re-recorded as "rejected" every cycle.
+    // NOTE: Only set processedTrades (tx hash) here, NOT processedCompoundKeys.
+    // The compound key groups ALL trades on the same market+outcome+side within 5 minutes,
+    // so setting it up front would block legitimate different trades from the same whale
+    // on the same market (e.g. 7x $960 buys on Timberwolves spread within minutes).
     this.processedTrades.set(tradeKey, Date.now());
-    this.processedCompoundKeys.set(compoundKey, Date.now());
 
     try {
     // === Everything below is wrapped in try/finally to guarantee inFlightTrades cleanup ===
@@ -433,6 +435,13 @@ export class CopyTrader {
       console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
       console.log(`   Trade: ${trade.side} ${trade.outcome}`);
       console.log(`   💡 This SELL trade is blocked by this wallet's side filter settings.\n`);
+      await this.performanceTracker.recordTrade({
+        timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId,
+        outcome: trade.outcome, amount: trade.amount, price: trade.price, success: false,
+        status: 'rejected', executionTimeMs: 0,
+        error: `Side filter: Only BUY trades allowed for this wallet`,
+        detectedTxHash: trade.transactionHash, tokenId: trade.tokenId
+      });
       return;
     }
     
@@ -441,6 +450,13 @@ export class CopyTrader {
       console.log(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
       console.log(`   Trade: ${trade.side} ${trade.outcome}`);
       console.log(`   💡 This BUY trade is blocked by this wallet's side filter settings.\n`);
+      await this.performanceTracker.recordTrade({
+        timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId,
+        outcome: trade.outcome, amount: trade.amount, price: trade.price, success: false,
+        status: 'rejected', executionTimeMs: 0,
+        error: `Side filter: Only SELL trades allowed for this wallet`,
+        detectedTxHash: trade.transactionHash, tokenId: trade.tokenId
+      });
       return;
     }
 
@@ -457,6 +473,13 @@ export class CopyTrader {
       console.log(`   Price: $${trade.price} (wallet minimum: $${minPrice})`);
       console.log(`   Market: ${trade.marketId}`);
       console.log(`   💡 Adjust this wallet's price limits to copy low-price trades.\n`);
+      await this.performanceTracker.recordTrade({
+        timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId,
+        outcome: trade.outcome, amount: trade.amount, price: trade.price, success: false,
+        status: 'rejected', executionTimeMs: 0,
+        error: `Price filter: $${trade.price} below minimum $${minPrice}`,
+        detectedTxHash: trade.transactionHash, tokenId: trade.tokenId
+      });
       return;
     }
     
@@ -466,6 +489,13 @@ export class CopyTrader {
       console.log(`   Price: $${trade.price} (wallet maximum: $${maxPrice})`);
       console.log(`   Market: ${trade.marketId}`);
       console.log(`   💡 Adjust this wallet's price limits to copy high-price trades.\n`);
+      await this.performanceTracker.recordTrade({
+        timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId,
+        outcome: trade.outcome, amount: trade.amount, price: trade.price, success: false,
+        status: 'rejected', executionTimeMs: 0,
+        error: `Price filter: $${trade.price} above maximum $${maxPrice}`,
+        detectedTxHash: trade.transactionHash, tokenId: trade.tokenId
+      });
       return;
     }
 
@@ -535,6 +565,13 @@ export class CopyTrader {
         console.log(`   Detected trade value: $${detectedTradeValue.toFixed(2)}`);
         console.log(`   Wallet minimum: $${trade.valueFilterMin}`);
         console.log(`   💡 This trade is too small based on this wallet's value filter.\n`);
+        await this.performanceTracker.recordTrade({
+          timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId,
+          outcome: trade.outcome, amount: trade.amount, price: trade.price, success: false,
+          status: 'rejected', executionTimeMs: 0,
+          error: `Value filter: $${detectedTradeValue.toFixed(2)} below minimum $${trade.valueFilterMin}`,
+          detectedTxHash: trade.transactionHash, tokenId: trade.tokenId
+        });
         return;
       }
       
@@ -544,6 +581,13 @@ export class CopyTrader {
         console.log(`   Detected trade value: $${detectedTradeValue.toFixed(2)}`);
         console.log(`   Wallet maximum: $${trade.valueFilterMax}`);
         console.log(`   💡 This trade is too large based on this wallet's value filter.\n`);
+        await this.performanceTracker.recordTrade({
+          timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId,
+          outcome: trade.outcome, amount: trade.amount, price: trade.price, success: false,
+          status: 'rejected', executionTimeMs: 0,
+          error: `Value filter: $${detectedTradeValue.toFixed(2)} above maximum $${trade.valueFilterMax}`,
+          detectedTxHash: trade.transactionHash, tokenId: trade.tokenId
+        });
         return;
       }
     }

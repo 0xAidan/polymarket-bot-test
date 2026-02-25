@@ -316,6 +316,20 @@ let allLoadedTrades = [];
 let tradesPageSize = 50;
 let tradesCurrentLimit = 50;
 
+const getShortRejectReason = (trade) => {
+  if (trade.status !== 'rejected' || !trade.error) return '';
+  const e = trade.error.toLowerCase();
+  if (e.includes('no-repeat')) return 'no-repeat';
+  if (e.includes('threshold') || e.includes('below') && e.includes('%')) return 'threshold';
+  if (e.includes('rate limit')) return 'rate limit';
+  if (e.includes('stop-loss') || e.includes('committed')) return 'stop-loss';
+  if (e.includes('order size') || e.includes('too small') || e.includes('market min')) return 'min size';
+  if (e.includes('side filter')) return 'side filter';
+  if (e.includes('price filter')) return 'price filter';
+  if (e.includes('value filter')) return 'value filter';
+  return 'rejected';
+};
+
 async function loadTrades() {
   try {
     const data = await API.getTrades(tradesCurrentLimit);
@@ -333,21 +347,23 @@ async function loadTrades() {
     allLoadedTrades = [...data.trades].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
     
     tbody.innerHTML = allLoadedTrades.map((trade, idx) => {
-      const displayAmount = trade.executedAmount
-        ? parseFloat(trade.executedAmount)
-        : parseFloat(trade.amount || 0);
-      const displayPrice = trade.executedPrice
-        ? parseFloat(trade.executedPrice)
-        : parseFloat(trade.price || 0);
-      const usdValue = displayAmount * displayPrice;
-      const amountDisplay = `$${usdValue.toFixed(2)}`;
+      const detectedShares = parseFloat(trade.amount || 0);
+      const detectedPrice = parseFloat(trade.price || 0);
+      const detectedUsd = detectedShares * detectedPrice;
+      const amountDisplay = `$${detectedUsd.toFixed(2)}`;
+
+      const rejectReason = getShortRejectReason(trade);
+      const statusLabel = rejectReason
+        ? `<span class="status-pill failed">${rejectReason}</span>`
+        : `<span class="status-pill ${trade.success ? 'success' : (trade.status === 'pending' ? 'pending' : 'failed')}">${trade.status || (trade.success ? 'OK' : 'FAIL')}</span>`;
+
       return `<tr class="clickable-row" onclick="openTradeDetailModal(${idx})" tabindex="0" role="button" aria-label="View trade details">
         <td>${new Date(trade.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
         <td>${trade.walletLabel || trade.walletAddress.slice(0, 8)}...${(trade.walletTags && trade.walletTags.length > 0) ? ' ' + trade.walletTags.map(t => `<span class="tag-badge ${TAG_COLOR_MAP[t] || ''}">${t}</span>`).join('') : ''}</td>
         <td>${trade.marketId?.slice(0, 12)}...</td>
         <td>${trade.outcome} ${trade.side || 'BUY'}</td>
         <td>${amountDisplay}</td>
-        <td><span class="status-pill ${trade.success ? 'success' : (trade.status === 'pending' ? 'pending' : 'failed')}">${trade.status || (trade.success ? 'OK' : 'FAIL')}</span></td>
+        <td>${statusLabel}</td>
       </tr>`;
     }).join('');
 
@@ -369,13 +385,9 @@ const openTradeDetailModal = (idx) => {
   const trade = allLoadedTrades[idx];
   if (!trade) return;
 
-  const displayAmount = trade.executedAmount
-    ? parseFloat(trade.executedAmount)
-    : parseFloat(trade.amount || 0);
-  const displayPrice = trade.executedPrice
-    ? parseFloat(trade.executedPrice)
-    : parseFloat(trade.price || 0);
-  const usdValue = displayAmount * displayPrice;
+  const detectedShares = parseFloat(trade.amount || 0);
+  const detectedPrice = parseFloat(trade.price || 0);
+  const detectedUsd = detectedShares * detectedPrice;
   const statusText = trade.status || (trade.success ? 'Success' : 'Failed');
   const statusClass = trade.success ? 'text-success' : (trade.status === 'pending' ? 'text-warning' : 'text-danger');
 
@@ -413,18 +425,12 @@ const openTradeDetailModal = (idx) => {
 
     <div class="detail-divider"></div>
 
-    <div class="detail-label">Price:</div>
-    <div class="detail-value">$${displayPrice.toFixed(4)}</div>
-
-    <div class="detail-label">Amount:</div>
-    <div class="detail-value">${displayAmount.toFixed(2)} shares ($${usdValue.toFixed(2)} USDC)</div>
+    <div class="detail-label">Their Trade:</div>
+    <div class="detail-value">${detectedShares.toFixed(2)} shares @ $${detectedPrice.toFixed(4)} = <b>$${detectedUsd.toFixed(2)}</b></div>
 
     ${trade.executedAmount ? `
-    <div class="detail-label">Exec Price:</div>
-    <div class="detail-value">$${parseFloat(trade.executedPrice || 0).toFixed(4)}</div>
-
-    <div class="detail-label">Exec Amount:</div>
-    <div class="detail-value">${parseFloat(trade.executedAmount).toFixed(2)} shares</div>
+    <div class="detail-label">Your Copy:</div>
+    <div class="detail-value">${parseFloat(trade.executedAmount).toFixed(2)} shares @ $${parseFloat(trade.executedPrice || 0).toFixed(4)} = <b>$${(parseFloat(trade.executedAmount) * parseFloat(trade.executedPrice || 0)).toFixed(2)}</b></div>
     ` : ''}
 
     ${trade.latencyMs ? `
@@ -434,7 +440,7 @@ const openTradeDetailModal = (idx) => {
 
     ${trade.error ? `
     <div class="detail-divider"></div>
-    <div class="detail-label">Error:</div>
+    <div class="detail-label">Reason:</div>
     <div class="detail-value text-danger">${trade.error}</div>
     ` : ''}
 
