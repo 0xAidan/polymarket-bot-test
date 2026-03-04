@@ -2551,6 +2551,8 @@ const toggleHelpMenu = () => {
     { label: 'About CopyTrade95...', action: openAboutModal },
     { label: 'What is Paper Mode?', action: openPaperModeModal },
     { separator: true },
+    { label: 'Start walkthrough...', action: () => { if (typeof startTour === 'function') startTour(); } },
+    { separator: true },
     { label: 'GitHub Repository', action: () => window.open('https://github.com/0xAidan/polymarket-bot-test', '_blank') },
   ]);
 };
