@@ -1,0 +1,101 @@
+/* ============================================================
+   COPYTRADE95 WALKTHROUGH TOUR — overlay, backdrop, spotlight, card
+   Single prefix: tour-
+   ============================================================ */
+
+.tour-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  pointer-events: none;
+}
+
+.tour-overlay .tour-backdrop,
+.tour-overlay .tour-card {
+  pointer-events: auto;
+}
+
+.tour-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  /* clip-path set by JS to cut out spotlight region */
+}
+
+.tour-spotlight {
+  position: fixed;
+  /* top, left, width, height set by JS via getBoundingClientRect() */
+  background: transparent;
+  border: 3px solid var(--win-highlight);
+  outline: 2px solid var(--win-white);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 1px var(--win-dark);
+  pointer-events: none;
+  /* do not cover the target — user sees real UI through transparent center */
+}
+
+.tour-card {
+  position: fixed;
+  bottom: 48px;
+  right: 16px;
+  max-width: 320px;
+  background: var(--win-surface);
+  border: 2px solid;
+  border-color: var(--win-light) var(--win-dark) var(--win-dark) var(--win-light);
+  box-shadow: 2px 2px 0 var(--win-black);
+  padding: 10px 12px;
+  font-family: var(--font-system);
+  z-index: 10001;
+}
+
+.tour-card-title {
+  font-size: 15px;
+  font-weight: bold;
+  color: var(--win-black);
+  margin-bottom: 6px;
+}
+
+.tour-card-description {
+  font-size: 14px;
+  color: var(--win-black);
+  line-height: 1.35;
+  margin-bottom: 10px;
+}
+
+.tour-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tour-card .tour-btn {
+  font-family: var(--font-system);
+  font-size: 15px;
+  padding: 4px 16px;
+  background: var(--win-surface);
+  border: 2px outset var(--win-surface);
+  cursor: pointer;
+  color: var(--win-black);
+  min-width: 75px;
+  text-align: center;
+}
+
+.tour-card .tour-btn:active {
+  border-style: inset;
+}
+
+.tour-card .tour-btn:disabled {
+  color: var(--win-dark);
+  text-shadow: 1px 1px 0 var(--win-white);
+  cursor: default;
+}
+
+.tour-card .tour-btn:disabled:active {
+  border-style: outset;
+}
+
+.tour-card .tour-btn:focus {
+  outline: 1px dotted var(--win-black);
+  outline-offset: -4px;
+}

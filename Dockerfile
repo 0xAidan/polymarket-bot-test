@@ -8,9 +8,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install all dependencies (including dev dependencies for build)
-# Using npm install instead of npm ci because package-lock.json may be out of sync
-# TODO: Regenerate package-lock.json locally with 'npm install' and commit it
-RUN npm install
+RUN npm ci
 
 # Copy source code
 COPY . .
