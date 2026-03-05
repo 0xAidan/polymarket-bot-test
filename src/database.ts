@@ -286,7 +286,11 @@ function migrateDiscoveryPositionsSchema(database: Database.Database): void {
     .prepare(`PRAGMA table_info('discovery_positions')`)
     .all() as Array<{ name: string }>;
   const hasAssetColumn = columns.some((c) => c.name === 'asset_id');
-  if (hasAssetColumn) return;
+  const tableRow = database
+    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'discovery_positions'`)
+    .get() as { sql?: string } | undefined;
+  const hasThreeKeyUniqueness = String(tableRow?.sql || '').includes('UNIQUE(address, condition_id, asset_id)');
+  if (hasAssetColumn && hasThreeKeyUniqueness) return;
 
   database.exec(`
     ALTER TABLE discovery_positions RENAME TO discovery_positions_legacy;
@@ -320,6 +324,33 @@ function migrateDiscoveryPositionsSchema(database: Database.Database): void {
       ON discovery_positions (condition_id);
     CREATE INDEX IF NOT EXISTS idx_disc_positions_asset
       ON discovery_positions (asset_id);
+
+    INSERT INTO discovery_positions (
+      id, address, condition_id, asset_id, outcome, market_slug, market_title, side,
+      shares, avg_entry, total_cost, total_trades, first_entry, last_entry,
+      current_price, price_updated_at, unrealized_pnl, roi_pct, updated_at
+    )
+    SELECT
+      id,
+      address,
+      condition_id,
+      COALESCE(NULLIF(asset_id, ''), condition_id || ':legacy'),
+      outcome,
+      market_slug,
+      market_title,
+      side,
+      shares,
+      avg_entry,
+      total_cost,
+      total_trades,
+      first_entry,
+      last_entry,
+      current_price,
+      price_updated_at,
+      unrealized_pnl,
+      roi_pct,
+      updated_at
+    FROM discovery_positions_legacy;
 
     DROP TABLE discovery_positions_legacy;
   `);

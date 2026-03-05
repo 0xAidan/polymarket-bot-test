@@ -14,6 +14,7 @@ let upsertWallet: typeof import('../src/discovery/statsStore.js').upsertWallet;
 let aggregateStats: typeof import('../src/discovery/statsStore.js').aggregateStats;
 let getWalletStats: typeof import('../src/discovery/statsStore.js').getWalletStats;
 let refreshWalletStats: typeof import('../src/discovery/statsStore.js').refreshWalletStats;
+let upsertPosition: typeof import('../src/discovery/statsStore.js').upsertPosition;
 let insertSignal: typeof import('../src/discovery/statsStore.js').insertSignal;
 let dismissSignal: typeof import('../src/discovery/statsStore.js').dismissSignal;
 let cleanupOldSignals: typeof import('../src/discovery/statsStore.js').cleanupOldSignals;
@@ -42,6 +43,7 @@ beforeEach(async () => {
   aggregateStats = statsMod.aggregateStats;
   getWalletStats = statsMod.getWalletStats;
   refreshWalletStats = statsMod.refreshWalletStats;
+  upsertPosition = statsMod.upsertPosition;
   insertSignal = statsMod.insertSignal;
   dismissSignal = statsMod.dismissSignal;
   cleanupOldSignals = statsMod.cleanupOldSignals;
@@ -152,6 +154,48 @@ test('refreshPositionPrices nulls roi when a wallet has no active priced positio
   assert.ok(afterRefresh);
   assert.equal(afterRefresh.activePositions, 0);
   assert.equal(afterRefresh.roiPct, null);
+});
+
+test('initDatabase repairs legacy discovery_positions uniqueness so separate outcomes can coexist', async () => {
+  closeDatabase();
+  const dbPath = join(tempDir, 'copytrade.db');
+  if (existsSync(dbPath)) rmSync(dbPath);
+  if (existsSync(`${dbPath}-wal`)) rmSync(`${dbPath}-wal`);
+  if (existsSync(`${dbPath}-shm`)) rmSync(`${dbPath}-shm`);
+  const Database = (await import('better-sqlite3')).default;
+  const legacyDb = new Database(dbPath);
+  legacyDb.exec(`
+    CREATE TABLE discovery_positions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      address TEXT NOT NULL,
+      condition_id TEXT NOT NULL,
+      market_slug TEXT,
+      market_title TEXT,
+      side TEXT,
+      shares REAL DEFAULT 0,
+      avg_entry REAL DEFAULT 0,
+      total_cost REAL DEFAULT 0,
+      total_trades INTEGER DEFAULT 0,
+      first_entry INTEGER,
+      last_entry INTEGER,
+      current_price REAL,
+      unrealized_pnl REAL DEFAULT 0,
+      roi_pct REAL DEFAULT 0,
+      updated_at INTEGER DEFAULT (unixepoch()),
+      asset_id TEXT,
+      outcome TEXT,
+      price_updated_at INTEGER,
+      UNIQUE(address, condition_id)
+    );
+  `);
+  legacyDb.close();
+
+  await initDatabase();
+
+  assert.doesNotThrow(() => {
+    upsertPosition('0xmaker000000000000000000000000000000000099', 'condition-legacy', 'asset-yes', 'BUY', 10, 0.4, 'Yes');
+    upsertPosition('0xmaker000000000000000000000000000000000099', 'condition-legacy', 'asset-no', 'BUY', 12, 0.6, 'No');
+  });
 });
 
 test('aggregateStats resets stale wallet activity when no recent trades remain', () => {
