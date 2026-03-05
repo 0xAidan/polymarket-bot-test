@@ -149,12 +149,20 @@ const win95Dialog = (() => {
 // INITIALIZATION
 // ============================================================
 
-document.addEventListener('DOMContentLoaded', () => {
+// Expose initApp globally so the auth bootstrap can call it after login
+function initApp() {
   console.log('CopyTrade95 initialized');
   updateClock();
   setInterval(updateClock, 1000);
   loadAllData();
   startAutoRefresh();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  // If auth is required and we don't have a valid token yet, don't init.
+  // The auth bootstrap script will call initApp() after successful login.
+  if (window.__authRequired) return;
+  initApp();
 });
 
 function updateClock() {
@@ -200,9 +208,9 @@ async function loadAllData() {
       loadTrades(),
       loadWallets(),
       loadSettings(),
-      loadPlatformStatus().catch(() => {}),
+      loadPlatformStatus().catch(() => { }),
       checkLockStatus(),
-      loadLadderStatus().catch(() => {})
+      loadLadderStatus().catch(() => { })
     ]);
   } catch (error) {
     console.error('Error loading data:', error);
@@ -217,11 +225,11 @@ function switchTab(tabName) {
   document.querySelectorAll('.win-tab').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tab === tabName);
   });
-  
+
   document.querySelectorAll('.win-tab-panel').forEach(panel => {
     panel.classList.toggle('active', panel.id === `tab-${tabName}`);
   });
-  
+
   currentTab = tabName;
   refreshCurrentTab();
 }
@@ -251,12 +259,12 @@ async function loadStatus() {
 
 function updateStatusUI(data) {
   botRunning = data.running;
-  
+
   // Taskbar
   const indicator = document.getElementById('taskbarIndicator');
   const statusText = document.getElementById('taskbarStatus');
   const startStopLabel = document.getElementById('startStopLabel');
-  
+
   if (data.running) {
     indicator.className = 'status-indicator running';
     statusText.textContent = 'Running';
@@ -266,14 +274,14 @@ function updateStatusUI(data) {
     statusText.textContent = 'Stopped';
     startStopLabel.textContent = 'Start';
   }
-  
+
   // Status bar
   document.getElementById('statusBarBot').textContent = data.running ? 'Running' : 'Stopped';
   document.getElementById('statusBarMode').textContent = data.monitoringMode || 'Polling';
-  
+
   if (data.wallets) {
     document.getElementById('walletsTracked').textContent = data.wallets.active;
-    document.getElementById('statusBarMain').textContent = 
+    document.getElementById('statusBarMain').textContent =
       `${data.wallets.active} wallet(s) tracked | ${data.monitoringMode || 'polling'} mode`;
   }
 }
@@ -282,13 +290,13 @@ async function loadWalletBalance() {
   try {
     const wallet = await API.getWallet();
     const balance = await API.getWalletBalance();
-    
-    document.getElementById('walletAddress').textContent = 
+
+    document.getElementById('walletAddress').textContent =
       wallet.walletAddress ? `${wallet.walletAddress.slice(0, 6)}...${wallet.walletAddress.slice(-4)}` : 'Not configured';
-    
-    document.getElementById('walletBalance').textContent = 
+
+    document.getElementById('walletBalance').textContent =
       `$${(balance.currentBalance || 0).toFixed(2)}`;
-    
+
     const changeEl = document.getElementById('balanceChange');
     const change = balance.change24h || 0;
     changeEl.textContent = `${change >= 0 ? '+' : ''}$${change.toFixed(2)} (24h)`;
@@ -336,16 +344,16 @@ async function loadTrades() {
     const tbody = document.getElementById('tradesTableBody');
     const countLabel = document.getElementById('tradesCountLabel');
     const loadMoreBtn = document.getElementById('loadMoreTradesBtn');
-    
+
     if (!data.trades || data.trades.length === 0) {
       tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No trades yet</td></tr>';
       if (countLabel) countLabel.textContent = '0 trades';
       if (loadMoreBtn) loadMoreBtn.style.display = 'none';
       return;
     }
-    
+
     allLoadedTrades = [...data.trades].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    
+
     tbody.innerHTML = allLoadedTrades.map((trade, idx) => {
       const detectedShares = parseFloat(trade.amount || 0);
       const detectedPrice = parseFloat(trade.price || 0);
@@ -540,7 +548,7 @@ async function loadWallets(forceRebuild = false) {
   try {
     const data = await API.getWallets();
     const list = document.getElementById('walletsList');
-    
+
     if (!data.wallets || data.wallets.length === 0) {
       lastWalletHash = '';
       cachedWalletAddresses = [];
@@ -578,14 +586,14 @@ async function loadWallets(forceRebuild = false) {
         `).join('')}
       </div>`;
     }
-    
+
     const walletsHtml = data.wallets.map(wallet => {
       const isActive = wallet.active;
       const configBadges = getWalletConfigBadges(wallet);
       const tagBadges = renderTagBadges(wallet.tags);
       const tagsDataAttr = (wallet.tags || []).join(',');
       const pausedBadge = isActive ? '' : '<span class="paused-badge">Paused</span>';
-      
+
       return `
         <div class="wallet-entry ${isActive ? 'active-wallet' : 'inactive-wallet'}" id="wallet-${wallet.address}" data-tags="${tagsDataAttr}">
           <div class="wallet-entry-info">
@@ -618,12 +626,12 @@ async function loadWallets(forceRebuild = false) {
     if (activeTagFilter) {
       applyWalletTagFilter();
     }
-    
+
     // Fetch balances async
     for (const wallet of data.wallets) {
       loadTrackedWalletBalance(wallet.address);
     }
-    
+
     // Also update assignment dropdowns
     updateAssignmentDropdowns(data.wallets);
   } catch (error) {
@@ -634,11 +642,10 @@ async function loadWallets(forceRebuild = false) {
 async function loadTrackedWalletBalance(address) {
   const balanceEl = document.getElementById(`balance-${address}`);
   if (!balanceEl) return;
-  
+
   try {
-    const res = await fetch(`/api/wallets/${address}/balance`);
-    const data = await res.json();
-    
+    const data = await API.get(`/wallets/${address}/balance`);
+
     if (data.success && data.currentBalance !== undefined) {
       const totalValue = data.currentBalance;
       if (totalValue > 0) {
@@ -662,7 +669,7 @@ function formatNumber(num) {
 
 function getWalletConfigBadges(wallet) {
   const badges = [];
-  
+
   if (wallet.tradeSizingMode === 'fixed') {
     badges.push(`<span class="win-badge badge-success">Fixed $${wallet.fixedTradeSize || '?'}</span>`);
     if (wallet.thresholdEnabled) badges.push(`<span class="win-badge badge-success">${wallet.thresholdPercent}% threshold</span>`);
@@ -671,16 +678,16 @@ function getWalletConfigBadges(wallet) {
   } else {
     badges.push(`<span class="win-badge">Global size</span>`);
   }
-  
+
   if (wallet.tradeSideFilter && wallet.tradeSideFilter !== 'all') {
     const label = wallet.tradeSideFilter === 'buy_only' ? 'BUY only' : 'SELL only';
     badges.push(`<span class="win-badge badge-warning">${label}</span>`);
   }
-  
+
   if (wallet.noRepeatEnabled) badges.push(`<span class="win-badge badge-success">No repeat</span>`);
   if (wallet.rateLimitEnabled) badges.push(`<span class="win-badge badge-success">Rate limited</span>`);
   if (wallet.valueFilterEnabled) badges.push(`<span class="win-badge badge-success">Value filter</span>`);
-  
+
   return badges.join(' ') || '<span class="win-badge">Using defaults</span>';
 }
 
@@ -688,7 +695,7 @@ async function addWallet() {
   const input = document.getElementById('newWalletAddress');
   const address = input.value.trim();
   if (!address) { await win95Dialog.alert('Please enter a wallet address'); return; }
-  
+
   try {
     await API.addWallet(address);
     input.value = '';
@@ -719,50 +726,50 @@ async function toggleWallet(address, active) {
 
 async function openWalletModal(address) {
   currentWalletAddress = address;
-  
+
   try {
     const data = await API.getWallets();
     const wallet = data.wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
     if (!wallet) { await win95Dialog.error('Wallet not found'); return; }
-    
+
     document.getElementById('walletModalTitle').textContent = `Configure: ${wallet.label || address.slice(0, 10) + '...'}`;
     document.getElementById('modalWalletAddress').textContent = address;
-    
+
     const statusEl = document.getElementById('modalWalletStatus');
     statusEl.textContent = wallet.active ? 'Active' : 'Inactive';
     statusEl.className = `win-badge ${wallet.active ? 'badge-success' : 'badge-danger'}`;
-    
+
     document.getElementById('modalWalletLabel').value = wallet.label || '';
     document.getElementById('modalTradeSize').value = wallet.fixedTradeSize || 2;
-    
+
     const modeValue = wallet.tradeSizingMode || 'fixed';
     document.querySelector(`input[name="modalTradeSizingMode"][value="${modeValue}"]`).checked = true;
-    
+
     document.getElementById('modalThresholdEnabled').checked = wallet.thresholdEnabled || false;
     document.getElementById('modalThresholdInputs').className = wallet.thresholdEnabled ? '' : 'hidden';
     document.getElementById('modalThresholdPercent').value = wallet.thresholdPercent || 10;
-    
+
     const sideValue = wallet.tradeSideFilter || 'all';
     document.querySelector(`input[name="modalTradeSideFilter"][value="${sideValue}"]`).checked = true;
-    
+
     document.getElementById('modalNoRepeatEnabled').checked = wallet.noRepeatEnabled || false;
     document.getElementById('modalNoRepeatInputs').className = wallet.noRepeatEnabled ? '' : 'hidden';
     document.getElementById('modalNoRepeatPeriod').value = wallet.noRepeatPeriodHours ?? 24;
-    
+
     document.getElementById('modalPriceLimitsMin').value = wallet.priceLimitsMin ?? 0.01;
     document.getElementById('modalPriceLimitsMax').value = wallet.priceLimitsMax ?? 0.99;
     updatePriceBadge();
-    
+
     document.getElementById('modalValueFilterEnabled').checked = wallet.valueFilterEnabled || false;
     document.getElementById('modalValueFilterInputs').className = wallet.valueFilterEnabled ? '' : 'hidden';
     document.getElementById('modalValueFilterMin').value = wallet.valueFilterMin || '';
     document.getElementById('modalValueFilterMax').value = wallet.valueFilterMax || '';
-    
+
     document.getElementById('modalRateLimitEnabled').checked = wallet.rateLimitEnabled || false;
     document.getElementById('modalRateLimitInputs').className = wallet.rateLimitEnabled ? '' : 'hidden';
     document.getElementById('modalRateLimitPerHour').value = wallet.rateLimitPerHour ?? 10;
     document.getElementById('modalRateLimitPerDay').value = wallet.rateLimitPerDay ?? 50;
-    
+
     document.getElementById('modalSlippagePercent').value = wallet.slippagePercent || '';
     updateSlippageBadge();
 
@@ -770,7 +777,7 @@ async function openWalletModal(address) {
     const currentTags = wallet.tags || [];
     document.getElementById('modalWalletTags').value = JSON.stringify(currentTags);
     refreshModalTagButtons(currentTags);
-    
+
     updateModalPipeline();
     document.getElementById('walletModal').classList.remove('hidden');
     setupModalEventListeners();
@@ -782,39 +789,39 @@ async function openWalletModal(address) {
 function setupModalEventListeners() {
   document.getElementById('modalTradeSize').onchange = updateModalPipeline;
   document.querySelectorAll('input[name="modalTradeSizingMode"]').forEach(r => r.onchange = updateModalPipeline);
-  
-  document.getElementById('modalThresholdEnabled').onchange = function() {
+
+  document.getElementById('modalThresholdEnabled').onchange = function () {
     document.getElementById('modalThresholdInputs').className = this.checked ? '' : 'hidden';
     updateModalPipeline();
   };
-  
+
   document.querySelectorAll('input[name="modalTradeSideFilter"]').forEach(r => r.onchange = updateModalPipeline);
-  
-  document.getElementById('modalNoRepeatEnabled').onchange = function() {
+
+  document.getElementById('modalNoRepeatEnabled').onchange = function () {
     document.getElementById('modalNoRepeatInputs').className = this.checked ? '' : 'hidden';
     updateModalPipeline();
   };
   document.getElementById('modalNoRepeatPeriod').onchange = updateModalPipeline;
-  
-  document.getElementById('modalValueFilterEnabled').onchange = function() {
+
+  document.getElementById('modalValueFilterEnabled').onchange = function () {
     document.getElementById('modalValueFilterInputs').className = this.checked ? '' : 'hidden';
     updateModalPipeline();
   };
-  
-  document.getElementById('modalRateLimitEnabled').onchange = function() {
+
+  document.getElementById('modalRateLimitEnabled').onchange = function () {
     document.getElementById('modalRateLimitInputs').className = this.checked ? '' : 'hidden';
     updateModalPipeline();
   };
-  
-  document.getElementById('modalPriceLimitsMin').onchange = function() { updatePriceBadge(); updateModalPipeline(); };
-  document.getElementById('modalPriceLimitsMax').onchange = function() { updatePriceBadge(); updateModalPipeline(); };
-  document.getElementById('modalSlippagePercent').onchange = function() { updateSlippageBadge(); updateModalPipeline(); };
+
+  document.getElementById('modalPriceLimitsMin').onchange = function () { updatePriceBadge(); updateModalPipeline(); };
+  document.getElementById('modalPriceLimitsMax').onchange = function () { updatePriceBadge(); updateModalPipeline(); };
+  document.getElementById('modalSlippagePercent').onchange = function () { updateSlippageBadge(); updateModalPipeline(); };
 }
 
 function updateModalPipeline() {
   const tradeSize = document.getElementById('modalTradeSize').value || 2;
   document.getElementById('modal-pipeline-size-desc').textContent = `$${tradeSize} USDC`;
-  
+
   const side = document.querySelector('input[name="modalTradeSideFilter"]:checked').value;
   const sideDesc = document.getElementById('modal-pipeline-side-desc');
   const sideStatus = document.getElementById('modal-pipeline-side-status');
@@ -825,14 +832,14 @@ function updateModalPipeline() {
     sideDesc.textContent = 'All trades';
     sideStatus.textContent = 'OFF'; sideStatus.className = 'step-status off';
   }
-  
+
   const minPrice = document.getElementById('modalPriceLimitsMin').value || 0.01;
   const maxPrice = document.getElementById('modalPriceLimitsMax').value || 0.99;
   const isDefaultPrice = parseFloat(minPrice) === 0.01 && parseFloat(maxPrice) === 0.99;
   document.getElementById('modal-pipeline-price-desc').textContent = `$${minPrice} - $${maxPrice}`;
   document.getElementById('modal-pipeline-price-status').textContent = isDefaultPrice ? 'DEFAULT' : 'CUSTOM';
   document.getElementById('modal-pipeline-price-status').className = `step-status ${isDefaultPrice ? 'off' : 'on'}`;
-  
+
   const noRepeatEnabled = document.getElementById('modalNoRepeatEnabled').checked;
   const noRepeatPeriod = document.getElementById('modalNoRepeatPeriod').value;
   if (noRepeatEnabled) {
@@ -842,7 +849,7 @@ function updateModalPipeline() {
     document.getElementById('modal-pipeline-norepeat-desc').textContent = 'Disabled';
     document.getElementById('modal-pipeline-norepeat-status').textContent = 'OFF'; document.getElementById('modal-pipeline-norepeat-status').className = 'step-status off';
   }
-  
+
   const valueEnabled = document.getElementById('modalValueFilterEnabled').checked;
   if (valueEnabled) {
     const parts = [];
@@ -856,7 +863,7 @@ function updateModalPipeline() {
     document.getElementById('modal-pipeline-value-desc').textContent = 'No limits';
     document.getElementById('modal-pipeline-value-status').textContent = 'OFF'; document.getElementById('modal-pipeline-value-status').className = 'step-status off';
   }
-  
+
   const rateEnabled = document.getElementById('modalRateLimitEnabled').checked;
   if (rateEnabled) {
     const rH = document.getElementById('modalRateLimitPerHour').value || 10;
@@ -975,7 +982,7 @@ function collectModalConfig() {
   const mode = document.querySelector('input[name="modalTradeSizingMode"]:checked').value;
   const side = document.querySelector('input[name="modalTradeSideFilter"]:checked').value;
   const tradeSize = parseFloat(document.getElementById('modalTradeSize').value);
-  
+
   return {
     tradeSizingMode: mode || 'fixed',
     fixedTradeSize: tradeSize || 2,
@@ -1007,12 +1014,12 @@ async function loadSettings() {
       API.getMonitoringInterval(),
       fetch('/api/config/proxy-wallet').then(r => r.json()).catch(() => ({ proxyWalletAddress: '' }))
     ]);
-    
+
     document.getElementById('stopLossEnabled').checked = stopLoss.enabled || false;
     document.getElementById('stopLossPercent').value = stopLoss.maxCommitmentPercent || 80;
     document.getElementById('stopLossInputs').className = stopLoss.enabled ? '' : 'hidden';
     document.getElementById('monitoringInterval').value = interval.intervalSeconds || 15;
-    
+
     if (proxyWallet.proxyWalletAddress) {
       document.getElementById('proxyWalletAddress').value = proxyWallet.proxyWalletAddress;
     }
@@ -1054,7 +1061,7 @@ async function testClobConnectivity() {
   const resultsDiv = document.getElementById('clobTestResults');
   resultsDiv.innerHTML = '<div class="text-center text-muted">Running tests...</div>';
   resultsDiv.classList.remove('hidden');
-  
+
   try {
     const data = await API.testClobConnectivity();
     let html = '<strong>Test Results:</strong><br>';
@@ -1194,7 +1201,7 @@ async function createMasterPassword() {
 async function unlockVault() {
   const pw = document.getElementById('masterPasswordInput').value;
   if (!pw) { await win95Dialog.alert('Enter your master password'); return; }
-  
+
   try {
     const result = await API.unlockWallets(pw);
     masterPassword = pw;
@@ -1217,13 +1224,13 @@ async function loadTradingWallets() {
   try {
     const data = await API.getTradingWallets();
     const list = document.getElementById('tradingWalletsList');
-    
+
     if (!data.wallets || data.wallets.length === 0) {
       list.innerHTML = '<div class="text-center text-muted" style="padding:20px;">No trading wallets configured. Add one above.</div>';
       updateTradingWalletDropdown([]);
       return;
     }
-    
+
     list.innerHTML = data.wallets.map(w => {
       const escapedLabel = w.label.replace(/'/g, "\\'");
       return `
@@ -1235,9 +1242,9 @@ async function loadTradingWallets() {
             <div class="text-sm text-muted">Created: ${new Date(w.createdAt).toLocaleDateString()}</div>
             <div class="text-sm" style="margin-top:2px;">
               ${w.hasCredentials
-                ? '<span style="color:var(--win-green,green);">Builder API: Configured</span>'
-                : '<span style="color:var(--win-red,#c00);font-weight:bold;">Builder API: Missing — cannot trade</span>'
-              }
+          ? '<span style="color:var(--win-green,green);">Builder API: Configured</span>'
+          : '<span style="color:var(--win-red,#c00);font-weight:bold;">Builder API: Missing — cannot trade</span>'
+        }
             </div>
           </div>
           <div class="flex-row gap-4">
@@ -1250,8 +1257,9 @@ async function loadTradingWallets() {
           </div>
         </div>
       </div>
-    `;}).join('');
-    
+    `;
+    }).join('');
+
     updateTradingWalletDropdown(data.wallets);
     loadCopyAssignments();
   } catch (error) {
@@ -1292,10 +1300,10 @@ async function addNewTradingWallet() {
   const apiKey = document.getElementById('newTradingWalletApiKey').value.trim();
   const apiSecret = document.getElementById('newTradingWalletApiSecret').value.trim();
   const apiPassphrase = document.getElementById('newTradingWalletApiPassphrase').value.trim();
-  
+
   if (!id || !label || !pk) { await win95Dialog.alert('Wallet ID, Label, and Private Key are required'); return; }
   if (!masterPassword) { await win95Dialog.alert('Wallets must be unlocked first'); return; }
-  
+
   if (!apiKey || !apiSecret || !apiPassphrase) {
     const proceed = await win95Dialog.confirm(
       'WARNING: You have not entered Builder API credentials.\n\n' +
@@ -1305,7 +1313,7 @@ async function addNewTradingWallet() {
     );
     if (!proceed) return;
   }
-  
+
   try {
     await API.addTradingWallet(id, label, pk, masterPassword, apiKey, apiSecret, apiPassphrase);
     document.getElementById('newTradingWalletId').value = '';
@@ -1452,12 +1460,12 @@ async function loadCopyAssignments() {
   try {
     const data = await API.getCopyAssignments();
     const list = document.getElementById('copyAssignmentsList');
-    
+
     if (!data.assignments || data.assignments.length === 0) {
       list.innerHTML = '<div class="text-center text-muted" style="padding:12px;">No copy assignments yet</div>';
       return;
     }
-    
+
     list.innerHTML = data.assignments.map(a => `
       <div class="flex-between" style="padding:4px 0;border-bottom:1px solid var(--win-dark)">
         <span class="text-mono text-sm">${a.trackedWalletAddress.slice(0, 10)}...</span>
@@ -1474,7 +1482,7 @@ async function addAssignment() {
   const tracked = document.getElementById('assignTrackedWallet').value;
   const trading = document.getElementById('assignTradingWallet').value;
   if (!tracked || !trading) { await win95Dialog.alert('Select both wallets'); return; }
-  
+
   try {
     await API.addCopyAssignment(tracked, trading, false);
     await loadCopyAssignments();
@@ -1501,19 +1509,19 @@ async function openMirrorModal(address) {
   document.getElementById('mirrorExecuteBtn').disabled = true;
   document.getElementById('mirrorBalanceWarning').classList.add('hidden');
   document.getElementById('mirrorModal').classList.remove('hidden');
-  
+
   try {
     const walletsData = await API.getWallets();
     const wallet = walletsData.wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
     document.getElementById('mirrorModalTitle').textContent = `Mirror: ${wallet?.label || address.slice(0, 10) + '...'}`;
-    
+
     const preview = await API.getMirrorPreview(address, 10);
     currentMirrorPreview = preview;
-    
+
     document.getElementById('mirrorYourPortfolio').textContent = `$${formatNumber(preview.yourPortfolioValue)}`;
     document.getElementById('mirrorYourUsdc').textContent = `$${formatNumber(preview.yourUsdcBalance || 0)}`;
     document.getElementById('mirrorTheirPortfolio').textContent = `$${formatNumber(preview.theirPortfolioValue)}`;
-    
+
     currentMirrorTrades = preview.trades;
     renderMirrorTrades(preview.trades);
     updateMirrorSummary();
@@ -1528,24 +1536,24 @@ function renderMirrorTrades(trades) {
     tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No positions to mirror</td></tr>';
     return;
   }
-  
+
   const actionable = [], skipped = [];
   trades.forEach((trade, i) => {
     trade._originalIndex = i;
     if (trade.status === 'skipped' || trade.action === 'SKIP') skipped.push(trade);
     else actionable.push(trade);
   });
-  
+
   let html = actionable.map(t => renderMirrorRow(t, false)).join('');
-  
+
   if (skipped.length > 0) {
     html += `<tr><td colspan="8" style="background:var(--win-surface);cursor:pointer;padding:4px 8px;font-size:12px;" onclick="toggleSkippedAccordion()">
       <span id="skippedAccordionIcon">+</span> Skipped positions (${skipped.length})</td></tr>`;
     html += skipped.map(t => renderMirrorRow(t, true)).join('');
   }
-  
+
   tbody.innerHTML = html;
-  
+
   // Hide skipped rows initially
   document.querySelectorAll('.skipped-row').forEach(r => r.style.display = 'none');
 }
@@ -1555,10 +1563,10 @@ function renderMirrorRow(trade, isSkipped) {
   const checkbox = !isSkipped
     ? `<input type="checkbox" ${trade.selected ? 'checked' : ''} onchange="toggleMirrorTrade(${trade._originalIndex}, this.checked)">`
     : '-';
-  
+
   const tradeDetails = trade.action === 'SKIP' ? '-'
     : `${trade.action === 'BUY' ? '+' : '-'}${trade.sharesToTrade.toFixed(1)} ($${Math.abs(trade.estimatedCost).toFixed(2)})`;
-  
+
   return `
     <tr class="${isSkipped ? 'skipped-row' : ''}" style="${isSkipped ? 'opacity:0.5' : ''}">
       <td>${checkbox}</td>
@@ -1593,21 +1601,21 @@ function updateMirrorSummary() {
   const sells = selected.filter(t => t.action === 'SELL');
   const buyCost = buys.reduce((s, t) => s + t.estimatedCost, 0);
   const sellProceeds = Math.abs(sells.reduce((s, t) => s + t.estimatedCost, 0));
-  
+
   const parts = [];
   if (buys.length) parts.push(`<span class="buy-summary">${buys.length} BUY ($${buyCost.toFixed(2)})</span>`);
   if (sells.length) parts.push(`<span class="sell-summary">${sells.length} SELL (+$${sellProceeds.toFixed(2)})</span>`);
-  
+
   document.getElementById('mirrorSummaryText').innerHTML = parts.length === 0 ? 'No trades selected' : `Selected: ${parts.join(' | ')}`;
   document.getElementById('mirrorExecuteBtn').disabled = selected.length === 0;
-  
+
   // Balance warning
   const warningEl = document.getElementById('mirrorBalanceWarning');
   if (currentMirrorPreview && buyCost > 0) {
     const available = (currentMirrorPreview.yourUsdcBalance || 0) + sellProceeds;
     if (buyCost > available) {
       warningEl.classList.remove('hidden');
-      document.getElementById('mirrorWarningDetails').innerHTML = 
+      document.getElementById('mirrorWarningDetails').innerHTML =
         `Need $${buyCost.toFixed(2)} but only $${available.toFixed(2)} available. Some buys may fail.`;
     } else {
       warningEl.classList.add('hidden');
@@ -1621,18 +1629,18 @@ async function executeMirrorTrades() {
   const selected = currentMirrorTrades.filter(t => t.selected && t.action !== 'SKIP');
   if (selected.length === 0) { await win95Dialog.alert('No trades selected'); return; }
   if (!await win95Dialog.confirm(`Execute ${selected.length} trade(s)? This will place real orders.`)) return;
-  
+
   const btn = document.getElementById('mirrorExecuteBtn');
   btn.disabled = true;
   btn.textContent = 'Executing...';
-  
+
   try {
     const tradesToSend = selected.map(t => ({
       tokenId: t.tokenId, marketTitle: t.marketTitle.slice(0, 50),
       action: t.action, sharesToTrade: t.sharesToTrade,
       currentPrice: t.currentPrice, negRisk: t.negRisk, selected: true
     }));
-    
+
     const result = await API.executeMirrorTrades(currentMirrorWallet, tradesToSend, 2);
     let msg = '';
     if (result.summary) {
@@ -1640,7 +1648,7 @@ async function executeMirrorTrades() {
     }
     if (result.success) msg = `All ${result.executedTrades} trade(s) executed!\n\n` + msg;
     else msg = `Partial: ${result.executedTrades} succeeded, ${result.failedTrades} failed\n\n` + msg;
-    
+
     result.success ? await win95Dialog.success(msg) : await win95Dialog.error(msg);
     closeMirrorModal();
   } catch (error) {
@@ -2265,9 +2273,9 @@ async function generateHedgeRecommendations() {
         </div>
         <div class="hedge-rec-actions">
           ${rec.executable
-            ? `<button class="win-btn win-btn-sm win-btn-primary" onclick='executeHedgeRec(${JSON.stringify(rec)})'>Execute</button>`
-            : '<span class="text-muted">Not executable</span>'
-          }
+        ? `<button class="win-btn win-btn-sm win-btn-primary" onclick='executeHedgeRec(${JSON.stringify(rec)})'>Execute</button>`
+        : '<span class="text-muted">Not executable</span>'
+      }
         </div>
       </div>
     `).join('');
@@ -2522,13 +2530,15 @@ const toggleBotMenu = () => {
     { label: botRunning ? 'Stop Bot' : 'Start Bot', action: toggleBot },
     { label: 'Paper Mode Info...', action: openPaperModeModal },
     { separator: true },
-    { label: 'Lock Vault', action: async () => {
-      if (await win95Dialog.confirm('Lock the wallet vault? You will need to re-enter your master password to trade.')) {
-        masterPassword = '';
-        document.getElementById('unlockSection').classList.remove('hidden');
-        document.getElementById('tradingWalletsSection').classList.add('hidden');
+    {
+      label: 'Lock Vault', action: async () => {
+        if (await win95Dialog.confirm('Lock the wallet vault? You will need to re-enter your master password to trade.')) {
+          masterPassword = '';
+          document.getElementById('unlockSection').classList.remove('hidden');
+          document.getElementById('tradingWalletsSection').classList.add('hidden');
+        }
       }
-    }},
+    },
   ]);
 };
 

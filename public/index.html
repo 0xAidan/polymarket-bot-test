@@ -1219,6 +1219,28 @@
     </div>
   </div>
 
+  <!-- ============================================================
+       API AUTH LOGIN MODAL
+       ============================================================ -->
+  <div id="authModal" class="win-modal-overlay hidden">
+    <div class="win-modal" style="max-width:420px;">
+      <div class="win-titlebar">
+        <div class="win-titlebar-icon">&#128274;</div>
+        <div class="win-titlebar-text">Authentication Required</div>
+      </div>
+      <div class="win-modal-body" style="text-align:center;padding:20px 24px;">
+        <div style="font-size:32px;margin-bottom:8px;">&#128274;</div>
+        <div class="mb-8" style="font-size:16px;"><strong>Bot API is Protected</strong></div>
+        <div class="text-sm text-muted mb-12">Enter your API secret to access the dashboard.<br>This is the <code>API_SECRET</code> value from your <code>.env</code> file.</div>
+        <div style="max-width:300px;margin:0 auto;">
+          <input type="password" id="authTokenInput" placeholder="Enter API secret..." class="win-input" style="width:100%;margin-bottom:8px;" autocomplete="off" aria-label="API secret token">
+          <div id="authError" class="hidden" style="color:var(--danger);font-size:13px;margin-bottom:8px;">Invalid token. Please try again.</div>
+          <button class="win-btn win-btn-primary" onclick="submitAuthToken()" style="width:100%;">Connect</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Taskbar -->
   <div class="taskbar">
     <button class="start-btn" id="startStopBtn" onclick="toggleBot()">
@@ -1238,6 +1260,85 @@
   </div>
 
   <script src="/js/api.js"></script>
+  <script>
+    // ── Auth bootstrap ──
+    // This runs BEFORE app.js loads. It checks if the server requires auth,
+    // and if so, shows the login modal before the app tries to make API calls.
+
+    function showAuthModal() {
+      document.getElementById('authModal').classList.remove('hidden');
+      document.getElementById('authError').classList.add('hidden');
+      document.getElementById('authTokenInput').value = '';
+      setTimeout(() => document.getElementById('authTokenInput').focus(), 100);
+    }
+
+    function hideAuthModal() {
+      document.getElementById('authModal').classList.add('hidden');
+    }
+
+    async function submitAuthToken() {
+      const input = document.getElementById('authTokenInput');
+      const token = input.value.trim();
+      if (!token) return;
+
+      try {
+        const res = await fetch('/api/auth/check', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (res.ok) {
+          API.setToken(token);
+          hideAuthModal();
+          // Now that we're authed, kick off the app
+          if (typeof initApp === 'function') initApp();
+        } else {
+          document.getElementById('authError').classList.remove('hidden');
+          input.value = '';
+          input.focus();
+        }
+      } catch (e) {
+        document.getElementById('authError').classList.remove('hidden');
+      }
+    }
+
+    // Allow Enter key to submit
+    document.getElementById('authTokenInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submitAuthToken();
+    });
+
+    // On page load: check if auth is required
+    (async function checkAuth() {
+      try {
+        const res = await fetch('/api/auth/required');
+        const data = await res.json();
+        if (data.required) {
+          // Auth is required — check if we already have a valid token
+          const existingToken = API.getToken();
+          if (existingToken) {
+            const check = await fetch('/api/auth/check', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${existingToken}`
+              }
+            });
+            if (check.ok) {
+              // Token is still valid, proceed
+              return;
+            }
+          }
+          // No valid token — show modal, block app init
+          showAuthModal();
+          window.__authRequired = true;
+        }
+      } catch (e) {
+        console.warn('Could not check auth status:', e);
+      }
+    })();
+  </script>
   <script src="/js/app.js"></script>
   <script src="/js/tour.js"></script>
 </body>
