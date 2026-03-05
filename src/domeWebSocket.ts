@@ -163,6 +163,7 @@ export class DomeWebSocketMonitor extends EventEmitter {
     const trade: DetectedTrade = {
       walletAddress: userAddress,
       marketId: data.condition_id,
+      marketTitle: data.title || data.market_slug || undefined,
       outcome,
       amount: String(normalizedShares),
       price: String(data.price),

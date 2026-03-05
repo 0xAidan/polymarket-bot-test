@@ -544,6 +544,23 @@ export class PolymarketApi {
     }, `getMarket(${marketId})`);
   }
 
+  private marketNameCache = new Map<string, string>();
+
+  async getMarketName(conditionId: string): Promise<string> {
+    if (this.marketNameCache.has(conditionId)) {
+      return this.marketNameCache.get(conditionId)!;
+    }
+
+    try {
+      const market = await this.getMarket(conditionId);
+      const name = market?.question || market?.title || market?.slug || conditionId;
+      this.marketNameCache.set(conditionId, name);
+      return name;
+    } catch {
+      return conditionId;
+    }
+  }
+
   /**
    * Get order book for a market from CLOB API
    */
