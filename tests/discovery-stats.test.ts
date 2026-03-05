@@ -8,6 +8,7 @@ const tempDir = mkdtempSync(join(tmpdir(), 'discovery-stats-test-'));
 
 let initDatabase: typeof import('../src/database.js').initDatabase;
 let closeDatabase: typeof import('../src/database.js').closeDatabase;
+let getDatabase: typeof import('../src/database.js').getDatabase;
 let insertTradeBatch: typeof import('../src/discovery/statsStore.js').insertTradeBatch;
 let upsertWallet: typeof import('../src/discovery/statsStore.js').upsertWallet;
 let aggregateStats: typeof import('../src/discovery/statsStore.js').aggregateStats;
@@ -33,6 +34,7 @@ beforeEach(async () => {
   const dbMod = await import('../src/database.js');
   initDatabase = dbMod.initDatabase;
   closeDatabase = dbMod.closeDatabase;
+  getDatabase = dbMod.getDatabase;
 
   const statsMod = await import('../src/discovery/statsStore.js');
   insertTradeBatch = statsMod.insertTradeBatch;
@@ -109,7 +111,8 @@ test('refreshWalletStats updates wallet aggregates immediately for a touched wal
       taker: '',
       assetId: 'asset-2',
       conditionId: 'condition-2',
-      marketTitle: 'Will ETH be above $5k?',
+      marketTitle: 'Will the Fed cut rates in June?',
+      marketSlug: 'will-the-fed-cut-rates-in-june',
       side: 'BUY',
       size: 20,
       price: 0.75,
@@ -235,6 +238,57 @@ test('aggregateStats counts market diversity by condition rather than outcome to
   assert.equal(stats.uniqueMarkets7d, 1);
 });
 
+test('aggregateStats excludes crypto trades from discovery wallet stats', () => {
+  const detectedAt = Date.now();
+  const address = '0xmaker000000000000000000000000000000000008';
+
+  upsertWallet(address, detectedAt);
+  insertTradeBatch([
+    {
+      txHash: 'tx-crypto',
+      eventKey: 'tx-crypto:event',
+      maker: address,
+      taker: '',
+      assetId: 'asset-crypto',
+      conditionId: 'condition-crypto',
+      marketTitle: 'Will Bitcoin be above $150k by June?',
+      marketSlug: 'will-bitcoin-be-above-150k-by-june',
+      side: 'BUY',
+      size: 100,
+      price: 0.6,
+      notionalUsd: 60,
+      fee: 0,
+      source: 'api',
+      detectedAt,
+    },
+    {
+      txHash: 'tx-politics',
+      eventKey: 'tx-politics:event',
+      maker: address,
+      taker: '',
+      assetId: 'asset-politics',
+      conditionId: 'condition-politics',
+      marketTitle: 'Will Democrats win the House in 2026?',
+      marketSlug: 'will-democrats-win-the-house-in-2026',
+      side: 'BUY',
+      size: 200,
+      price: 0.5,
+      notionalUsd: 100,
+      fee: 0,
+      source: 'api',
+      detectedAt: detectedAt + 1,
+    },
+  ]);
+
+  aggregateStats();
+
+  const stats = getWalletStats(address);
+  assert.ok(stats);
+  assert.equal(stats.tradeCount7d, 1);
+  assert.equal(stats.volume7d, 100);
+  assert.equal(stats.focusCategory, 'politics');
+});
+
 test('dismissSignal clears stale wallet signal markers when no active signals remain', () => {
   const detectedAt = Date.now();
   const address = '0xmaker000000000000000000000000000000000006';
@@ -282,4 +336,15 @@ test('cleanupOldSignals clears wallet signal markers when old signals are remove
   assert.ok(stats);
   assert.equal(stats.lastSignalAt, undefined);
   assert.equal(stats.lastSignalType, undefined);
+});
+
+test('createServer initializes the database before discovery startup', async () => {
+  closeDatabase();
+
+  const { createServer } = await import('../src/server.js');
+  await createServer({
+    getPerformanceTracker: () => ({}),
+  } as any);
+
+  assert.doesNotThrow(() => getDatabase());
 });

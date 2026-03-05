@@ -9,6 +9,7 @@
 import axios from 'axios';
 import { config } from '../config.js';
 import { DiscoveredTrade, MarketCacheEntry } from './types.js';
+import { classifyDiscoveryMarket } from './marketClassifier.js';
 import {
   upsertMarketCache,
   getMarketByAssetId,
@@ -27,28 +28,6 @@ const PROFILE_CACHE_MAX = 10_000;
 const ASSET_CACHE_MAX = 50_000;
 const PROFILE_CONCURRENCY_LIMIT = 10;
 const normalizeTokenId = (tokenId: unknown): string => String(tokenId ?? '').trim();
-const SPORTS_KEYWORDS = [
-  ' vs ',
-  ' v ',
-  'nba',
-  'nfl',
-  'mlb',
-  'nhl',
-  'soccer',
-  'football',
-  'basketball',
-  'baseball',
-  'tennis',
-  'golf',
-  'ufc',
-  'mma',
-  'f1',
-  'formula 1',
-  'champions league',
-  'premier league',
-  'ncaa',
-  'world cup',
-];
 
 let activeProfileRequests = 0;
 const profileQueue: Array<{ address: string; resolve: (v: string | null) => void }> = [];
@@ -239,18 +218,9 @@ const resolveAssetToMarket = async (assetId: string): Promise<MarketCacheEntry |
 };
 
 export const classifyMarketEntry = (entry: MarketCacheEntry): MarketCacheEntry => {
-  const title = `${entry.title || ''} ${entry.slug || ''}`.toLowerCase();
-  const isSportsLike = SPORTS_KEYWORDS.some((keyword) => title.includes(keyword));
-  const isRecurring = isSportsLike;
-  const category = isSportsLike ? 'sports' : 'event';
-
   return {
     ...entry,
-    category,
-    isSportsLike,
-    isRecurring,
-    emergingEligible: !isSportsLike,
-    sharpWalletEligible: true,
+    ...classifyDiscoveryMarket(entry),
   };
 };
 

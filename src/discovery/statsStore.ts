@@ -10,6 +10,7 @@ import { getDatabase } from '../database.js';
 import { config } from '../config.js';
 import {
   DiscoveredTrade,
+  DiscoveryMarketCategory,
   WalletStats,
   MarketCacheEntry,
   DiscoveryConfig,
@@ -19,6 +20,7 @@ import {
   SignalType,
   SignalSeverity,
 } from './types.js';
+import { classifyDiscoveryMarket } from './marketClassifier.js';
 
 // ---------------------------------------------------------------------------
 // DISCOVERY CONFIG (runtime-editable, persisted in SQLite)
@@ -252,6 +254,8 @@ const rowToWalletStats = (row: any): WalletStats => ({
   tradeCount7d: row.trade_count_7d,
   volume7d: row.volume_7d,
   volumePrev7d: row.volume_prev_7d,
+  highInformationVolume7d: row.high_information_volume_7d ?? 0,
+  focusCategory: row.focus_category ?? undefined,
   largestTrade: row.largest_trade,
   uniqueMarkets7d: row.unique_markets_7d,
   avgTradeSize: row.avg_trade_size,
@@ -369,7 +373,7 @@ export const refreshWalletStats = (
   const updateStmt = db.prepare(`
     UPDATE discovery_wallets SET
       trade_count_7d = ?, volume_7d = ?, volume_prev_7d = ?,
-      largest_trade = ?, unique_markets_7d = ?, avg_trade_size = ?,
+      high_information_volume_7d = ?, focus_category = ?, largest_trade = ?, unique_markets_7d = ?, avg_trade_size = ?,
       updated_at = ?
     WHERE address = ?
   `);
@@ -378,30 +382,128 @@ export const refreshWalletStats = (
     for (const address of normalizedAddresses) {
       const sevenDMs = sevenDaysAgo * 1000;
       const fourteenDMs = fourteenDaysAgo * 1000;
-      const stats7d = db.prepare(`
+      const trades = db.prepare(`
         SELECT
-          COUNT(*) as cnt,
-          COALESCE(SUM(COALESCE(notional_usd, CASE WHEN price IS NOT NULL THEN size * price ELSE size END)), 0) as vol,
-          COALESCE(MAX(COALESCE(notional_usd, CASE WHEN price IS NOT NULL THEN size * price ELSE size END)), 0) as maxTrade,
-          COUNT(DISTINCT condition_id) as markets,
-          COALESCE(AVG(COALESCE(notional_usd, CASE WHEN price IS NOT NULL THEN size * price ELSE size END)), 0) as avgSize
+          condition_id,
+          market_slug,
+          market_title,
+          price,
+          size,
+          notional_usd,
+          detected_at
         FROM discovery_trades
         WHERE maker = ? AND detected_at > ?
-      `).get(address, sevenDMs) as any;
-      const prev7d = db.prepare(`
-        SELECT COALESCE(SUM(COALESCE(notional_usd, CASE WHEN price IS NOT NULL THEN size * price ELSE size END)), 0) as vol
-        FROM discovery_trades
-        WHERE maker = ? AND detected_at > ? AND detected_at <= ?
-      `).get(address, fourteenDMs, sevenDMs) as any;
+      `).all(address, fourteenDMs) as Array<{
+        condition_id?: string;
+        market_slug?: string;
+        market_title?: string;
+        price?: number | null;
+        size?: number | null;
+        notional_usd?: number | null;
+        detected_at: number;
+      }>;
+
+      const summary = summarizePrimaryDiscoveryTrades(trades, sevenDMs);
 
       updateStmt.run(
-        stats7d.cnt, stats7d.vol, prev7d.vol,
-        stats7d.maxTrade, stats7d.markets, stats7d.avgSize,
+        summary.tradeCount7d,
+        summary.volume7d,
+        summary.volumePrev7d,
+        summary.highInformationVolume7d,
+        summary.focusCategory ?? null,
+        summary.largestTrade,
+        summary.uniqueMarkets7d,
+        summary.avgTradeSize,
         nowSeconds, address,
       );
     }
   });
   tx();
+};
+
+const summarizePrimaryDiscoveryTrades = (
+  trades: Array<{
+    condition_id?: string;
+    market_slug?: string;
+    market_title?: string;
+    price?: number | null;
+    size?: number | null;
+    notional_usd?: number | null;
+    detected_at: number;
+  }>,
+  sevenDaysAgoMs: number,
+): {
+  tradeCount7d: number;
+  volume7d: number;
+  volumePrev7d: number;
+  highInformationVolume7d: number;
+  focusCategory?: DiscoveryMarketCategory;
+  largestTrade: number;
+  uniqueMarkets7d: number;
+  avgTradeSize: number;
+} => {
+  let tradeCount7d = 0;
+  let volume7d = 0;
+  let volumePrev7d = 0;
+  let highInformationVolume7d = 0;
+  let largestTrade = 0;
+  const uniqueMarkets = new Set<string>();
+  const categoryVolumes = new Map<DiscoveryMarketCategory, number>();
+
+  for (const trade of trades) {
+    const classification = classifyDiscoveryMarket({
+      title: trade.market_title,
+      slug: trade.market_slug,
+    });
+    if (!classification.primaryDiscoveryEligible) continue;
+
+    const notional = getStoredTradeNotional(trade);
+    if (trade.detected_at > sevenDaysAgoMs) {
+      tradeCount7d++;
+      volume7d += notional;
+      largestTrade = Math.max(largestTrade, notional);
+      if (trade.condition_id) uniqueMarkets.add(trade.condition_id);
+      if (classification.highInformationPriority) highInformationVolume7d += notional;
+      const category = classification.category ?? 'event';
+      categoryVolumes.set(category, (categoryVolumes.get(category) ?? 0) + notional);
+      continue;
+    }
+
+    volumePrev7d += notional;
+  }
+
+  let focusCategory: DiscoveryMarketCategory | undefined;
+  let focusCategoryVolume = 0;
+  for (const [category, totalVolume] of categoryVolumes.entries()) {
+    if (totalVolume <= focusCategoryVolume) continue;
+    focusCategory = category;
+    focusCategoryVolume = totalVolume;
+  }
+
+  return {
+    tradeCount7d,
+    volume7d,
+    volumePrev7d,
+    highInformationVolume7d,
+    focusCategory,
+    largestTrade,
+    uniqueMarkets7d: uniqueMarkets.size,
+    avgTradeSize: tradeCount7d > 0 ? volume7d / tradeCount7d : 0,
+  };
+};
+
+const getStoredTradeNotional = (trade: {
+  price?: number | null;
+  size?: number | null;
+  notional_usd?: number | null;
+}): number => {
+  if (Number.isFinite(trade.notional_usd) && Number(trade.notional_usd) > 0) {
+    return Number(trade.notional_usd);
+  }
+  if (Number.isFinite(trade.price) && Number.isFinite(trade.size)) {
+    return Number(trade.price) * Number(trade.size);
+  }
+  return Number(trade.size ?? 0);
 };
 
 // ---------------------------------------------------------------------------

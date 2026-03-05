@@ -43,8 +43,11 @@ export const computeScoresAndHeat = (): void => {
 export const computeDiscoveryWalletScore = (w: any, _maxVolume?: number): number => {
   const volume7d = Number(w.volume7d ?? w.volume_7d ?? 0);
   const volumePrev7d = Number(w.volumePrev7d ?? w.volume_prev_7d ?? 0);
+  const highInformationVolume7d = Number(w.highInformationVolume7d ?? w.high_information_volume_7d ?? 0);
   const currentVolumeFactor = Math.min(15, (volume7d / 25_000) * 15);
   const sustainedVolumeFactor = Math.min(15, (Math.min(volume7d, volumePrev7d) / 20_000) * 15);
+  const highInformationShare = volume7d > 0 ? Math.min(1, highInformationVolume7d / volume7d) : 0;
+  const informationFactor = highInformationShare * 8;
 
   const rawRoi = w.roiPct ?? w.roi_pct;
   const roiPct = rawRoi === null || rawRoi === undefined ? null : Number(rawRoi);
@@ -59,6 +62,7 @@ export const computeDiscoveryWalletScore = (w: any, _maxVolume?: number): number
   return Math.round((
     currentVolumeFactor +
     sustainedVolumeFactor +
+    informationFactor +
     roiFactor +
     consistencyFactor +
     sizeFactor +

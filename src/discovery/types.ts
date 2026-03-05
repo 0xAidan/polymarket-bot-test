@@ -67,6 +67,8 @@ export interface WalletStats {
   tradeCount7d: number;
   volume7d: number;
   volumePrev7d: number;
+  highInformationVolume7d: number;
+  focusCategory?: DiscoveryMarketCategory;
   largestTrade: number;
   uniqueMarkets7d: number;
   avgTradeSize: number;
@@ -82,6 +84,18 @@ export interface WalletStats {
   lastSignalAt?: number;
 }
 
+export type DiscoveryMarketCategory =
+  | 'politics'
+  | 'macro'
+  | 'company'
+  | 'legal'
+  | 'geopolitics'
+  | 'entertainment'
+  | 'sports'
+  | 'crypto'
+  | 'event'
+  | 'other';
+
 export interface MarketCacheEntry {
   conditionId: string;
   slug?: string;
@@ -89,11 +103,13 @@ export interface MarketCacheEntry {
   volume24h?: number;
   tokenIds: string[]; // YES and NO token IDs (asset IDs)
   outcomes?: string[];
-  category?: string;
+  category?: DiscoveryMarketCategory;
   isRecurring?: boolean;
   isSportsLike?: boolean;
+  primaryDiscoveryEligible?: boolean;
   emergingEligible?: boolean;
   sharpWalletEligible?: boolean;
+  highInformationPriority?: boolean;
   updatedAt: number;
 }
 

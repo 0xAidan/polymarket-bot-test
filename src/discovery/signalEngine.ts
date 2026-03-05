@@ -31,7 +31,7 @@ import {
   getSmartMoneyCountForMarket,
   getPositionValue,
 } from './statsStore.js';
-import { classifyMarketEntry } from './tradeEnricher.js';
+import { classifyDiscoveryMarket } from './marketClassifier.js';
 
 let thresholds: SignalThresholds = { ...DEFAULT_SIGNAL_THRESHOLDS };
 
@@ -44,6 +44,7 @@ export const getThresholds = (): SignalThresholds => ({ ...thresholds });
 export const evaluateTradeSignals = (trade: DiscoveredTrade, walletStats: WalletStats): void => {
   try {
     if (getSignalCountToday() >= thresholds.maxSignalsPerDay) return;
+    if (!isPrimaryDiscoveryTrade(trade)) return;
 
     checkSizeAnomaly(trade, walletStats);
     checkNewWhale(trade, walletStats);
@@ -449,12 +450,15 @@ const getTradeNotionalUsd = (trade: DiscoveredTrade): number => {
 export const isEmergingSignalEligibleTrade = (
   trade: Pick<DiscoveredTrade, 'marketTitle' | 'marketSlug'>
 ): boolean => {
-  const classified = classifyMarketEntry({
-    conditionId: '',
+  return isPrimaryDiscoveryTrade(trade);
+};
+
+export const isPrimaryDiscoveryTrade = (
+  trade: Pick<DiscoveredTrade, 'marketTitle' | 'marketSlug'>
+): boolean => {
+  const classified = classifyDiscoveryMarket({
     title: trade.marketTitle,
     slug: trade.marketSlug,
-    tokenIds: [],
-    updatedAt: 0,
   });
-  return classified.emergingEligible !== false;
+  return classified.primaryDiscoveryEligible !== false;
 };

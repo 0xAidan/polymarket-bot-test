@@ -2684,14 +2684,38 @@ const loadMoreDiscoveryWallets = async () => {
   await fetchDiscoveryWallets(true);
 };
 
+const discoveryCategoryLabel = (category) => {
+  const labels = {
+    politics: 'Politics',
+    macro: 'Macro',
+    company: 'Company',
+    legal: 'Legal',
+    geopolitics: 'Geopolitics',
+    entertainment: 'Entertainment',
+    sports: 'Sports',
+    crypto: 'Crypto',
+    event: 'Real-World',
+    other: 'Other',
+  };
+  return labels[category] || 'Real-World';
+};
+
+const discoveryCategoryBadge = (category) => {
+  const label = discoveryCategoryLabel(category);
+  return `<span class="win-badge" style="margin-left:6px;">${label}</span>`;
+};
+
 const fetchDiscoveryWallets = async (append) => {
   try {
     const sortEl = document.getElementById('discoveryWalletSort');
     const sort = sortEl ? sortEl.value : 'score';
+    const focusEl = document.getElementById('discoveryFocus');
+    const focus = focusEl ? focusEl.value : 'all-real-world';
     const minScoreEl = document.getElementById('filterMinScore');
     const heatEl = document.getElementById('filterHeat');
     const hasSignalsEl = document.getElementById('filterHasSignals');
     let url = `/api/discovery/wallets?sort=${encodeURIComponent(sort)}&limit=${DISCOVERY_PAGE_SIZE}&offset=${discoveryWalletOffset}`;
+    if (focus) url += '&focus=' + encodeURIComponent(focus);
     if (minScoreEl && parseInt(minScoreEl.value, 10) > 0) url += '&minScore=' + minScoreEl.value;
     if (heatEl && heatEl.value) url += '&heat=' + encodeURIComponent(heatEl.value);
     if (hasSignalsEl && hasSignalsEl.checked) url += '&hasSignals=true';
@@ -2721,16 +2745,21 @@ const fetchDiscoveryWallets = async (append) => {
         ? '<button class="win-btn win-btn-sm" disabled>Tracked</button>'
         : '<button class="win-btn win-btn-sm win-btn-primary" onclick="event.stopPropagation();trackDiscoveredWallet(\'' + (w.address || '').replace(/'/g, "\\'") + '\', this)" aria-label="Track and activate wallet" tabindex="0">Track &amp; Activate</button>';
       const roiLabel = roiText(w.roiPct) + (w.positionDataSource === 'verified' ? ' <span class="text-xs text-muted">(verified)</span>' : '');
+      const categoryBadge = discoveryCategoryBadge(w.focusCategory);
+      const whySurfaced = w.whySurfaced ? `<div class="text-xs text-muted" style="margin-top:2px;max-width:280px;">${w.whySurfaced}</div>` : '';
+      const signalCell = w.lastSignalAt
+        ? `●<div class="text-xs text-muted" style="margin-top:2px;">${(w.lastSignalType || '').replace(/_/g, ' ')}</div>`
+        : '—';
       tr.innerHTML =
         '<td>' + heatBadge(w.heatIndicator) + '</td>' +
-        '<td class="text-mono" title="' + (w.address || '') + '">' + shortAddr + '</td>' +
-        '<td>' + (w.pseudonym || '—') + '</td>' +
+        '<td class="text-mono" title="' + (w.address || '') + '">' + shortAddr + categoryBadge + '</td>' +
+        '<td><div>' + (w.pseudonym || '—') + '</div>' + whySurfaced + '</td>' +
         '<td>' + scoreBar(w.whaleScore) + '</td>' +
         '<td>' + roiLabel + '</td>' +
         '<td>$' + (w.volume7d || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</td>' +
         '<td>' + (w.tradeCount7d || 0).toLocaleString() + '</td>' +
         '<td>' + (w.activePositions ?? 0) + '</td>' +
-        '<td>' + (w.lastSignalAt ? '●' : '—') + '</td>' +
+        '<td>' + signalCell + '</td>' +
         '<td>' + trackBtn + '</td>';
       tr.onclick = () => openWalletDetail(w.address);
       tr.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openWalletDetail(w.address); } };
@@ -2738,7 +2767,10 @@ const fetchDiscoveryWallets = async (append) => {
     }
 
     const countEl = document.getElementById('discoveryWalletsCount');
-    if (countEl) countEl.textContent = `${discoveryWalletOffset + wallets.length} wallets shown`;
+    if (countEl) {
+      const focusLabel = focus === 'high-information' ? 'High-Information' : 'All Real-World';
+      countEl.textContent = `${discoveryWalletOffset + wallets.length} wallets shown • ${focusLabel}`;
+    }
 
     const loadMoreBtn = document.getElementById('discoveryLoadMoreBtn');
     if (loadMoreBtn) loadMoreBtn.style.display = wallets.length >= DISCOVERY_PAGE_SIZE ? '' : 'none';
@@ -2816,6 +2848,56 @@ const loadUnusualMarkets = async () => {
       const firstDetected = m.first_detected ? new Date(m.first_detected).toLocaleString() : '—';
       return '<tr><td>' + title + '</td><td>' + types + '</td><td>' + walletCount + '</td><td>' + firstDetected + '</td></tr>';
     }).join('');
+  } catch { /* best-effort */ }
+};
+
+const loadDiscoveryOverview = async () => {
+  try {
+    const resp = await fetch('/api/discovery/summary?days=7');
+    const data = await resp.json();
+    if (!data.success) return;
+
+    const overview = data.overview || {};
+    const quality = overview.quality || {};
+    const categoryMix = overview.surfacedByCategory || [];
+    const signalMix = overview.signalCountsByCategory || [];
+    const topWalletsByDay = overview.topWalletsByDay || [];
+
+    const surfacedTodayEl = document.getElementById('discoverySurfacedToday');
+    if (surfacedTodayEl) surfacedTodayEl.textContent = String(quality.walletsSurfacedToday || 0);
+    const highInfoPctEl = document.getElementById('discoveryHighInfoPct');
+    if (highInfoPctEl) highInfoPctEl.textContent = `${quality.highInformationWalletPct || 0}%`;
+    const strongSignalsEl = document.getElementById('discoveryStrongSignals');
+    if (strongSignalsEl) strongSignalsEl.textContent = String(quality.walletsWithTwoStrongSignals || 0);
+    const trackedCountEl = document.getElementById('discoveryTrackedCount');
+    if (trackedCountEl) trackedCountEl.textContent = String(quality.trackedWallets || 0);
+
+    const categoryMixEl = document.getElementById('discoveryCategoryMix');
+    if (categoryMixEl) {
+      categoryMixEl.innerHTML = categoryMix.length === 0
+        ? 'Collecting data...'
+        : categoryMix.map((item) => `<div>${discoveryCategoryLabel(item.category)}: <strong>${item.count}</strong></div>`).join('');
+    }
+
+    const signalMixEl = document.getElementById('discoverySignalMix');
+    if (signalMixEl) {
+      signalMixEl.innerHTML = signalMix.length === 0
+        ? 'Collecting data...'
+        : signalMix.map((item) => `<div>${discoveryCategoryLabel(item.category)}: <strong>${item.count}</strong></div>`).join('');
+    }
+
+    const topWalletsEl = document.getElementById('discoveryTopWalletsByDay');
+    if (topWalletsEl) {
+      topWalletsEl.innerHTML = topWalletsByDay.length === 0
+        ? 'Collecting data...'
+        : topWalletsByDay.map((day) => {
+          const wallets = (day.wallets || []).slice(0, 3).map((wallet) => {
+            const shortAddr = wallet.address ? `${wallet.address.slice(0, 6)}...${wallet.address.slice(-4)}` : '—';
+            return `${shortAddr} (${discoveryCategoryLabel(wallet.focusCategory)})`;
+          }).join(', ');
+          return `<div><strong>${day.day}</strong>: ${wallets || 'No surfaced wallets'}</div>`;
+        }).join('');
+    }
   } catch { /* best-effort */ }
 };
 
@@ -3016,6 +3098,7 @@ const purgeDiscoveryData = async () => {
       await Promise.all([
         loadDiscoveryStatus(),
         loadDiscoveryWallets(),
+        loadDiscoveryOverview(),
         loadDiscoverySignals(),
         loadUnusualMarkets(),
       ]);
@@ -3052,6 +3135,22 @@ const clearDiscoveryUiState = () => {
   if (unusualBody) {
     unusualBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No unusual markets yet — this section only shows strict MARKET_PIONEER / COORDINATED_ENTRY signals.</td></tr>';
   }
+
+  const overviewDefaults = {
+    discoverySurfacedToday: '0',
+    discoveryHighInfoPct: '0%',
+    discoveryStrongSignals: '0',
+    discoveryTrackedCount: '0',
+  };
+  Object.entries(overviewDefaults).forEach(([id, value]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  });
+
+  ['discoveryCategoryMix', 'discoverySignalMix', 'discoveryTopWalletsByDay'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = 'Collecting data...';
+  });
 };
 
 const startDiscoveryRefresh = () => {
@@ -3059,6 +3158,7 @@ const startDiscoveryRefresh = () => {
   loadDiscoveryConfig();
   loadDiscoveryStatus();
   loadDiscoveryWallets();
+  loadDiscoveryOverview();
   loadDiscoverySignals();
   loadUnusualMarkets();
   discoveryRefreshTimer = setInterval(() => {
@@ -3068,6 +3168,7 @@ const startDiscoveryRefresh = () => {
     }
     loadDiscoveryStatus();
     loadDiscoveryWallets();
+    loadDiscoveryOverview();
     loadDiscoverySignals();
     loadUnusualMarkets();
   }, 10000);

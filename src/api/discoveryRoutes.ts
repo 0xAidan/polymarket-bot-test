@@ -8,7 +8,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { initDatabase } from '../database.js';
 import { DiscoveryManager } from '../discovery/discoveryManager.js';
-import { DiscoveryConfig } from '../discovery/types.js';
+import { DiscoveryConfig, DiscoveryMarketCategory } from '../discovery/types.js';
 import {
   fetchAuthoritativePositions,
   summarizeAuthoritativePositions,
@@ -23,6 +23,7 @@ import {
   getSignalsForAddress,
 } from '../discovery/statsStore.js';
 import { computeDiscoveryWalletScore } from '../discovery/walletScorer.js';
+import { classifyDiscoveryMarket } from '../discovery/marketClassifier.js';
 
 /**
  * Mask an Alchemy WebSocket URL for safe display.
@@ -128,6 +129,232 @@ export const sortWalletsForResponse = <T extends {
   return sorted;
 };
 
+const DISCOVERY_CATEGORY_LABELS: Record<string, string> = {
+  politics: 'Politics',
+  macro: 'Macro',
+  company: 'Company',
+  legal: 'Legal',
+  geopolitics: 'Geopolitics',
+  entertainment: 'Entertainment',
+  sports: 'Sports',
+  crypto: 'Crypto',
+  event: 'Real-world',
+  other: 'Other',
+};
+const DISCOVERY_CATEGORY_PRIORITY: Record<string, number> = {
+  politics: 0,
+  macro: 1,
+  company: 2,
+  legal: 3,
+  geopolitics: 4,
+  event: 5,
+  entertainment: 6,
+  other: 7,
+  sports: 8,
+  crypto: 9,
+};
+
+export const buildDiscoveryWalletExplanation = <T extends {
+  focusCategory?: DiscoveryMarketCategory;
+  highInformationVolume7d?: number;
+  volume7d?: number;
+  volumePrev7d?: number;
+  tradeCount7d?: number;
+  lastSignalType?: string;
+}>(
+  wallet: T,
+): string => {
+  const focusLabel = DISCOVERY_CATEGORY_LABELS[wallet.focusCategory || 'event'] || 'Real-world';
+  const parts: string[] = [`${focusLabel} focus`];
+  const highInformationShare = Number(wallet.volume7d || 0) > 0
+    ? Number(wallet.highInformationVolume7d || 0) / Number(wallet.volume7d || 0)
+    : 0;
+
+  if (highInformationShare >= 0.6) {
+    parts.push('high-information flow');
+  }
+  if (Math.min(Number(wallet.volume7d || 0), Number(wallet.volumePrev7d || 0)) >= 5000) {
+    parts.push('sustained weekly volume');
+  }
+  if (Number(wallet.tradeCount7d || 0) >= 8) {
+    parts.push('repeated participation');
+  }
+  if (wallet.lastSignalType) {
+    parts.push((wallet.lastSignalType || '').replace(/_/g, ' ').toLowerCase());
+  }
+
+  return parts.join(' + ');
+};
+
+export const shouldIncludeDiscoveryWallet = <T extends {
+  whaleScore?: number;
+  volume7d?: number;
+  tradeCount7d?: number;
+  lastSignalAt?: number;
+}>(
+  wallet: T,
+): boolean => {
+  if ((wallet.lastSignalAt || 0) > 0) return true;
+  if (Number(wallet.whaleScore || 0) >= 20) return true;
+  if (Number(wallet.volume7d || 0) >= 2500) return true;
+  return Number(wallet.tradeCount7d || 0) >= 4 && Number(wallet.volume7d || 0) >= 750;
+};
+
+export const matchesDiscoveryFocusFilter = <T extends {
+  focusCategory?: DiscoveryMarketCategory;
+  highInformationVolume7d?: number;
+  volume7d?: number;
+}>(
+  wallet: T,
+  focus: 'all-real-world' | 'high-information',
+): boolean => {
+  if (focus !== 'high-information') return true;
+  const volume7d = Number(wallet.volume7d || 0);
+  const highInformationVolume7d = Number(wallet.highInformationVolume7d || 0);
+  if (volume7d <= 0) return false;
+  if (['politics', 'macro', 'company', 'legal', 'geopolitics'].includes(wallet.focusCategory || '')) return true;
+  return highInformationVolume7d / volume7d >= 0.6;
+};
+
+const annotateDiscoveryWallet = <T extends {
+  focusCategory?: DiscoveryMarketCategory;
+  highInformationVolume7d?: number;
+  volume7d?: number;
+  volumePrev7d?: number;
+  tradeCount7d?: number;
+  lastSignalType?: string;
+}>(
+  wallet: T,
+): T & { whySurfaced: string } => ({
+  ...wallet,
+  whySurfaced: buildDiscoveryWalletExplanation(wallet),
+});
+
+const filterDiscoveryWalletsForPresentation = <T extends {
+  focusCategory?: DiscoveryMarketCategory;
+  highInformationVolume7d?: number;
+  volume7d?: number;
+  volumePrev7d?: number;
+  tradeCount7d?: number;
+  lastSignalType?: string;
+  whaleScore?: number;
+  lastSignalAt?: number;
+}>(
+  wallets: T[],
+  focus: 'all-real-world' | 'high-information',
+  includeAll: boolean,
+): Array<T & { whySurfaced: string }> => {
+  return wallets
+    .map(annotateDiscoveryWallet)
+    .filter((wallet) => matchesDiscoveryFocusFilter(wallet, focus))
+    .filter((wallet) => includeAll || shouldIncludeDiscoveryWallet(wallet));
+};
+
+export const paginateDiscoveryWalletsForPresentation = <T extends {
+  focusCategory?: DiscoveryMarketCategory;
+  highInformationVolume7d?: number;
+  volume7d?: number;
+  volumePrev7d?: number;
+  tradeCount7d?: number;
+  lastSignalType?: string;
+  whaleScore?: number;
+  lastSignalAt?: number;
+}>(
+  wallets: T[],
+  options: {
+    focus: 'all-real-world' | 'high-information';
+    includeAll: boolean;
+    limit: number;
+    offset: number;
+  },
+): Array<T & { whySurfaced: string }> => {
+  return filterDiscoveryWalletsForPresentation(wallets, options.focus, options.includeAll)
+    .slice(options.offset, options.offset + options.limit);
+};
+
+export const buildDiscoveryOverview = (
+  wallets: Array<{
+    address: string;
+    whaleScore?: number;
+    volume7d?: number;
+    tradeCount7d?: number;
+    lastSignalAt?: number;
+    lastActive?: number;
+    isTracked?: boolean;
+    focusCategory?: DiscoveryMarketCategory;
+  }>,
+  signals: Array<{
+    address: string;
+    severity?: string;
+    marketTitle?: string;
+    detectedAt?: number;
+  }>,
+  days: number,
+) => {
+  const surfacedWallets = wallets.filter(shouldIncludeDiscoveryWallet);
+  const surfacedCutoff = Date.now() - 24 * 3600 * 1000;
+  const signalCutoff = Date.now() - days * 86400 * 1000;
+  const highInformationCategories = new Set(['politics', 'macro', 'company', 'legal', 'geopolitics']);
+  const surfacedToday = surfacedWallets.filter((wallet) => Number(wallet.lastActive || 0) >= surfacedCutoff);
+  const highInformationWallets = surfacedWallets.filter((wallet) => highInformationCategories.has(wallet.focusCategory || ''));
+  const strongSignalCounts = new Map<string, number>();
+
+  for (const signal of signals) {
+    if (Number(signal.detectedAt || 0) < signalCutoff) continue;
+    if (signal.severity !== 'high' && signal.severity !== 'critical') continue;
+    strongSignalCounts.set(signal.address, (strongSignalCounts.get(signal.address) ?? 0) + 1);
+  }
+
+  const surfacedByCategory = [...surfacedWallets.reduce((acc, wallet) => {
+    const category = wallet.focusCategory || 'event';
+    acc.set(category, (acc.get(category) ?? 0) + 1);
+    return acc;
+  }, new Map<string, number>()).entries()]
+    .map(([category, count]) => ({ category, count }))
+    .sort((a, b) => b.count - a.count || (DISCOVERY_CATEGORY_PRIORITY[a.category] ?? 99) - (DISCOVERY_CATEGORY_PRIORITY[b.category] ?? 99));
+
+  const signalCountsByCategory = [...signals.reduce((acc, signal) => {
+    if (Number(signal.detectedAt || 0) < signalCutoff) return acc;
+    const category = classifyDiscoveryMarket({ title: signal.marketTitle }).category || 'event';
+    acc.set(category, (acc.get(category) ?? 0) + 1);
+    return acc;
+  }, new Map<string, number>()).entries()]
+    .map(([category, count]) => ({ category, count }))
+    .sort((a, b) => b.count - a.count || (DISCOVERY_CATEGORY_PRIORITY[a.category] ?? 99) - (DISCOVERY_CATEGORY_PRIORITY[b.category] ?? 99));
+
+  const topWalletsByDay = [...surfacedWallets.reduce((acc, wallet) => {
+    const bucket = new Date(Number(wallet.lastActive || 0)).toISOString().slice(0, 10);
+    const list = acc.get(bucket) ?? [];
+    list.push({
+      address: wallet.address,
+      whaleScore: wallet.whaleScore || 0,
+      focusCategory: wallet.focusCategory || 'event',
+    });
+    acc.set(bucket, list);
+    return acc;
+  }, new Map<string, Array<{ address: string; whaleScore: number; focusCategory: string }>>()).entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .slice(0, days)
+    .map(([day, dailyWallets]) => ({
+      day,
+      wallets: dailyWallets.sort((a, b) => b.whaleScore - a.whaleScore).slice(0, 5),
+    }));
+
+  return {
+    quality: {
+      walletsSurfacedToday: surfacedToday.length,
+      highInformationWalletPct: surfacedWallets.length === 0
+        ? 0
+        : Math.round((highInformationWallets.length / surfacedWallets.length) * 100),
+      walletsWithTwoStrongSignals: [...strongSignalCounts.values()].filter((count) => count >= 2).length,
+      trackedWallets: surfacedWallets.filter((wallet) => wallet.isTracked).length,
+    },
+    surfacedByCategory,
+    signalCountsByCategory,
+    topWalletsByDay,
+  };
+};
+
 /** Ensure DB is initialized before any discovery route (e.g. when user saves config before copy trader has started). */
 const ensureDatabase = async (_req: Request, _res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -153,14 +380,34 @@ export const createDiscoveryRoutes = (manager: DiscoveryManager): Router => {
         const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
         const offset = parseInt(req.query.offset as string) || 0;
         const hydratePositions = req.query.hydratePositions === 'true';
+        const includeAll = req.query.includeAll === 'true';
+        const focus = req.query.focus === 'high-information' ? 'high-information' : 'all-real-world';
         const filters: { minScore?: number; heat?: string; hasSignals?: boolean } = {};
         if (req.query.minScore !== undefined) filters.minScore = parseFloat(req.query.minScore as string);
         if (req.query.heat) filters.heat = req.query.heat as string;
         if (req.query.hasSignals === 'true') filters.hasSignals = true;
 
-        const wallets = manager.getWallets(sort, limit, offset, filters);
+        const rawBatchSize = Math.min(Math.max(limit * 3, 50), 200);
+        const requiredCount = offset + limit;
+        let rawOffset = 0;
+        let filteredWallets: Array<any> = [];
+
+        while (filteredWallets.length < requiredCount) {
+          const batch = manager.getWallets(sort, rawBatchSize, rawOffset, filters);
+          if (batch.length === 0) break;
+          filteredWallets = filteredWallets.concat(
+            filterDiscoveryWalletsForPresentation(batch as any[], focus, includeAll)
+          );
+          rawOffset += batch.length;
+          if (batch.length < rawBatchSize) break;
+        }
+
+        const wallets = filteredWallets.slice(offset, offset + limit);
         if (!hydratePositions || wallets.length === 0) {
-          res.json({ success: true, wallets });
+          res.json({
+            success: true,
+            wallets,
+          });
           return;
         }
 
@@ -175,7 +422,10 @@ export const createDiscoveryRoutes = (manager: DiscoveryManager): Router => {
           }
         }));
 
-        res.json({ success: true, wallets: hydratedWallets });
+        res.json({
+          success: true,
+          wallets: hydratedWallets.map(annotateDiscoveryWallet),
+        });
       } catch (err: any) {
         res.status(500).json({ success: false, error: err.message });
       }
@@ -206,6 +456,20 @@ export const createDiscoveryRoutes = (manager: DiscoveryManager): Router => {
       const days = parseInt(req.query.days as string) || 7;
       const markets = getUnusualMarkets(days);
       res.json({ success: true, markets });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/summary', (req: Request, res: Response) => {
+    try {
+      const days = Math.min(parseInt(req.query.days as string) || 7, 14);
+      const wallets = manager.getWallets('score', 1000, 0);
+      const signals = getRecentSignals(500, 0);
+      res.json({
+        success: true,
+        overview: buildDiscoveryOverview(wallets as any, signals as any, days),
+      });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }

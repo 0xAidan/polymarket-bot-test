@@ -41,6 +41,8 @@ export async function initDatabase(): Promise<Database.Database> {
   safeAddColumn(db, 'discovery_wallets', 'last_signal_type', 'TEXT');
   safeAddColumn(db, 'discovery_wallets', 'last_signal_at', 'INTEGER');
   safeAddColumn(db, 'discovery_wallets', 'prior_active_at', 'INTEGER');
+  safeAddColumn(db, 'discovery_wallets', 'high_information_volume_7d', 'REAL DEFAULT 0');
+  safeAddColumn(db, 'discovery_wallets', 'focus_category', 'TEXT');
   safeAddColumn(db, 'discovery_trades', 'event_key', 'TEXT');
   safeAddColumn(db, 'discovery_trades', 'notional_usd', 'REAL');
   safeAddColumn(db, 'discovery_positions', 'asset_id', 'TEXT');
@@ -180,6 +182,8 @@ function createSchema(database: Database.Database): void {
       trade_count_7d   INTEGER DEFAULT 0,
       volume_7d        REAL DEFAULT 0,
       volume_prev_7d   REAL DEFAULT 0,
+      high_information_volume_7d REAL DEFAULT 0,
+      focus_category   TEXT,
       largest_trade    REAL DEFAULT 0,
       unique_markets_7d INTEGER DEFAULT 0,
       avg_trade_size   REAL DEFAULT 0,
