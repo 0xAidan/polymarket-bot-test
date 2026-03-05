@@ -328,6 +328,7 @@ export class WalletMonitor {
       return {
         walletAddress: walletAddress.toLowerCase(),
         marketId,
+        marketTitle: trade.title || trade.slug || undefined,
         outcome,
         amount: amount.toString(),
         price: price.toString(),

@@ -360,7 +360,7 @@ async function loadTrades() {
       return `<tr class="clickable-row" onclick="openTradeDetailModal(${idx})" tabindex="0" role="button" aria-label="View trade details">
         <td>${new Date(trade.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
         <td>${trade.walletLabel || trade.walletAddress.slice(0, 8)}...${(trade.walletTags && trade.walletTags.length > 0) ? ' ' + trade.walletTags.map(t => `<span class="tag-badge ${TAG_COLOR_MAP[t] || ''}">${t}</span>`).join('') : ''}</td>
-        <td>${trade.marketId?.slice(0, 12)}...</td>
+        <td title="${trade.marketId || ''}">${trade.marketName || trade.marketId?.slice(0, 12) + '...'}</td>
         <td>${trade.outcome} ${trade.side || 'BUY'}</td>
         <td>${amountDisplay}</td>
         <td>${statusLabel}</td>
@@ -412,7 +412,7 @@ const openTradeDetailModal = (idx) => {
     <div class="detail-divider"></div>
 
     <div class="detail-label">Market:</div>
-    <div class="detail-value">${trade.marketTitle || trade.marketId || 'Unknown'}</div>
+    <div class="detail-value">${trade.marketName || trade.marketTitle || trade.marketId || 'Unknown'}</div>
 
     <div class="detail-label">Market ID:</div>
     <div class="detail-value"><span class="text-mono text-sm">${trade.marketId || '?'}</span></div>

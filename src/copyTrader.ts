@@ -436,7 +436,7 @@ export class CopyTrader {
       console.log(`   Trade: ${trade.side} ${trade.outcome}`);
       console.log(`   💡 This SELL trade is blocked by this wallet's side filter settings.\n`);
       await this.performanceTracker.recordTrade({
-        timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId,
+        timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId, marketTitle: trade.marketTitle,
         outcome: trade.outcome, amount: trade.amount, price: trade.price, success: false,
         status: 'rejected', executionTimeMs: 0,
         error: `Side filter: Only BUY trades allowed for this wallet`,
@@ -451,7 +451,7 @@ export class CopyTrader {
       console.log(`   Trade: ${trade.side} ${trade.outcome}`);
       console.log(`   💡 This BUY trade is blocked by this wallet's side filter settings.\n`);
       await this.performanceTracker.recordTrade({
-        timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId,
+        timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId, marketTitle: trade.marketTitle,
         outcome: trade.outcome, amount: trade.amount, price: trade.price, success: false,
         status: 'rejected', executionTimeMs: 0,
         error: `Side filter: Only SELL trades allowed for this wallet`,
@@ -474,7 +474,7 @@ export class CopyTrader {
       console.log(`   Market: ${trade.marketId}`);
       console.log(`   💡 Adjust this wallet's price limits to copy low-price trades.\n`);
       await this.performanceTracker.recordTrade({
-        timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId,
+        timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId, marketTitle: trade.marketTitle,
         outcome: trade.outcome, amount: trade.amount, price: trade.price, success: false,
         status: 'rejected', executionTimeMs: 0,
         error: `Price filter: $${trade.price} below minimum $${minPrice}`,
@@ -490,7 +490,7 @@ export class CopyTrader {
       console.log(`   Market: ${trade.marketId}`);
       console.log(`   💡 Adjust this wallet's price limits to copy high-price trades.\n`);
       await this.performanceTracker.recordTrade({
-        timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId,
+        timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId, marketTitle: trade.marketTitle,
         outcome: trade.outcome, amount: trade.amount, price: trade.price, success: false,
         status: 'rejected', executionTimeMs: 0,
         error: `Price filter: $${trade.price} above maximum $${maxPrice}`,
@@ -533,6 +533,7 @@ export class CopyTrader {
             timestamp: new Date(),
             walletAddress: trade.walletAddress,
             marketId: trade.marketId,
+            marketTitle: trade.marketTitle,
             outcome: trade.outcome,
             amount: trade.amount,
             price: trade.price,
@@ -566,7 +567,7 @@ export class CopyTrader {
         console.log(`   Wallet minimum: $${trade.valueFilterMin}`);
         console.log(`   💡 This trade is too small based on this wallet's value filter.\n`);
         await this.performanceTracker.recordTrade({
-          timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId,
+          timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId, marketTitle: trade.marketTitle,
           outcome: trade.outcome, amount: trade.amount, price: trade.price, success: false,
           status: 'rejected', executionTimeMs: 0,
           error: `Value filter: $${detectedTradeValue.toFixed(2)} below minimum $${trade.valueFilterMin}`,
@@ -582,7 +583,7 @@ export class CopyTrader {
         console.log(`   Wallet maximum: $${trade.valueFilterMax}`);
         console.log(`   💡 This trade is too large based on this wallet's value filter.\n`);
         await this.performanceTracker.recordTrade({
-          timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId,
+          timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId, marketTitle: trade.marketTitle,
           outcome: trade.outcome, amount: trade.amount, price: trade.price, success: false,
           status: 'rejected', executionTimeMs: 0,
           error: `Value filter: $${detectedTradeValue.toFixed(2)} above maximum $${trade.valueFilterMax}`,
@@ -639,6 +640,7 @@ export class CopyTrader {
           timestamp: new Date(),
           walletAddress: trade.walletAddress,
           marketId: trade.marketId,
+          marketTitle: trade.marketTitle,
           outcome: trade.outcome,
           amount: trade.amount,
           price: trade.price,
@@ -663,6 +665,7 @@ export class CopyTrader {
           timestamp: new Date(),
           walletAddress: trade.walletAddress,
           marketId: trade.marketId,
+          marketTitle: trade.marketTitle,
           outcome: trade.outcome,
           amount: trade.amount,
           price: trade.price,
@@ -703,6 +706,7 @@ export class CopyTrader {
           timestamp: new Date(),
           walletAddress: trade.walletAddress,
           marketId: trade.marketId,
+          marketTitle: trade.marketTitle,
           outcome: trade.outcome,
           amount: trade.amount,
           price: trade.price,
@@ -829,6 +833,7 @@ export class CopyTrader {
                 timestamp: new Date(),
                 walletAddress: trade.walletAddress,
                 marketId: trade.marketId,
+                marketTitle: trade.marketTitle,
                 outcome: trade.outcome,
                 amount: trade.amount,
                 price: trade.price,
@@ -929,6 +934,7 @@ export class CopyTrader {
           timestamp: new Date(),
           walletAddress: trade.walletAddress,
           marketId: trade.marketId,
+          marketTitle: trade.marketTitle,
           outcome: trade.outcome,
           amount: trade.amount,
           price: trade.price,
@@ -1030,6 +1036,7 @@ export class CopyTrader {
         timestamp: trade.timestamp instanceof Date ? trade.timestamp : new Date(trade.timestamp),
         walletAddress: trade.walletAddress,
         marketId: trade.marketId,
+        marketTitle: trade.marketTitle,
         outcome: trade.outcome,
         amount: trade.amount, // Original detected amount
         price: trade.price,
@@ -1127,6 +1134,7 @@ export class CopyTrader {
         timestamp: new Date(),
         walletAddress: trade.walletAddress,
         marketId: trade.marketId,
+        marketTitle: trade.marketTitle,
         outcome: trade.outcome,
         amount: trade.amount,
         price: trade.price,

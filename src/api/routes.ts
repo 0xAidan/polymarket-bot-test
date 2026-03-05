@@ -1091,12 +1091,21 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         (t as any).walletTags = walletTagsMap.get(t.walletAddress.toLowerCase()) || [];
       });
 
-      // Step 4: Enrich trades with market names
-      // NOTE: Market name fetching is disabled to prevent blocking
-      // For now, we just use marketId - market names can be added later with a better caching strategy
-      trades.forEach(t => {
-        (t as any).marketName = t.marketId;
-      });
+      // Step 4: Enrich trades with market names (use Gamma cache for historical trades)
+      try {
+        const api = copyTrader.getPolymarketApi();
+        await Promise.all(trades.map(async (t) => {
+          if ((t as any).marketTitle) {
+            (t as any).marketName = (t as any).marketTitle;
+          } else {
+            (t as any).marketName = await api.getMarketName(t.marketId);
+          }
+        }));
+      } catch {
+        trades.forEach(t => {
+          (t as any).marketName = (t as any).marketTitle || t.marketId;
+        });
+      }
 
       // Step 5: Return enriched trades
       res.json({ success: true, trades });
@@ -1105,10 +1114,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       try {
         const limit = parseInt((req.query.limit as string) || '50');
         const trades = performanceTracker.getRecentTrades(limit);
-        // Add empty labels/names if enrichment failed
         trades.forEach(t => {
           (t as any).walletLabel = '';
-          (t as any).marketName = t.marketId;
+          (t as any).marketName = (t as any).marketTitle || t.marketId;
         });
         res.json({ success: true, trades });
       } catch (fallbackError: any) {

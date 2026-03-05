@@ -72,6 +72,7 @@ export interface TrackedWallet {
 export interface DetectedTrade {
   walletAddress: string;
   marketId: string;
+  marketTitle?: string; // Human-readable market name (from API title/slug)
   outcome: 'YES' | 'NO';
   amount: string; // In wei or token units
   price: string; // Price per share
@@ -113,6 +114,7 @@ export interface DetectedTrade {
  */
 export interface TradeOrder {
   marketId: string;
+  marketTitle?: string;
   outcome: 'YES' | 'NO';
   amount: string;
   price: string;
@@ -142,6 +144,7 @@ export interface TradeMetrics {
   timestamp: Date;
   walletAddress: string;
   marketId: string;
+  marketTitle?: string;
   outcome: 'YES' | 'NO';
   amount: string;
   price: string;
