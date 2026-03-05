@@ -26,6 +26,29 @@ const conditionToTitleCache = new Map<string, string>(); // conditionId -> title
 const PROFILE_CACHE_MAX = 10_000;
 const ASSET_CACHE_MAX = 50_000;
 const PROFILE_CONCURRENCY_LIMIT = 10;
+const normalizeTokenId = (tokenId: unknown): string => String(tokenId ?? '').trim();
+const SPORTS_KEYWORDS = [
+  ' vs ',
+  ' v ',
+  'nba',
+  'nfl',
+  'mlb',
+  'nhl',
+  'soccer',
+  'football',
+  'basketball',
+  'baseball',
+  'tennis',
+  'golf',
+  'ufc',
+  'mma',
+  'f1',
+  'formula 1',
+  'champions league',
+  'premier league',
+  'ncaa',
+  'world cup',
+];
 
 let activeProfileRequests = 0;
 const profileQueue: Array<{ address: string; resolve: (v: string | null) => void }> = [];
@@ -47,6 +70,12 @@ export const enrichTrade = async (trade: DiscoveredTrade): Promise<DiscoveredTra
         trade.conditionId = market.conditionId;
         trade.marketSlug = market.slug;
         trade.marketTitle = market.title;
+        if (market.outcomes?.length) {
+          const idx = market.tokenIds.findIndex((tokenId) => tokenId === trade.assetId);
+          if (idx >= 0 && idx < market.outcomes.length) {
+            trade.outcome = market.outcomes[idx];
+          }
+        }
       }
     } catch { /* best-effort */ }
   }
@@ -95,17 +124,20 @@ export const refreshMarketCache = async (marketCount: number): Promise<MarketCac
           const parsed = typeof market.clobTokenIds === 'string'
             ? JSON.parse(market.clobTokenIds)
             : market.clobTokenIds;
-          tokenIds.push(...parsed);
+          if (Array.isArray(parsed)) {
+            tokenIds.push(...parsed.map(normalizeTokenId).filter(Boolean));
+          }
         }
 
-        const entry: MarketCacheEntry = {
+        const entry: MarketCacheEntry = classifyMarketEntry({
           conditionId: market.conditionId,
           slug: market.slug || event.slug,
           title: market.question || event.title,
           volume24h: parseFloat(market.volume24hr || '0'),
           tokenIds,
+          outcomes: Array.isArray(market.outcomes) ? market.outcomes.map((outcome: unknown) => String(outcome)) : undefined,
           updatedAt: now,
-        };
+        });
 
         entries.push(entry);
         upsertMarketCache(entry);
@@ -132,38 +164,52 @@ export const refreshMarketCache = async (marketCount: number): Promise<MarketCac
 // ---------------------------------------------------------------------------
 
 const resolveAssetToMarket = async (assetId: string): Promise<MarketCacheEntry | null> => {
+  const normalizedAssetId = normalizeTokenId(assetId);
+  if (!normalizedAssetId) return null;
+
   // 1. In-memory cache
-  const cachedCondition = assetToConditionCache.get(assetId);
+  const cachedCondition = assetToConditionCache.get(normalizedAssetId);
   if (cachedCondition) {
     const title = conditionToTitleCache.get(cachedCondition);
     if (title) {
-      return { conditionId: cachedCondition, title, tokenIds: [assetId], updatedAt: 0 };
+      return classifyMarketEntry({
+        conditionId: cachedCondition,
+        title,
+        tokenIds: [normalizedAssetId],
+        updatedAt: 0,
+      });
     }
     const dbEntry = getMarketByConditionId(cachedCondition);
-    if (dbEntry) return dbEntry;
+    if (dbEntry) return classifyMarketEntry(dbEntry);
   }
 
   // 2. DB cache
-  const dbEntry = getMarketByAssetId(assetId);
+  const dbEntry = getMarketByAssetId(normalizedAssetId);
   if (dbEntry) {
-    for (const tid of dbEntry.tokenIds) assetToConditionCache.set(tid, dbEntry.conditionId);
+    for (const tid of dbEntry.tokenIds) {
+      const normalizedTid = normalizeTokenId(tid);
+      if (normalizedTid) assetToConditionCache.set(normalizedTid, dbEntry.conditionId);
+    }
     if (dbEntry.title) conditionToTitleCache.set(dbEntry.conditionId, dbEntry.title);
-    return dbEntry;
+    return classifyMarketEntry(dbEntry);
   }
 
   // 3. Gamma API lookup by token_id
   try {
     const resp = await axios.get(`${config.polymarketGammaApiUrl}/markets`, {
-      params: { clob_token_ids: assetId },
+      params: { clob_token_ids: normalizedAssetId },
       timeout: 10_000,
     });
 
     const markets = resp.data || [];
     if (markets.length > 0) {
       const m = markets[0];
-      const tokenIds: string[] = m.clobTokenIds
+      const parsedTokenIds = m.clobTokenIds
         ? (typeof m.clobTokenIds === 'string' ? JSON.parse(m.clobTokenIds) : m.clobTokenIds)
-        : [assetId];
+        : [normalizedAssetId];
+      const tokenIds = (Array.isArray(parsedTokenIds) ? parsedTokenIds : [normalizedAssetId])
+        .map(normalizeTokenId)
+        .filter(Boolean);
 
       const entry: MarketCacheEntry = {
         conditionId: m.conditionId,
@@ -171,24 +217,41 @@ const resolveAssetToMarket = async (assetId: string): Promise<MarketCacheEntry |
         title: m.question || m.slug,
         volume24h: parseFloat(m.volume24hr || '0'),
         tokenIds,
+        outcomes: Array.isArray(m.outcomes) ? m.outcomes.map((outcome: unknown) => String(outcome)) : undefined,
         updatedAt: Math.floor(Date.now() / 1000),
       };
+      const classifiedEntry = classifyMarketEntry(entry);
 
-      upsertMarketCache(entry);
-      for (const tid of tokenIds) assetToConditionCache.set(tid, entry.conditionId);
-      if (entry.title) conditionToTitleCache.set(entry.conditionId, entry.title);
+      upsertMarketCache(classifiedEntry);
+      for (const tid of tokenIds) assetToConditionCache.set(tid, classifiedEntry.conditionId);
+      if (classifiedEntry.title) conditionToTitleCache.set(classifiedEntry.conditionId, classifiedEntry.title);
 
       if (assetToConditionCache.size > ASSET_CACHE_MAX) {
-        const iter = assetToConditionCache.keys();
-        for (let i = 0; i < 5000; i++) iter.next();
-        // Evict oldest 5k entries by recreating (simple approach)
+        const keysToDelete = [...assetToConditionCache.keys()].slice(0, 5000);
+        for (const k of keysToDelete) assetToConditionCache.delete(k);
       }
 
-      return entry;
+      return classifiedEntry;
     }
   } catch { /* best-effort */ }
 
   return null;
+};
+
+export const classifyMarketEntry = (entry: MarketCacheEntry): MarketCacheEntry => {
+  const title = `${entry.title || ''} ${entry.slug || ''}`.toLowerCase();
+  const isSportsLike = SPORTS_KEYWORDS.some((keyword) => title.includes(keyword));
+  const isRecurring = isSportsLike;
+  const category = isSportsLike ? 'sports' : 'event';
+
+  return {
+    ...entry,
+    category,
+    isSportsLike,
+    isRecurring,
+    emergingEligible: !isSportsLike,
+    sharpWalletEligible: true,
+  };
 };
 
 const drainProfileQueue = async (): Promise<void> => {

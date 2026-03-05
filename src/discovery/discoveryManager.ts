@@ -21,10 +21,16 @@ import {
   getTotalWalletCount,
   getTotalTradeCount,
   purgeOldTrades,
+  purgeAllDiscoveryData,
+  cleanupOldSignals,
+  cleanupStalePositions,
 } from './statsStore.js';
 import { TradeIngestion } from './tradeIngestion.js';
 import { ChainListener } from './chainListener.js';
 import { ApiPoller } from './apiPoller.js';
+import { refreshPositionPrices, backfillPositions } from './positionTracker.js';
+import { evaluatePeriodicSignals } from './signalEngine.js';
+import { computeScoresAndHeat } from './walletScorer.js';
 
 export class DiscoveryManager {
   private ingestion: TradeIngestion;
@@ -33,6 +39,8 @@ export class DiscoveryManager {
   private statsTimer: ReturnType<typeof setInterval> | null = null;
   private startedAt?: number;
   private config: DiscoveryConfig;
+  private priceRefreshRunning = false;
+  private statsCycleRunning = false;
 
   constructor() {
     // Use defaults here — DB may not be initialized yet.
@@ -75,20 +83,60 @@ export class DiscoveryManager {
     );
     await this.apiPoller.start();
 
-    // Start stats aggregation + retention cleanup
+    // Start stats aggregation + scoring + price refresh + signals + retention
     this.statsTimer = setInterval(() => {
-      try {
-        aggregateStats();
-        runRetentionCleanup();
-      } catch (err) {
-        console.error('[DiscoveryManager] Stats aggregation error:', err);
-      }
+      void this.runStatsCycle();
     }, this.config.statsIntervalMs);
 
-    // Run initial aggregation
+    // Backfill positions from existing trades, then run full stats cycle
+    try { backfillPositions(); } catch { /* ok on empty db */ }
+    try { await refreshPositionPrices(); } catch { /* best-effort */ }
     try { aggregateStats(); } catch { /* ok on empty db */ }
+    try { computeScoresAndHeat(); } catch { /* ok on empty db */ }
+    try { evaluatePeriodicSignals(); } catch { /* ok on empty db */ }
 
     console.log('[DiscoveryManager] Discovery engine started');
+  }
+
+  private async runStatsCycle(): Promise<void> {
+    if (this.statsCycleRunning) return;
+    this.statsCycleRunning = true;
+
+    if (!this.priceRefreshRunning) {
+      this.priceRefreshRunning = true;
+      try {
+        await refreshPositionPrices();
+      } catch (err) {
+        console.error('[DiscoveryManager] Price refresh error:', err);
+      } finally {
+        this.priceRefreshRunning = false;
+      }
+    }
+
+    try {
+      aggregateStats();
+    } catch (err) {
+      console.error('[DiscoveryManager] Stats aggregation error:', err);
+    }
+    try {
+      computeScoresAndHeat();
+    } catch (err) {
+      console.error('[DiscoveryManager] Scoring error:', err);
+    }
+    try {
+      evaluatePeriodicSignals();
+    } catch (err) {
+      console.error('[DiscoveryManager] Periodic signals error:', err);
+    }
+    try {
+      runRetentionCleanup();
+      cleanupOldSignals(30);
+      cleanupStalePositions(90);
+    } catch (err) {
+      console.error('[DiscoveryManager] Retention cleanup error:', err);
+    } finally {
+      this.statsCycleRunning = false;
+    }
   }
 
   async stop(): Promise<void> {
@@ -181,9 +229,14 @@ export class DiscoveryManager {
     };
   }
 
-  getWallets(sort: 'volume' | 'trades' | 'recent' = 'volume', limit = 50, offset = 0) {
+  getWallets(
+    sort: 'volume' | 'trades' | 'recent' | 'score' | 'roi' = 'volume',
+    limit = 50,
+    offset = 0,
+    filters?: { minScore?: number; heat?: string; hasSignals?: boolean }
+  ) {
     try {
-      return getTopWallets(sort, limit, offset);
+      return getTopWallets(sort, limit, offset, filters);
     } catch {
       return [];
     }
@@ -194,6 +247,22 @@ export class DiscoveryManager {
       return purgeOldTrades(olderThanDays);
     } catch {
       return 0;
+    }
+  }
+
+  resetData(): {
+    trades: number;
+    wallets: number;
+    positions: number;
+    signals: number;
+    marketCache: number;
+    total: number;
+  } {
+    try {
+      this.ingestion.resetState();
+      return purgeAllDiscoveryData();
+    } catch {
+      return { trades: 0, wallets: 0, positions: 0, signals: 0, marketCache: 0, total: 0 };
     }
   }
 }

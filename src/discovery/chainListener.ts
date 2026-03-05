@@ -162,14 +162,34 @@ export class ChainListener extends EventEmitter {
 
       this.lastEventAt = Date.now();
 
+      const makerAmountRaw = parseFloat(event.makerAmountFilled);
+      const takerAmountRaw = parseFloat(event.takerAmountFilled);
+
+      // makerAssetId "0" means the maker is providing USDC (collateral) = BUY
+      // Otherwise the maker is providing conditional tokens = SELL
+      const makerIsUsdcSide = event.makerAssetId === '0';
+
+      const usdcAmount = makerIsUsdcSide ? makerAmountRaw : takerAmountRaw;
+      const tokenAmount = makerIsUsdcSide ? takerAmountRaw : makerAmountRaw;
+      const conditionalTokenId = makerIsUsdcSide ? event.takerAssetId : event.makerAssetId;
+
+      const side = makerIsUsdcSide ? 'BUY' : 'SELL';
+      const shares = tokenAmount / 1e6;
+      const notionalUsd = usdcAmount / 1e6; // USDC has 6 decimals
+      const price = tokenAmount > 0 ? usdcAmount / tokenAmount : undefined;
+      const logSuffix = log.logIndex || log.transactionIndex || '0';
+      const eventKey = `${event.transactionHash}:${logSuffix}`;
+
       const trade: DiscoveredTrade = {
-        txHash: event.transactionHash,
+        txHash: eventKey,
+        eventKey,
         maker: event.maker.toLowerCase(),
         taker: event.taker.toLowerCase(),
-        assetId: event.makerAssetId,
-        side: undefined,
-        size: parseFloat(event.makerAmountFilled) / 1e6, // USDC has 6 decimals
-        price: undefined,
+        assetId: conditionalTokenId,
+        side,
+        size: shares,
+        price,
+        notionalUsd,
         fee: parseFloat(event.fee) / 1e6,
         source: 'chain',
         detectedAt: Date.now(),

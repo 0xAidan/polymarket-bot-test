@@ -8,8 +8,20 @@
 
 import { EventEmitter } from 'events';
 import { DiscoveredTrade } from './types.js';
-import { insertTradeBatch, upsertWallet, tradeExistsByHash } from './statsStore.js';
+import {
+  insertTradeBatch,
+  upsertWallet,
+  tradeExistsByHash,
+  tradeExistsByEventKey,
+  getWalletStats,
+  refreshWalletStats,
+  aggregateWalletPnL,
+} from './statsStore.js';
 import { enrichTrade, resolveWalletPseudonym } from './tradeEnricher.js';
+import { getDatabase } from '../database.js';
+import { updatePosition } from './positionTracker.js';
+import { evaluateTradeSignals } from './signalEngine.js';
+import { computeScoresAndHeat } from './walletScorer.js';
 
 const DEDUP_SET_MAX = 50_000;
 const BATCH_FLUSH_INTERVAL_MS = 2_000;
@@ -36,23 +48,30 @@ export class TradeIngestion extends EventEmitter {
     this.flush();
   }
 
+  resetState(): void {
+    this.pendingBatch = [];
+    this.dedupSet.clear();
+    this.dedupQueue = [];
+  }
+
   /**
    * Submit a trade for ingestion. Returns true if the trade is new
    * (not a duplicate), false if it was already seen.
    */
   async ingest(trade: DiscoveredTrade): Promise<boolean> {
     if (!this.running) return false;
+    const dedupKey = trade.eventKey || trade.txHash;
 
     // Level 1 dedup: in-memory set (fast)
-    if (this.dedupSet.has(trade.txHash)) return false;
+    if (this.dedupSet.has(dedupKey)) return false;
 
     // Level 2 dedup: DB check (catches restarts)
-    if (tradeExistsByHash(trade.txHash)) {
-      this.addToDedup(trade.txHash);
+    if ((trade.eventKey && tradeExistsByEventKey(trade.eventKey)) || tradeExistsByHash(trade.txHash)) {
+      this.addToDedup(dedupKey);
       return false;
     }
 
-    this.addToDedup(trade.txHash);
+    this.addToDedup(dedupKey);
 
     // Enrich (non-blocking, best-effort)
     const enriched = await enrichTrade(trade);
@@ -88,14 +107,63 @@ export class TradeIngestion extends EventEmitter {
       // Upsert wallet records for all unique addresses
       const walletsSeen = new Set<string>();
       for (const t of batch) {
-        if (!walletsSeen.has(t.maker)) {
-          walletsSeen.add(t.maker);
-          upsertWallet(t.maker, t.detectedAt);
+        for (const address of getTradeParticipantAddresses(t)) {
+          if (!walletsSeen.has(address)) {
+            walletsSeen.add(address);
+            upsertWallet(address, t.detectedAt);
+          }
         }
-        if (!walletsSeen.has(t.taker)) {
-          walletsSeen.add(t.taker);
-          upsertWallet(t.taker, t.detectedAt);
+      }
+
+      try {
+        const skippedForPosition: Record<string, number> = {
+          missingConditionId: 0,
+          missingAssetId: 0,
+          invalidSide: 0,
+          invalidPrice: 0,
+          invalidSize: 0,
+        };
+        for (const t of batch) {
+          for (const trackedTrade of buildPositionTrackingTrades(t)) {
+            const skipReason = this.getPositionSkipReason(trackedTrade);
+            if (!skipReason) {
+              updatePosition(trackedTrade);
+            } else {
+              skippedForPosition[skipReason]++;
+            }
+          }
         }
+
+        const totalSkipped = Object.values(skippedForPosition).reduce((sum, count) => sum + count, 0);
+        if (totalSkipped > 0) {
+          console.log(
+            `[Ingestion] Position updates skipped=${totalSkipped} ` +
+            `(missingConditionId=${skippedForPosition.missingConditionId}, ` +
+            `missingAssetId=${skippedForPosition.missingAssetId}, ` +
+            `invalidSide=${skippedForPosition.invalidSide}, ` +
+            `invalidPrice=${skippedForPosition.invalidPrice}, ` +
+            `invalidSize=${skippedForPosition.invalidSize})`
+          );
+        }
+      } catch (err) {
+        console.error('[Ingestion] Position tracking error:', err);
+      }
+
+      try {
+        aggregateWalletPnL();
+        refreshWalletStats([...walletsSeen]);
+        computeScoresAndHeat();
+
+        for (const t of batch) {
+          for (const signalTrade of buildSignalEvaluationTrades(t)) {
+            const walletStats = getWalletStats(signalTrade.maker);
+            if (walletStats) {
+              evaluateTradeSignals(signalTrade, walletStats);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[Ingestion] Signal evaluation error:', err);
       }
 
       if (inserted > 0) {
@@ -119,26 +187,48 @@ export class TradeIngestion extends EventEmitter {
   }
 
   private resolveWalletsAsync(maker: string, taker: string): void {
+    const updatePseudonym = (address: string, pseudo: string) => {
+      try {
+        const db = getDatabase();
+        db.prepare('UPDATE discovery_wallets SET pseudonym = ? WHERE address = ? AND pseudonym IS NULL')
+          .run(pseudo, address);
+      } catch { /* best-effort */ }
+    };
+
     resolveWalletPseudonym(maker).then((pseudo) => {
-      if (pseudo) {
-        try {
-          const { getDatabase } = require('../database.js');
-          const db = getDatabase();
-          db.prepare('UPDATE discovery_wallets SET pseudonym = ? WHERE address = ? AND pseudonym IS NULL')
-            .run(pseudo, maker);
-        } catch { /* best-effort */ }
-      }
+      if (pseudo) updatePseudonym(maker, pseudo);
     }).catch(() => {});
 
-    resolveWalletPseudonym(taker).then((pseudo) => {
-      if (pseudo) {
-        try {
-          const { getDatabase } = require('../database.js');
-          const db = getDatabase();
-          db.prepare('UPDATE discovery_wallets SET pseudonym = ? WHERE address = ? AND pseudonym IS NULL')
-            .run(pseudo, taker);
-        } catch { /* best-effort */ }
-      }
-    }).catch(() => {});
+    if (taker) {
+      resolveWalletPseudonym(taker).then((pseudo) => {
+        if (pseudo) updatePseudonym(taker, pseudo);
+      }).catch(() => {});
+    }
+  }
+
+  private getPositionSkipReason(
+    trade: Pick<DiscoveredTrade, 'conditionId' | 'assetId' | 'side' | 'price' | 'size'>
+  ): 'missingConditionId' | 'missingAssetId' | 'invalidSide' | 'invalidPrice' | 'invalidSize' | null {
+    if (!trade.conditionId) return 'missingConditionId';
+    if (!trade.assetId) return 'missingAssetId';
+    if (trade.side !== 'BUY' && trade.side !== 'SELL') return 'invalidSide';
+    if (!Number.isFinite(trade.price) || (trade.price as number) <= 0) return 'invalidPrice';
+    if (!Number.isFinite(trade.size) || trade.size <= 0) return 'invalidSize';
+    return null;
   }
 }
+
+export const getTradeParticipantAddresses = (
+  trade: Pick<DiscoveredTrade, 'maker' | 'taker'>
+): string[] => {
+  const maker = String(trade.maker || '').trim().toLowerCase();
+  return maker ? [maker] : [];
+};
+
+export const buildSignalEvaluationTrades = (trade: DiscoveredTrade): DiscoveredTrade[] => {
+  return [trade];
+};
+
+export const buildPositionTrackingTrades = (trade: DiscoveredTrade): DiscoveredTrade[] => {
+  return [trade];
+};

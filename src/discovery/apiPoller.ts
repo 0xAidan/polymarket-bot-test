@@ -20,6 +20,18 @@ const MARKET_REFRESH_INTERVAL_MS = 15 * 60 * 1000; // 15 min
 const MAX_TRADES_PER_MARKET = 100;
 const REQUEST_DELAY_MS = 100; // 10 req/s to stay well within limits
 
+export const buildMarketTradesRequestParams = (conditionId: string) => ({
+  market: conditionId,
+  limit: MAX_TRADES_PER_MARKET,
+  takerOnly: false,
+});
+
+export const canStartPollCycle = (
+  running: boolean,
+  marketCount: number,
+  pollInProgress: boolean,
+): boolean => running && marketCount > 0 && !pollInProgress;
+
 export class ApiPoller extends EventEmitter {
   private ingestion: TradeIngestion;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -29,6 +41,7 @@ export class ApiPoller extends EventEmitter {
   private lastPollAt?: number;
   private pollIntervalMs: number;
   private marketCount: number;
+  private pollInProgress = false;
 
   constructor(ingestion: TradeIngestion, pollIntervalMs: number, marketCount: number) {
     super();
@@ -98,59 +111,101 @@ export class ApiPoller extends EventEmitter {
   }
 
   private async pollAllMarkets(): Promise<void> {
-    if (!this.running || this.markets.length === 0) return;
+    if (!canStartPollCycle(this.running, this.markets.length, this.pollInProgress)) return;
+    this.pollInProgress = true;
 
     let totalNew = 0;
     const now = Date.now();
 
-    for (const market of this.markets) {
-      if (!this.running) break;
+    try {
+      for (const market of this.markets) {
+        if (!this.running) break;
 
-      try {
-        const trades = await this.fetchTradesForMarket(market);
-        if (trades.length > 0) {
-          const newCount = await this.ingestion.ingestBatch(trades);
-          totalNew += newCount;
+        try {
+          const trades = await this.fetchTradesForMarket(market);
+          if (trades.length > 0) {
+            const newCount = await this.ingestion.ingestBatch(trades);
+            totalNew += newCount;
+          }
+        } catch (err: any) {
+          if (err.response?.status !== 404) {
+            console.error(`[ApiPoller] Error polling market ${market.conditionId?.slice(0, 12)}:`, err.message);
+          }
         }
-      } catch (err: any) {
-        if (err.response?.status !== 404) {
-          console.error(`[ApiPoller] Error polling market ${market.conditionId?.slice(0, 12)}:`, err.message);
-        }
+
+        // Rate limit: small delay between markets
+        await sleep(REQUEST_DELAY_MS);
       }
 
-      // Rate limit: small delay between markets
-      await sleep(REQUEST_DELAY_MS);
+      this.lastPollAt = now;
+      this.emit('poll', { marketsPolled: this.markets.length, newTrades: totalNew });
+    } finally {
+      this.pollInProgress = false;
     }
-
-    this.lastPollAt = now;
-    this.emit('poll', { marketsPolled: this.markets.length, newTrades: totalNew });
   }
 
   private async fetchTradesForMarket(market: MarketCacheEntry): Promise<DiscoveredTrade[]> {
     const resp = await axios.get(`${config.polymarketDataApiUrl}/trades`, {
-      params: { market: market.conditionId, limit: MAX_TRADES_PER_MARKET },
+      params: buildMarketTradesRequestParams(market.conditionId),
       timeout: 10_000,
     });
 
     const rawTrades = resp.data || [];
     const now = Date.now();
 
-    return rawTrades.map((t: any): DiscoveredTrade => ({
-      txHash: t.transactionHash || t.id || `api-${t.timestamp}-${Math.random().toString(36).slice(2, 9)}`,
-      maker: (t.maker || t.owner || '').toLowerCase(),
-      taker: (t.taker || '').toLowerCase(),
-      assetId: t.asset || t.tokenId || '',
-      conditionId: market.conditionId,
-      marketSlug: market.slug,
-      marketTitle: market.title,
-      side: t.side?.toUpperCase(),
-      size: parseFloat(t.size || '0'),
-      price: parseFloat(t.price || '0'),
-      fee: 0,
-      source: 'api' as const,
-      detectedAt: t.timestamp ? (typeof t.timestamp === 'number' && t.timestamp < 1e12 ? t.timestamp * 1000 : Number(t.timestamp)) : now,
-    })).filter((t: DiscoveredTrade) => t.maker && t.size > 0);
+    return rawTrades
+      .map((t: any): DiscoveredTrade => mapApiTradeToDiscoveredTrade(t, market, now))
+      .filter((t: DiscoveredTrade) => {
+        const hasValidSide = t.side === 'BUY' || t.side === 'SELL';
+        const hasValidSize = Number.isFinite(t.size) && t.size > 0;
+        const hasValidPrice = Number.isFinite(t.price) && (t.price as number) > 0;
+        return Boolean(t.maker && t.assetId && hasValidSide && hasValidSize && hasValidPrice);
+      });
   }
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+const resolveOutcomeLabel = (market: MarketCacheEntry, assetId: string): string | undefined => {
+  if (!market.outcomes || market.outcomes.length === 0) return undefined;
+  const tokenIdx = market.tokenIds.findIndex((tokenId) => tokenId === assetId);
+  if (tokenIdx < 0 || tokenIdx >= market.outcomes.length) return undefined;
+  return market.outcomes[tokenIdx];
+};
+
+export const mapApiTradeToDiscoveredTrade = (
+  rawTrade: any,
+  market: MarketCacheEntry,
+  now = Date.now(),
+): DiscoveredTrade => {
+  const side = typeof rawTrade.side === 'string' ? rawTrade.side.toUpperCase() : '';
+  const size = Number.parseFloat(String(rawTrade.size ?? '0'));
+  const price = Number.parseFloat(String(rawTrade.price ?? '0'));
+  const notionalUsd = Number.isFinite(size) && Number.isFinite(price) ? size * price : 0;
+  const assetId = String(rawTrade.asset || rawTrade.tokenId || '');
+  const outcome = String(rawTrade.outcome || resolveOutcomeLabel(market, assetId) || '');
+  const detectedAt = rawTrade.timestamp
+    ? (typeof rawTrade.timestamp === 'number' && rawTrade.timestamp < 1e12 ? rawTrade.timestamp * 1000 : Number(rawTrade.timestamp))
+    : now;
+  const txHash = String(rawTrade.transactionHash || rawTrade.id || rawTrade.tradeID || 'api');
+  const eventKey = `${txHash}:${detectedAt}:${assetId}:${side}`;
+
+  return {
+    txHash: eventKey,
+    eventKey,
+    maker: String(rawTrade.proxyWallet || rawTrade.owner || rawTrade.maker || '').toLowerCase(),
+    taker: '',
+    assetId,
+    conditionId: String(rawTrade.conditionId || market.conditionId || ''),
+    marketSlug: rawTrade.slug || market.slug,
+    marketTitle: rawTrade.title || market.title,
+    outcome: outcome || undefined,
+    side,
+    size,
+    price,
+    notionalUsd,
+    fee: 0,
+    source: 'api',
+    detectedAt,
+  };
+};

@@ -13,9 +13,9 @@
 export const CTF_EXCHANGE_ADDRESS = '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E';
 export const NEG_RISK_CTF_EXCHANGE_ADDRESS = '0xC5d563A36AE78145C45a50134d48A1215220f80a';
 
-// keccak256 of the OrderFilled event signature
+// keccak256("OrderFilled(bytes32,address,address,uint256,uint256,uint256,uint256,uint256)")
 export const ORDER_FILLED_TOPIC0 =
-  '0xd0a08e8c493f9c94f29311571544f45a67d412c07ad8c7d3a07f3a53b7b6cece';
+  '0xd0a08e8c493f9c94f29311604c9de1b4e8c8d4c06bd0c789af57f2d65bfec0f6';
 
 // ---------------------------------------------------------------------------
 // ABI fragment for decoding OrderFilled events
@@ -40,6 +40,7 @@ export const ORDER_FILLED_DATA_TYPES = [
 
 export interface DiscoveredTrade {
   txHash: string;
+  eventKey?: string;
   maker: string;
   taker: string;
   assetId: string;
@@ -47,8 +48,10 @@ export interface DiscoveredTrade {
   marketTitle?: string;
   conditionId?: string;
   side?: string;
-  size: number;
+  size: number; // shares
   price?: number;
+  notionalUsd?: number;
+  outcome?: string;
   fee: number;
   source: 'chain' | 'api';
   detectedAt: number; // unix epoch ms
@@ -60,6 +63,7 @@ export interface WalletStats {
   pseudonym?: string;
   firstSeen: number;
   lastActive: number;
+  priorActiveAt?: number;
   tradeCount7d: number;
   volume7d: number;
   volumePrev7d: number;
@@ -68,6 +72,14 @@ export interface WalletStats {
   avgTradeSize: number;
   isTracked: boolean;
   updatedAt: number;
+  whaleScore: number;
+  heatIndicator: HeatIndicator;
+  totalPnl: number;
+  roiPct: number | null;
+  winRate: number;
+  activePositions: number;
+  lastSignalType?: string;
+  lastSignalAt?: number;
 }
 
 export interface MarketCacheEntry {
@@ -76,6 +88,12 @@ export interface MarketCacheEntry {
   title?: string;
   volume24h?: number;
   tokenIds: string[]; // YES and NO token IDs (asset IDs)
+  outcomes?: string[];
+  category?: string;
+  isRecurring?: boolean;
+  isSportsLike?: boolean;
+  emergingEligible?: boolean;
+  sharpWalletEligible?: boolean;
   updatedAt: number;
 }
 
@@ -137,3 +155,115 @@ export interface DiscoveryStatus {
     uptimeMs: number;
   };
 }
+
+// ---------------------------------------------------------------------------
+// Heat indicator
+// ---------------------------------------------------------------------------
+
+export type HeatIndicator = 'HOT' | 'WARMING' | 'STEADY' | 'COOLING' | 'COLD' | 'NEW';
+
+// ---------------------------------------------------------------------------
+// Positions
+// ---------------------------------------------------------------------------
+
+export interface WalletPosition {
+  id?: number;
+  address: string;
+  conditionId: string;
+  assetId: string;
+  outcome?: string;
+  marketSlug?: string;
+  marketTitle?: string;
+  side?: string;
+  shares: number;
+  avgEntry: number;
+  totalCost: number;
+  totalTrades: number;
+  firstEntry: number;
+  lastEntry: number;
+  currentPrice?: number;
+  priceUpdatedAt?: number;
+  unrealizedPnl: number;
+  roiPct: number;
+  realizedPnl?: number;
+  currentValue?: number;
+  dataSource?: 'verified' | 'derived';
+  updatedAt?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Signals
+// ---------------------------------------------------------------------------
+
+export type SignalType =
+  | 'SIZE_ANOMALY'
+  | 'VOLUME_SPIKE'
+  | 'DORMANT_ACTIVATION'
+  | 'MARKET_PIONEER'
+  | 'NEW_WHALE'
+  | 'COORDINATED_ENTRY'
+  | 'CONVICTION_BUILD';
+
+export type SignalSeverity = 'low' | 'medium' | 'high' | 'critical';
+
+export interface DiscoverySignal {
+  id?: number;
+  signalType: SignalType;
+  severity: SignalSeverity;
+  address: string;
+  conditionId?: string;
+  marketTitle?: string;
+  title: string;
+  description: string;
+  metadata?: Record<string, any>;
+  detectedAt: number;
+  dismissed: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Signal thresholds (stored in discovery_config, editable at runtime)
+// ---------------------------------------------------------------------------
+
+export interface SignalThresholds {
+  sizeAnomalyMultiplier: number;
+  sizeAnomalyMinTrades: number;
+  sizeAnomalyMinNotionalUsd: number;
+  volumeSpikeMultiplier: number;
+  volumeSpikeMinVolume: number;
+  dormantDays: number;
+  dormantMinVolume: number;
+  newWhaleMinSize: number;
+  marketPioneerMinPosition: number;
+  marketPioneerMaxSmartMoney: number;
+  smartMoneyScoreThreshold: number;
+  coordinatedMinWallets: number;
+  coordinatedMinVolume: number;
+  coordinatedWindowMinutes: number;
+  coordinatedMinAvgScore: number;
+  convictionMinFills: number;
+  convictionMinNotionalUsd: number;
+  convictionWindowMinutes: number;
+  maxSignalsPerDay: number;
+}
+
+export const DEFAULT_SIGNAL_THRESHOLDS: SignalThresholds = {
+  sizeAnomalyMultiplier: 5,
+  sizeAnomalyMinTrades: 5,
+  sizeAnomalyMinNotionalUsd: 500,
+  volumeSpikeMultiplier: 3,
+  volumeSpikeMinVolume: 10000,
+  dormantDays: 14,
+  dormantMinVolume: 5000,
+  newWhaleMinSize: 5000,
+  marketPioneerMinPosition: 100000,
+  marketPioneerMaxSmartMoney: 3,
+  smartMoneyScoreThreshold: 60,
+  coordinatedMinWallets: 3,
+  coordinatedMinVolume: 50000,
+  coordinatedWindowMinutes: 30,
+  coordinatedMinAvgScore: 55,
+  convictionMinFills: 4,
+  convictionMinNotionalUsd: 5000,
+  convictionWindowMinutes: 120,
+  maxSignalsPerDay: 50,
+};
