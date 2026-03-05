@@ -37,6 +37,7 @@
           <button class="win-tab" data-tab="trading-wallets" onclick="switchTab('trading-wallets')">Trading Wallets</button>
           <button class="win-tab" data-tab="platforms" onclick="switchTab('platforms')">Platforms</button>
           <button class="win-tab" data-tab="cross-platform" onclick="switchTab('cross-platform')">Cross-Platform</button>
+          <button class="win-tab" data-tab="discovery" onclick="switchTab('discovery')">Discovery</button>
           <button class="win-tab" data-tab="settings" onclick="switchTab('settings')">Settings</button>
           <button class="win-tab" data-tab="diagnostics" onclick="switchTab('diagnostics')">Diagnostics</button>
         </div>
@@ -358,6 +359,214 @@
                 </select>
                 <button class="win-btn win-btn-sm" onclick="addAssignment()">Assign</button>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============================================================
+             DISCOVERY TAB
+             ============================================================ -->
+        <div id="tab-discovery" class="win-tab-panel">
+          <!-- Discovery Settings -->
+          <div class="win-group">
+            <div class="win-group-title">Discovery Settings</div>
+            <div class="flex-row gap-8 mb-8">
+              <label class="win-checkbox">
+                <input type="checkbox" id="discoveryEnabled" onchange="handleDiscoveryToggle()">
+                <span>Enable Discovery Engine</span>
+              </label>
+            </div>
+            <div class="form-row mb-8">
+              <label>Alchemy WS URL:</label>
+              <div style="flex:1;">
+                <input type="text" id="discoveryAlchemyUrl" placeholder="wss://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY" class="win-input" style="width:100%;" aria-label="Alchemy WebSocket URL" autocomplete="off">
+                <div id="discoveryAlchemyUrlHasKey" class="text-sm text-muted" style="margin-top:2px;display:none;"></div>
+              </div>
+            </div>
+            <div class="flex-row gap-16 mb-8 flex-wrap">
+              <div class="form-row">
+                <label>Poll Interval (s):</label>
+                <input type="number" id="discoveryPollInterval" value="30" min="15" max="120" class="win-input" style="width:80px;">
+              </div>
+              <div class="form-row">
+                <label>Markets to monitor:</label>
+                <input type="number" id="discoveryMarketCount" value="50" min="10" max="200" class="win-input" style="width:80px;">
+              </div>
+              <div class="form-row">
+                <label>Stats interval (min):</label>
+                <input type="number" id="discoveryStatsInterval" value="5" min="1" max="60" class="win-input" style="width:80px;">
+              </div>
+            </div>
+            <div class="flex-row gap-8">
+              <button class="win-btn win-btn-primary" onclick="saveDiscoveryConfig()" aria-label="Save discovery settings" tabindex="0">Save Settings</button>
+              <button class="win-btn" onclick="restartDiscovery()" aria-label="Restart discovery engine" tabindex="0">Restart Discovery</button>
+              <button class="win-btn" onclick="purgeDiscoveryData()" aria-label="Clear all discovery data" tabindex="0">Clear Discovery Data</button>
+            </div>
+          </div>
+
+          <!-- Signals & Alerts -->
+          <div class="win-group" id="discoverySignalsGroup">
+            <div class="win-group-title">Signals &amp; Alerts</div>
+            <div class="flex-row gap-8 mb-8">
+              <select id="signalSeverityFilter" class="win-select" onchange="loadDiscoverySignals()" aria-label="Filter by severity">
+                <option value="">All Severities</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+              </select>
+              <span class="text-sm text-muted" id="signalCount">0 signals</span>
+            </div>
+            <div id="discoverySignalsList" style="max-height:200px;overflow-y:auto;">
+              <div class="text-center text-muted text-sm">No signals yet — collecting data...</div>
+            </div>
+          </div>
+
+          <!-- Discovery Status -->
+          <div class="win-group">
+            <div class="win-group-title">Discovery Status</div>
+            <div class="metrics-row" id="discoveryStatusMetrics">
+              <div class="metric-box">
+                <div class="metric-value" id="discoveryChainStatus">--</div>
+                <div class="metric-label">Chain Listener</div>
+              </div>
+              <div class="metric-box">
+                <div class="metric-value" id="discoveryPollerStatus">--</div>
+                <div class="metric-label">API Poller</div>
+              </div>
+              <div class="metric-box">
+                <div class="metric-value" id="discoveryWalletCount">0</div>
+                <div class="metric-label">Wallets Found</div>
+              </div>
+              <div class="metric-box">
+                <div class="metric-value" id="discoveryTradeCount">0</div>
+                <div class="metric-label">Trades Ingested</div>
+              </div>
+              <div class="metric-box">
+                <div class="metric-value" id="discoveryUptime">--</div>
+                <div class="metric-label">Uptime</div>
+              </div>
+            </div>
+            <div class="discovery-filters" id="discoveryFilters">
+              <label>Focus:</label>
+              <select id="discoveryFocus" class="win-select" onchange="applyDiscoveryFilters()" aria-label="Discovery focus filter">
+                <option value="all-real-world" selected>All Real-World</option>
+                <option value="high-information">High-Information</option>
+              </select>
+              <label>Min Score:</label>
+              <input type="range" id="filterMinScore" min="0" max="100" value="0" class="win-input" style="width:80px;" oninput="document.getElementById('filterMinScoreVal').textContent=this.value" onchange="applyDiscoveryFilters()">
+              <span id="filterMinScoreVal" class="text-sm">0</span>
+              <label>Heat:</label>
+              <select id="filterHeat" class="win-select" onchange="applyDiscoveryFilters()" aria-label="Filter by heat">
+                <option value="">All</option>
+                <option value="HOT">HOT</option>
+                <option value="WARMING">WARMING</option>
+                <option value="STEADY">STEADY</option>
+                <option value="COOLING">COOLING</option>
+                <option value="COLD">COLD</option>
+                <option value="NEW">NEW</option>
+              </select>
+              <label class="win-checkbox">
+                <input type="checkbox" id="filterHasSignals" onchange="applyDiscoveryFilters()">
+                <span>Has Signals</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="win-group">
+            <div class="win-group-title">Discovery Evaluation</div>
+            <div class="metrics-row" id="discoveryOverviewMetrics">
+              <div class="metric-box">
+                <div class="metric-value" id="discoverySurfacedToday">0</div>
+                <div class="metric-label">Feed-Active (24h)</div>
+              </div>
+              <div class="metric-box">
+                <div class="metric-value" id="discoveryHighInfoPct">0%</div>
+                <div class="metric-label">High-Info Share</div>
+              </div>
+              <div class="metric-box">
+                <div class="metric-value" id="discoveryStrongSignals">0</div>
+                <div class="metric-label">2+ Strong Signals</div>
+              </div>
+              <div class="metric-box">
+                <div class="metric-value" id="discoveryTrackedCount">0</div>
+                <div class="metric-label">Tracked Wallets In Feed</div>
+              </div>
+            </div>
+            <div class="flex-row gap-8" style="margin-top:8px;align-items:flex-start;">
+              <div style="flex:1;min-width:220px;">
+                <div class="text-sm text-muted" style="margin-bottom:4px;">Surfaced Wallets by Category</div>
+                <div id="discoveryCategoryMix" class="text-sm text-muted">Collecting data...</div>
+              </div>
+              <div style="flex:1;min-width:220px;">
+                <div class="text-sm text-muted" style="margin-bottom:4px;">Signal Counts by Category</div>
+                <div id="discoverySignalMix" class="text-sm text-muted">Collecting data...</div>
+              </div>
+              <div style="flex:1;min-width:220px;">
+                <div class="text-sm text-muted" style="margin-bottom:4px;">Top Feed Wallets by Day</div>
+                <div id="discoveryTopWalletsByDay" class="text-sm text-muted">Collecting data...</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Discovered Wallets -->
+          <div class="win-group">
+            <div class="win-group-title">Real-World Discovery Feed</div>
+            <div class="text-sm text-muted mb-8">Primary feed excludes crypto and sports, keeps entertainment lower-priority, and favors politics, macro, company, legal, and geopolitics.</div>
+            <div class="flex-row gap-8 mb-8">
+              <label class="text-sm">Sort by:</label>
+              <select id="discoveryWalletSort" class="win-select" onchange="loadDiscoveryWallets()" aria-label="Sort discovered wallets">
+                <option value="volume">7d Volume</option>
+                <option value="trades">Trade Count</option>
+                <option value="recent">Most Recent</option>
+                <option value="score" selected>Sharp Score</option>
+                <option value="roi">ROI</option>
+              </select>
+              <button class="win-btn win-btn-sm" onclick="loadDiscoveryWallets()" aria-label="Refresh wallet list" tabindex="0">Refresh</button>
+            </div>
+            <div class="trades-scroll-container" style="max-height:400px;overflow-y:auto;overflow-x:auto;">
+              <table class="win-listview" id="discoveryWalletsTable">
+                <thead>
+                  <tr>
+                    <th>Heat</th>
+                    <th>Address</th>
+                    <th>Pseudonym</th>
+                    <th>Sharp Score</th>
+                    <th>ROI</th>
+                    <th>7d Volume</th>
+                    <th>Trades</th>
+                    <th>Positions</th>
+                    <th>Signals</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="discoveryWalletsBody">
+                  <tr><td colspan="10" class="text-center text-muted">Enable discovery to start finding wallets</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="flex-between mt-8">
+              <span class="text-sm text-muted" id="discoveryWalletsCount">0 wallets</span>
+              <button class="win-btn win-btn-sm" id="discoveryLoadMoreBtn" onclick="loadMoreDiscoveryWallets()" style="display:none;" aria-label="Load more wallets" tabindex="0">Load More</button>
+            </div>
+          </div>
+
+          <!-- Unusual Markets -->
+          <div class="win-group" id="discoveryUnusualMarketsGroup">
+            <div class="win-group-title">Unusual Markets</div>
+            <div class="trades-scroll-container" style="max-height:250px;overflow-y:auto;">
+              <table class="win-listview" id="unusualMarketsTable">
+                <thead>
+                  <tr>
+                    <th>Market</th>
+                    <th>Signal</th>
+                    <th>Wallets</th>
+                    <th>First Detected</th>
+                  </tr>
+                </thead>
+                <tbody id="unusualMarketsBody">
+                  <tr><td colspan="4" class="text-center text-muted">Collecting data...</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -1235,6 +1444,19 @@
     </div>
     <div class="taskbar-divider"></div>
     <div class="taskbar-clock" id="taskbarClock">--:--</div>
+  </div>
+
+  <!-- Wallet Detail Modal (Discovery) -->
+  <div id="walletDetailOverlay" class="wallet-detail-overlay" style="display:none;" onclick="if(event.target===this)closeWalletDetail()">
+    <div class="wallet-detail-modal">
+      <div class="wallet-detail-titlebar">
+        <span id="walletDetailTitle">Wallet Detail</span>
+        <button class="win-btn win-btn-sm" onclick="closeWalletDetail()" aria-label="Close">X</button>
+      </div>
+      <div class="wallet-detail-body" id="walletDetailBody">
+        <!-- Populated by JS -->
+      </div>
+    </div>
   </div>
 
   <script src="/js/api.js"></script>
