@@ -10,6 +10,7 @@
 import {
   DiscoveryConfig,
   DiscoveryStatus,
+  DEFAULT_DISCOVERY_CONFIG,
 } from './types.js';
 import {
   getDiscoveryConfig,
@@ -34,7 +35,9 @@ export class DiscoveryManager {
   private config: DiscoveryConfig;
 
   constructor() {
-    this.config = getDiscoveryConfig();
+    // Use defaults here — DB may not be initialized yet.
+    // Real config is loaded in start() after the DB is ready.
+    this.config = { ...DEFAULT_DISCOVERY_CONFIG };
     this.ingestion = new TradeIngestion();
   }
 
@@ -116,7 +119,11 @@ export class DiscoveryManager {
   // -----------------------------------------------------------------------
 
   getConfig(): DiscoveryConfig {
-    return getDiscoveryConfig();
+    try {
+      return getDiscoveryConfig();
+    } catch {
+      return { ...DEFAULT_DISCOVERY_CONFIG };
+    }
   }
 
   async updateConfig(updates: Partial<DiscoveryConfig>): Promise<DiscoveryConfig> {
@@ -147,6 +154,13 @@ export class DiscoveryManager {
     const chainStatus = this.chainListener?.getStatus() ?? { connected: false, reconnectCount: 0 };
     const pollerStatus = this.apiPoller?.getStatus() ?? { running: false, marketsMonitored: 0 };
 
+    let totalWallets = 0;
+    let totalTrades = 0;
+    try {
+      totalWallets = getTotalWalletCount();
+      totalTrades = getTotalTradeCount();
+    } catch { /* DB not ready yet */ }
+
     return {
       enabled: this.config.enabled,
       chainListener: {
@@ -160,18 +174,26 @@ export class DiscoveryManager {
         marketsMonitored: pollerStatus.marketsMonitored,
       },
       stats: {
-        totalWallets: getTotalWalletCount(),
-        totalTrades: getTotalTradeCount(),
+        totalWallets,
+        totalTrades,
         uptimeMs: this.startedAt ? Date.now() - this.startedAt : 0,
       },
     };
   }
 
   getWallets(sort: 'volume' | 'trades' | 'recent' = 'volume', limit = 50, offset = 0) {
-    return getTopWallets(sort, limit, offset);
+    try {
+      return getTopWallets(sort, limit, offset);
+    } catch {
+      return [];
+    }
   }
 
   purgeData(olderThanDays: number): number {
-    return purgeOldTrades(olderThanDays);
+    try {
+      return purgeOldTrades(olderThanDays);
+    } catch {
+      return 0;
+    }
   }
 }
