@@ -2567,8 +2567,12 @@ const toggleHelpMenu = () => {
 let discoveryWalletOffset = 0;
 const DISCOVERY_PAGE_SIZE = 50;
 let discoveryRefreshTimer = null;
+let discoveryConfigLoaded = false;
 
 const loadDiscoveryConfig = async () => {
+  // Only load from server once — don't overwrite fields the user is editing
+  if (discoveryConfigLoaded) return;
+
   try {
     const resp = await fetch('/api/discovery/config');
     const data = await resp.json();
@@ -2580,12 +2584,28 @@ const loadDiscoveryConfig = async () => {
     const pollEl = document.getElementById('discoveryPollInterval');
     const marketEl = document.getElementById('discoveryMarketCount');
     const statsEl = document.getElementById('discoveryStatsInterval');
+    const urlHasKeyEl = document.getElementById('discoveryAlchemyUrlHasKey');
 
     if (enabledEl) enabledEl.checked = cfg.enabled;
-    if (urlEl) urlEl.value = cfg.alchemyWsUrl || '';
     if (pollEl) pollEl.value = Math.round((cfg.pollIntervalMs || 30000) / 1000);
     if (marketEl) marketEl.value = cfg.marketCount || 50;
     if (statsEl) statsEl.value = Math.round((cfg.statsIntervalMs || 300000) / 60000);
+
+    // Show whether a key is saved without putting the masked value in the field
+    if (urlEl && urlHasKeyEl) {
+      if (cfg.alchemyWsUrl && cfg.alchemyWsUrl !== '') {
+        urlEl.value = '';
+        urlEl.placeholder = 'Key saved — paste new URL to replace';
+        urlHasKeyEl.textContent = '(key saved: ' + cfg.alchemyWsUrl + ')';
+        urlHasKeyEl.style.display = '';
+      } else {
+        urlEl.value = '';
+        urlEl.placeholder = 'wss://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY';
+        urlHasKeyEl.style.display = 'none';
+      }
+    }
+
+    discoveryConfigLoaded = true;
   } catch { /* best-effort */ }
 };
 
@@ -2724,9 +2744,9 @@ const saveDiscoveryConfig = async () => {
       statsIntervalMs: (parseInt(statsEl?.value) || 5) * 60000,
     };
 
-    // Only send URL if user typed something (avoid overwriting with masked value)
-    const urlVal = urlEl?.value || '';
-    if (urlVal && !urlVal.includes('****')) {
+    // Only send URL if the user typed a new one (field is not empty)
+    const urlVal = (urlEl?.value || '').trim();
+    if (urlVal) {
       body.alchemyWsUrl = urlVal;
     }
 
@@ -2737,7 +2757,14 @@ const saveDiscoveryConfig = async () => {
     });
     const data = await resp.json();
     if (data.success) {
-      win95Dialog.alert('Settings Saved', 'Discovery settings updated. Restart the engine for URL changes to take effect.');
+      // Refresh the "key saved" indicator
+      discoveryConfigLoaded = false;
+      loadDiscoveryConfig();
+
+      const msg = urlVal
+        ? 'Settings saved. Restart the engine for URL changes to take effect.'
+        : 'Settings saved.';
+      win95Dialog.alert('Settings Saved', msg);
     } else {
       win95Dialog.alert('Error', data.error || 'Failed to save settings');
     }

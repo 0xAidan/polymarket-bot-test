@@ -378,7 +378,10 @@
             </div>
             <div class="form-row mb-8">
               <label>Alchemy WS URL:</label>
-              <input type="password" id="discoveryAlchemyUrl" placeholder="wss://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY" class="win-input" style="flex:1;">
+              <div style="flex:1;">
+                <input type="text" id="discoveryAlchemyUrl" placeholder="wss://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY" class="win-input" style="width:100%;" aria-label="Alchemy WebSocket URL" autocomplete="off">
+                <div id="discoveryAlchemyUrlHasKey" class="text-sm text-muted" style="margin-top:2px;display:none;"></div>
+              </div>
             </div>
             <div class="flex-row gap-16 mb-8 flex-wrap">
               <div class="form-row">
