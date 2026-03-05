@@ -188,6 +188,9 @@ function refreshCurrentTab() {
     case 'cross-platform':
       refreshExecutorStatus();
       break;
+    case 'discovery':
+      startDiscoveryRefresh();
+      break;
   }
 }
 
@@ -2556,6 +2559,258 @@ const toggleHelpMenu = () => {
     { label: 'GitHub Repository', action: () => window.open('https://github.com/0xAidan/polymarket-bot-test', '_blank') },
   ]);
 };
+
+// ============================================================
+// DISCOVERY ENGINE UI
+// ============================================================
+
+let discoveryWalletOffset = 0;
+const DISCOVERY_PAGE_SIZE = 50;
+let discoveryRefreshTimer = null;
+
+const loadDiscoveryConfig = async () => {
+  try {
+    const resp = await fetch('/api/discovery/config');
+    const data = await resp.json();
+    if (!data.success) return;
+    const cfg = data.config;
+
+    const enabledEl = document.getElementById('discoveryEnabled');
+    const urlEl = document.getElementById('discoveryAlchemyUrl');
+    const pollEl = document.getElementById('discoveryPollInterval');
+    const marketEl = document.getElementById('discoveryMarketCount');
+    const statsEl = document.getElementById('discoveryStatsInterval');
+
+    if (enabledEl) enabledEl.checked = cfg.enabled;
+    if (urlEl) urlEl.value = cfg.alchemyWsUrl || '';
+    if (pollEl) pollEl.value = Math.round((cfg.pollIntervalMs || 30000) / 1000);
+    if (marketEl) marketEl.value = cfg.marketCount || 50;
+    if (statsEl) statsEl.value = Math.round((cfg.statsIntervalMs || 300000) / 60000);
+  } catch { /* best-effort */ }
+};
+
+const loadDiscoveryStatus = async () => {
+  try {
+    const resp = await fetch('/api/discovery/status');
+    const data = await resp.json();
+    if (!data.success) return;
+
+    const chainEl = document.getElementById('discoveryChainStatus');
+    const pollerEl = document.getElementById('discoveryPollerStatus');
+    const walletEl = document.getElementById('discoveryWalletCount');
+    const tradeEl = document.getElementById('discoveryTradeCount');
+    const uptimeEl = document.getElementById('discoveryUptime');
+
+    if (chainEl) {
+      const cl = data.chainListener || {};
+      chainEl.textContent = cl.connected ? 'Connected' : 'Disconnected';
+      chainEl.style.color = cl.connected ? 'var(--success)' : 'var(--danger, #c00)';
+    }
+    if (pollerEl) {
+      const ap = data.apiPoller || {};
+      pollerEl.textContent = ap.running ? `Polling (${ap.marketsMonitored})` : 'Stopped';
+      pollerEl.style.color = ap.running ? 'var(--success)' : '';
+    }
+    if (walletEl) walletEl.textContent = (data.stats?.totalWallets ?? 0).toLocaleString();
+    if (tradeEl) tradeEl.textContent = (data.stats?.totalTrades ?? 0).toLocaleString();
+    if (uptimeEl) {
+      const ms = data.stats?.uptimeMs || 0;
+      if (ms === 0) { uptimeEl.textContent = '--'; }
+      else if (ms < 60000) { uptimeEl.textContent = Math.round(ms / 1000) + 's'; }
+      else if (ms < 3600000) { uptimeEl.textContent = Math.round(ms / 60000) + 'm'; }
+      else { uptimeEl.textContent = (ms / 3600000).toFixed(1) + 'h'; }
+    }
+  } catch { /* best-effort */ }
+};
+
+const loadDiscoveryWallets = async () => {
+  discoveryWalletOffset = 0;
+  await fetchDiscoveryWallets(false);
+};
+
+const loadMoreDiscoveryWallets = async () => {
+  discoveryWalletOffset += DISCOVERY_PAGE_SIZE;
+  await fetchDiscoveryWallets(true);
+};
+
+const fetchDiscoveryWallets = async (append) => {
+  try {
+    const sortEl = document.getElementById('discoveryWalletSort');
+    const sort = sortEl ? sortEl.value : 'volume';
+    const resp = await fetch(`/api/discovery/wallets?sort=${sort}&limit=${DISCOVERY_PAGE_SIZE}&offset=${discoveryWalletOffset}`);
+    const data = await resp.json();
+    if (!data.success) return;
+
+    const tbody = document.getElementById('discoveryWalletsBody');
+    if (!tbody) return;
+
+    if (!append) tbody.innerHTML = '';
+
+    const wallets = data.wallets || [];
+    if (wallets.length === 0 && !append) {
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No wallets discovered yet</td></tr>';
+    }
+
+    for (const w of wallets) {
+      const tr = document.createElement('tr');
+      const shortAddr = w.address ? (w.address.slice(0, 6) + '...' + w.address.slice(-4)) : '—';
+      const lastActive = w.lastActive ? new Date(w.lastActive * 1000).toLocaleString() : '—';
+      const trackBtn = w.isTracked
+        ? '<button class="win-btn win-btn-sm" disabled>Tracked</button>'
+        : `<button class="win-btn win-btn-sm win-btn-primary" onclick="trackDiscoveredWallet('${w.address}', this)" aria-label="Track wallet" tabindex="0">Track</button>`;
+
+      tr.innerHTML = `
+        <td class="text-mono" title="${w.address || ''}" style="cursor:pointer;" onclick="navigator.clipboard.writeText('${w.address || ''}')">${shortAddr}</td>
+        <td>${w.pseudonym || '—'}</td>
+        <td>$${(w.volume7d || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+        <td>${(w.tradeCount7d || 0).toLocaleString()}</td>
+        <td>$${(w.largestTrade || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+        <td>${lastActive}</td>
+        <td>${w.uniqueMarkets7d || 0}</td>
+        <td>${trackBtn}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    const countEl = document.getElementById('discoveryWalletsCount');
+    if (countEl) countEl.textContent = `${discoveryWalletOffset + wallets.length} wallets shown`;
+
+    const loadMoreBtn = document.getElementById('discoveryLoadMoreBtn');
+    if (loadMoreBtn) loadMoreBtn.style.display = wallets.length >= DISCOVERY_PAGE_SIZE ? '' : 'none';
+  } catch { /* best-effort */ }
+};
+
+const trackDiscoveredWallet = async (address, btn) => {
+  try {
+    btn.disabled = true;
+    btn.textContent = '...';
+
+    // Add to tracked wallets with active=false
+    const resp = await fetch('/api/wallets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address, active: false }),
+    });
+    const data = await resp.json();
+
+    if (data.success || resp.ok) {
+      // Also mark as tracked in discovery DB
+      await fetch(`/api/discovery/wallets/${address}/track`, { method: 'POST' });
+      btn.textContent = 'Tracked';
+      btn.classList.remove('win-btn-primary');
+    } else {
+      btn.textContent = 'Track';
+      btn.disabled = false;
+      win95Dialog.alert('Error', data.error || 'Failed to track wallet');
+    }
+  } catch (err) {
+    btn.textContent = 'Track';
+    btn.disabled = false;
+  }
+};
+
+const saveDiscoveryConfig = async () => {
+  try {
+    const urlEl = document.getElementById('discoveryAlchemyUrl');
+    const pollEl = document.getElementById('discoveryPollInterval');
+    const marketEl = document.getElementById('discoveryMarketCount');
+    const statsEl = document.getElementById('discoveryStatsInterval');
+    const enabledEl = document.getElementById('discoveryEnabled');
+
+    const body = {
+      enabled: enabledEl?.checked ?? false,
+      pollIntervalMs: (parseInt(pollEl?.value) || 30) * 1000,
+      marketCount: parseInt(marketEl?.value) || 50,
+      statsIntervalMs: (parseInt(statsEl?.value) || 5) * 60000,
+    };
+
+    // Only send URL if user typed something (avoid overwriting with masked value)
+    const urlVal = urlEl?.value || '';
+    if (urlVal && !urlVal.includes('****')) {
+      body.alchemyWsUrl = urlVal;
+    }
+
+    const resp = await fetch('/api/discovery/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (data.success) {
+      win95Dialog.alert('Settings Saved', 'Discovery settings updated. Restart the engine for URL changes to take effect.');
+    } else {
+      win95Dialog.alert('Error', data.error || 'Failed to save settings');
+    }
+  } catch (err) {
+    win95Dialog.alert('Error', 'Failed to save settings: ' + err.message);
+  }
+};
+
+const handleDiscoveryToggle = async () => {
+  const enabledEl = document.getElementById('discoveryEnabled');
+  const body = { enabled: enabledEl?.checked ?? false };
+  try {
+    await fetch('/api/discovery/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (body.enabled) {
+      await fetch('/api/discovery/config/restart', { method: 'POST' });
+    }
+  } catch { /* best-effort */ }
+};
+
+const restartDiscovery = async () => {
+  try {
+    const resp = await fetch('/api/discovery/config/restart', { method: 'POST' });
+    const data = await resp.json();
+    if (data.success) {
+      win95Dialog.alert('Restarted', 'Discovery engine restarted successfully.');
+    } else {
+      win95Dialog.alert('Error', data.error || 'Failed to restart');
+    }
+  } catch (err) {
+    win95Dialog.alert('Error', 'Failed to restart: ' + err.message);
+  }
+};
+
+const purgeDiscoveryData = async () => {
+  const confirmed = await win95Dialog.confirm('Clear Old Data', 'Delete all discovery trades older than 90 days? Wallet summaries are kept.');
+  if (!confirmed) return;
+  try {
+    const resp = await fetch('/api/discovery/purge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ days: 90 }),
+    });
+    const data = await resp.json();
+    if (data.success) {
+      win95Dialog.alert('Purged', `Deleted ${data.deleted} old trade records.`);
+    }
+  } catch { /* best-effort */ }
+};
+
+const startDiscoveryRefresh = () => {
+  stopDiscoveryRefresh();
+  loadDiscoveryConfig();
+  loadDiscoveryStatus();
+  loadDiscoveryWallets();
+  discoveryRefreshTimer = setInterval(() => {
+    loadDiscoveryStatus();
+    loadDiscoveryWallets();
+  }, 10000);
+};
+
+const stopDiscoveryRefresh = () => {
+  if (discoveryRefreshTimer) {
+    clearInterval(discoveryRefreshTimer);
+    discoveryRefreshTimer = null;
+  }
+};
+
+// Hook into the existing switchTab to start/stop discovery refresh
+const originalSwitchTab = typeof switchTab === 'function' ? switchTab : null;
 
 // Close menus when clicking outside
 document.addEventListener('click', (e) => {

@@ -110,6 +110,65 @@ function createSchema(database: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_executed_positions_market
       ON executed_positions (market_id, side);
+
+    -- =======================================================================
+    -- DISCOVERY ENGINE TABLES
+    -- =======================================================================
+
+    CREATE TABLE IF NOT EXISTS discovery_trades (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      tx_hash     TEXT UNIQUE NOT NULL,
+      maker       TEXT NOT NULL,
+      taker       TEXT NOT NULL,
+      asset_id    TEXT NOT NULL,
+      condition_id TEXT,
+      market_slug TEXT,
+      market_title TEXT,
+      side        TEXT,
+      size        REAL,
+      price       REAL,
+      fee         REAL,
+      source      TEXT NOT NULL,
+      detected_at INTEGER NOT NULL,
+      block_number INTEGER,
+      created_at  INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_trades_maker
+      ON discovery_trades (maker);
+    CREATE INDEX IF NOT EXISTS idx_discovery_trades_taker
+      ON discovery_trades (taker);
+    CREATE INDEX IF NOT EXISTS idx_discovery_trades_detected
+      ON discovery_trades (detected_at);
+
+    CREATE TABLE IF NOT EXISTS discovery_wallets (
+      address          TEXT PRIMARY KEY,
+      pseudonym        TEXT,
+      first_seen       INTEGER NOT NULL,
+      last_active      INTEGER NOT NULL,
+      trade_count_7d   INTEGER DEFAULT 0,
+      volume_7d        REAL DEFAULT 0,
+      volume_prev_7d   REAL DEFAULT 0,
+      largest_trade    REAL DEFAULT 0,
+      unique_markets_7d INTEGER DEFAULT 0,
+      avg_trade_size   REAL DEFAULT 0,
+      is_tracked       INTEGER DEFAULT 0,
+      updated_at       INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS discovery_market_cache (
+      condition_id TEXT PRIMARY KEY,
+      slug         TEXT,
+      title        TEXT,
+      volume_24h   REAL,
+      token_ids    TEXT,
+      updated_at   INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS discovery_config (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
 
   // Set schema version if not set
