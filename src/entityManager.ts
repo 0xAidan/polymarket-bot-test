@@ -3,6 +3,9 @@ import { PolymarketApi } from './polymarketApi.js';
 import { domeGetPositions, isDomeConfigured } from './domeClient.js';
 import { getAdapter, getConfiguredAdapters } from './platform/platformRegistry.js';
 import type { NormalizedPosition } from './platform/types.js';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('EntityManager');
 
 // ============================================================================
 // TYPES
@@ -100,7 +103,7 @@ export class EntityManager {
    */
   async init(): Promise<void> {
     await this.loadEntities();
-    console.log(`[EntityManager] Loaded ${this.entities.length} entity(ies)`);
+    log.info(`[EntityManager] Loaded ${this.entities.length} entity(ies)`);
   }
 
   // ============================================================
@@ -276,14 +279,14 @@ export class EntityManager {
         const hedges = await this.analyzeEntityHedges(entity);
         allHedges.push(...hedges);
       } catch (err: any) {
-        console.error(`[EntityManager] Failed to analyze entity "${entity.id}":`, err.message);
+        log.error({ detail: err.message }, `[EntityManager] Failed to analyze entity "${entity.id}"`)
       }
     }
 
     this.hedges = allHedges;
 
     if (allHedges.length > 0) {
-      console.log(`[EntityManager] Detected ${allHedges.length} hedge(s) across ${this.entities.length} entities`);
+      log.info(`[EntityManager] Detected ${allHedges.length} hedge(s) across ${this.entities.length} entities`);
     }
 
     return allHedges;
@@ -325,7 +328,7 @@ export class EntityManager {
           allPositions.push(...positions);
         }
       } catch (err: any) {
-        console.warn(`[EntityManager] Could not fetch ${pw.platform} positions for ${pw.identifier.slice(0, 10)}:`, err.message);
+        log.warn({ detail: err.message }, `[EntityManager] Could not fetch ${pw.platform} positions for ${pw.identifier.slice(0, 10)}`)
       }
     }
 
@@ -533,7 +536,7 @@ export class EntityManager {
 
     this.crossPlatformHedges = results;
     if (results.length > 0) {
-      console.log(`[EntityManager] Detected ${results.length} cross-platform hedge(s)`);
+      log.info(`[EntityManager] Detected ${results.length} cross-platform hedge(s)`);
     }
     return results;
   }
@@ -609,7 +612,7 @@ export class EntityManager {
       cfg.walletEntities = this.entities;
       await Storage.saveConfig(cfg);
     } catch (err: any) {
-      console.error('[EntityManager] Failed to save entities:', err.message);
+      log.error({ detail: err.message }, '[EntityManager] Failed to save entities')
     }
   }
 }

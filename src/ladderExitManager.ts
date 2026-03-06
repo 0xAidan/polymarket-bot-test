@@ -1,4 +1,7 @@
 import { Storage } from './storage.js';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('LadderExitManager');
 
 // ============================================================================
 // TYPES
@@ -63,7 +66,7 @@ export class LadderExitManager {
 
   async init(): Promise<void> {
     await this.loadState();
-    console.log(`[LadderExit] Loaded ${this.ladders.length} active ladder(s)`);
+    log.info(`[LadderExit] Loaded ${this.ladders.length} active ladder(s)`);
   }
 
   /**
@@ -116,7 +119,7 @@ export class LadderExitManager {
     };
 
     this.ladders.push(ladder);
-    this.saveState().catch(err => console.error('[LadderExit] Save failed:', err.message));
+    this.saveState().catch(err => log.error('[LadderExit] Save failed:', err.message));
     return ladder;
   }
 
@@ -171,7 +174,7 @@ export class LadderExitManager {
       ladder.completedAt = new Date().toISOString();
     }
 
-    this.saveState().catch(err => console.error('[LadderExit] Save failed:', err.message));
+    this.saveState().catch(err => log.error('[LadderExit] Save failed:', err.message));
   }
 
   /**
@@ -182,7 +185,7 @@ export class LadderExitManager {
     if (ladder) {
       ladder.isActive = false;
       ladder.completedAt = new Date().toISOString();
-      this.saveState().catch(err => console.error('[LadderExit] Save failed:', err.message));
+      this.saveState().catch(err => log.error('[LadderExit] Save failed:', err.message));
     }
   }
 
@@ -238,7 +241,7 @@ export class LadderExitManager {
       cfg.ladderExits = this.ladders;
       await Storage.saveConfig(cfg);
     } catch (err: any) {
-      console.error('[LadderExit] Failed to save:', err.message);
+      log.error({ detail: err.message }, '[LadderExit] Failed to save')
     }
   }
 }
