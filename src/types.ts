@@ -273,6 +273,12 @@ export interface ExecutedPosition {
   side: 'YES' | 'NO';
   timestamp: number;
   walletAddress: string; // Which tracked wallet triggered this
+  status?: 'executed' | 'pending';
+  orderId?: string;
+  tokenId?: string;
+  baselinePositionSize?: number;
+  missingOrderChecks?: number;
+  tradeSideAction?: 'BUY' | 'SELL';
 }
 
 /**

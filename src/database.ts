@@ -45,6 +45,12 @@ export async function initDatabase(): Promise<Database.Database> {
   safeAddColumn(db, 'discovery_wallets', 'focus_category', 'TEXT');
   safeAddColumn(db, 'discovery_trades', 'event_key', 'TEXT');
   safeAddColumn(db, 'discovery_trades', 'notional_usd', 'REAL');
+  safeAddColumn(db, 'executed_positions', 'status', "TEXT DEFAULT 'executed'");
+  safeAddColumn(db, 'executed_positions', 'order_id', 'TEXT');
+  safeAddColumn(db, 'executed_positions', 'token_id', 'TEXT');
+  safeAddColumn(db, 'executed_positions', 'baseline_position_size', 'REAL');
+  safeAddColumn(db, 'executed_positions', 'missing_order_checks', 'INTEGER DEFAULT 0');
+  safeAddColumn(db, 'executed_positions', 'trade_side_action', 'TEXT');
   safeAddColumn(db, 'discovery_positions', 'asset_id', 'TEXT');
   safeAddColumn(db, 'discovery_positions', 'outcome', 'TEXT');
   safeAddColumn(db, 'discovery_positions', 'price_updated_at', 'INTEGER');
@@ -135,7 +141,13 @@ function createSchema(database: Database.Database): void {
       market_id       TEXT NOT NULL,
       side            TEXT NOT NULL,
       timestamp       INTEGER NOT NULL,
-      wallet_address  TEXT NOT NULL
+      wallet_address  TEXT NOT NULL,
+      status          TEXT NOT NULL DEFAULT 'executed',
+      order_id        TEXT,
+      token_id        TEXT,
+      baseline_position_size REAL,
+      missing_order_checks INTEGER NOT NULL DEFAULT 0,
+      trade_side_action TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_executed_positions_market
@@ -501,6 +513,12 @@ export function dbLoadExecutedPositions(): ExecutedPosition[] {
     side: r.side as 'YES' | 'NO',
     timestamp: r.timestamp,
     walletAddress: r.wallet_address,
+    status: (r.status as 'executed' | 'pending' | undefined) ?? 'executed',
+    orderId: r.order_id ?? undefined,
+    tokenId: r.token_id ?? undefined,
+    baselinePositionSize: r.baseline_position_size ?? undefined,
+    missingOrderChecks: r.missing_order_checks ?? undefined,
+    tradeSideAction: r.trade_side_action ?? undefined,
   }));
 }
 
@@ -509,10 +527,21 @@ export function dbSaveExecutedPositions(positions: ExecutedPosition[]): void {
   const tx = database.transaction(() => {
     database.prepare('DELETE FROM executed_positions').run();
     const insert = database.prepare(
-      'INSERT INTO executed_positions (market_id, side, timestamp, wallet_address) VALUES (?, ?, ?, ?)'
+      'INSERT INTO executed_positions (market_id, side, timestamp, wallet_address, status, order_id, token_id, baseline_position_size, missing_order_checks, trade_side_action) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     for (const p of positions) {
-      insert.run(p.marketId, p.side, p.timestamp, p.walletAddress);
+      insert.run(
+        p.marketId,
+        p.side,
+        p.timestamp,
+        p.walletAddress,
+        p.status ?? 'executed',
+        p.orderId ?? null,
+        p.tokenId ?? null,
+        p.baselinePositionSize ?? null,
+        p.missingOrderChecks ?? 0,
+        p.tradeSideAction ?? null
+      );
     }
   });
   tx();

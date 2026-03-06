@@ -539,12 +539,32 @@ export class Storage {
   static async addExecutedPosition(
     marketId: string, 
     side: 'YES' | 'NO', 
-    walletAddress: string
+    walletAddress: string,
+    details?: {
+      orderId?: string;
+      tokenId?: string;
+    }
   ): Promise<void> {
     const positions = await this.loadExecutedPositions();
+    const pendingMatch = positions.find(
+      p => p.marketId === marketId &&
+           p.side === side &&
+           (p.status ?? 'executed') === 'pending'
+    );
+
+    if (pendingMatch) {
+      pendingMatch.status = 'executed';
+      pendingMatch.timestamp = Date.now();
+      pendingMatch.orderId = details?.orderId ?? pendingMatch.orderId;
+      pendingMatch.tokenId = details?.tokenId ?? pendingMatch.tokenId;
+      await this.saveExecutedPositions(positions);
+      return;
+    }
     
     const existing = positions.find(
-      p => p.marketId === marketId && p.side === side
+      p => p.marketId === marketId &&
+           p.side === side &&
+           (p.status ?? 'executed') === 'executed'
     );
     
     if (!existing) {
@@ -552,10 +572,106 @@ export class Storage {
         marketId,
         side,
         timestamp: Date.now(),
-        walletAddress: walletAddress.toLowerCase()
+        walletAddress: walletAddress.toLowerCase(),
+        status: 'executed',
+        orderId: details?.orderId,
+        tokenId: details?.tokenId
       });
       await this.saveExecutedPositions(positions);
     }
+  }
+
+  static async addPendingPosition(
+    marketId: string,
+    side: 'YES' | 'NO',
+    walletAddress: string,
+    orderId: string,
+    tokenId?: string,
+    baselinePositionSize?: number,
+    tradeSideAction?: 'BUY' | 'SELL'
+  ): Promise<void> {
+    const positions = await this.loadExecutedPositions();
+    const existingIndex = positions.findIndex(p => p.orderId === orderId);
+
+    const pendingRecord: ExecutedPosition = {
+      marketId,
+      side,
+      timestamp: Date.now(),
+      walletAddress: walletAddress.toLowerCase(),
+      status: 'pending',
+      orderId,
+      tokenId,
+      baselinePositionSize,
+      missingOrderChecks: 0,
+      tradeSideAction
+    };
+
+    if (existingIndex >= 0) {
+      positions[existingIndex] = pendingRecord;
+    } else {
+      positions.push(pendingRecord);
+    }
+
+    await this.saveExecutedPositions(positions);
+  }
+
+  static async markPendingPositionExecuted(orderId: string): Promise<boolean> {
+    const positions = await this.loadExecutedPositions();
+    const pendingPosition = positions.find(p => p.orderId === orderId);
+
+    if (!pendingPosition) {
+      return false;
+    }
+
+    pendingPosition.status = 'executed';
+    pendingPosition.timestamp = Date.now();
+    pendingPosition.missingOrderChecks = 0;
+
+    await this.saveExecutedPositions(positions);
+    return true;
+  }
+
+  static async removePendingPosition(orderId: string): Promise<boolean> {
+    const positions = await this.loadExecutedPositions();
+    const nextPositions = positions.filter(
+      p => !(p.orderId === orderId && (p.status ?? 'executed') === 'pending')
+    );
+
+    if (nextPositions.length === positions.length) {
+      return false;
+    }
+
+    await this.saveExecutedPositions(nextPositions);
+    return true;
+  }
+
+  static async incrementPendingPositionMissingOrderChecks(orderId: string): Promise<number | null> {
+    const positions = await this.loadExecutedPositions();
+    const pendingPosition = positions.find(
+      p => p.orderId === orderId && (p.status ?? 'executed') === 'pending'
+    );
+
+    if (!pendingPosition) {
+      return null;
+    }
+
+    pendingPosition.missingOrderChecks = (pendingPosition.missingOrderChecks ?? 0) + 1;
+    await this.saveExecutedPositions(positions);
+    return pendingPosition.missingOrderChecks;
+  }
+
+  static async resetPendingPositionMissingOrderChecks(orderId: string): Promise<void> {
+    const positions = await this.loadExecutedPositions();
+    const pendingPosition = positions.find(
+      p => p.orderId === orderId && (p.status ?? 'executed') === 'pending'
+    );
+
+    if (!pendingPosition) {
+      return;
+    }
+
+    pendingPosition.missingOrderChecks = 0;
+    await this.saveExecutedPositions(positions);
   }
 
   static async isPositionBlocked(
@@ -564,19 +680,25 @@ export class Storage {
     blockPeriodHours: number
   ): Promise<boolean> {
     const positions = await this.loadExecutedPositions();
+    const matchingPositions = positions.filter(
+      p => p.marketId === marketId && p.side === side
+    );
+
+    if (matchingPositions.some(p => (p.status ?? 'executed') === 'pending')) {
+      return true;
+    }
     
     if (blockPeriodHours === 0) {
-      return positions.some(
-        p => p.marketId === marketId && p.side === side
+      return matchingPositions.some(
+        p => (p.status ?? 'executed') === 'executed'
       );
     }
     
     const blockPeriodMs = blockPeriodHours * 60 * 60 * 1000;
     const cutoffTime = Date.now() - blockPeriodMs;
     
-    return positions.some(
-      p => p.marketId === marketId && 
-           p.side === side && 
+    return matchingPositions.some(
+      p => (p.status ?? 'executed') === 'executed' &&
            p.timestamp > cutoffTime
     );
   }
@@ -590,13 +712,21 @@ export class Storage {
   }
 
   static async cleanupExpiredPositions(blockPeriodHours: number): Promise<number> {
-    if (blockPeriodHours === 0) return 0;
+    if (blockPeriodHours === 0) {
+      return 0;
+    }
     
     const positions = await this.loadExecutedPositions();
     const blockPeriodMs = blockPeriodHours * 60 * 60 * 1000;
     const cutoffTime = Date.now() - blockPeriodMs;
     
-    const validPositions = positions.filter(p => p.timestamp > cutoffTime);
+    const validPositions = positions.filter(p => {
+      const status = p.status ?? 'executed';
+      if (status === 'pending') {
+        return true;
+      }
+      return p.timestamp > cutoffTime;
+    });
     const removedCount = positions.length - validPositions.length;
     
     if (removedCount > 0) {
