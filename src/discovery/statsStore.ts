@@ -6,7 +6,7 @@
  * and data retention cleanup.
  */
 
-import { getDatabase } from '../database.js';
+import { getDiscoveryDatabase } from './discoveryDatabase.js';
 import { config } from '../config.js';
 import {
   DiscoveredTrade,
@@ -34,7 +34,7 @@ const normalizeAlchemyWsUrl = (raw?: string): string => {
 };
 
 export const getDiscoveryConfig = (): DiscoveryConfig => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const rows = db.prepare('SELECT key, value FROM discovery_config').all() as { key: string; value: string }[];
 
   const stored: Record<string, string> = {};
@@ -45,6 +45,10 @@ export const getDiscoveryConfig = (): DiscoveryConfig => {
   return {
     enabled: stored.enabled !== undefined ? stored.enabled === 'true' : config.discoveryEnabled,
     alchemyWsUrl: normalizeAlchemyWsUrl(stored.alchemyWsUrl ?? config.discoveryAlchemyWsUrl),
+    broadPollingEnabled: stored.broadPollingEnabled !== undefined
+      ? stored.broadPollingEnabled === 'true'
+      : DEFAULT_DISCOVERY_CONFIG.broadPollingEnabled,
+    surfaceMode: stored.surfaceMode === 'verified' ? 'verified' : DEFAULT_DISCOVERY_CONFIG.surfaceMode,
     pollIntervalMs: stored.pollIntervalMs !== undefined ? parseInt(stored.pollIntervalMs, 10) : config.discoveryPollIntervalMs,
     marketCount: stored.marketCount !== undefined ? parseInt(stored.marketCount, 10) : config.discoveryMarketCount,
     statsIntervalMs: stored.statsIntervalMs !== undefined ? parseInt(stored.statsIntervalMs, 10) : config.discoveryStatsIntervalMs,
@@ -53,7 +57,7 @@ export const getDiscoveryConfig = (): DiscoveryConfig => {
 };
 
 export const updateDiscoveryConfig = (updates: Partial<DiscoveryConfig>): void => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const upsert = db.prepare(
     'INSERT INTO discovery_config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
   );
@@ -76,7 +80,7 @@ export const updateDiscoveryConfig = (updates: Partial<DiscoveryConfig>): void =
 // ---------------------------------------------------------------------------
 
 export const insertTrade = (trade: DiscoveredTrade): boolean => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   try {
     db.prepare(`
       INSERT OR IGNORE INTO discovery_trades
@@ -109,7 +113,7 @@ export const insertTrade = (trade: DiscoveredTrade): boolean => {
 
 export const insertTradeBatch = (trades: DiscoveredTrade[]): number => {
   if (trades.length === 0) return 0;
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   let inserted = 0;
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO discovery_trades
@@ -132,20 +136,20 @@ export const insertTradeBatch = (trades: DiscoveredTrade[]): number => {
 };
 
 export const tradeExistsByHash = (txHash: string): boolean => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const row = db.prepare('SELECT 1 FROM discovery_trades WHERE tx_hash = ?').get(txHash);
   return !!row;
 };
 
 export const tradeExistsByEventKey = (eventKey: string): boolean => {
   if (!eventKey) return false;
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const row = db.prepare('SELECT 1 FROM discovery_trades WHERE event_key = ?').get(eventKey);
   return !!row;
 };
 
 export const getTotalTradeCount = (): number => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const row = db.prepare('SELECT COUNT(*) as cnt FROM discovery_trades').get() as { cnt: number };
   return row.cnt;
 };
@@ -157,7 +161,7 @@ export const getTotalTradeCount = (): number => {
 export const upsertWallet = (address: string, detectedAt: number): void => {
   const normalizedAddress = String(address || '').trim().toLowerCase();
   if (!normalizedAddress) return;
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   db.prepare(`
     INSERT INTO discovery_wallets (address, first_seen, last_active, prior_active_at, updated_at)
     VALUES (?, ?, ?, NULL, ?)
@@ -172,7 +176,7 @@ export const upsertWallet = (address: string, detectedAt: number): void => {
 };
 
 export const getWalletStats = (address: string): WalletStats | null => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const row = db.prepare('SELECT * FROM discovery_wallets WHERE address = ?').get(address) as any;
   if (!row) return null;
   return rowToWalletStats(row);
@@ -184,7 +188,7 @@ export const getTopWallets = (
   offset = 0,
   filters?: { minScore?: number; heat?: string; hasSignals?: boolean },
 ): WalletStats[] => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const orderMap: Record<string, string> = {
     volume: 'volume_7d DESC',
     trades: 'trade_count_7d DESC',
@@ -214,18 +218,18 @@ export const getTopWallets = (
 };
 
 export const getTotalWalletCount = (): number => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const row = db.prepare('SELECT COUNT(*) as cnt FROM discovery_wallets').get() as { cnt: number };
   return row.cnt;
 };
 
 export const markWalletTracked = (address: string, tracked: boolean): void => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   db.prepare('UPDATE discovery_wallets SET is_tracked = ? WHERE address = ?').run(tracked ? 1 : 0, address.toLowerCase());
 };
 
 export const aggregateWalletPnL = (): void => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   db.exec(`
     UPDATE discovery_wallets SET
       total_pnl = COALESCE((SELECT SUM(unrealized_pnl) FROM discovery_positions WHERE address = discovery_wallets.address AND shares > 0), 0),
@@ -276,16 +280,24 @@ const rowToWalletStats = (row: any): WalletStats => ({
 // ---------------------------------------------------------------------------
 
 export const upsertMarketCache = (entry: MarketCacheEntry): void => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   db.prepare(`
-    INSERT INTO discovery_market_cache (condition_id, slug, title, volume_24h, token_ids, outcomes, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO discovery_market_cache (
+      condition_id, slug, title, volume_24h, token_ids, outcomes,
+      priority_tier, priority_score, novelty_score, activity_score, inclusion_reason, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(condition_id) DO UPDATE SET
       slug = excluded.slug,
       title = excluded.title,
       volume_24h = excluded.volume_24h,
       token_ids = excluded.token_ids,
       outcomes = excluded.outcomes,
+      priority_tier = excluded.priority_tier,
+      priority_score = excluded.priority_score,
+      novelty_score = excluded.novelty_score,
+      activity_score = excluded.activity_score,
+      inclusion_reason = excluded.inclusion_reason,
       updated_at = excluded.updated_at
   `).run(
     entry.conditionId,
@@ -294,12 +306,17 @@ export const upsertMarketCache = (entry: MarketCacheEntry): void => {
     entry.volume24h ?? null,
     JSON.stringify(entry.tokenIds),
     JSON.stringify(entry.outcomes ?? []),
+    entry.priorityTier ?? null,
+    entry.priorityScore ?? null,
+    entry.noveltyScore ?? null,
+    entry.activityScore ?? null,
+    entry.inclusionReason ?? null,
     entry.updatedAt,
   );
 };
 
 export const getMarketByAssetId = (assetId: string): MarketCacheEntry | null => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const normalizedAssetId = String(assetId ?? '').trim();
   if (!normalizedAssetId) return null;
   const rows = db.prepare('SELECT * FROM discovery_market_cache').all() as any[];
@@ -315,6 +332,11 @@ export const getMarketByAssetId = (assetId: string): MarketCacheEntry | null => 
         volume24h: row.volume_24h ?? undefined,
         tokenIds,
         outcomes: (JSON.parse(row.outcomes || '[]') as unknown[]).map((outcome) => String(outcome)),
+        priorityTier: row.priority_tier ?? undefined,
+        priorityScore: row.priority_score ?? undefined,
+        noveltyScore: row.novelty_score ?? undefined,
+        activityScore: row.activity_score ?? undefined,
+        inclusionReason: row.inclusion_reason ?? undefined,
         updatedAt: row.updated_at,
       };
     }
@@ -323,7 +345,7 @@ export const getMarketByAssetId = (assetId: string): MarketCacheEntry | null => 
 };
 
 export const getMarketByConditionId = (conditionId: string): MarketCacheEntry | null => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const row = db.prepare('SELECT * FROM discovery_market_cache WHERE condition_id = ?').get(conditionId) as any;
   if (!row) return null;
   return {
@@ -335,8 +357,44 @@ export const getMarketByConditionId = (conditionId: string): MarketCacheEntry | 
       .map((tokenId) => String(tokenId ?? '').trim())
       .filter(Boolean),
     outcomes: (JSON.parse(row.outcomes || '[]') as unknown[]).map((outcome) => String(outcome)),
+    priorityTier: row.priority_tier ?? undefined,
+    priorityScore: row.priority_score ?? undefined,
+    noveltyScore: row.novelty_score ?? undefined,
+    activityScore: row.activity_score ?? undefined,
+    inclusionReason: row.inclusion_reason ?? undefined,
     updatedAt: row.updated_at,
   };
+};
+
+export const getShortlistedMarkets = (limit = 100): MarketCacheEntry[] => {
+  const db = getDiscoveryDatabase();
+  const rows = db.prepare(`
+    SELECT *
+    FROM discovery_market_cache
+    WHERE priority_tier IN ('A', 'B')
+    ORDER BY
+      CASE priority_tier WHEN 'A' THEN 0 WHEN 'B' THEN 1 ELSE 2 END,
+      COALESCE(priority_score, 0) DESC,
+      COALESCE(volume_24h, 0) DESC
+    LIMIT ?
+  `).all(limit) as any[];
+
+  return rows.map((row) => ({
+    conditionId: row.condition_id,
+    slug: row.slug ?? undefined,
+    title: row.title ?? undefined,
+    volume24h: row.volume_24h ?? undefined,
+    tokenIds: (JSON.parse(row.token_ids || '[]') as unknown[])
+      .map((tokenId) => String(tokenId ?? '').trim())
+      .filter(Boolean),
+    outcomes: (JSON.parse(row.outcomes || '[]') as unknown[]).map((outcome) => String(outcome)),
+    priorityTier: row.priority_tier ?? undefined,
+    priorityScore: row.priority_score ?? undefined,
+    noveltyScore: row.novelty_score ?? undefined,
+    activityScore: row.activity_score ?? undefined,
+    inclusionReason: row.inclusion_reason ?? undefined,
+    updatedAt: row.updated_at,
+  }));
 };
 
 // ---------------------------------------------------------------------------
@@ -344,7 +402,7 @@ export const getMarketByConditionId = (conditionId: string): MarketCacheEntry | 
 // ---------------------------------------------------------------------------
 
 export const aggregateStats = (): void => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const now = Math.floor(Date.now() / 1000);
 
   const walletRows = db.prepare(`
@@ -367,7 +425,7 @@ export const refreshWalletStats = (
   )];
   if (normalizedAddresses.length === 0) return;
 
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const sevenDaysAgo = nowSeconds - 7 * 86400;
   const fourteenDaysAgo = nowSeconds - 14 * 86400;
   const updateStmt = db.prepare(`
@@ -511,7 +569,7 @@ const getStoredTradeNotional = (trade: {
 // ---------------------------------------------------------------------------
 
 export const purgeOldTrades = (olderThanDays: number): number => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const cutoff = (Date.now() - olderThanDays * 86400 * 1000);
   const result = db.prepare('DELETE FROM discovery_trades WHERE detected_at < ?').run(cutoff);
   return result.changes;
@@ -525,7 +583,7 @@ export const purgeAllDiscoveryData = (): {
   marketCache: number;
   total: number;
 } => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const tx = db.transaction(() => {
     const trades = db.prepare('DELETE FROM discovery_trades').run().changes;
     const wallets = db.prepare('DELETE FROM discovery_wallets').run().changes;
@@ -564,7 +622,7 @@ export const upsertPosition = (
   marketTitle?: string,
   marketSlug?: string,
 ): void => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const now = Math.floor(Date.now() / 1000);
   const cost = size * price;
 
@@ -603,19 +661,19 @@ export const upsertPosition = (
 };
 
 export const getPositionsByAddress = (address: string): WalletPosition[] => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const rows = db.prepare('SELECT * FROM discovery_positions WHERE address = ? ORDER BY total_cost DESC').all(address) as any[];
   return rows.map(rowToPosition);
 };
 
 export const getPositionsByConditionId = (conditionId: string): WalletPosition[] => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const rows = db.prepare('SELECT * FROM discovery_positions WHERE condition_id = ? ORDER BY total_cost DESC').all(conditionId) as any[];
   return rows.map(rowToPosition);
 };
 
 export const getSmartMoneyCountForMarket = (conditionId: string, scoreThreshold: number): number => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const row = db.prepare(`
     SELECT COUNT(DISTINCT dp.address) as cnt
     FROM discovery_positions dp
@@ -626,7 +684,7 @@ export const getSmartMoneyCountForMarket = (conditionId: string, scoreThreshold:
 };
 
 export const getActivePositionKeys = (): Array<{ conditionId: string; assetId: string }> => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const rows = db
     .prepare('SELECT DISTINCT condition_id, asset_id FROM discovery_positions WHERE shares > 0')
     .all() as { condition_id: string; asset_id: string }[];
@@ -634,7 +692,7 @@ export const getActivePositionKeys = (): Array<{ conditionId: string; assetId: s
 };
 
 export const getPositionValue = (address: string, conditionId: string): number => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const row = db
     .prepare('SELECT COALESCE(SUM(total_cost), 0) as total_cost FROM discovery_positions WHERE address = ? AND condition_id = ?')
     .get(address, conditionId) as { total_cost: number } | undefined;
@@ -642,7 +700,7 @@ export const getPositionValue = (address: string, conditionId: string): number =
 };
 
 export const batchUpdatePrices = (updates: { conditionId: string; assetId: string; price: number; outcome?: string }[]): void => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const now = Math.floor(Date.now() / 1000);
   const stmt = db.prepare(`
     UPDATE discovery_positions SET
@@ -689,7 +747,7 @@ const rowToPosition = (row: any): WalletPosition => ({
 // ---------------------------------------------------------------------------
 
 export const insertSignal = (signal: Omit<DiscoverySignal, 'id' | 'dismissed'>): void => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   db.prepare(`
     INSERT INTO discovery_signals (signal_type, severity, address, condition_id, market_title, title, description, metadata, detected_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -717,7 +775,7 @@ export const refreshWalletSignalState = (addresses: string[]): void => {
   )];
   if (normalizedAddresses.length === 0) return;
 
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const latestSignalStmt = db.prepare(`
     SELECT signal_type, detected_at
     FROM discovery_signals
@@ -741,7 +799,7 @@ export const refreshWalletSignalState = (addresses: string[]): void => {
 };
 
 export const signalExistsRecently = (signalType: string, address: string, conditionId: string | undefined, hoursBack: number): boolean => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const cutoff = Date.now() - hoursBack * 3600 * 1000;
   const row = conditionId
     ? db.prepare('SELECT 1 FROM discovery_signals WHERE signal_type = ? AND address = ? AND condition_id = ? AND detected_at > ?').get(signalType, address, conditionId, cutoff)
@@ -750,7 +808,7 @@ export const signalExistsRecently = (signalType: string, address: string, condit
 };
 
 export const getSignalCountToday = (): number => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const row = db
@@ -760,7 +818,7 @@ export const getSignalCountToday = (): number => {
 };
 
 export const getRecentSignals = (limit: number, offset: number, filters?: { severity?: string; signalType?: string }): DiscoverySignal[] => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   let sql = 'SELECT * FROM discovery_signals WHERE dismissed = 0';
   const params: any[] = [];
   if (filters?.severity) {
@@ -778,7 +836,7 @@ export const getRecentSignals = (limit: number, offset: number, filters?: { seve
 };
 
 export const getSignalsForAddress = (address: string, limit = 20): DiscoverySignal[] => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const rows = db.prepare(
     'SELECT * FROM discovery_signals WHERE address = ? AND dismissed = 0 ORDER BY detected_at DESC LIMIT ?'
   ).all(address, limit) as any[];
@@ -786,7 +844,7 @@ export const getSignalsForAddress = (address: string, limit = 20): DiscoverySign
 };
 
 export const getUnusualMarkets = (days: number): any[] => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const cutoff = Date.now() - days * 86400 * 1000;
   return db.prepare(`
     SELECT condition_id, market_title,
@@ -804,14 +862,14 @@ export const getUnusualMarkets = (days: number): any[] => {
 };
 
 export const dismissSignal = (id: number): void => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const row = db.prepare('SELECT address FROM discovery_signals WHERE id = ?').get(id) as { address?: string } | undefined;
   db.prepare('UPDATE discovery_signals SET dismissed = 1 WHERE id = ?').run(id);
   if (row?.address) refreshWalletSignalState([row.address]);
 };
 
 export const cleanupOldSignals = (days: number): number => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const cutoff = Date.now() - days * 86400 * 1000;
   const addresses = db.prepare('SELECT DISTINCT address FROM discovery_signals WHERE detected_at < ?').all(cutoff) as { address: string }[];
   const result = db.prepare('DELETE FROM discovery_signals WHERE detected_at < ?').run(cutoff);
@@ -820,7 +878,7 @@ export const cleanupOldSignals = (days: number): number => {
 };
 
 export const cleanupStalePositions = (days: number): number => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
   const result = db.prepare('DELETE FROM discovery_positions WHERE shares = 0 AND updated_at < ?').run(cutoff);
   return result.changes;

@@ -1,6 +1,6 @@
 import { config } from './config.js';
 import { CopyTrader } from './copyTrader.js';
-import { createServer, startServer, getDiscoveryManager } from './server.js';
+import { createServer, startServer } from './server.js';
 import { Storage } from './storage.js';
 import { initWalletManager } from './walletManager.js';
 import { existsSync, writeFileSync, readFileSync } from 'fs';
@@ -314,15 +314,6 @@ async function main() {
       console.log(`\n💡 Status: ${domeWs?.connected ? 'Real-time (Dome) + polling' : 'Polling mode'}`);
       console.log(`${'='.repeat(60)}\n`);
 
-      // Start Discovery Engine (if enabled)
-      const discoveryManager = getDiscoveryManager();
-      if (discoveryManager) {
-        try {
-          await discoveryManager.start();
-        } catch (err: any) {
-          console.error('[Discovery] Failed to start:', err.message);
-        }
-      }
     } catch (error: any) {
       console.error('⚠️  Failed to initialize or start bot:', error.message);
       console.error('⚠️  Bot will not run, but web server is accessible.');
@@ -333,8 +324,6 @@ async function main() {
     // Handle graceful shutdown
     const handleShutdown = async () => {
       console.log('\n🛑 Shutting down...');
-      const dm = getDiscoveryManager();
-      if (dm) { try { await dm.stop(); } catch { /* ok */ } }
       if (copyTrader) { copyTrader.stop(); }
       process.exit(0);
     };

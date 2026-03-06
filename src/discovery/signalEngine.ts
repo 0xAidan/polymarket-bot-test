@@ -14,7 +14,7 @@
  * fire more than once per 24 hours. A daily cap prevents alert spam.
  */
 
-import { getDatabase } from '../database.js';
+import { getDiscoveryDatabase } from './discoveryDatabase.js';
 import {
   DiscoveredTrade,
   WalletStats,
@@ -137,7 +137,7 @@ const checkMarketPioneer = (trade: DiscoveredTrade, _stats: WalletStats): void =
 };
 
 const checkVolumeSpikes = (): void => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const rows = db
     .prepare(
       `
@@ -167,7 +167,7 @@ const checkVolumeSpikes = (): void => {
 };
 
 const checkDormantActivations = (): void => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const nowMs = Date.now();
 
   const rows = db
@@ -212,7 +212,7 @@ export const shouldFlagDormantActivation = (
 };
 
 const checkCoordinatedEntries = (): void => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const lookback = Date.now() - 24 * 3600 * 1000;
 
   const rows = db
@@ -389,7 +389,7 @@ export const findCoordinatedEntryCandidates = (
 
 const checkConvictionBuild = (trade: DiscoveredTrade, stats: WalletStats): void => {
   if (!trade.conditionId || !trade.assetId || trade.side !== 'BUY') return;
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const lookback = Date.now() - thresholds.convictionWindowMinutes * 60 * 1000;
   const row = db.prepare(`
     SELECT

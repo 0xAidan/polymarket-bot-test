@@ -12,11 +12,11 @@
  *   HOT / WARMING / STEADY / COOLING / COLD / NEW
  */
 
-import { getDatabase } from '../database.js';
+import { getDiscoveryDatabase } from './discoveryDatabase.js';
 import { HeatIndicator } from './types.js';
 
 export const computeScoresAndHeat = (): void => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
   const now = Math.floor(Date.now() / 1000);
   const sevenDaysAgo = now - 7 * 86400;
   const fourteenDaysAgo = now - 14 * 86400;

@@ -13,7 +13,7 @@
 import axios from 'axios';
 import { config } from '../config.js';
 import { DiscoveredTrade, WalletPosition } from './types.js';
-import { getDatabase } from '../database.js';
+import { getDiscoveryDatabase } from './discoveryDatabase.js';
 import {
   upsertPosition,
   getActivePositionKeys,
@@ -222,7 +222,7 @@ export const buildPositionVerificationSummary = (
  * valid side and price data. Safe to call multiple times.
  */
 export const backfillPositions = (): void => {
-  const db = getDatabase();
+  const db = getDiscoveryDatabase();
 
   const tradeCount = db.prepare(
     `SELECT COUNT(*) as cnt FROM discovery_trades WHERE side IS NOT NULL AND price IS NOT NULL AND price > 0 AND condition_id IS NOT NULL`
