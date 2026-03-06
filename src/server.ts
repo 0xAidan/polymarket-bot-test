@@ -3,13 +3,51 @@ import cors from 'cors';
 import path from 'path';
 import { config } from './config.js';
 import { createRoutes } from './api/routes.js';
+import { createDiscoveryRoutes } from './api/discoveryRoutes.js';
 import { CopyTrader } from './copyTrader.js';
+import { DiscoveryManager } from './discovery/discoveryManager.js';
+import { initDatabase } from './database.js';
+
+type ServerOptions = {
+  discoveryManager?: DiscoveryManager | null;
+};
+
+const getDiscoveryProxyBaseUrl = (): string => {
+  const host = process.env.DISCOVERY_HOST || process.env.HOST || '127.0.0.1';
+  const port = process.env.DISCOVERY_PORT || '3002';
+  return `http://${host}:${port}`;
+};
+
+const forwardDiscoveryRequest = async (req: express.Request, res: express.Response): Promise<void> => {
+  const targetUrl = `${getDiscoveryProxyBaseUrl()}${req.originalUrl}`;
+  const method = req.method.toUpperCase();
+  const headers = new Headers();
+
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (!value || key.toLowerCase() === 'host' || key.toLowerCase() === 'content-length') continue;
+    headers.set(key, Array.isArray(value) ? value.join(', ') : value);
+  }
+
+  const response = await fetch(targetUrl, {
+    method,
+    headers,
+    body: method === 'GET' || method === 'HEAD' ? undefined : JSON.stringify(req.body ?? {}),
+  });
+
+  res.status(response.status);
+  const contentType = response.headers.get('content-type');
+  if (contentType) res.setHeader('content-type', contentType);
+  res.send(await response.text());
+};
 
 /**
  * Create and configure the Express server
  */
-export async function createServer(copyTrader: CopyTrader): Promise<express.Application> {
+export async function createServer(copyTrader: CopyTrader, options: ServerOptions = {}): Promise<express.Application> {
   const app = express();
+  const { discoveryManager = null } = options;
+
+  await initDatabase();
 
   // Middleware
   app.use(cors());
@@ -22,6 +60,23 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 
   // API routes
   app.use('/api', createRoutes(copyTrader));
+  if (discoveryManager) {
+    app.use('/api/discovery', createDiscoveryRoutes(discoveryManager));
+  } else {
+    app.use('/api/discovery', (req, res, next) => {
+      void forwardDiscoveryRequest(req, res).catch((error) => {
+        if (!res.headersSent) {
+          res.status(503).json({
+            success: false,
+            error: 'Discovery service is unavailable. Start the discovery worker or inject a discovery manager.',
+            details: error instanceof Error ? error.message : String(error),
+          });
+        } else {
+          next(error);
+        }
+      });
+    });
+  }
   
   // API 404 handler - catch any unmatched /api routes and return JSON
   app.use('/api/*', (req, res) => {

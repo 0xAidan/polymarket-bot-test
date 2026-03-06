@@ -188,6 +188,9 @@ function refreshCurrentTab() {
     case 'cross-platform':
       refreshExecutorStatus();
       break;
+    case 'discovery':
+      startDiscoveryRefresh();
+      break;
   }
 }
 
@@ -214,6 +217,9 @@ async function loadAllData() {
 // ============================================================
 
 function switchTab(tabName) {
+  if (currentTab === 'discovery' && tabName !== 'discovery') {
+    stopDiscoveryRefresh();
+  }
   document.querySelectorAll('.win-tab').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tab === tabName);
   });
@@ -2557,6 +2563,647 @@ const toggleHelpMenu = () => {
   ]);
 };
 
+// ============================================================
+// DISCOVERY ENGINE UI
+// ============================================================
+
+let discoveryWalletOffset = 0;
+const DISCOVERY_PAGE_SIZE = 50;
+
+const heatBadge = (heat) => {
+  const map = { HOT: 'HOT', WARMING: 'WARM', STEADY: 'STEADY', COOLING: 'COOL', COLD: 'COLD', NEW: 'NEW' };
+  return '<span class="heat-badge heat-' + (heat || 'new').toLowerCase() + '">' + (map[heat] || heat || 'NEW') + '</span>';
+};
+const scoreBar = (score) => {
+  const s = Math.round(score || 0);
+  const color = s >= 70 ? 'var(--success)' : s >= 40 ? 'var(--warning)' : 'var(--danger)';
+  return '<span class="whale-score-bar"><span class="whale-score-fill" style="width:' + s + '%;background:' + color + '"></span></span> ' + s;
+};
+const pnlText = (val) => {
+  if (val === null || val === undefined || !Number.isFinite(Number(val))) {
+    return '<span class="text-muted">—</span>';
+  }
+  const v = Number(val);
+  const cls = v >= 0 ? 'pnl-positive' : 'pnl-negative';
+  const sign = v >= 0 ? '+' : '';
+  return '<span class="' + cls + '">' + sign + '$' + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + '</span>';
+};
+const roiText = (val) => {
+  if (val === null || val === undefined || !Number.isFinite(Number(val))) {
+    return '<span class="text-muted">—</span>';
+  }
+  const v = Number(val);
+  const cls = v >= 0 ? 'pnl-positive' : 'pnl-negative';
+  const sign = v >= 0 ? '+' : '';
+  return '<span class="' + cls + '">' + sign + v.toFixed(1) + '%</span>';
+};
+let discoveryRefreshTimer = null;
+let discoveryConfigLoaded = false;
+
+const loadDiscoveryConfig = async () => {
+  // Only load from server once — don't overwrite fields the user is editing
+  if (discoveryConfigLoaded) return;
+
+  try {
+    const resp = await fetch('/api/discovery/config');
+    const data = await resp.json();
+    if (!data.success) return;
+    const cfg = data.config;
+
+    const enabledEl = document.getElementById('discoveryEnabled');
+    const urlEl = document.getElementById('discoveryAlchemyUrl');
+    const pollEl = document.getElementById('discoveryPollInterval');
+    const marketEl = document.getElementById('discoveryMarketCount');
+    const statsEl = document.getElementById('discoveryStatsInterval');
+    const urlHasKeyEl = document.getElementById('discoveryAlchemyUrlHasKey');
+
+    if (enabledEl) enabledEl.checked = cfg.enabled;
+    if (pollEl) pollEl.value = Math.round((cfg.pollIntervalMs || 30000) / 1000);
+    if (marketEl) marketEl.value = cfg.marketCount || 50;
+    if (statsEl) statsEl.value = Math.round((cfg.statsIntervalMs || 300000) / 60000);
+
+    // Show whether a key is saved without putting the masked value in the field
+    if (urlEl && urlHasKeyEl) {
+      if (cfg.alchemyWsUrl && cfg.alchemyWsUrl !== '') {
+        urlEl.value = '';
+        urlEl.placeholder = 'Key saved — paste new URL to replace';
+        urlHasKeyEl.textContent = '(key saved: ' + cfg.alchemyWsUrl + ')';
+        urlHasKeyEl.style.display = '';
+      } else {
+        urlEl.value = '';
+        urlEl.placeholder = 'wss://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY';
+        urlHasKeyEl.style.display = 'none';
+      }
+    }
+
+    discoveryConfigLoaded = true;
+  } catch { /* best-effort */ }
+};
+
+const loadDiscoveryStatus = async () => {
+  try {
+    const resp = await fetch('/api/discovery/status');
+    const data = await resp.json();
+    if (!data.success) return;
+
+    const chainEl = document.getElementById('discoveryChainStatus');
+    const pollerEl = document.getElementById('discoveryPollerStatus');
+    const walletEl = document.getElementById('discoveryWalletCount');
+    const tradeEl = document.getElementById('discoveryTradeCount');
+    const uptimeEl = document.getElementById('discoveryUptime');
+
+    if (chainEl) {
+      const cl = data.chainListener || {};
+      chainEl.textContent = cl.connected ? 'Connected' : 'Disconnected';
+      chainEl.style.color = cl.connected ? 'var(--success)' : 'var(--danger, #c00)';
+    }
+    if (pollerEl) {
+      const ap = data.apiPoller || {};
+      pollerEl.textContent = ap.running ? `Polling (${ap.marketsMonitored})` : 'Stopped';
+      pollerEl.style.color = ap.running ? 'var(--success)' : '';
+    }
+    if (walletEl) walletEl.textContent = (data.stats?.totalWallets ?? 0).toLocaleString();
+    if (tradeEl) tradeEl.textContent = (data.stats?.totalTrades ?? 0).toLocaleString();
+    if (uptimeEl) {
+      const ms = data.stats?.uptimeMs || 0;
+      if (ms === 0) { uptimeEl.textContent = '--'; }
+      else if (ms < 60000) { uptimeEl.textContent = Math.round(ms / 1000) + 's'; }
+      else if (ms < 3600000) { uptimeEl.textContent = Math.round(ms / 60000) + 'm'; }
+      else { uptimeEl.textContent = (ms / 3600000).toFixed(1) + 'h'; }
+    }
+  } catch { /* best-effort */ }
+};
+
+const loadDiscoveryWallets = async () => {
+  discoveryWalletOffset = 0;
+  await fetchDiscoveryWallets(false);
+};
+
+const loadDiscoveryOpportunityFeed = async () => {
+  try {
+    const focusEl = document.getElementById('discoveryFocus');
+    const verifiedOnlyEl = document.getElementById('discoveryVerifiedOnly');
+    const excludeSecondaryEl = document.getElementById('discoveryExcludeSecondary');
+    const focus = focusEl ? focusEl.value : 'all-real-world';
+    const verifiedOnly = verifiedOnlyEl?.checked ? 'true' : 'false';
+    const excludeSecondary = excludeSecondaryEl?.checked ? 'true' : 'false';
+    const resp = await fetch(
+      `/api/discovery/feed?focus=${encodeURIComponent(focus)}&verifiedOnly=${verifiedOnly}&excludeSecondary=${excludeSecondary}`
+    );
+    const data = await resp.json();
+    if (!data.success || typeof window.renderDiscoveryOpportunityFeed !== 'function') return;
+    window.renderDiscoveryOpportunityFeed(data.feed);
+  } catch { /* best-effort */ }
+};
+
+const loadMoreDiscoveryWallets = async () => {
+  discoveryWalletOffset += DISCOVERY_PAGE_SIZE;
+  await fetchDiscoveryWallets(true);
+};
+
+const discoveryCategoryLabel = (category) => {
+  const labels = {
+    politics: 'Politics',
+    macro: 'Macro',
+    company: 'Company',
+    legal: 'Legal',
+    geopolitics: 'Geopolitics',
+    entertainment: 'Entertainment',
+    sports: 'Sports',
+    crypto: 'Crypto',
+    event: 'Real-World',
+    other: 'Other',
+  };
+  return labels[category] || 'Real-World';
+};
+
+const discoveryCategoryBadge = (category) => {
+  const label = discoveryCategoryLabel(category);
+  return `<span class="win-badge" style="margin-left:6px;">${label}</span>`;
+};
+
+const fetchDiscoveryWallets = async (append) => {
+  try {
+    const sortEl = document.getElementById('discoveryWalletSort');
+    const sort = sortEl ? sortEl.value : 'score';
+    const focusEl = document.getElementById('discoveryFocus');
+    const focus = focusEl ? focusEl.value : 'all-real-world';
+    const minScoreEl = document.getElementById('filterMinScore');
+    const heatEl = document.getElementById('filterHeat');
+    const hasSignalsEl = document.getElementById('filterHasSignals');
+    let url = `/api/discovery/wallets?sort=${encodeURIComponent(sort)}&limit=${DISCOVERY_PAGE_SIZE}&offset=${discoveryWalletOffset}`;
+    if (focus) url += '&focus=' + encodeURIComponent(focus);
+    if (minScoreEl && parseInt(minScoreEl.value, 10) > 0) url += '&minScore=' + minScoreEl.value;
+    if (heatEl && heatEl.value) url += '&heat=' + encodeURIComponent(heatEl.value);
+    if (hasSignalsEl && hasSignalsEl.checked) url += '&hasSignals=true';
+
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (!data.success) return;
+
+    const tbody = document.getElementById('discoveryWalletsBody');
+    if (!tbody) return;
+
+    if (!append) tbody.innerHTML = '';
+
+    const wallets = data.wallets || [];
+    if (wallets.length === 0 && !append) {
+      tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted">No wallets discovered yet</td></tr>';
+    }
+
+    for (const w of wallets) {
+      const tr = document.createElement('tr');
+      tr.className = 'discovery-wallet-row';
+      tr.setAttribute('tabindex', '0');
+      tr.setAttribute('role', 'button');
+      tr.setAttribute('aria-label', 'View wallet ' + (w.address || '').slice(0, 10) + '...');
+      const shortAddr = w.address ? (w.address.slice(0, 6) + '...' + w.address.slice(-4)) : '—';
+      const trackBtn = w.isTracked
+        ? '<button class="win-btn win-btn-sm" disabled>Tracked</button>'
+        : '<button class="win-btn win-btn-sm win-btn-primary" onclick="event.stopPropagation();trackDiscoveredWallet(\'' + (w.address || '').replace(/'/g, "\\'") + '\', this)" aria-label="Track and activate wallet" tabindex="0">Track &amp; Activate</button>';
+      const roiLabel = roiText(w.roiPct) + (w.positionDataSource === 'verified' ? ' <span class="text-xs text-muted">(verified)</span>' : '');
+      const categoryBadge = discoveryCategoryBadge(w.focusCategory);
+      const whySurfaced = w.whySurfaced ? `<div class="text-xs text-muted" style="margin-top:2px;max-width:280px;">${w.whySurfaced}</div>` : '';
+      const signalCell = w.lastSignalAt
+        ? `●<div class="text-xs text-muted" style="margin-top:2px;">${(w.lastSignalType || '').replace(/_/g, ' ')}</div>`
+        : '—';
+      tr.innerHTML =
+        '<td>' + heatBadge(w.heatIndicator) + '</td>' +
+        '<td class="text-mono" title="' + (w.address || '') + '">' + shortAddr + categoryBadge + '</td>' +
+        '<td><div>' + (w.pseudonym || '—') + '</div>' + whySurfaced + '</td>' +
+        '<td>' + scoreBar(w.whaleScore) + '</td>' +
+        '<td>' + roiLabel + '</td>' +
+        '<td>$' + (w.volume7d || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</td>' +
+        '<td>' + (w.tradeCount7d || 0).toLocaleString() + '</td>' +
+        '<td>' + (w.activePositions ?? 0) + '</td>' +
+        '<td>' + signalCell + '</td>' +
+        '<td>' + trackBtn + '</td>';
+      tr.onclick = () => openWalletDetail(w.address);
+      tr.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openWalletDetail(w.address); } };
+      tbody.appendChild(tr);
+    }
+
+    const countEl = document.getElementById('discoveryWalletsCount');
+    if (countEl) {
+      const focusLabel = focus === 'high-information' ? 'High-Information' : 'All Real-World';
+      countEl.textContent = `${discoveryWalletOffset + wallets.length} wallets shown • ${focusLabel}`;
+    }
+
+    const loadMoreBtn = document.getElementById('discoveryLoadMoreBtn');
+    if (loadMoreBtn) loadMoreBtn.style.display = wallets.length >= DISCOVERY_PAGE_SIZE ? '' : 'none';
+  } catch { /* best-effort */ }
+};
+
+const applyDiscoveryFilters = () => {
+  discoveryWalletOffset = 0;
+  loadDiscoveryOpportunityFeed();
+  fetchDiscoveryWallets(false);
+};
+
+const loadDiscoverySignals = async () => {
+  try {
+    const severityEl = document.getElementById('signalSeverityFilter');
+    const severity = severityEl ? severityEl.value : '';
+    let url = '/api/discovery/signals?limit=10&offset=0';
+    if (severity) url += '&severity=' + encodeURIComponent(severity);
+    const resp = await fetch(url);
+    const data = await resp.json();
+    const listEl = document.getElementById('discoverySignalsList');
+    const countEl = document.getElementById('signalCount');
+    if (!data.success || !listEl) return;
+
+    const signals = data.signals || [];
+    if (countEl) countEl.textContent = signals.length + ' signal' + (signals.length !== 1 ? 's' : '') + ' shown';
+
+    if (signals.length === 0) {
+      listEl.innerHTML = '<div class="text-center text-muted text-sm">No signals yet — collecting data...</div>';
+      return;
+    }
+
+    const priority = { CONVICTION_BUILD: 0, COORDINATED_ENTRY: 1, MARKET_PIONEER: 2, NEW_WHALE: 3, VOLUME_SPIKE: 4, SIZE_ANOMALY: 5, DORMANT_ACTIVATION: 6 };
+    const sortedSignals = [...signals].sort((a, b) => (priority[a.signalType] ?? 99) - (priority[b.signalType] ?? 99));
+    listEl.innerHTML = sortedSignals.map((s) => {
+      const timeAgo = s.detectedAt ? (Date.now() - s.detectedAt < 60000 ? 'Just now' : Math.floor((Date.now() - s.detectedAt) / 60000) + 'm ago') : '';
+      const dismissBtn = '<button class="win-btn win-btn-sm" onclick="dismissSignal(' + s.id + ')" aria-label="Dismiss">Dismiss</button>';
+      const meta = s.metadata || {};
+      const detail = s.signalType === 'CONVICTION_BUILD'
+        ? `Fills: ${meta.fills || 0} • Notional: $${Number(meta.totalNotional || 0).toLocaleString()}`
+        : s.signalType === 'COORDINATED_ENTRY'
+          ? `Wallets: ${meta.walletCount || 0} • Volume: $${Number(meta.totalVolume || 0).toLocaleString()} • Avg score: ${Number(meta.avgScore || 0).toFixed(1)}`
+          : '';
+      return '<div class="signal-card severity-' + (s.severity || 'medium') + '">' +
+        '<span class="signal-type-badge">' + (s.signalType || '').replace(/_/g, ' ') + '</span>' +
+        '<strong>' + (s.title || '') + '</strong> ' + timeAgo + '<br>' +
+        '<span class="text-sm text-muted">' + (s.description || '') + '</span>' + (detail ? '<br><span class="text-xs text-muted">' + detail + '</span>' : '') + '<br>' +
+        dismissBtn + '</div>';
+    }).join('');
+  } catch { /* best-effort */ }
+};
+
+const dismissSignal = async (id) => {
+  try {
+    await fetch('/api/discovery/signals/' + id + '/dismiss', { method: 'POST' });
+    loadDiscoverySignals();
+  } catch { /* best-effort */ }
+};
+
+const loadUnusualMarkets = async () => {
+  try {
+    const resp = await fetch('/api/discovery/signals/markets?days=7');
+    const data = await resp.json();
+    const tbody = document.getElementById('unusualMarketsBody');
+    if (!data.success || !tbody) return;
+
+    const markets = data.markets || [];
+    if (markets.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No unusual markets yet — this section only shows strict MARKET_PIONEER / COORDINATED_ENTRY signals.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = markets.map((m) => {
+      const title = m.market_title || m.condition_id?.slice(0, 12) || '—';
+      const types = (m.signal_types || '').replace(/,/g, ', ');
+      const walletCount = m.wallets ? m.wallets.split(',').length : 0;
+      const firstDetected = m.first_detected ? new Date(m.first_detected).toLocaleString() : '—';
+      return '<tr><td>' + title + '</td><td>' + types + '</td><td>' + walletCount + '</td><td>' + firstDetected + '</td></tr>';
+    }).join('');
+  } catch { /* best-effort */ }
+};
+
+const loadDiscoveryOverview = async () => {
+  try {
+    const resp = await fetch('/api/discovery/summary?days=7');
+    const data = await resp.json();
+    if (!data.success) return;
+
+    const overview = data.overview || {};
+    const quality = overview.quality || {};
+    const categoryMix = overview.surfacedByCategory || [];
+    const signalMix = overview.signalCountsByCategory || [];
+    const topWalletsByDay = overview.topWalletsByDay || [];
+
+    const surfacedTodayEl = document.getElementById('discoverySurfacedToday');
+    if (surfacedTodayEl) surfacedTodayEl.textContent = String(quality.walletsSurfacedToday || 0);
+    const highInfoPctEl = document.getElementById('discoveryHighInfoPct');
+    if (highInfoPctEl) highInfoPctEl.textContent = `${quality.highInformationWalletPct || 0}%`;
+    const strongSignalsEl = document.getElementById('discoveryStrongSignals');
+    if (strongSignalsEl) strongSignalsEl.textContent = String(quality.walletsWithTwoStrongSignals || 0);
+    const trackedCountEl = document.getElementById('discoveryTrackedCount');
+    if (trackedCountEl) trackedCountEl.textContent = String(quality.trackedWallets || 0);
+
+    const categoryMixEl = document.getElementById('discoveryCategoryMix');
+    if (categoryMixEl) {
+      categoryMixEl.innerHTML = categoryMix.length === 0
+        ? 'Collecting data...'
+        : categoryMix.map((item) => `<div>${discoveryCategoryLabel(item.category)}: <strong>${item.count}</strong></div>`).join('');
+    }
+
+    const signalMixEl = document.getElementById('discoverySignalMix');
+    if (signalMixEl) {
+      signalMixEl.innerHTML = signalMix.length === 0
+        ? 'Collecting data...'
+        : signalMix.map((item) => `<div>${discoveryCategoryLabel(item.category)}: <strong>${item.count}</strong></div>`).join('');
+    }
+
+    const topWalletsEl = document.getElementById('discoveryTopWalletsByDay');
+    if (topWalletsEl) {
+      topWalletsEl.innerHTML = topWalletsByDay.length === 0
+        ? 'Collecting data...'
+        : topWalletsByDay.map((day) => {
+          const wallets = (day.wallets || []).slice(0, 3).map((wallet) => {
+            const shortAddr = wallet.address ? `${wallet.address.slice(0, 6)}...${wallet.address.slice(-4)}` : '—';
+            return `${shortAddr} (${discoveryCategoryLabel(wallet.focusCategory)})`;
+          }).join(', ');
+          return `<div><strong>${day.day}</strong>: ${wallets || 'No surfaced wallets'}</div>`;
+        }).join('');
+    }
+  } catch { /* best-effort */ }
+};
+
+const openWalletDetail = async (address) => {
+  if (!address) return;
+  const overlay = document.getElementById('walletDetailOverlay');
+  const titleEl = document.getElementById('walletDetailTitle');
+  const bodyEl = document.getElementById('walletDetailBody');
+  if (!overlay || !bodyEl) return;
+  titleEl.textContent = 'Wallet ' + address.slice(0, 10) + '...';
+  bodyEl.innerHTML = '<p class="text-muted">Loading...</p>';
+  overlay.style.display = 'flex';
+
+  try {
+    const [posResp, sigResp] = await Promise.all([
+      fetch('/api/discovery/wallets/' + encodeURIComponent(address.toLowerCase()) + '/positions'),
+      fetch('/api/discovery/wallets/' + encodeURIComponent(address.toLowerCase()) + '/signals'),
+    ]);
+    const posData = await posResp.json();
+    const sigData = await sigResp.json();
+    const positions = posData.success ? (posData.positions || []) : [];
+    const signals = sigData.success ? (sigData.signals || []) : [];
+    const positionSource = posData.source || 'derived';
+
+    const profileUrl = 'https://polymarket.com/profile/' + address;
+    let html = '<p class="text-mono text-sm mb-4">' + address + '</p>';
+    html += '<p class="mb-8"><a href="' + profileUrl + '" target="_blank" rel="noopener noreferrer" style="color:#0066cc;text-decoration:underline;font-size:12px;" tabindex="0" aria-label="View Polymarket profile for this wallet">View on Polymarket &rarr;</a></p>';
+    html += '<p class="text-sm mb-4">Position source: <strong>' + (positionSource === 'verified' ? 'Verified from Polymarket' : 'Derived from observed discovery trades') + '</strong></p>';
+    html += '<h4 class="mb-4">Positions</h4>';
+    if (positions.length === 0) {
+      html += '<p class="text-muted text-sm">No positions</p>';
+    } else {
+      html += '<table class="win-listview"><thead><tr><th>Market</th><th>Shares</th><th>Cost</th><th>PnL</th><th>ROI</th><th>Data</th></tr></thead><tbody>';
+      positions.forEach((p) => {
+        const marketLabel = (p.marketTitle || p.conditionId?.slice(0, 12) || '—') + (p.outcome ? ` (${p.outcome})` : '');
+        const priceNote = (p.currentPrice === null || p.currentPrice === undefined) ? ' <span class="text-xs text-muted">(price pending)</span>' : '';
+        const dataBadge = p.dataSource === 'verified' ? 'Verified' : 'Derived';
+        html += '<tr><td>' + marketLabel + priceNote + '</td><td>' + (p.shares || 0).toLocaleString() + '</td><td>$' + (p.totalCost || 0).toLocaleString() + '</td><td>' + pnlText(p.unrealizedPnl) + '</td><td>' + roiText(p.roiPct) + '</td><td>' + dataBadge + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+    html += '<h4 class="mb-4 mt-8">Signals</h4>';
+    if (signals.length === 0) {
+      html += '<p class="text-muted text-sm">No signals</p>';
+    } else {
+      signals.slice(0, 10).forEach((s) => {
+        html += '<div class="signal-card severity-' + (s.severity || 'medium') + ' mb-4"><strong>' + (s.title || '') + '</strong><br><span class="text-sm">' + (s.description || '') + '</span></div>';
+      });
+    }
+    html += '<div class="mt-8"><button class="win-btn win-btn-primary" onclick="trackDiscoveredWallet(\'' + address.replace(/'/g, "\\'") + '\', this); closeWalletDetail();">Track &amp; Activate</button></div>';
+    bodyEl.innerHTML = html;
+  } catch (err) {
+    bodyEl.innerHTML = '<p class="text-danger">Failed to load wallet details.</p>';
+  }
+};
+
+const closeWalletDetail = () => {
+  const overlay = document.getElementById('walletDetailOverlay');
+  if (overlay) overlay.style.display = 'none';
+};
+
+const trackDiscoveredWallet = async (address, btn) => {
+  try {
+    btn.disabled = true;
+    btn.textContent = '...';
+
+    const resp = await fetch('/api/wallets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address }),
+    });
+    const data = await resp.json();
+    const alreadyTracked = !resp.ok && typeof data.error === 'string' && data.error.includes('already being tracked');
+
+    if (data.success || resp.ok || alreadyTracked) {
+      const toggleResp = await fetch('/api/wallets/' + encodeURIComponent(address) + '/toggle', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: true }),
+      });
+      const toggleData = await toggleResp.json();
+      if (!toggleResp.ok || !toggleData.success) {
+        throw new Error(toggleData.error || 'Failed to activate wallet');
+      }
+
+      await fetch(`/api/discovery/wallets/${address}/track`, { method: 'POST' });
+      btn.textContent = 'Active';
+      btn.classList.remove('win-btn-primary');
+    } else {
+      btn.textContent = 'Track & Activate';
+      btn.disabled = false;
+      win95Dialog.alert('Error', data.error || 'Failed to track wallet');
+    }
+  } catch (err) {
+    btn.textContent = 'Track & Activate';
+    btn.disabled = false;
+    if (err?.message) {
+      win95Dialog.alert('Error', err.message);
+    }
+  }
+};
+
+const saveDiscoveryConfig = async () => {
+  try {
+    const urlEl = document.getElementById('discoveryAlchemyUrl');
+    const pollEl = document.getElementById('discoveryPollInterval');
+    const marketEl = document.getElementById('discoveryMarketCount');
+    const statsEl = document.getElementById('discoveryStatsInterval');
+    const enabledEl = document.getElementById('discoveryEnabled');
+
+    const body = {
+      enabled: enabledEl?.checked ?? false,
+      pollIntervalMs: (parseInt(pollEl?.value) || 30) * 1000,
+      marketCount: parseInt(marketEl?.value) || 50,
+      statsIntervalMs: (parseInt(statsEl?.value) || 5) * 60000,
+    };
+
+    // Only send URL if the user typed a new one (field is not empty)
+    const urlVal = (urlEl?.value || '').trim();
+    if (urlVal) {
+      body.alchemyWsUrl = urlVal;
+    }
+
+    const resp = await fetch('/api/discovery/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (data.success) {
+      // Refresh the "key saved" indicator
+      discoveryConfigLoaded = false;
+      loadDiscoveryConfig();
+
+      const msg = urlVal
+        ? 'Settings saved. Restart the engine for URL changes to take effect.'
+        : 'Settings saved.';
+      win95Dialog.alert('Settings Saved', msg);
+    } else {
+      win95Dialog.alert('Error', data.error || 'Failed to save settings');
+    }
+  } catch (err) {
+    win95Dialog.alert('Error', 'Failed to save settings: ' + err.message);
+  }
+};
+
+const handleDiscoveryToggle = async () => {
+  const enabledEl = document.getElementById('discoveryEnabled');
+  const enabled = enabledEl?.checked ?? false;
+  try {
+    await fetch('/api/discovery/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    // Always restart — if enabled=true it starts, if enabled=false it stops
+    await fetch('/api/discovery/config/restart', { method: 'POST' });
+    loadDiscoveryStatus();
+  } catch { /* best-effort */ }
+};
+
+const restartDiscovery = async () => {
+  try {
+    const resp = await fetch('/api/discovery/config/restart', { method: 'POST' });
+    const data = await resp.json();
+    if (data.success) {
+      win95Dialog.alert('Restarted', 'Discovery engine restarted successfully.');
+    } else {
+      win95Dialog.alert('Error', data.error || 'Failed to restart');
+    }
+  } catch (err) {
+    win95Dialog.alert('Error', 'Failed to restart: ' + err.message);
+  }
+};
+
+const purgeDiscoveryData = async () => {
+  const firstConfirm = await win95Dialog.confirm(
+    'Clear Discovery Data',
+    'Warning: this will erase the full discovery feed (wallets, trades, positions, signals, and market cache).'
+  );
+  if (!firstConfirm) return;
+
+  const secondConfirm = await win95Dialog.confirm(
+    'Confirm Permanent Deletion',
+    'This cannot be undone. Click OK again to permanently clear discovery data.'
+  );
+  if (!secondConfirm) return;
+
+  try {
+    const resp = await fetch('/api/discovery/purge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ full: true }),
+    });
+    const data = await resp.json();
+    if (data.success) {
+      clearDiscoveryUiState();
+      await Promise.all([
+        loadDiscoveryStatus(),
+        loadDiscoveryWallets(),
+        loadDiscoveryOverview(),
+        loadDiscoverySignals(),
+        loadUnusualMarkets(),
+      ]);
+
+      const deletedTotal = typeof data.deleted?.total === 'number' ? data.deleted.total : 0;
+      win95Dialog.alert('Cleared', `Discovery data cleared. Removed ${deletedTotal} records.`);
+    }
+  } catch { /* best-effort */ }
+};
+
+const clearDiscoveryUiState = () => {
+  discoveryWalletOffset = 0;
+
+  const walletsBody = document.getElementById('discoveryWalletsBody');
+  if (walletsBody) {
+    walletsBody.innerHTML = '<tr><td colspan="10" class="text-center text-muted">No wallets discovered yet</td></tr>';
+  }
+
+  const walletsCount = document.getElementById('discoveryWalletsCount');
+  if (walletsCount) walletsCount.textContent = '0 wallets shown';
+
+  const loadMoreBtn = document.getElementById('discoveryLoadMoreBtn');
+  if (loadMoreBtn) loadMoreBtn.style.display = 'none';
+
+  const signalsList = document.getElementById('discoverySignalsList');
+  if (signalsList) {
+    signalsList.innerHTML = '<div class="text-center text-muted text-sm">No signals yet — collecting data...</div>';
+  }
+
+  const signalCount = document.getElementById('signalCount');
+  if (signalCount) signalCount.textContent = '0 signals shown';
+
+  const unusualBody = document.getElementById('unusualMarketsBody');
+  if (unusualBody) {
+    unusualBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No unusual markets yet — this section only shows strict MARKET_PIONEER / COORDINATED_ENTRY signals.</td></tr>';
+  }
+
+  const overviewDefaults = {
+    discoverySurfacedToday: '0',
+    discoveryHighInfoPct: '0%',
+    discoveryStrongSignals: '0',
+    discoveryTrackedCount: '0',
+  };
+  Object.entries(overviewDefaults).forEach(([id, value]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  });
+
+  ['discoveryCategoryMix', 'discoverySignalMix', 'discoveryTopWalletsByDay'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = 'Collecting data...';
+  });
+};
+
+const startDiscoveryRefresh = () => {
+  stopDiscoveryRefresh();
+  loadDiscoveryConfig();
+  loadDiscoveryStatus();
+  loadDiscoveryOpportunityFeed();
+  loadDiscoveryWallets();
+  loadDiscoveryOverview();
+  loadDiscoverySignals();
+  loadUnusualMarkets();
+  discoveryRefreshTimer = setInterval(() => {
+    if (currentTab !== 'discovery') {
+      stopDiscoveryRefresh();
+      return;
+    }
+    loadDiscoveryStatus();
+    loadDiscoveryOpportunityFeed();
+    loadDiscoveryWallets();
+    loadDiscoveryOverview();
+    loadDiscoverySignals();
+    loadUnusualMarkets();
+  }, 10000);
+};
+
+const stopDiscoveryRefresh = () => {
+  if (discoveryRefreshTimer) {
+    clearInterval(discoveryRefreshTimer);
+    discoveryRefreshTimer = null;
+  }
+};
+
+// Hook into the existing switchTab to start/stop discovery refresh
+const originalSwitchTab = typeof switchTab === 'function' ? switchTab : null;
+
 // Close menus when clicking outside
 document.addEventListener('click', (e) => {
   if (activeMenu && !e.target.closest('.win-menu-dropdown') && !e.target.closest('.win-menu-item')) {
@@ -2568,8 +3215,8 @@ document.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     closeAllMenus();
-    const modalIds = ['tradeDetailModal', 'paperModeModal', 'aboutModal', 'tradingWalletSettingsModal', 'builderCredsModal', 'walletModal', 'mirrorModal'];
-    const closeFns = { tradeDetailModal: closeTradeDetailModal, paperModeModal: closePaperModeModal, aboutModal: closeAboutModal, tradingWalletSettingsModal: closeTradingWalletSettingsModal, builderCredsModal: closeBuilderCredsModal, walletModal: closeWalletModal, mirrorModal: closeMirrorModal };
+    const modalIds = ['tradeDetailModal', 'paperModeModal', 'aboutModal', 'tradingWalletSettingsModal', 'builderCredsModal', 'walletModal', 'mirrorModal', 'walletDetailOverlay'];
+    const closeFns = { tradeDetailModal: closeTradeDetailModal, paperModeModal: closePaperModeModal, aboutModal: closeAboutModal, tradingWalletSettingsModal: closeTradingWalletSettingsModal, builderCredsModal: closeBuilderCredsModal, walletModal: closeWalletModal, mirrorModal: closeMirrorModal, walletDetailOverlay: closeWalletDetail };
     for (const id of modalIds) {
       const el = document.getElementById(id);
       if (el && !el.classList.contains('hidden') && closeFns[id]) {

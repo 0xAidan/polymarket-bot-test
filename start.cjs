@@ -34,12 +34,32 @@ if (!fs.existsSync(ENV_PATH)) {
   console.log('\n✨ Setup complete! Starting bot...\n');
 }
 
-// Now start the actual bot with tsx
 const bot = spawn('npx', ['tsx', 'watch', 'src/index.ts'], {
   stdio: 'inherit',
   cwd: __dirname
 });
 
+const discovery = spawn('npx', ['tsx', 'watch', 'src/discovery/workerMain.ts'], {
+  stdio: 'inherit',
+  cwd: __dirname
+});
+
+const shutdownChildren = () => {
+  bot.kill('SIGTERM');
+  discovery.kill('SIGTERM');
+};
+
+process.on('SIGINT', shutdownChildren);
+process.on('SIGTERM', shutdownChildren);
+
 bot.on('close', (code) => {
+  discovery.kill('SIGTERM');
   process.exit(code);
+});
+
+discovery.on('close', (code) => {
+  if (code && code !== 0) {
+    bot.kill('SIGTERM');
+    process.exit(code);
+  }
 });

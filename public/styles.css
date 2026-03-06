@@ -318,6 +318,50 @@ body {
   text-align: center;
 }
 
+.discovery-opportunity-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.discovery-card-group {
+  border: 2px inset var(--win-surface);
+  background: var(--win-light);
+  padding: 10px;
+}
+
+.discovery-card-group-title {
+  font-size: 18px;
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+.discovery-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.discovery-card {
+  background: var(--win-white);
+  border: 2px outset var(--win-surface);
+  padding: 8px;
+  cursor: pointer;
+}
+
+.discovery-card:focus,
+.discovery-card:hover {
+  outline: 1px dotted var(--win-black);
+}
+
+.discovery-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
 /* ============================================================
    WIN95 TABS
    ============================================================ */
@@ -1408,3 +1452,93 @@ body {
   margin: 3px 2px;
   border-bottom: 1px solid var(--win-white);
 }
+
+/* ======================= Discovery Intelligence ======================= */
+
+.heat-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-family: var(--font-system);
+  border: 1px solid;
+}
+.heat-hot { background: #f8d7da; border-color: #cc0000; color: #cc0000; font-weight: bold; }
+.heat-warming { background: #fff3cd; border-color: #856404; color: #856404; }
+.heat-steady { background: #d4edda; border-color: #008000; color: #008000; }
+.heat-cooling { background: #cce5ff; border-color: #004085; color: #004085; }
+.heat-cold { background: #e2e3e5; border-color: #6c757d; color: #6c757d; }
+.heat-new { background: #e2d5f1; border-color: #6f42c1; color: #6f42c1; }
+
+.signal-card {
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  background: var(--win-surface);
+  border: 1px solid var(--win-dark);
+}
+.signal-card.severity-critical { border-left: 4px solid #cc0000; }
+.signal-card.severity-high { border-left: 4px solid #e67e00; }
+.signal-card.severity-medium { border-left: 4px solid #856404; }
+.signal-card.severity-low { border-left: 4px solid #6c757d; }
+.signal-type-badge {
+  display: inline-block;
+  padding: 0 4px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  background: var(--win-bg);
+  border: 1px solid var(--win-dark);
+  margin-right: 4px;
+}
+
+.pnl-positive { color: var(--success); }
+.pnl-negative { color: var(--danger); }
+
+.whale-score-bar {
+  display: inline-block;
+  width: 50px;
+  height: 8px;
+  background: var(--win-dark);
+  vertical-align: middle;
+  margin-right: 4px;
+}
+.whale-score-fill { display: block; height: 100%; }
+
+.wallet-detail-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wallet-detail-modal {
+  background: var(--win-surface);
+  border: 2px outset var(--win-highlight);
+  width: 90%;
+  max-width: 800px;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 0;
+}
+.wallet-detail-titlebar {
+  background: var(--win-title-active);
+  color: white;
+  padding: 2px 4px;
+  font-weight: bold;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.wallet-detail-body { padding: 8px; }
+
+.discovery-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+}
+.discovery-filters label { font-size: 12px; white-space: nowrap; }
+
+.discovery-wallet-row { cursor: pointer; }
+.discovery-wallet-row:hover { background: var(--win-highlight) !important; }
