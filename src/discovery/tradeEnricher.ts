@@ -10,6 +10,7 @@ import axios from 'axios';
 import { config } from '../config.js';
 import { DiscoveredTrade, MarketCacheEntry } from './types.js';
 import { classifyDiscoveryMarket } from './marketClassifier.js';
+import { buildMarketUniverse } from './marketUniverse.js';
 import {
   upsertMarketCache,
   getMarketByAssetId,
@@ -117,9 +118,7 @@ export const refreshMarketCache = async (marketCount: number): Promise<MarketCac
           outcomes: Array.isArray(market.outcomes) ? market.outcomes.map((outcome: unknown) => String(outcome)) : undefined,
           updatedAt: now,
         });
-
         entries.push(entry);
-        upsertMarketCache(entry);
 
         // Populate in-memory caches
         for (const tid of tokenIds) {
@@ -131,7 +130,12 @@ export const refreshMarketCache = async (marketCount: number): Promise<MarketCac
       }
     }
 
-    return entries;
+    const prioritizedEntries = buildMarketUniverse(entries);
+    for (const entry of prioritizedEntries) {
+      upsertMarketCache(entry);
+    }
+
+    return prioritizedEntries;
   } catch (err: any) {
     console.error('[Enricher] Failed to refresh market cache:', err.message);
     return [];

@@ -18,7 +18,8 @@ import {
   aggregateWalletPnL,
 } from './statsStore.js';
 import { enrichTrade, resolveWalletPseudonym } from './tradeEnricher.js';
-import { getDatabase } from '../database.js';
+import { getDiscoveryDatabase } from './discoveryDatabase.js';
+import { applyDiscoveredTradesToState } from './discoveryState.js';
 import { updatePosition } from './positionTracker.js';
 import { evaluateTradeSignals } from './signalEngine.js';
 import { computeScoresAndHeat } from './walletScorer.js';
@@ -103,6 +104,7 @@ export class TradeIngestion extends EventEmitter {
     const batch = this.pendingBatch.splice(0);
     try {
       const inserted = insertTradeBatch(batch);
+      applyDiscoveredTradesToState(batch);
 
       // Upsert wallet records for all unique addresses
       const walletsSeen = new Set<string>();
@@ -189,7 +191,7 @@ export class TradeIngestion extends EventEmitter {
   private resolveWalletsAsync(maker: string, taker: string): void {
     const updatePseudonym = (address: string, pseudo: string) => {
       try {
-        const db = getDatabase();
+        const db = getDiscoveryDatabase();
         db.prepare('UPDATE discovery_wallets SET pseudonym = ? WHERE address = ? AND pseudonym IS NULL')
           .run(pseudo, address);
       } catch { /* best-effort */ }

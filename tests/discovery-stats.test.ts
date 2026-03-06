@@ -9,17 +9,33 @@ const tempDir = mkdtempSync(join(tmpdir(), 'discovery-stats-test-'));
 let initDatabase: typeof import('../src/database.js').initDatabase;
 let closeDatabase: typeof import('../src/database.js').closeDatabase;
 let getDatabase: typeof import('../src/database.js').getDatabase;
+let initDiscoveryDatabase: typeof import('../src/discovery/discoveryDatabase.js').initDiscoveryDatabase;
+let closeDiscoveryDatabase: typeof import('../src/discovery/discoveryDatabase.js').closeDiscoveryDatabase;
+let getDiscoveryDatabase: typeof import('../src/discovery/discoveryDatabase.js').getDiscoveryDatabase;
+let getSourceCheckpoint: typeof import('../src/discovery/sourceCheckpointStore.js').getSourceCheckpoint;
+let upsertSourceCheckpoint: typeof import('../src/discovery/sourceCheckpointStore.js').upsertSourceCheckpoint;
+let applyDiscoveredTradesToState: typeof import('../src/discovery/discoveryState.js').applyDiscoveredTradesToState;
+let getWalletState: typeof import('../src/discovery/discoveryState.js').getWalletState;
+let getMarketState: typeof import('../src/discovery/discoveryState.js').getMarketState;
+let getWalletMarketState: typeof import('../src/discovery/discoveryState.js').getWalletMarketState;
 let insertTradeBatch: typeof import('../src/discovery/statsStore.js').insertTradeBatch;
 let upsertWallet: typeof import('../src/discovery/statsStore.js').upsertWallet;
 let aggregateStats: typeof import('../src/discovery/statsStore.js').aggregateStats;
 let getWalletStats: typeof import('../src/discovery/statsStore.js').getWalletStats;
 let refreshWalletStats: typeof import('../src/discovery/statsStore.js').refreshWalletStats;
+let upsertMarketCache: typeof import('../src/discovery/statsStore.js').upsertMarketCache;
+let getMarketByConditionId: typeof import('../src/discovery/statsStore.js').getMarketByConditionId;
 let upsertPosition: typeof import('../src/discovery/statsStore.js').upsertPosition;
 let insertSignal: typeof import('../src/discovery/statsStore.js').insertSignal;
 let dismissSignal: typeof import('../src/discovery/statsStore.js').dismissSignal;
 let cleanupOldSignals: typeof import('../src/discovery/statsStore.js').cleanupOldSignals;
 let getSignalsForAddress: typeof import('../src/discovery/statsStore.js').getSignalsForAddress;
 let refreshPositionPrices: typeof import('../src/discovery/positionTracker.js').refreshPositionPrices;
+
+const hasMountedRoutePrefix = (app: any, prefix: string): boolean => {
+  const stack = app?._router?.stack ?? [];
+  return stack.some((layer: any) => String(layer.regexp || '').includes(prefix));
+};
 
 beforeEach(async () => {
   const configMod = await import('../src/config.js');
@@ -37,12 +53,29 @@ beforeEach(async () => {
   closeDatabase = dbMod.closeDatabase;
   getDatabase = dbMod.getDatabase;
 
+  const discoveryDbMod = await import('../src/discovery/discoveryDatabase.js');
+  initDiscoveryDatabase = discoveryDbMod.initDiscoveryDatabase;
+  closeDiscoveryDatabase = discoveryDbMod.closeDiscoveryDatabase;
+  getDiscoveryDatabase = discoveryDbMod.getDiscoveryDatabase;
+
+  const checkpointMod = await import('../src/discovery/sourceCheckpointStore.js');
+  getSourceCheckpoint = checkpointMod.getSourceCheckpoint;
+  upsertSourceCheckpoint = checkpointMod.upsertSourceCheckpoint;
+
+  const discoveryStateMod = await import('../src/discovery/discoveryState.js');
+  applyDiscoveredTradesToState = discoveryStateMod.applyDiscoveredTradesToState;
+  getWalletState = discoveryStateMod.getWalletState;
+  getMarketState = discoveryStateMod.getMarketState;
+  getWalletMarketState = discoveryStateMod.getWalletMarketState;
+
   const statsMod = await import('../src/discovery/statsStore.js');
   insertTradeBatch = statsMod.insertTradeBatch;
   upsertWallet = statsMod.upsertWallet;
   aggregateStats = statsMod.aggregateStats;
   getWalletStats = statsMod.getWalletStats;
   refreshWalletStats = statsMod.refreshWalletStats;
+  upsertMarketCache = statsMod.upsertMarketCache;
+  getMarketByConditionId = statsMod.getMarketByConditionId;
   upsertPosition = statsMod.upsertPosition;
   insertSignal = statsMod.insertSignal;
   dismissSignal = statsMod.dismissSignal;
@@ -53,14 +86,20 @@ beforeEach(async () => {
   refreshPositionPrices = positionMod.refreshPositionPrices;
 
   await initDatabase();
+  await initDiscoveryDatabase();
 });
 
 afterEach(() => {
+  closeDiscoveryDatabase();
   closeDatabase();
   const dbPath = join(tempDir, 'copytrade.db');
+  const discoveryDbPath = join(tempDir, 'discovery.db');
   if (existsSync(dbPath)) rmSync(dbPath);
   if (existsSync(`${dbPath}-wal`)) rmSync(`${dbPath}-wal`);
   if (existsSync(`${dbPath}-shm`)) rmSync(`${dbPath}-shm`);
+  if (existsSync(discoveryDbPath)) rmSync(discoveryDbPath);
+  if (existsSync(`${discoveryDbPath}-wal`)) rmSync(`${discoveryDbPath}-wal`);
+  if (existsSync(`${discoveryDbPath}-shm`)) rmSync(`${discoveryDbPath}-shm`);
 });
 
 test('aggregateStats credits discovery activity to the observed wallet side only', () => {
@@ -98,6 +137,107 @@ test('aggregateStats credits discovery activity to the observed wallet side only
   assert.equal(makerStats.volume7d, 50);
   assert.equal(takerStats.tradeCount7d, 0);
   assert.equal(takerStats.volume7d, 0);
+});
+
+test('upsertMarketCache persists priority metadata for the discovery universe', () => {
+  upsertMarketCache({
+    conditionId: 'condition-tier-a',
+    slug: 'will-the-fed-cut-rates-in-june',
+    title: 'Will the Fed cut rates in June?',
+    volume24h: 125000,
+    tokenIds: ['yes-token', 'no-token'],
+    outcomes: ['Yes', 'No'],
+    category: 'macro',
+    primaryDiscoveryEligible: true,
+    highInformationPriority: true,
+    priorityTier: 'A',
+    priorityScore: 97,
+    noveltyScore: 22,
+    activityScore: 75,
+    inclusionReason: 'High-information market with strong activity',
+    updatedAt: Math.floor(Date.now() / 1000),
+  } as any);
+
+  const persisted = getMarketByConditionId('condition-tier-a');
+
+  assert.ok(persisted);
+  assert.equal(persisted.priorityTier, 'A');
+  assert.equal(persisted.priorityScore, 97);
+  assert.equal(persisted.noveltyScore, 22);
+  assert.equal(persisted.activityScore, 75);
+  assert.equal(persisted.inclusionReason, 'High-information market with strong activity');
+});
+
+test('source checkpoints persist bounded recovery cursors', () => {
+  upsertSourceCheckpoint('market-stream', 'cursor-123', {
+    lastEventAt: 1710000000000,
+    markets: ['condition-a', 'condition-b'],
+  });
+
+  const checkpoint = getSourceCheckpoint('market-stream');
+
+  assert.ok(checkpoint);
+  assert.equal(checkpoint.cursor, 'cursor-123');
+  assert.deepEqual(checkpoint.metadata, {
+    lastEventAt: 1710000000000,
+    markets: ['condition-a', 'condition-b'],
+  });
+});
+
+test('applyDiscoveredTradesToState updates only touched wallet and market projections', () => {
+  const detectedAt = Date.now();
+  applyDiscoveredTradesToState([
+    {
+      txHash: 'state-1',
+      eventKey: 'state-1:event',
+      maker: '0xmaker000000000000000000000000000000000010',
+      taker: '',
+      assetId: 'asset-a',
+      conditionId: 'condition-a',
+      marketTitle: 'Will the Fed cut rates?',
+      marketSlug: 'will-the-fed-cut-rates',
+      side: 'BUY',
+      size: 100,
+      price: 0.5,
+      notionalUsd: 50,
+      fee: 0,
+      source: 'api',
+      detectedAt,
+    },
+    {
+      txHash: 'state-2',
+      eventKey: 'state-2:event',
+      maker: '0xmaker000000000000000000000000000000000010',
+      taker: '',
+      assetId: 'asset-b',
+      conditionId: 'condition-b',
+      marketTitle: 'Will inflation fall below 3%?',
+      marketSlug: 'will-inflation-fall-below-3',
+      side: 'BUY',
+      size: 60,
+      price: 0.4,
+      notionalUsd: 24,
+      fee: 0,
+      source: 'api',
+      detectedAt: detectedAt + 1,
+    },
+  ] as any);
+
+  const walletState = getWalletState('0xmaker000000000000000000000000000000000010');
+  const marketState = getMarketState('condition-a');
+  const walletMarketState = getWalletMarketState('0xmaker000000000000000000000000000000000010', 'condition-b');
+
+  assert.ok(walletState);
+  assert.equal(walletState.tradeCount, 2);
+  assert.equal(walletState.totalVolume, 74);
+
+  assert.ok(marketState);
+  assert.equal(marketState.tradeCount, 1);
+  assert.equal(marketState.totalVolume, 50);
+
+  assert.ok(walletMarketState);
+  assert.equal(walletMarketState.tradeCount, 1);
+  assert.equal(walletMarketState.totalVolume, 24);
 });
 
 test('refreshWalletStats updates wallet aggregates immediately for a touched wallet', () => {
@@ -382,13 +522,43 @@ test('cleanupOldSignals clears wallet signal markers when old signals are remove
   assert.equal(stats.lastSignalType, undefined);
 });
 
-test('createServer initializes the database before discovery startup', async () => {
+test('createServer initializes the main database and mounts the discovery proxy route', async () => {
   closeDatabase();
 
   const { createServer } = await import('../src/server.js');
-  await createServer({
+  const app = await createServer({
     getPerformanceTracker: () => ({}),
   } as any);
 
   assert.doesNotThrow(() => getDatabase());
+  assert.equal(hasMountedRoutePrefix(app, '\\/api\\/discovery'), true);
+});
+
+test('createDiscoveryServiceServer mounts discovery routes in the discovery process', async () => {
+  const { createDiscoveryServiceServer } = await import('../src/discovery/serviceServer.js');
+  const app = await createDiscoveryServiceServer();
+
+  assert.equal(hasMountedRoutePrefix(app, '\\/api\\/discovery'), true);
+});
+
+test('initDiscoveryDatabase uses a separate discovery.db file', async () => {
+  closeDiscoveryDatabase();
+  const dbPath = join(tempDir, 'copytrade.db');
+  const discoveryDbPath = join(tempDir, 'discovery.db');
+
+  if (existsSync(discoveryDbPath)) rmSync(discoveryDbPath);
+  if (existsSync(`${discoveryDbPath}-wal`)) rmSync(`${discoveryDbPath}-wal`);
+  if (existsSync(`${discoveryDbPath}-shm`)) rmSync(`${discoveryDbPath}-shm`);
+
+  closeDatabase();
+  if (existsSync(dbPath)) rmSync(dbPath);
+  if (existsSync(`${dbPath}-wal`)) rmSync(`${dbPath}-wal`);
+  if (existsSync(`${dbPath}-shm`)) rmSync(`${dbPath}-shm`);
+
+  await initDiscoveryDatabase();
+
+  assert.doesNotThrow(() => getDiscoveryDatabase());
+  assert.equal(existsSync(discoveryDbPath), true);
+  assert.equal(existsSync(dbPath), false);
+  assert.throws(() => getDatabase(), /Database not initialized/);
 });

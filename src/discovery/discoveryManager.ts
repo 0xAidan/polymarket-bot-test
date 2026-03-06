@@ -27,15 +27,20 @@ import {
 } from './statsStore.js';
 import { TradeIngestion } from './tradeIngestion.js';
 import { ChainListener } from './chainListener.js';
-import { ApiPoller } from './apiPoller.js';
+import { ApiPoller, shouldStartApiPolling } from './apiPoller.js';
 import { refreshPositionPrices, backfillPositions } from './positionTracker.js';
 import { evaluatePeriodicSignals } from './signalEngine.js';
 import { computeScoresAndHeat } from './walletScorer.js';
+import { initDiscoveryDatabase } from './discoveryDatabase.js';
+import { refreshMarketCache } from './tradeEnricher.js';
+import { getShortlistedMarkets } from './statsStore.js';
+import { MarketStream } from './marketStream.js';
 
 export class DiscoveryManager {
   private ingestion: TradeIngestion;
   private chainListener: ChainListener | null = null;
   private apiPoller: ApiPoller | null = null;
+  private marketStream: MarketStream | null = null;
   private statsTimer: ReturnType<typeof setInterval> | null = null;
   private startedAt?: number;
   private config: DiscoveryConfig;
@@ -54,6 +59,7 @@ export class DiscoveryManager {
   // -----------------------------------------------------------------------
 
   async start(): Promise<void> {
+    await initDiscoveryDatabase();
     this.config = getDiscoveryConfig();
 
     if (!this.config.enabled) {
@@ -67,6 +73,16 @@ export class DiscoveryManager {
     // Start ingestion pipeline
     this.ingestion.start();
 
+    try {
+      await refreshMarketCache(this.config.marketCount);
+      this.marketStream = new MarketStream();
+      this.marketStream.updateMarkets(getShortlistedMarkets(this.config.marketCount));
+      this.marketStream.start();
+    } catch (err) {
+      console.error('[DiscoveryManager] Failed to prepare market stream shortlist:', err);
+      this.marketStream = null;
+    }
+
     // Start chain listener (if Alchemy URL configured)
     if (this.config.alchemyWsUrl) {
       this.chainListener = new ChainListener(this.ingestion, this.config.alchemyWsUrl);
@@ -75,13 +91,18 @@ export class DiscoveryManager {
       console.log('[DiscoveryManager] No Alchemy WS URL — chain listener disabled');
     }
 
-    // Start API poller
-    this.apiPoller = new ApiPoller(
-      this.ingestion,
-      this.config.pollIntervalMs,
-      this.config.marketCount,
-    );
-    await this.apiPoller.start();
+    // Broad polling stays off by default during the freeze period.
+    if (shouldStartApiPolling(this.config)) {
+      this.apiPoller = new ApiPoller(
+        this.ingestion,
+        this.config.pollIntervalMs,
+        this.config.marketCount,
+      );
+      await this.apiPoller.start();
+    } else {
+      this.apiPoller = null;
+      console.log('[DiscoveryManager] Broad API polling is disabled');
+    }
 
     // Start stats aggregation + scoring + price refresh + signals + retention
     this.statsTimer = setInterval(() => {
@@ -145,10 +166,12 @@ export class DiscoveryManager {
     if (this.statsTimer) { clearInterval(this.statsTimer); this.statsTimer = null; }
     this.chainListener?.stop();
     this.apiPoller?.stop();
+    this.marketStream?.stop();
     this.ingestion.stop();
 
     this.chainListener = null;
     this.apiPoller = null;
+    this.marketStream = null;
     this.startedAt = undefined;
 
     console.log('[DiscoveryManager] Discovery engine stopped');
@@ -200,7 +223,18 @@ export class DiscoveryManager {
 
   getStatus(): DiscoveryStatus {
     const chainStatus = this.chainListener?.getStatus() ?? { connected: false, reconnectCount: 0 };
-    const pollerStatus = this.apiPoller?.getStatus() ?? { running: false, marketsMonitored: 0 };
+    const pollerStatus = this.apiPoller?.getStatus() ?? {
+      running: false,
+      marketsMonitored: 0,
+      requestBudget: {
+        gammaRefreshRequests: 0,
+        tradePollRequests: 0,
+        verificationRequests: 0,
+        totalRequests: 0,
+        budgetLimit: 200,
+        withinBudget: true,
+      },
+    };
 
     let totalWallets = 0;
     let totalTrades = 0;
@@ -220,6 +254,7 @@ export class DiscoveryManager {
         running: pollerStatus.running,
         lastPollAt: pollerStatus.lastPollAt,
         marketsMonitored: pollerStatus.marketsMonitored,
+        requestBudget: pollerStatus.requestBudget,
       },
       stats: {
         totalWallets,

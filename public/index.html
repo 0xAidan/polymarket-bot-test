@@ -513,6 +513,24 @@
             <div class="win-group-title">Real-World Discovery Feed</div>
             <div class="text-sm text-muted mb-8">Primary feed excludes crypto and sports, keeps entertainment lower-priority, and favors politics, macro, company, legal, and geopolitics.</div>
             <div class="flex-row gap-8 mb-8">
+              <label class="win-checkbox">
+                <input type="checkbox" id="discoveryVerifiedOnly" onchange="applyDiscoveryFilters()">
+                <span>Verified Only</span>
+              </label>
+              <label class="win-checkbox">
+                <input type="checkbox" id="discoveryExcludeSecondary" checked onchange="applyDiscoveryFilters()">
+                <span>Exclude Sports/Crypto</span>
+              </label>
+            </div>
+            <div id="discoveryOpportunityFeed" class="discovery-opportunity-feed">
+              <div class="text-center text-muted">Loading grouped opportunities...</div>
+            </div>
+          </div>
+
+          <div class="win-group">
+            <div class="win-group-title">Wallet Debug Table</div>
+            <div class="text-sm text-muted mb-8">Secondary/debug surface with the legacy wallet table contract.</div>
+            <div class="flex-row gap-8 mb-8">
               <label class="text-sm">Sort by:</label>
               <select id="discoveryWalletSort" class="win-select" onchange="loadDiscoveryWallets()" aria-label="Sort discovered wallets">
                 <option value="volume">7d Volume</option>
@@ -1460,6 +1478,7 @@
   </div>
 
   <script src="/js/api.js"></script>
+  <script src="/js/discoveryCards.js"></script>
   <script src="/js/app.js"></script>
   <script src="/js/tour.js"></script>
 </body>

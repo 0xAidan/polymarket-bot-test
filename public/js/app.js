@@ -2679,6 +2679,23 @@ const loadDiscoveryWallets = async () => {
   await fetchDiscoveryWallets(false);
 };
 
+const loadDiscoveryOpportunityFeed = async () => {
+  try {
+    const focusEl = document.getElementById('discoveryFocus');
+    const verifiedOnlyEl = document.getElementById('discoveryVerifiedOnly');
+    const excludeSecondaryEl = document.getElementById('discoveryExcludeSecondary');
+    const focus = focusEl ? focusEl.value : 'all-real-world';
+    const verifiedOnly = verifiedOnlyEl?.checked ? 'true' : 'false';
+    const excludeSecondary = excludeSecondaryEl?.checked ? 'true' : 'false';
+    const resp = await fetch(
+      `/api/discovery/feed?focus=${encodeURIComponent(focus)}&verifiedOnly=${verifiedOnly}&excludeSecondary=${excludeSecondary}`
+    );
+    const data = await resp.json();
+    if (!data.success || typeof window.renderDiscoveryOpportunityFeed !== 'function') return;
+    window.renderDiscoveryOpportunityFeed(data.feed);
+  } catch { /* best-effort */ }
+};
+
 const loadMoreDiscoveryWallets = async () => {
   discoveryWalletOffset += DISCOVERY_PAGE_SIZE;
   await fetchDiscoveryWallets(true);
@@ -2779,6 +2796,7 @@ const fetchDiscoveryWallets = async (append) => {
 
 const applyDiscoveryFilters = () => {
   discoveryWalletOffset = 0;
+  loadDiscoveryOpportunityFeed();
   fetchDiscoveryWallets(false);
 };
 
@@ -3157,6 +3175,7 @@ const startDiscoveryRefresh = () => {
   stopDiscoveryRefresh();
   loadDiscoveryConfig();
   loadDiscoveryStatus();
+  loadDiscoveryOpportunityFeed();
   loadDiscoveryWallets();
   loadDiscoveryOverview();
   loadDiscoverySignals();
@@ -3167,6 +3186,7 @@ const startDiscoveryRefresh = () => {
       return;
     }
     loadDiscoveryStatus();
+    loadDiscoveryOpportunityFeed();
     loadDiscoveryWallets();
     loadDiscoveryOverview();
     loadDiscoverySignals();

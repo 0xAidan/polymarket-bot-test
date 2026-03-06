@@ -25,8 +25,10 @@ import {
 } from '../src/discovery/statsStore.ts';
 import {
   applyAuthoritativeWalletSummary,
+  applyDiscoverySurfaceMetadata,
   buildWalletPositionsResponse,
   applyDiscoveryWalletScore,
+  buildDiscoveryOpportunityFeed,
   buildDiscoveryOverview,
   buildDiscoveryWalletExplanation,
   matchesDiscoveryFocusFilter,
@@ -37,10 +39,23 @@ import {
 import {
   buildMarketTradesRequestParams,
   canStartPollCycle,
+  shouldStartApiPolling,
 } from '../src/discovery/apiPoller.js';
+import {
+  buildMarketStreamSubscriptions,
+} from '../src/discovery/marketStream.ts';
+import {
+  shouldRunRecoveryBackfill,
+} from '../src/discovery/recoveryBackfill.ts';
 import {
   computeDiscoveryWalletScore,
 } from '../src/discovery/walletScorer.ts';
+import {
+  scoreMarketPriority,
+} from '../src/discovery/marketPriority.ts';
+import {
+  evaluateWalletVerificationGate,
+} from '../src/discovery/verificationService.ts';
 import {
   mapOfficialPositionToWalletPosition,
   summarizeAuthoritativePositions,
@@ -149,6 +164,54 @@ test('classifyMarketEntry marks politics and macro markets as high-information d
   assert.equal(politics.highInformationPriority, true);
   assert.equal(macro.category, 'macro');
   assert.equal(macro.highInformationPriority, true);
+});
+
+test('scoreMarketPriority assigns Tier A to high-information primary markets', () => {
+  const prioritized = scoreMarketPriority({
+    conditionId: '0xmacro-tier-a',
+    slug: 'will-the-fed-cut-rates-in-june',
+    title: 'Will the Fed cut rates in June?',
+    volume24h: 125000,
+    tokenIds: ['yes-token', 'no-token'],
+    updatedAt: 1,
+    category: 'macro',
+    primaryDiscoveryEligible: true,
+    highInformationPriority: true,
+  } as MarketCacheEntry);
+
+  assert.equal(prioritized.priorityTier, 'A');
+  assert.match(prioritized.inclusionReason || '', /high-information/i);
+  assert.ok((prioritized.priorityScore || 0) > 0);
+});
+
+test('scoreMarketPriority keeps entertainment in lower tiers and excludes sports from primary discovery', () => {
+  const entertainment = scoreMarketPriority({
+    conditionId: '0xent-tier',
+    slug: 'will-taylor-swift-announce-reputation-tv-in-2026',
+    title: 'Will Taylor Swift announce Reputation TV in 2026?',
+    volume24h: 15000,
+    tokenIds: ['yes-token', 'no-token'],
+    updatedAt: 1,
+    category: 'entertainment',
+    primaryDiscoveryEligible: true,
+    highInformationPriority: false,
+  } as MarketCacheEntry);
+  const sports = scoreMarketPriority({
+    conditionId: '0xsports-tier',
+    slug: 'nba-lakers-vs-celtics',
+    title: 'Los Angeles Lakers vs Boston Celtics',
+    volume24h: 250000,
+    tokenIds: ['yes-token', 'no-token'],
+    updatedAt: 1,
+    category: 'sports',
+    primaryDiscoveryEligible: false,
+    isSportsLike: true,
+    highInformationPriority: false,
+  } as MarketCacheEntry);
+
+  assert.equal(entertainment.priorityTier, 'C');
+  assert.equal(sports.priorityTier, 'EXCLUDED');
+  assert.match(sports.inclusionReason || '', /excluded/i);
 });
 
 test('mapApiTradeToDiscoveredTrade uses proxyWallet as the discovered wallet owner', () => {
@@ -443,6 +506,45 @@ test('buildDiscoveryWalletExplanation summarizes category focus and strongest ev
   assert.match(explanation, /conviction build/i);
 });
 
+test('applyDiscoverySurfaceMetadata marks current discovery output as provisional', () => {
+  const wallet = applyDiscoverySurfaceMetadata(
+    {
+      address: '0xwallet',
+      volume7d: 4200,
+    },
+    'provisional',
+  );
+
+  assert.equal(wallet.trustLevel, 'provisional');
+  assert.match(wallet.trustWarning || '', /verify/i);
+});
+
+test('evaluateWalletVerificationGate suppresses low-cost-basis wallets and verifies funded conviction', () => {
+  const suppressed = evaluateWalletVerificationGate({
+    whaleScore: 41,
+    volume7d: 6400,
+    activePositions: 1,
+    totalCost: 80,
+    totalPnl: 30,
+    roiPct: 37.5,
+  });
+  const verified = evaluateWalletVerificationGate({
+    whaleScore: 48,
+    volume7d: 12000,
+    activePositions: 2,
+    totalCost: 1800,
+    totalPnl: 260,
+    roiPct: 14.4,
+    lastSignalAt: Date.now(),
+  });
+
+  assert.equal(suppressed.trustLevel, 'suppressed');
+  assert.match(suppressed.reason || '', /cost basis/i);
+
+  assert.equal(verified.trustLevel, 'verified');
+  assert.equal(verified.reason, undefined);
+});
+
 test('shouldIncludeDiscoveryWallet hides low-evidence wallets from the default feed', () => {
   assert.equal(shouldIncludeDiscoveryWallet({
     whaleScore: 6,
@@ -532,6 +634,46 @@ test('buildDiscoveryOverview summarizes surfaced wallet quality and category mix
   assert.equal(overview.surfacedByCategory[0]?.category, 'macro');
 });
 
+test('buildDiscoveryOpportunityFeed groups wallets into trusted card buckets', () => {
+  const feed = buildDiscoveryOpportunityFeed([
+    {
+      address: '0xemerging',
+      focusCategory: 'macro',
+      trustLevel: 'verified',
+      whySurfaced: 'Macro focus + sustained weekly volume',
+      heatIndicator: 'NEW',
+      volume7d: 9000,
+      whaleScore: 38,
+    },
+    {
+      address: '0xconviction',
+      focusCategory: 'company',
+      trustLevel: 'verified',
+      whySurfaced: 'Company focus + conviction build',
+      lastSignalType: 'CONVICTION_BUILD',
+      activePositions: 2,
+      volume7d: 12000,
+      whaleScore: 44,
+    },
+    {
+      address: '0xcoordinated',
+      focusCategory: 'politics',
+      trustLevel: 'provisional',
+      whySurfaced: 'Politics focus + coordinated entry',
+      lastSignalType: 'COORDINATED_ENTRY',
+      volume7d: 7000,
+      whaleScore: 35,
+    },
+  ] as any);
+
+  assert.equal(feed.groups[0].title, 'Emerging Wallets');
+  assert.equal(feed.groups[0].items.length, 1);
+  assert.equal(feed.groups[1].title, 'Conviction Builds');
+  assert.equal(feed.groups[1].items.length, 1);
+  assert.equal(feed.groups[2].title, 'Coordinated Markets');
+  assert.equal(feed.groups[2].items.length, 1);
+});
+
 test('paginateDiscoveryWalletsForPresentation paginates after filtering hidden wallets', () => {
   const wallets = [
     { address: '0xhidden', whaleScore: 4, volume7d: 100, tradeCount7d: 1, focusCategory: 'event' },
@@ -568,6 +710,44 @@ test('canStartPollCycle blocks overlapping poll runs', () => {
   assert.equal(canStartPollCycle(true, 10, true), false);
   assert.equal(canStartPollCycle(false, 10, false), false);
   assert.equal(canStartPollCycle(true, 0, false), false);
+});
+
+test('shouldStartApiPolling keeps broad polling disabled in freeze mode', () => {
+  assert.equal(shouldStartApiPolling({ enabled: true, broadPollingEnabled: false }), false);
+  assert.equal(shouldStartApiPolling({ enabled: true, broadPollingEnabled: true }), true);
+  assert.equal(shouldStartApiPolling({ enabled: false, broadPollingEnabled: true }), false);
+});
+
+test('buildMarketStreamSubscriptions keeps only shortlisted market assets', () => {
+  const subscriptions = buildMarketStreamSubscriptions([
+    {
+      conditionId: 'tier-a',
+      tokenIds: ['a-yes', 'a-no'],
+      priorityTier: 'A',
+      updatedAt: 1,
+    },
+    {
+      conditionId: 'tier-b',
+      tokenIds: ['b-yes', 'b-no', 'a-no'],
+      priorityTier: 'B',
+      updatedAt: 1,
+    },
+    {
+      conditionId: 'excluded',
+      tokenIds: ['x-yes', 'x-no'],
+      priorityTier: 'EXCLUDED',
+      updatedAt: 1,
+    },
+  ] as MarketCacheEntry[]);
+
+  assert.deepEqual(subscriptions, ['a-yes', 'a-no', 'b-yes', 'b-no']);
+});
+
+test('shouldRunRecoveryBackfill only triggers for stale checkpoints', () => {
+  const now = Date.now();
+  assert.equal(shouldRunRecoveryBackfill(undefined, now, 60_000), true);
+  assert.equal(shouldRunRecoveryBackfill(now - 120_000, now, 60_000), true);
+  assert.equal(shouldRunRecoveryBackfill(now - 10_000, now, 60_000), false);
 });
 
 test('computeDiscoveryWalletScore rewards sustained volume, not just a one-week burst', () => {

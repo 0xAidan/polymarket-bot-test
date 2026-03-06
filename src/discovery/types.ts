@@ -96,6 +96,8 @@ export type DiscoveryMarketCategory =
   | 'event'
   | 'other';
 
+export type DiscoveryPriorityTier = 'A' | 'B' | 'C' | 'EXCLUDED';
+
 export interface MarketCacheEntry {
   conditionId: string;
   slug?: string;
@@ -110,12 +112,19 @@ export interface MarketCacheEntry {
   emergingEligible?: boolean;
   sharpWalletEligible?: boolean;
   highInformationPriority?: boolean;
+  priorityTier?: DiscoveryPriorityTier;
+  priorityScore?: number;
+  noveltyScore?: number;
+  activityScore?: number;
+  inclusionReason?: string;
   updatedAt: number;
 }
 
 export interface DiscoveryConfig {
   enabled: boolean;
   alchemyWsUrl: string;
+  broadPollingEnabled: boolean;
+  surfaceMode: 'provisional' | 'verified';
   pollIntervalMs: number;
   marketCount: number;
   statsIntervalMs: number;
@@ -125,6 +134,8 @@ export interface DiscoveryConfig {
 export const DEFAULT_DISCOVERY_CONFIG: DiscoveryConfig = {
   enabled: false,
   alchemyWsUrl: '',
+  broadPollingEnabled: false,
+  surfaceMode: 'provisional',
   pollIntervalMs: 30_000,
   marketCount: 50,
   statsIntervalMs: 300_000, // 5 min
@@ -164,6 +175,14 @@ export interface DiscoveryStatus {
     running: boolean;
     lastPollAt?: number;
     marketsMonitored: number;
+    requestBudget?: {
+      gammaRefreshRequests: number;
+      tradePollRequests: number;
+      verificationRequests: number;
+      totalRequests: number;
+      budgetLimit: number;
+      withinBudget: boolean;
+    };
   };
   stats: {
     totalWallets: number;

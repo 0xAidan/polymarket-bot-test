@@ -318,6 +318,50 @@ body {
   text-align: center;
 }
 
+.discovery-opportunity-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.discovery-card-group {
+  border: 2px inset var(--win-surface);
+  background: var(--win-light);
+  padding: 10px;
+}
+
+.discovery-card-group-title {
+  font-size: 18px;
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+.discovery-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.discovery-card {
+  background: var(--win-white);
+  border: 2px outset var(--win-surface);
+  padding: 8px;
+  cursor: pointer;
+}
+
+.discovery-card:focus,
+.discovery-card:hover {
+  outline: 1px dotted var(--win-black);
+}
+
+.discovery-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
 /* ============================================================
    WIN95 TABS
    ============================================================ */

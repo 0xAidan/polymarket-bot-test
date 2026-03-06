@@ -12,13 +12,32 @@
 import { EventEmitter } from 'events';
 import axios from 'axios';
 import { config } from '../config.js';
-import { DiscoveredTrade, MarketCacheEntry } from './types.js';
+import { DiscoveredTrade, DiscoveryConfig, MarketCacheEntry } from './types.js';
 import { refreshMarketCache } from './tradeEnricher.js';
+import { getShortlistedMarkets } from './statsStore.js';
 import { TradeIngestion } from './tradeIngestion.js';
 
 const MARKET_REFRESH_INTERVAL_MS = 15 * 60 * 1000; // 15 min
 const MAX_TRADES_PER_MARKET = 100;
 const REQUEST_DELAY_MS = 100; // 10 req/s to stay well within limits
+const DEFAULT_REQUEST_BUDGET = 200;
+
+export const buildRequestBudgetStatus = (
+  metrics: {
+    gammaRefreshRequests: number;
+    tradePollRequests: number;
+    verificationRequests: number;
+  },
+  budgetLimit = DEFAULT_REQUEST_BUDGET,
+) => {
+  const totalRequests = metrics.gammaRefreshRequests + metrics.tradePollRequests + metrics.verificationRequests;
+  return {
+    ...metrics,
+    totalRequests,
+    budgetLimit,
+    withinBudget: totalRequests <= budgetLimit,
+  };
+};
 
 export const buildMarketTradesRequestParams = (conditionId: string) => ({
   market: conditionId,
@@ -32,6 +51,10 @@ export const canStartPollCycle = (
   pollInProgress: boolean,
 ): boolean => running && marketCount > 0 && !pollInProgress;
 
+export const shouldStartApiPolling = (
+  discoveryConfig: Pick<DiscoveryConfig, 'enabled' | 'broadPollingEnabled'>,
+): boolean => discoveryConfig.enabled && discoveryConfig.broadPollingEnabled;
+
 export class ApiPoller extends EventEmitter {
   private ingestion: TradeIngestion;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -42,6 +65,11 @@ export class ApiPoller extends EventEmitter {
   private pollIntervalMs: number;
   private marketCount: number;
   private pollInProgress = false;
+  private requestMetrics = {
+    gammaRefreshRequests: 0,
+    tradePollRequests: 0,
+    verificationRequests: 0,
+  };
 
   constructor(ingestion: TradeIngestion, pollIntervalMs: number, marketCount: number) {
     super();
@@ -82,11 +110,17 @@ export class ApiPoller extends EventEmitter {
     this.emit('stopped');
   }
 
-  getStatus(): { running: boolean; lastPollAt?: number; marketsMonitored: number } {
+  getStatus(): {
+    running: boolean;
+    lastPollAt?: number;
+    marketsMonitored: number;
+    requestBudget: ReturnType<typeof buildRequestBudgetStatus>;
+  } {
     return {
       running: this.running,
       lastPollAt: this.lastPollAt,
       marketsMonitored: this.markets.length,
+      requestBudget: buildRequestBudgetStatus(this.requestMetrics),
     };
   }
 
@@ -102,7 +136,12 @@ export class ApiPoller extends EventEmitter {
 
   private async refreshMarkets(): Promise<void> {
     try {
-      this.markets = await refreshMarketCache(this.marketCount);
+      this.requestMetrics.gammaRefreshRequests += 1;
+      const universe = await refreshMarketCache(this.marketCount);
+      this.markets = getShortlistedMarkets(this.marketCount);
+      if (this.markets.length === 0) {
+        this.markets = universe.filter((market) => market.priorityTier === 'A' || market.priorityTier === 'B');
+      }
       console.log(`[ApiPoller] Market cache refreshed: ${this.markets.length} markets`);
     } catch (err: any) {
       console.error('[ApiPoller] Failed to refresh markets:', err.message);
@@ -122,6 +161,7 @@ export class ApiPoller extends EventEmitter {
         if (!this.running) break;
 
         try {
+          this.requestMetrics.tradePollRequests += 1;
           const trades = await this.fetchTradesForMarket(market);
           if (trades.length > 0) {
             const newCount = await this.ingestion.ingestBatch(trades);
