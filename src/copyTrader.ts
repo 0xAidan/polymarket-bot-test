@@ -6,6 +6,7 @@ import { PerformanceTracker } from './performanceTracker.js';
 import { BalanceTracker } from './balanceTracker.js';
 import { PositionMirror } from './positionMirror.js';
 import { DetectedTrade, TradeOrder, TradeResult, RateLimitState, TradeSideFilter, PerWalletRateLimitStates } from './types.js';
+import { decidePendingOrderReconciliation } from './noRepeatReconciliation.js';
 import { Storage } from './storage.js';
 import { config } from './config.js';
 import { initWalletManager } from './walletManager.js';
@@ -266,6 +267,11 @@ export class CopyTrader {
    * Handle a detected trade from a tracked wallet
    */
   private async handleDetectedTrade(trade: DetectedTrade): Promise<void> {
+    if (!this.isRunning) {
+      console.log('[CopyTrader] Ignoring detected trade because the bot is stopped');
+      return;
+    }
+
     console.log(`\n${'='.repeat(60)}`);
     console.log(`🔔 [CopyTrader] HANDLE_DETECTED_TRADE CALLED`);
     console.log(`${'='.repeat(60)}`);
@@ -514,6 +520,8 @@ export class CopyTrader {
         ? (trade.noRepeatPeriodHours ?? 24)
         : SAFETY_MINIMUM_HOURS;
       try {
+        await this.reconcilePendingNoRepeatBlock(trade);
+
         const isBlocked = await Storage.isPositionBlocked(
           trade.marketId,
           trade.outcome,
@@ -1025,6 +1033,13 @@ export class CopyTrader {
       console.log(`   Outcome: ${order.outcome}`);
       console.log(`   Price: ${order.price}`);
       console.log(`   Time: ${new Date().toISOString()}`);
+
+      const baselinePositionSize = await this.getCurrentPositionSize(trade);
+
+      if (!this.isRunning) {
+        console.log('[CopyTrader] Trade execution aborted because the bot was stopped during pre-flight checks');
+        return;
+      }
       
       // Execute the trade
       const result: TradeResult = await this.executor.executeTrade(order);
@@ -1065,10 +1080,27 @@ export class CopyTrader {
         console.log(`${'='.repeat(60)}\n`);
         this.executedTradesCount++;
 
-        // Mark as processed now that execution succeeded (enables retry on failure)
+        // ALWAYS record executed position for cross-restart dedup.
+        // Not gated on noRepeatEnabled — every successful trade is persisted so the
+        // no-repeat safety check (5-min minimum for all trades) has data to work with.
+        try {
+          await Storage.addExecutedPosition(trade.marketId, trade.outcome, trade.walletAddress, {
+            orderId: result.orderId,
+            tokenId: order.tokenId
+          });
+          console.log(`[CopyTrader] Recorded position for no-repeat-trades: ${trade.marketId} ${trade.outcome}`);
+        } catch (recordError: any) {
+          await this.handleCriticalNoRepeatPersistenceFailure(
+            `Failed to record executed position after live trade fill: ${recordError.message}`,
+            { trade, result, order }
+          );
+          return;
+        }
+
+        // Mark as processed now that execution and persistence both succeeded
         this.processedTrades.set(tradeKey, Date.now());
         this.processedCompoundKeys.set(compoundKey, Date.now());
-        
+
         // Increment per-wallet rate limit counters (if rate limiting was enabled for this wallet)
         if (trade.rateLimitEnabled) {
           const walletRateState = this.perWalletRateLimits.get(trade.walletAddress.toLowerCase());
@@ -1077,16 +1109,38 @@ export class CopyTrader {
             walletRateState.tradesThisDay++;
           }
         }
-        
-        // ALWAYS record executed position for cross-restart dedup.
-        // Not gated on noRepeatEnabled — every successful trade is persisted so the
-        // no-repeat safety check (5-min minimum for all trades) has data to work with.
+      } else if (result.status === 'pending' && result.orderId) {
+        console.log(`\n${'='.repeat(60)}`);
+        console.log(`⏳ [Execute] TRADE PENDING ON ORDER BOOK`);
+        console.log(`${'='.repeat(60)}`);
+        console.log(`   Order ID: ${result.orderId}`);
+        console.log(`   Market: ${order.marketId}`);
+        console.log(`   Outcome: ${order.outcome}`);
+        console.log(`   Side: ${order.side} $${tradeSizeUsdcNum.toFixed(2)} USDC (${order.amount} shares) @ ${order.price}`);
+        console.log(`   💡 A temporary no-repeat block has been recorded until this order is reconciled.`);
+        console.log(`${'='.repeat(60)}\n`);
+
         try {
-          await Storage.addExecutedPosition(trade.marketId, trade.outcome, trade.walletAddress);
-          console.log(`[CopyTrader] Recorded position for no-repeat-trades: ${trade.marketId} ${trade.outcome}`);
+          await Storage.addPendingPosition(
+            trade.marketId,
+            trade.outcome,
+            trade.walletAddress,
+            result.orderId,
+            order.tokenId,
+            baselinePositionSize,
+            trade.side
+          );
+          console.log(`[CopyTrader] Recorded pending no-repeat block: ${trade.marketId} ${trade.outcome} (order ${result.orderId})`);
         } catch (recordError: any) {
-          console.error(`[CopyTrader] CRITICAL: Failed to record executed position: ${recordError.message}`);
+          await this.handleCriticalNoRepeatPersistenceFailure(
+            `Failed to record pending no-repeat block for live order ${result.orderId}: ${recordError.message}`,
+            { trade, result, order }
+          );
+          return;
         }
+
+        this.processedTrades.set(tradeKey, Date.now());
+        this.processedCompoundKeys.set(compoundKey, Date.now());
       } else {
         // Check if this is a "market closed" error (expected behavior, not a failure)
         const isMarketClosed = result.error?.includes('MARKET_CLOSED') || 
@@ -1199,6 +1253,154 @@ export class CopyTrader {
       return this.executor.getWalletAddress();
     } catch {
       return null;
+    }
+  }
+
+  private async reconcilePendingNoRepeatBlock(trade: DetectedTrade): Promise<void> {
+    const pendingBlocks = (await Storage.getExecutedPositions()).filter(
+      position =>
+        position.marketId === trade.marketId &&
+        position.side === trade.outcome &&
+        (position.status ?? 'executed') === 'pending'
+    );
+
+    if (pendingBlocks.length === 0) {
+      return;
+    }
+
+    const openOrders = await this.executor.getClobClient().getOpenOrders();
+    const openOrderIds = new Set(
+      openOrders
+        .map(order => order?.orderID ?? order?.orderId ?? order?.id)
+        .filter((orderId): orderId is string => typeof orderId === 'string' && orderId.length > 0)
+    );
+
+    const currentPositionSize = await this.getCurrentPositionSize(trade);
+
+    let promotedPendingBlock = false;
+    let clearedPendingBlock = false;
+
+    for (const pendingBlock of pendingBlocks) {
+      const decision = decidePendingOrderReconciliation({
+        pendingOrderId: pendingBlock.orderId,
+        openOrderIds,
+        currentPositionSize,
+        baselinePositionSize: pendingBlock.baselinePositionSize,
+        missingOrderChecks: pendingBlock.missingOrderChecks,
+        tradeSide: pendingBlock.tradeSideAction ?? 'BUY',
+      });
+
+      if (decision === 'still_open') {
+        if (pendingBlock.orderId) {
+          await Storage.resetPendingPositionMissingOrderChecks(pendingBlock.orderId);
+        }
+        console.log(`[CopyTrader] Pending no-repeat block still active for ${trade.marketId} ${trade.outcome} (open order remains on book)`);
+        return;
+      }
+
+      if (decision === 'executed' && pendingBlock.orderId) {
+        await Storage.markPendingPositionExecuted(pendingBlock.orderId);
+        promotedPendingBlock = true;
+        continue;
+      }
+
+      if (decision === 'await_more_evidence' && pendingBlock.orderId) {
+        const missingChecks = await Storage.incrementPendingPositionMissingOrderChecks(pendingBlock.orderId);
+        console.log(`[CopyTrader] Pending no-repeat block missing from open orders for ${trade.marketId} ${trade.outcome}; confirming with a fresh snapshot`);
+
+        const confirmedOpenOrders = await this.executor.getClobClient().getOpenOrders();
+        const confirmedOpenOrderIds = new Set(
+          confirmedOpenOrders
+            .map(order => order?.orderID ?? order?.orderId ?? order?.id)
+            .filter((orderId): orderId is string => typeof orderId === 'string' && orderId.length > 0)
+        );
+        const confirmedPositionSize = await this.getCurrentPositionSize(trade);
+        const confirmationDecision = decidePendingOrderReconciliation({
+          pendingOrderId: pendingBlock.orderId,
+          openOrderIds: confirmedOpenOrderIds,
+          currentPositionSize: confirmedPositionSize,
+          baselinePositionSize: pendingBlock.baselinePositionSize,
+          missingOrderChecks: missingChecks ?? pendingBlock.missingOrderChecks,
+          tradeSide: pendingBlock.tradeSideAction ?? 'BUY',
+        });
+
+        if (confirmationDecision === 'still_open') {
+          await Storage.resetPendingPositionMissingOrderChecks(pendingBlock.orderId);
+          console.log(`[CopyTrader] Pending no-repeat block confirmed as still open for ${trade.marketId} ${trade.outcome}`);
+          return;
+        }
+
+        if (confirmationDecision === 'executed') {
+          await Storage.markPendingPositionExecuted(pendingBlock.orderId);
+          promotedPendingBlock = true;
+          continue;
+        }
+
+        if (confirmationDecision === 'clear_pending') {
+          await Storage.removePendingPosition(pendingBlock.orderId);
+          clearedPendingBlock = true;
+          continue;
+        }
+
+        console.log(
+          `[CopyTrader] Pending no-repeat block remains in safety hold for ${trade.marketId} ${trade.outcome}` +
+          (missingChecks ? ` (${missingChecks}/2)` : '')
+        );
+        return;
+      }
+
+      if (decision === 'clear_pending' && pendingBlock.orderId) {
+        await Storage.removePendingPosition(pendingBlock.orderId);
+        clearedPendingBlock = true;
+      }
+    }
+
+    if (promotedPendingBlock) {
+      console.log(`[CopyTrader] Promoted pending no-repeat block to executed position: ${trade.marketId} ${trade.outcome}`);
+    }
+
+    if (clearedPendingBlock) {
+      console.log(`[CopyTrader] Cleared stale pending no-repeat block: ${trade.marketId} ${trade.outcome}`);
+    }
+  }
+
+  private async getCurrentPositionSize(trade: DetectedTrade): Promise<number> {
+    const positionsWallet =
+      this.executor.getFunderAddress() ||
+      (await this.getProxyWalletAddress()) ||
+      this.getWalletAddress();
+
+    if (!positionsWallet) {
+      throw new Error('Could not determine trading wallet for position reconciliation');
+    }
+
+    const livePositions = await this.monitor.getApi().getUserPositions(positionsWallet);
+    const matchingPosition = livePositions.find((position: any) => {
+      const positionMarketId = position.conditionId || position.marketId;
+      const positionOutcome = typeof position.outcome === 'string'
+        ? (position.outcome.toUpperCase() === 'NO' ? 'NO' : 'YES')
+        : position.outcomeIndex === 1
+          ? 'NO'
+          : 'YES';
+
+      return positionMarketId === trade.marketId && positionOutcome === trade.outcome;
+    });
+
+    return Number(matchingPosition?.size ?? 0);
+  }
+
+  private async handleCriticalNoRepeatPersistenceFailure(message: string, details: Record<string, unknown>): Promise<void> {
+    console.error(`[CopyTrader] CRITICAL NO-REPEAT FAILURE: ${message}`);
+    this.stop();
+    try {
+      await this.performanceTracker.logIssue(
+        'error',
+        'trade_execution',
+        message,
+        details
+      );
+    } catch (logError: any) {
+      console.error(`[CopyTrader] Failed to persist critical issue log after stopping bot: ${logError.message}`);
     }
   }
 
