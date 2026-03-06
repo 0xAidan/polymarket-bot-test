@@ -10,6 +10,7 @@ import { decidePendingOrderReconciliation } from './noRepeatReconciliation.js';
 import { Storage } from './storage.js';
 import { config } from './config.js';
 import { initWalletManager } from './walletManager.js';
+import { assertTradeCanExecuteForWallet } from './walletConfigSafety.js';
 
 /**
  * Main copy trading engine that coordinates monitoring and execution
@@ -311,7 +312,7 @@ export class CopyTrader {
       );
       return;
     }
-    
+
     // CRITICAL FIX: Use a COMPOUND KEY for deduplication
     // Problem: Position monitoring generates synthetic hashes (pos-...) while trade history has real hashes
     // This caused the SAME underlying trade to be detected twice and executed twice
@@ -377,6 +378,39 @@ export class CopyTrader {
 
     try {
     // === Everything below is wrapped in try/finally to guarantee inFlightTrades cleanup ===
+
+    try {
+      assertTradeCanExecuteForWallet(trade);
+    } catch (error: any) {
+      // Mark the compound key too so a legacy unsafe wallet does not keep re-logging
+      // the same underlying trade across polling and websocket sources.
+      this.processedCompoundKeys.set(compoundKey, Date.now());
+
+      console.error(`\n❌ [CopyTrader] SAFETY: Refusing to trade unconfigured wallet ${trade.walletAddress.substring(0, 8)}...`);
+      console.error(`   ${error.message}`);
+      await this.performanceTracker.recordTrade({
+        timestamp: new Date(),
+        walletAddress: trade.walletAddress,
+        marketId: trade.marketId,
+        marketTitle: trade.marketTitle,
+        outcome: trade.outcome,
+        amount: trade.amount,
+        price: trade.price,
+        success: false,
+        status: 'rejected',
+        executionTimeMs: 0,
+        error: error.message,
+        detectedTxHash: trade.transactionHash,
+        tokenId: trade.tokenId
+      });
+      await this.performanceTracker.logIssue(
+        'error',
+        'trade_execution',
+        error.message,
+        { trade }
+      );
+      return;
+    }
     
     console.log(`\n${'='.repeat(60)}`);
     console.log(`🔔 TRADE DETECTED`);

@@ -58,11 +58,35 @@ describe('Storage dual-backend', () => {
 
     it('toggleWalletActive flips state', async () => {
       await Storage.addWallet('0xTOGGLE');
+      await Storage.updateWalletTradeConfig('0xTOGGLE', {
+        tradeSizingMode: 'fixed',
+        fixedTradeSize: 5,
+      });
       const w = await Storage.toggleWalletActive('0xTOGGLE', true);
       assert.equal(w.active, true);
 
       const w2 = await Storage.toggleWalletActive('0xTOGGLE');
       assert.equal(w2.active, false);
+    });
+
+    it('rejects enabling an unconfigured wallet', async () => {
+      await Storage.addWallet('0xUNCONFIGURED');
+
+      await assert.rejects(
+        () => Storage.toggleWalletActive('0xUNCONFIGURED', true),
+        /explicit trade sizing/i
+      );
+    });
+
+    it('allows enabling a wallet with explicit fixed sizing', async () => {
+      await Storage.addWallet('0xCONFIGURED');
+      await Storage.updateWalletTradeConfig('0xCONFIGURED', {
+        tradeSizingMode: 'fixed',
+        fixedTradeSize: 19,
+      });
+
+      const wallet = await Storage.toggleWalletActive('0xCONFIGURED', true);
+      assert.equal(wallet.active, true);
     });
 
     it('updateWalletLabel works', async () => {
@@ -190,6 +214,25 @@ describe('Storage dual-backend', () => {
       assert.equal(loaded.length, 1, 'should have exactly 1 wallet');
       assert.equal(loaded[0].tradeSizingMode, 'fixed');
       assert.equal(loaded[0].fixedTradeSize, 100);
+    });
+
+    it('rejects enabling an unconfigured wallet via SQLite', async () => {
+      await Storage.addWallet('0xSQLUNCONFIGURED');
+
+      await assert.rejects(
+        () => Storage.toggleWalletActive('0xSQLUNCONFIGURED', true),
+        /explicit trade sizing/i
+      );
+    });
+
+    it('allows enabling a proportional wallet via SQLite', async () => {
+      await Storage.addWallet('0xSQLPROPORTIONAL');
+      await Storage.updateWalletTradeConfig('0xSQLPROPORTIONAL', {
+        tradeSizingMode: 'proportional',
+      });
+
+      const wallet = await Storage.toggleWalletActive('0xSQLPROPORTIONAL', true);
+      assert.equal(wallet.active, true);
     });
 
     it('loadConfig returns defaults on fresh db', async () => {
