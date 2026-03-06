@@ -1,6 +1,9 @@
 import { getDomeClient, isDomeConfigured, domeGetMarketPrice } from './domeClient.js';
 import { getAdapter, isPlatformConfigured } from './platform/platformRegistry.js';
 import { Storage } from './storage.js';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('ArbScanner');
 
 // ============================================================================
 // TYPES
@@ -84,19 +87,19 @@ export class ArbScanner {
   async start(): Promise<void> {
     if (this.isRunning) return;
     if (!isDomeConfigured()) {
-      console.log('[ArbScanner] Dome API not configured — scanner disabled');
+      log.info('[ArbScanner] Dome API not configured — scanner disabled');
       return;
     }
 
     await this.loadConfig();
 
     if (!this.config.enabled) {
-      console.log('[ArbScanner] Scanner is disabled in config');
+      log.info('[ArbScanner] Scanner is disabled in config');
       return;
     }
 
     this.isRunning = true;
-    console.log(`[ArbScanner] Started — scanning every ${this.config.scanIntervalMs / 1000}s, min spread: ${this.config.minSpreadPercent}%`);
+    log.info(`[ArbScanner] Started — scanning every ${this.config.scanIntervalMs / 1000}s, min spread: ${this.config.minSpreadPercent}%`);
 
     this.scheduleScans();
   }
@@ -110,7 +113,7 @@ export class ArbScanner {
       clearInterval(this.scanInterval);
       this.scanInterval = null;
     }
-    console.log('[ArbScanner] Stopped');
+    log.info('[ArbScanner] Stopped');
   }
 
   /**
@@ -132,17 +135,17 @@ export class ArbScanner {
 
       if (newOpportunities.length > 0) {
         this.opportunitiesDetected += newOpportunities.length;
-        console.log(`[ArbScanner] Found ${newOpportunities.length} opportunity(ies):`);
+        log.info(`[ArbScanner] Found ${newOpportunities.length} opportunity(ies):`);
         for (const opp of newOpportunities) {
-          console.log(`  - ${opp.eventTitle} (${opp.outcome}): ${opp.spreadPercent.toFixed(1)}% spread [Poly: $${opp.polymarketPrice.toFixed(2)} | Kalshi: $${opp.kalshiPrice.toFixed(2)}]`);
+          log.info(`  - ${opp.eventTitle} (${opp.outcome}): ${opp.spreadPercent.toFixed(1)}% spread [Poly: $${opp.polymarketPrice.toFixed(2)} | Kalshi: $${opp.kalshiPrice.toFixed(2)}]`);
         }
       } else {
-        console.log(`[ArbScanner] Scan #${this.scanCount} — no opportunities (${this.matchedMarkets.length} markets compared)`);
+        log.info(`[ArbScanner] Scan #${this.scanCount} — no opportunities (${this.matchedMarkets.length} markets compared)`);
       }
 
       return newOpportunities;
     } catch (err: any) {
-      console.error('[ArbScanner] Scan failed:', err.message);
+      log.error({ detail: err.message }, '[ArbScanner] Scan failed')
       return [];
     }
   }
@@ -161,7 +164,7 @@ export class ArbScanner {
 
       if (!Array.isArray(matches) || matches.length === 0) {
         // Fallback: try to use the markets endpoint and manually match
-        console.log('[ArbScanner] No matching markets from API, using cached data');
+        log.info('[ArbScanner] No matching markets from API, using cached data');
         return;
       }
 
@@ -194,10 +197,10 @@ export class ArbScanner {
 
       if (updated.length > 0) {
         this.matchedMarkets = updated;
-        console.log(`[ArbScanner] Updated ${updated.length} matched market pairs`);
+        log.info(`[ArbScanner] Updated ${updated.length} matched market pairs`);
       }
     } catch (err: any) {
-      console.error('[ArbScanner] Failed to refresh matched markets:', err.message);
+      log.error({ detail: err.message }, '[ArbScanner] Failed to refresh matched markets')
     }
   }
 
@@ -266,11 +269,11 @@ export class ArbScanner {
     this.scanInterval = setInterval(async () => {
       if (!this.isRunning) return;
       try { await this.scan(); }
-      catch (err: any) { console.error('[ArbScanner] Scheduled scan error:', err.message); }
+      catch (err: any) { log.error('[ArbScanner] Scheduled scan error:', err.message); }
     }, this.config.scanIntervalMs);
 
     // Immediate first scan
-    this.scan().catch(err => console.error('[ArbScanner] Initial scan error:', err.message));
+    this.scan().catch(err => log.error('[ArbScanner] Initial scan error:', err.message));
   }
 
   /**
@@ -337,7 +340,7 @@ export class ArbScanner {
       cfg.arbScannerConfig = this.config;
       await Storage.saveConfig(cfg);
     } catch (err: any) {
-      console.error('[ArbScanner] Failed to save config:', err.message);
+      log.error({ detail: err.message }, '[ArbScanner] Failed to save config')
     }
   }
 }

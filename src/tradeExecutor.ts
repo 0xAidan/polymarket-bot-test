@@ -3,6 +3,9 @@ import { PolymarketClobClient } from './clobClient.js';
 import { TradeOrder, TradeResult } from './types.js';
 import { Storage } from './storage.js';
 import { Side } from '@polymarket/clob-client';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('TradeExecutor');
 
 /**
  * Executes trades on Polymarket via CLOB API using the official CLOB client
@@ -25,9 +28,9 @@ export class TradeExecutor {
       await this.api.initialize();
       await this.clobClient.initialize();
       this.isAuthenticated = true;
-      console.log('✓ Trade executor authenticated');
+      log.info('✓ Trade executor authenticated');
     } catch (error: any) {
-      console.error('❌ Authentication failed:', error.message);
+      log.error({ detail: error.message }, '❌ Authentication failed')
       throw error;
     }
   }
@@ -46,15 +49,15 @@ export class TradeExecutor {
     const executionStart = Date.now();
 
     try {
-      console.log(`\n${'='.repeat(60)}`);
-      console.log(`🚀 [Execute] EXECUTING TRADE`);
-      console.log(`${'='.repeat(60)}`);
-      console.log(`   Side: ${order.side}`);
-      console.log(`   Amount: ${order.amount} shares`);
-      console.log(`   Market: ${order.marketId}`);
-      console.log(`   Outcome: ${order.outcome}`);
-      console.log(`   Price: ${order.price}`);
-      console.log(`   Timestamp: ${new Date().toISOString()}`);
+      log.info(`\n${'='.repeat(60)}`);
+      log.info(`🚀 [Execute] EXECUTING TRADE`);
+      log.info(`${'='.repeat(60)}`);
+      log.info(`   Side: ${order.side}`);
+      log.info(`   Amount: ${order.amount} shares`);
+      log.info(`   Market: ${order.marketId}`);
+      log.info(`   Outcome: ${order.outcome}`);
+      log.info(`   Price: ${order.price}`);
+      log.info(`   Timestamp: ${new Date().toISOString()}`);
 
       // Use tokenId directly if provided (bypasses Gamma API entirely)
       // This is the critical fix - Gamma API doesn't accept conditionId format
@@ -69,10 +72,10 @@ export class TradeExecutor {
         throw new Error(`Token ID not provided for market ${order.marketId}. Cannot execute trade without tokenId. This may indicate the trade detection did not extract the asset field properly.`);
       }
 
-      console.log(`   Token ID: ${tokenId}`);
-      console.log(`   Tick Size: ${tickSize}`);
-      console.log(`   Neg Risk: ${negRisk}`);
-      console.log(`${'='.repeat(60)}`)
+      log.info(`   Token ID: ${tokenId}`);
+      log.info(`   Tick Size: ${tickSize}`);
+      log.info(`   Neg Risk: ${negRisk}`);
+      log.info(`${'='.repeat(60)}`)
 
       // Validate price and amount
       let price = parseFloat(order.price);
@@ -95,7 +98,7 @@ export class TradeExecutor {
         try {
           slippagePercent = await Storage.getSlippagePercent();
         } catch (slippageError: any) {
-          console.warn(`[Execute] Could not load slippage config (using default 2%): ${slippageError.message}`);
+          log.warn(`[Execute] Could not load slippage config (using default 2%): ${slippageError.message}`);
         }
       }
       const PRICE_SLIPPAGE = slippagePercent / 100;
@@ -107,9 +110,9 @@ export class TradeExecutor {
         price = Math.max(price * (1 - PRICE_SLIPPAGE), 0.01);
       }
       
-      console.log(`[Execute] ⚡ AGGRESSIVE PRICING for immediate fill:`);
-      console.log(`   Original price: $${originalPrice.toFixed(4)}`);
-      console.log(`   Adjusted price: $${price.toFixed(4)} (${order.side === 'BUY' ? '+' : '-'}${slippagePercent.toFixed(1)}% slippage)`);
+      log.info(`[Execute] ⚡ AGGRESSIVE PRICING for immediate fill:`);
+      log.info(`   Original price: $${originalPrice.toFixed(4)}`);
+      log.info(`   Adjusted price: $${price.toFixed(4)} (${order.side === 'BUY' ? '+' : '-'}${slippagePercent.toFixed(1)}% slippage)`);
       
       // Tick alignment is done in CLOB client; we only enforce Polymarket price bounds here.
       
@@ -118,7 +121,7 @@ export class TradeExecutor {
       const MAX_PRICE = 0.99;
       
       if (price < MIN_PRICE) {
-        console.log(`[Execute] ⚠️ Price ${price} below minimum ${MIN_PRICE}`);
+        log.info(`[Execute] ⚠️ Price ${price} below minimum ${MIN_PRICE}`);
         return {
           success: false,
           error: `Price too low: ${price}. Polymarket requires price >= ${MIN_PRICE}. This is a "long shot" bet that cannot be copied.`,
@@ -127,7 +130,7 @@ export class TradeExecutor {
       }
       
       if (price > MAX_PRICE) {
-        console.log(`[Execute] ⚠️ Price ${price} above maximum ${MAX_PRICE}`);
+        log.info(`[Execute] ⚠️ Price ${price} above maximum ${MAX_PRICE}`);
         return {
           success: false,
           error: `Price too high: ${price}. Polymarket requires price <= ${MAX_PRICE}. This market is nearly resolved.`,
@@ -143,7 +146,7 @@ export class TradeExecutor {
         throw new Error(`Order size too small after rounding: ${size}. Minimum is 0.01`);
       }
       
-      console.log(`[Execute] Size rounded: ${rawSize} -> ${size} (price ${price} sent to CLOB for tick alignment)`);
+      log.info(`[Execute] Size rounded: ${rawSize} -> ${size} (price ${price} sent to CLOB for tick alignment)`);
       
       // Ensure price is still valid after rounding
       if (price <= 0 || price > 1) {
@@ -154,7 +157,7 @@ export class TradeExecutor {
       const side = order.side === 'BUY' ? Side.BUY : Side.SELL;
 
       // Place order via CLOB client
-      console.log(`\n📤 Placing order via CLOB client...`);
+      log.info(`\n📤 Placing order via CLOB client...`);
       
       let orderResponse: any;
       try {
@@ -167,22 +170,22 @@ export class TradeExecutor {
           negRisk: negRisk,
         });
       } catch (clobError: any) {
-        console.error(`[Execute] CLOB client threw error:`, clobError.message);
+        log.error({ err: clobError.message }, `[Execute] CLOB client threw error`);
         
         // AUTO-RETRY: If "invalid signature", try re-deriving API credentials once
         const isInvalidSig = clobError.message?.toLowerCase().includes('invalid signature');
         if (isInvalidSig) {
-          console.warn(`[Execute] ⚠️ "invalid signature" detected — attempting to re-derive API credentials...`);
-          console.warn(`[Execute]    This can happen when L2 API keys expire or are revoked by Polymarket.`);
-          console.warn(`[Execute]    Also check that POLYMARKET_SIGNATURE_TYPE and POLYMARKET_FUNDER_ADDRESS are correct.`);
-          console.warn(`[Execute]    Current signature type: ${process.env.POLYMARKET_SIGNATURE_TYPE || '0'}`);
-          console.warn(`[Execute]    Current funder address: ${process.env.POLYMARKET_FUNDER_ADDRESS || '(not set, using signer address)'}`);
+          log.warn(`[Execute] ⚠️ "invalid signature" detected — attempting to re-derive API credentials...`);
+          log.warn(`[Execute]    This can happen when L2 API keys expire or are revoked by Polymarket.`);
+          log.warn(`[Execute]    Also check that POLYMARKET_SIGNATURE_TYPE and POLYMARKET_FUNDER_ADDRESS are correct.`);
+          log.warn(`[Execute]    Current signature type: ${process.env.POLYMARKET_SIGNATURE_TYPE || '0'}`);
+          log.warn(`[Execute]    Current funder address: ${process.env.POLYMARKET_FUNDER_ADDRESS || '(not set, using signer address)'}`);
           
           try {
             // Re-create the CLOB client to re-derive credentials
             this.clobClient = new PolymarketClobClient();
             await this.clobClient.initialize();
-            console.log(`[Execute] ✓ Re-derived API credentials, retrying order...`);
+            log.info(`[Execute] ✓ Re-derived API credentials, retrying order...`);
             
             // Retry the order once with fresh credentials
             orderResponse = await this.clobClient.createAndPostOrder({
@@ -194,11 +197,11 @@ export class TradeExecutor {
               negRisk: negRisk,
             });
           } catch (retryError: any) {
-            console.error(`[Execute] ❌ Retry also failed: ${retryError.message}`);
-            console.error(`[Execute]    IMPORTANT: If this keeps happening, you may need to:`);
-            console.error(`[Execute]    1. Regenerate your Builder API credentials at https://polymarket.com/settings?tab=builder`);
-            console.error(`[Execute]    2. Verify POLYMARKET_SIGNATURE_TYPE matches your wallet type (0=EOA, 1=email, 2=MetaMask+proxy)`);
-            console.error(`[Execute]    3. Verify POLYMARKET_FUNDER_ADDRESS is your Polymarket proxy wallet address`);
+            log.error(`[Execute] ❌ Retry also failed: ${retryError.message}`);
+            log.error(`[Execute]    IMPORTANT: If this keeps happening, you may need to:`);
+            log.error(`[Execute]    1. Regenerate your Builder API credentials at https://polymarket.com/settings?tab=builder`);
+            log.error(`[Execute]    2. Verify POLYMARKET_SIGNATURE_TYPE matches your wallet type (0=EOA, 1=email, 2=MetaMask+proxy)`);
+            log.error(`[Execute]    3. Verify POLYMARKET_FUNDER_ADDRESS is your Polymarket proxy wallet address`);
             throw retryError;
           }
         } else {
@@ -237,7 +240,7 @@ export class TradeExecutor {
 
       if (!isValidOrderId) {
         const errorDetails = JSON.stringify(orderResponse || 'empty response');
-        console.error(`[DEBUG] VALIDATION FAILED: orderId="${orderId}", type=${typeof orderId}, isValid=${isValidOrderId}`);
+        log.error(`[DEBUG] VALIDATION FAILED: orderId="${orderId}", type=${typeof orderId}, isValid=${isValidOrderId}`);
         throw new Error(`Order placement failed: No valid order ID returned. orderId="${orderId}". Response: ${errorDetails}`);
       }
 
@@ -263,14 +266,14 @@ export class TradeExecutor {
       
       if (!isActuallyExecuted) {
         // Order was accepted but not executed - it's a pending limit order
-        console.warn(`\n⚠️  [Execute] ORDER PLACED BUT NOT EXECUTED YET`);
-        console.warn(`   Order ID: ${orderId}`);
-        console.warn(`   Status: ${orderStatus || responseStatus || 'live'}`);
-        console.warn(`   This is a limit order placed on the order book.`);
-        console.warn(`   It will execute when matched, or may expire/cancel if not filled.`);
-        console.warn(`   Transaction Hash: ${txHash || 'None (order not executed yet)'}`);
-        console.warn(`   Taking Amount: ${takingAmount || 'None'}`);
-        console.warn(`   Making Amount: ${makingAmount || 'None'}\n`);
+        log.warn(`\n⚠️  [Execute] ORDER PLACED BUT NOT EXECUTED YET`);
+        log.warn(`   Order ID: ${orderId}`);
+        log.warn(`   Status: ${orderStatus || responseStatus || 'live'}`);
+        log.warn(`   This is a limit order placed on the order book.`);
+        log.warn(`   It will execute when matched, or may expire/cancel if not filled.`);
+        log.warn(`   Transaction Hash: ${txHash || 'None (order not executed yet)'}`);
+        log.warn(`   Taking Amount: ${takingAmount || 'None'}`);
+        log.warn(`   Making Amount: ${makingAmount || 'None'}\n`);
         
         // Return pending status - order was placed but not executed yet
         return {
@@ -284,17 +287,17 @@ export class TradeExecutor {
       }
 
       // If we get here, the order was actually executed
-      console.log(`\n✅ [Execute] ORDER EXECUTED SUCCESSFULLY!`);
-      console.log(`${'='.repeat(60)}`);
-      console.log(`   Order ID: ${orderId}`);
-      console.log(`   Status: ${orderStatus || responseStatus || 'executed'}`);
-      console.log(`   Transaction Hash: ${txHash || 'N/A'}`);
+      log.info(`\n✅ [Execute] ORDER EXECUTED SUCCESSFULLY!`);
+      log.info(`${'='.repeat(60)}`);
+      log.info(`   Order ID: ${orderId}`);
+      log.info(`   Status: ${orderStatus || responseStatus || 'executed'}`);
+      log.info(`   Transaction Hash: ${txHash || 'N/A'}`);
       if (hasExecutionAmounts) {
-        console.log(`   Taking Amount: ${takingAmount}`);
-        console.log(`   Making Amount: ${makingAmount}`);
+        log.info(`   Taking Amount: ${takingAmount}`);
+        log.info(`   Making Amount: ${makingAmount}`);
       }
-      console.log(`   Execution Time: ${executionTime}ms`);
-      console.log(`${'='.repeat(60)}\n`);
+      log.info(`   Execution Time: ${executionTime}ms`);
+      log.info(`${'='.repeat(60)}\n`);
 
       return {
         success: true,
@@ -306,25 +309,25 @@ export class TradeExecutor {
 
     } catch (error: any) {
       const executionTime = Date.now() - executionStart;
-      console.error(`\n${'='.repeat(60)}`);
-      console.error('❌ [Execute] TRADE EXECUTION FAILED!');
-      console.error(`${'='.repeat(60)}`);
-      console.error(`Error message: ${error.message}`);
-      console.error(`Error stack:`, error.stack);
+      log.error(`\n${'='.repeat(60)}`);
+      log.error('❌ [Execute] TRADE EXECUTION FAILED!');
+      log.error(`${'='.repeat(60)}`);
+      log.error(`Error message: ${error.message}`);
+      log.error({ err: error.stack }, `Error stack`)
       
       // Log additional error details if available
       if (error.response) {
-        console.error(`HTTP Status: ${error.response.status}`);
-        console.error(`Response data:`, JSON.stringify(error.response.data, null, 2));
+        log.error(`HTTP Status: ${error.response.status}`);
+        log.error({ detail: JSON.stringify(error.response.data, null, 2) }, `Response data`)
       }
       if (error.originalError) {
-        console.error(`Original error:`, error.originalError.message);
+        log.error({ err: error.originalError.message }, `Original error`);
       }
       if (error.responseData) {
-        console.error(`Response data (from enhanced error):`, JSON.stringify(error.responseData, null, 2));
+        log.error({ detail: JSON.stringify(error.responseData, null, 2) }, `Response data (from enhanced error)`)
       }
       if (error.requestParams) {
-        console.error(`Request params that failed:`, JSON.stringify(error.requestParams, null, 2));
+        log.error({ detail: JSON.stringify(error.requestParams, null, 2) }, `Request params that failed`)
       }
       
       // Build comprehensive error message

@@ -1,4 +1,7 @@
 import { Storage } from './storage.js';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('SmartStopLoss');
 
 // ============================================================================
 // TYPES
@@ -69,7 +72,7 @@ export class SmartStopLossManager {
 
   async init(): Promise<void> {
     await this.loadState();
-    console.log(`[StopLoss] Loaded ${this.orders.filter(o => o.isActive).length} active stop-loss order(s)`);
+    log.info(`[StopLoss] Loaded ${this.orders.filter(o => o.isActive).length} active stop-loss order(s)`);
   }
 
   /**
@@ -109,7 +112,7 @@ export class SmartStopLossManager {
     };
 
     this.orders.push(order);
-    this.saveState().catch(err => console.error('[StopLoss] Save failed:', err.message));
+    this.saveState().catch(err => log.error('[StopLoss] Save failed:', err.message));
     return order;
   }
 
@@ -150,7 +153,7 @@ export class SmartStopLossManager {
         if (order.currentStopPrice < order.profitLockLevel) {
           order.currentStopPrice = order.profitLockLevel;
         }
-        console.log(
+        log.info(
           `[StopLoss] Profit lock activated for ${order.marketTitle}: ` +
           `stop raised to ${order.currentStopPrice.toFixed(4)}`
         );
@@ -163,7 +166,7 @@ export class SmartStopLossManager {
         order.triggeredAt = new Date().toISOString();
         order.triggeredPrice = currentPrice;
         triggered.push(order);
-        console.log(
+        log.info(
           `[StopLoss] TRIGGERED: ${order.marketTitle} ${order.outcome} ` +
           `@ ${currentPrice.toFixed(4)} (stop: ${order.currentStopPrice.toFixed(4)})`
         );
@@ -171,7 +174,7 @@ export class SmartStopLossManager {
     }
 
     if (triggered.length > 0) {
-      this.saveState().catch(err => console.error('[StopLoss] Save failed:', err.message));
+      this.saveState().catch(err => log.error('[StopLoss] Save failed:', err.message));
     }
 
     return triggered;
@@ -185,7 +188,7 @@ export class SmartStopLossManager {
     if (order) {
       order.isActive = false;
       order.cancelledAt = new Date().toISOString();
-      this.saveState().catch(err => console.error('[StopLoss] Save failed:', err.message));
+      this.saveState().catch(err => log.error('[StopLoss] Save failed:', err.message));
     }
   }
 
@@ -249,7 +252,7 @@ export class SmartStopLossManager {
       cfg.stopLossOrders = this.orders;
       await Storage.saveConfig(cfg);
     } catch (err: any) {
-      console.error('[StopLoss] Failed to save:', err.message);
+      log.error({ detail: err.message }, '[StopLoss] Failed to save')
     }
   }
 }

@@ -2,6 +2,9 @@ import { PolymarketApi } from './polymarketApi.js';
 import { PolymarketClobClient } from './clobClient.js';
 import { Storage } from './storage.js';
 import { Side } from '@polymarket/clob-client';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('PositionMirror');
 
 /**
  * Mirror trade action types
@@ -127,7 +130,7 @@ export class PositionMirror {
     trackedWalletAddress: string,
     slippageTolerancePercent: number = 10
   ): Promise<MirrorPreview> {
-    console.log(`[Mirror] Calculating mirror preview for ${trackedWalletAddress.substring(0, 10)}...`);
+    log.info(`[Mirror] Calculating mirror preview for ${trackedWalletAddress.substring(0, 10)}...`);
     
     // Get wallet label if available
     const wallets = await Storage.loadTrackedWallets();
@@ -137,7 +140,7 @@ export class PositionMirror {
     const theirPositions = await this.polymarketApi.getUserPositions(trackedWalletAddress);
     const theirPortfolio = await this.polymarketApi.getPortfolioValue(trackedWalletAddress);
     
-    console.log(`[Mirror] Tracked wallet: ${theirPositions.length} positions, $${theirPortfolio.totalValue.toFixed(2)} total`);
+    log.info(`[Mirror] Tracked wallet: ${theirPositions.length} positions, $${theirPortfolio.totalValue.toFixed(2)} total`);
     
     // Step 2: Get user's positions and portfolio value
     // CRITICAL: Must use the proxy/funder address, not the EOA!
@@ -152,7 +155,7 @@ export class PositionMirror {
     const proxyAddress = funderAddress || await this.polymarketApi.getProxyWalletAddress(eoaAddress);
     const userAddress = proxyAddress || eoaAddress;
     
-    console.log(`[Mirror] Your wallet: EOA=${eoaAddress.substring(0, 10)}..., Proxy=${proxyAddress ? proxyAddress.substring(0, 10) + '...' : 'none'}, Using=${userAddress.substring(0, 10)}...`);
+    log.info(`[Mirror] Your wallet: EOA=${eoaAddress.substring(0, 10)}..., Proxy=${proxyAddress ? proxyAddress.substring(0, 10) + '...' : 'none'}, Using=${userAddress.substring(0, 10)}...`);
     
     const yourPositions = await this.polymarketApi.getUserPositions(userAddress);
     const yourUsdcBalance = await this.clobClient.getUsdcBalance();
@@ -166,7 +169,7 @@ export class PositionMirror {
     }
     const yourPortfolioValue = yourUsdcBalance + yourPositionsValue;
     
-    console.log(`[Mirror] Your wallet: ${yourPositions.length} positions, $${yourPortfolioValue.toFixed(2)} total`);
+    log.info(`[Mirror] Your wallet: ${yourPositions.length} positions, $${yourPortfolioValue.toFixed(2)} total`);
     
     // Create lookup map for your positions by tokenId
     const yourPositionMap = new Map<string, any>();
@@ -234,10 +237,10 @@ export class PositionMirror {
     } : undefined;
     
     if (balanceWarning) {
-      console.log(`[Mirror] ⚠️ Balance warning: Need $${summary.estimatedBuyCost.toFixed(2)} but will only have $${projectedBalance.toFixed(2)} (shortfall: $${shortfall.toFixed(2)})`);
+      log.info(`[Mirror] ⚠️ Balance warning: Need $${summary.estimatedBuyCost.toFixed(2)} but will only have $${projectedBalance.toFixed(2)} (shortfall: $${shortfall.toFixed(2)})`);
     }
     
-    console.log(`[Mirror] Preview calculated: ${summary.totalBuyTrades} buys, ${summary.totalSellTrades} sells, ${summary.totalSkipped} skipped`);
+    log.info(`[Mirror] Preview calculated: ${summary.totalBuyTrades} buys, ${summary.totalSellTrades} sells, ${summary.totalSkipped} skipped`);
     
     return {
       trackedWalletAddress,
@@ -461,7 +464,7 @@ export class PositionMirror {
       t.selected && t.action !== 'SKIP' && t.status !== 'skipped'
     );
     
-    console.log(`[Mirror] Executing ${activeTrades.length} mirror trades...`);
+    log.info(`[Mirror] Executing ${activeTrades.length} mirror trades...`);
     
     // CRITICAL: Sort trades - SELLs first, then BUYs
     // This frees up capital before we try to spend it
@@ -474,7 +477,7 @@ export class PositionMirror {
     const sellTrades = sortedTrades.filter(t => t.action === 'SELL');
     const buyTrades = sortedTrades.filter(t => t.action === 'BUY');
     
-    console.log(`[Mirror] Execution order: ${sellTrades.length} SELLs first, then ${buyTrades.length} BUYs`);
+    log.info(`[Mirror] Execution order: ${sellTrades.length} SELLs first, then ${buyTrades.length} BUYs`);
     
     // Pre-execution balance check
     const currentBalance = await this.clobClient.getUsdcBalance();
@@ -482,15 +485,15 @@ export class PositionMirror {
     const totalBuyCost = buyTrades.reduce((sum, t) => sum + t.estimatedCost, 0);
     const projectedBalance = currentBalance + totalSellProceeds;
     
-    console.log(`[Mirror] Balance check:`);
-    console.log(`[Mirror]   Current USDC: $${currentBalance.toFixed(2)}`);
-    console.log(`[Mirror]   Expected from SELLs: +$${totalSellProceeds.toFixed(2)}`);
-    console.log(`[Mirror]   Projected after SELLs: $${projectedBalance.toFixed(2)}`);
-    console.log(`[Mirror]   BUY cost: $${totalBuyCost.toFixed(2)}`);
-    console.log(`[Mirror]   Estimated remaining: $${(projectedBalance - totalBuyCost).toFixed(2)}`);
+    log.info(`[Mirror] Balance check:`);
+    log.info(`[Mirror]   Current USDC: $${currentBalance.toFixed(2)}`);
+    log.info(`[Mirror]   Expected from SELLs: +$${totalSellProceeds.toFixed(2)}`);
+    log.info(`[Mirror]   Projected after SELLs: $${projectedBalance.toFixed(2)}`);
+    log.info(`[Mirror]   BUY cost: $${totalBuyCost.toFixed(2)}`);
+    log.info(`[Mirror]   Estimated remaining: $${(projectedBalance - totalBuyCost).toFixed(2)}`);
     
     if (projectedBalance < totalBuyCost * 0.95) { // 5% buffer for slippage
-      console.warn(`[Mirror] ⚠️ WARNING: May not have enough balance after sells!`);
+      log.warn(`[Mirror] ⚠️ WARNING: May not have enough balance after sells!`);
     }
     
     const results: MirrorExecutionResult['results'] = [];
@@ -500,7 +503,7 @@ export class PositionMirror {
     let buysCompleted = 0;
     
     // Execute SELLs first
-    console.log(`[Mirror] === PHASE 1: Executing ${sellTrades.length} SELL orders ===`);
+    log.info(`[Mirror] === PHASE 1: Executing ${sellTrades.length} SELL orders ===`);
     for (const trade of sellTrades) {
       const result = await this.executeSingleTrade(trade, slippagePercent);
       results.push(result);
@@ -512,16 +515,16 @@ export class PositionMirror {
       }
     }
     
-    console.log(`[Mirror] SELLs complete: ${sellsCompleted}/${sellTrades.length} succeeded`);
+    log.info(`[Mirror] SELLs complete: ${sellsCompleted}/${sellTrades.length} succeeded`);
     
     // Brief pause between phases to let balance settle
     if (sellTrades.length > 0 && buyTrades.length > 0) {
-      console.log(`[Mirror] Waiting 1s for balance to update...`);
+      log.info(`[Mirror] Waiting 1s for balance to update...`);
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
     
     // Execute BUYs second
-    console.log(`[Mirror] === PHASE 2: Executing ${buyTrades.length} BUY orders ===`);
+    log.info(`[Mirror] === PHASE 2: Executing ${buyTrades.length} BUY orders ===`);
     for (const trade of buyTrades) {
       const result = await this.executeSingleTrade(trade, slippagePercent);
       results.push(result);
@@ -533,8 +536,8 @@ export class PositionMirror {
       }
     }
     
-    console.log(`[Mirror] BUYs complete: ${buysCompleted}/${buyTrades.length} succeeded`);
-    console.log(`[Mirror] Execution complete: ${executedCount} succeeded, ${failedCount} failed`);
+    log.info(`[Mirror] BUYs complete: ${buysCompleted}/${buyTrades.length} succeeded`);
+    log.info(`[Mirror] Execution complete: ${executedCount} succeeded, ${failedCount} failed`);
     
     return {
       success: failedCount === 0,
@@ -557,7 +560,7 @@ export class PositionMirror {
     trade: MirrorTrade,
     slippagePercent: number
   ): Promise<MirrorExecutionResult['results'][0]> {
-    console.log(`[Mirror] Executing ${trade.action} ${trade.sharesToTrade} shares of ${trade.marketTitle}...`);
+    log.info(`[Mirror] Executing ${trade.action} ${trade.sharesToTrade} shares of ${trade.marketTitle}...`);
     
     try {
       // Calculate price with slippage
@@ -583,7 +586,7 @@ export class PositionMirror {
       const orderId = response?.orderID || response?.orderId || response?.id;
       
       if (orderId) {
-        console.log(`[Mirror] ✓ ${trade.action} executed: ${orderId}`);
+        log.info(`[Mirror] ✓ ${trade.action} executed: ${orderId}`);
         return {
           marketTitle: trade.marketTitle,
           action: trade.action,
@@ -594,7 +597,7 @@ export class PositionMirror {
         throw new Error('No order ID returned');
       }
     } catch (error: any) {
-      console.error(`[Mirror] ✗ ${trade.action} failed: ${error.message}`);
+      log.error(`[Mirror] ✗ ${trade.action} failed: ${error.message}`);
       return {
         marketTitle: trade.marketTitle,
         action: trade.action,

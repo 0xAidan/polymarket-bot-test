@@ -3,6 +3,9 @@ import { config } from './config.js';
 import { Storage } from './storage.js';
 import { PolymarketApi } from './polymarketApi.js';
 import { DetectedTrade } from './types.js';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('WalletMonitor');
 
 /**
  * Monitors wallet addresses for Polymarket trades
@@ -27,9 +30,9 @@ export class WalletMonitor {
     try {
       this.provider = new (ethers as any).providers.JsonRpcProvider(config.polygonRpcUrl);
       await this.api.initialize();
-      console.log('Connected to Polygon network and Polymarket API');
+      log.info('Connected to Polygon network and Polymarket API');
     } catch (error) {
-      console.error('Failed to initialize monitor:', error);
+      log.error({ err: error }, 'Failed to initialize monitor');
       throw error;
     }
   }
@@ -48,33 +51,31 @@ export class WalletMonitor {
     this.isMonitoring = true;
     this.onTradeDetectedCallback = onTradeDetected;
     this.currentIntervalMs = config.monitoringIntervalMs;
-    console.log('Starting wallet monitoring...');
+    log.info('Starting wallet monitoring');
 
     // Start polling for trade history
     // Run immediately on start, then at intervals
-    console.log(`[Monitor] Running initial trade check...`);
+    log.info('Running initial trade check');
     await this.checkWalletsForTrades(onTradeDetected);
-    
+
     this.startPolling();
 
     const wallets = await Storage.getActiveWallets();
-    console.log(`\n${'='.repeat(60)}`);
-    console.log(`[Monitor] 📊 POLLING-BASED MONITORING STARTED`);
-    console.log(`${'='.repeat(60)}`);
-    console.log(`[Monitor] Monitoring interval: ${this.currentIntervalMs}ms (${this.currentIntervalMs / 1000}s)`);
-    console.log(`[Monitor] Active wallets: ${wallets.length}`);
-    
+    log.info({
+      intervalMs: this.currentIntervalMs,
+      intervalSec: this.currentIntervalMs / 1000,
+      activeWallets: wallets.length,
+    }, 'Polling-based monitoring started');
+
     if (wallets.length === 0) {
-      console.warn(`\n[Monitor] ⚠️  WARNING: No wallets are being tracked!`);
-      console.warn(`[Monitor] Add wallets via the web UI or API to start copy trading`);
-      console.warn(`[Monitor] Web UI: http://localhost:${config.port || 3000}\n`);
+      log.warn({ uiUrl: `http://localhost:${config.port || 3000}` }, 'No wallets are being tracked — add wallets via the web UI or API to start copy trading');
     } else {
-      console.log(`[Monitor] Tracked wallet addresses:`);
       for (const wallet of wallets) {
-        const status = wallet.active ? '✅ ACTIVE' : '⏸️  INACTIVE';
-        console.log(`[Monitor]   • ${wallet.address.substring(0, 10)}...${wallet.address.substring(wallet.address.length - 8)} - ${status}`);
+        log.info({
+          address: wallet.address,
+          active: wallet.active,
+        }, 'Tracked wallet');
       }
-      console.log(`${'='.repeat(60)}\n`);
     }
   }
 
@@ -85,7 +86,7 @@ export class WalletMonitor {
     if (this.pollingInterval) {
       clearInterval(this.pollingInterval);
     }
-    
+
     if (!this.onTradeDetectedCallback) {
       return;
     }
@@ -95,8 +96,7 @@ export class WalletMonitor {
       try {
         await this.checkWalletsForTrades(this.onTradeDetectedCallback);
       } catch (error: any) {
-        console.error(`[Monitor] Error in polling cycle:`, error.message);
-        console.error(`[Monitor] Stack:`, error.stack);
+        log.error({ err: error }, 'Error in polling cycle');
         // Continue polling even if one cycle fails
       }
     }, this.currentIntervalMs);
@@ -114,10 +114,10 @@ export class WalletMonitor {
     }
 
     this.currentIntervalMs = intervalMs;
-    
+
     // If monitoring is active, restart polling with new interval
     if (this.isMonitoring && this.onTradeDetectedCallback) {
-      console.log(`[Monitor] Updating monitoring interval to ${intervalMs}ms (${intervalMs / 1000}s)`);
+      log.info({ intervalMs, intervalSec: intervalMs / 1000 }, 'Updating monitoring interval');
       this.startPolling();
     }
   }
@@ -129,34 +129,32 @@ export class WalletMonitor {
     onTradeDetected: (trade: DetectedTrade) => void
   ): Promise<void> {
     const wallets = await Storage.getActiveWallets();
-    
+
     if (wallets.length === 0) {
       // No wallets to monitor, skip this check
       return;
     }
 
-    console.log(`[Monitor] Checking ${wallets.length} wallet(s) for trades...`);
-    console.log(`[Monitor] Tracked wallet addresses: ${wallets.map(w => w.address.substring(0, 8) + '...').join(', ')}`);
+    log.info({ walletCount: wallets.length }, 'Checking wallets for trades');
 
     for (const wallet of wallets) {
       try {
         const eoaAddress = wallet.address.toLowerCase();
-        console.log(`[Monitor] Checking wallet ${eoaAddress.substring(0, 8)}... for trades (trade history)`);
+        const shortAddr = eoaAddress.substring(0, 8) + '...';
 
         // Check for recent trades from trade history API
         try {
-          console.log(`[Monitor] Fetching trade history for ${eoaAddress.substring(0, 8)}...`);
           let recentTrades: any[] = [];
           try {
             recentTrades = await this.api.getUserTrades(eoaAddress, 50);
-            console.log(`[Monitor] Found ${recentTrades.length} trade(s) in history for ${eoaAddress.substring(0, 8)}...`);
+            log.info({ wallet: shortAddr, tradeCount: recentTrades.length }, 'Fetched trade history');
           } catch (tradesError: any) {
-            console.warn(`[Monitor] Failed to fetch trade history:`, tradesError.message);
+            log.warn({ wallet: shortAddr, err: tradesError }, 'Failed to fetch trade history');
             recentTrades = [];
           }
-          
+
           const now = Date.now();
-          
+
           let processedTradeCount = 0;
           for (const trade of recentTrades) {
             // FIXED: Handle both Unix seconds and milliseconds timestamps from Polymarket API
@@ -181,59 +179,59 @@ export class WalletMonitor {
             if (now - tradeTime > MAX_TRADE_AGE_MS) {
               continue; // Skip trades older than 5 minutes
             }
-            
+
             {
               processedTradeCount++;
-              console.log(`[Monitor] Processing recent trade from ${new Date(tradeTime).toISOString()}:`, JSON.stringify(trade, null, 2).substring(0, 500));
+              log.info({ wallet: shortAddr, tradeTime: new Date(tradeTime).toISOString() }, 'Processing recent trade');
               const detectedTrade = await this.parseTradeData(eoaAddress, trade);
               if (detectedTrade) {
                 // Validate the detected trade before triggering
                 const priceNum = parseFloat(detectedTrade.price || '0');
                 const amountNum = parseFloat(detectedTrade.amount || '0');
-                
+
                 if (detectedTrade.marketId && detectedTrade.marketId !== 'unknown' &&
-                    priceNum > 0 && priceNum <= 1 && amountNum > 0) {
-                  console.log(`\n🔔 [Monitor] TRADE DETECTED: From trade history`);
-                  console.log(`   Side: ${detectedTrade.side}`);
-                  console.log(`   Amount: ${detectedTrade.amount} shares`);
-                  console.log(`   Price: ${detectedTrade.price}`);
-                  console.log(`   Market: ${detectedTrade.marketId}`);
-                  console.log(`   Outcome: ${detectedTrade.outcome}`);
-                  console.log(`   Time: ${new Date(tradeTime).toISOString()}`);
-                  console.log(`[Monitor] 📤 Calling onTradeDetected callback...`);
+                  priceNum > 0 && priceNum <= 1 && amountNum > 0) {
+                  log.info({
+                    side: detectedTrade.side,
+                    amount: detectedTrade.amount,
+                    price: detectedTrade.price,
+                    marketId: detectedTrade.marketId,
+                    outcome: detectedTrade.outcome,
+                    tradeTime: new Date(tradeTime).toISOString(),
+                  }, 'Trade detected from history');
                   try {
                     await onTradeDetected(detectedTrade);
-                    console.log(`[Monitor] ✅ Callback completed successfully`);
+                    log.info('Trade callback completed successfully');
                   } catch (callbackError: any) {
-                    console.error(`[Monitor] ❌ Callback failed:`, callbackError.message);
-                    console.error(`[Monitor]    Stack:`, callbackError.stack);
+                    log.error({ err: callbackError }, 'Trade callback failed');
                   }
                 } else {
-                  console.warn(`[Monitor] ✗ Skipping invalid trade from history: marketId=${detectedTrade.marketId}, price=${detectedTrade.price}, amount=${detectedTrade.amount}`);
+                  log.warn({
+                    marketId: detectedTrade.marketId,
+                    price: detectedTrade.price,
+                    amount: detectedTrade.amount,
+                  }, 'Skipping invalid trade from history');
                 }
               } else {
-                console.warn(`[Monitor] ✗ Failed to parse trade data for ${eoaAddress.substring(0, 8)}...`);
+                log.warn({ wallet: shortAddr }, 'Failed to parse trade data');
               }
             }
           }
-          console.log(`[Monitor] Processed ${processedTradeCount} trade(s) from history for ${eoaAddress.substring(0, 8)}...`);
+          log.info({ wallet: shortAddr, processedCount: processedTradeCount }, 'Completed trade history check');
         } catch (error: any) {
           if (error.response?.status !== 404) {
-            console.warn(`[Monitor] ⚠️ Trade history not available for ${eoaAddress.substring(0, 8)}...:`, error.message);
+            log.warn({ wallet: wallet.address.substring(0, 8) + '...', err: error }, 'Trade history not available');
           }
         }
       } catch (error: any) {
         // Log error but continue monitoring other wallets
         const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
-        console.error(`[Monitor] ✗ Error monitoring wallet ${wallet.address.substring(0, 8)}...:`, errorMsg);
-        if (error.stack) {
-          console.error(`[Monitor] Stack trace:`, error.stack);
-        }
+        log.error({ wallet: wallet.address.substring(0, 8) + '...', error: errorMsg }, 'Error monitoring wallet');
         // Don't throw - continue with other wallets
       }
     }
-    
-    console.log(`[Monitor] ✓ Completed trade check cycle for all wallets`);
+
+    log.info('Completed trade check cycle for all wallets');
   }
 
   /**
@@ -261,15 +259,15 @@ export class WalletMonitor {
     try {
       // FIXED: Use conditionId as the market ID (this is what Polymarket API returns)
       let marketId = trade.conditionId;
-      
+
       // Fallback: try asset (token ID) as market ID if no conditionId
       if (!marketId && trade.asset) {
         marketId = trade.asset;
       }
-      
+
       // If still no marketId, we can't proceed
       if (!marketId || marketId === 'unknown') {
-        console.warn(`[Monitor] Cannot determine marketId from trade data (no conditionId or asset), skipping trade`);
+        log.warn('Cannot determine marketId from trade data (no conditionId or asset), skipping trade');
         return null;
       }
 
@@ -293,25 +291,25 @@ export class WalletMonitor {
       // FIXED: Use 'price' and 'size' fields from Polymarket API
       let price = trade.price;
       let amount = trade.size;
-      
+
       // Validate price
       const priceNum = parseFloat(price || '0');
       if (!price || isNaN(priceNum) || priceNum <= 0 || priceNum > 1) {
-        console.warn(`[Monitor] Invalid or missing price (${price}) for trade on market ${marketId}, skipping`);
+        log.warn({ price, marketId }, 'Invalid or missing price, skipping trade');
         return null;
       }
-      
+
       // Validate amount
       const amountNum = parseFloat(amount || '0');
       if (!amount || isNaN(amountNum) || amountNum <= 0) {
-        console.warn(`[Monitor] Invalid or missing amount (${amount}) for trade on market ${marketId}, skipping`);
+        log.warn({ amount, marketId }, 'Invalid or missing amount, skipping trade');
         return null;
       }
 
       // Look up wallet settings to get trade config
       const wallets = await Storage.getActiveWallets();
       const walletSettings = wallets.find(w => w.address.toLowerCase() === walletAddress.toLowerCase());
-      
+
       // FIXED: Handle Unix seconds timestamp from API
       let tradeTimestamp: Date;
       if (trade.timestamp) {
@@ -324,7 +322,7 @@ export class WalletMonitor {
       } else {
         tradeTimestamp = new Date();
       }
-      
+
       return {
         walletAddress: walletAddress.toLowerCase(),
         marketId,
@@ -356,7 +354,7 @@ export class WalletMonitor {
         slippagePercent: walletSettings?.slippagePercent,
       };
     } catch (error: any) {
-      console.error('[Monitor] Failed to parse trade data:', error);
+      log.error({ err: error }, 'Failed to parse trade data');
       return null;
     }
   }
@@ -370,7 +368,7 @@ export class WalletMonitor {
       return;
     }
     const wallets = await Storage.getActiveWallets();
-    console.log(`[Monitor] Wallets reloaded: ${wallets.length} tracked`);
+    log.info({ walletCount: wallets.length }, 'Wallets reloaded');
   }
 
   /**
@@ -382,7 +380,7 @@ export class WalletMonitor {
       clearInterval(this.pollingInterval);
       this.pollingInterval = null;
     }
-    console.log('Stopped wallet monitoring');
+    log.info('Stopped wallet monitoring');
   }
 
   /**

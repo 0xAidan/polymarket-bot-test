@@ -2,6 +2,9 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { config } from './config.js';
 import { TradeMetrics, SystemIssue, PerformanceStats, WalletStats, PerformanceDataPoint } from './types.js';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('PerformanceTracker');
 
 const METRICS_FILE = path.join(config.dataDir, 'trade_metrics.json');
 const ISSUES_FILE = path.join(config.dataDir, 'system_issues.json');
@@ -32,7 +35,7 @@ export class PerformanceTracker {
       }));
     } catch (error: any) {
       if (error.code !== 'ENOENT') {
-        console.error('Failed to load metrics:', error);
+        log.error({ err: error }, 'Failed to load metrics')
       }
       this.metrics = [];
     }
@@ -51,7 +54,7 @@ export class PerformanceTracker {
       }));
     } catch (error: any) {
       if (error.code !== 'ENOENT') {
-        console.error('Failed to load issues:', error);
+        log.error({ err: error }, 'Failed to load issues')
       }
       this.issues = [];
     }
@@ -65,7 +68,7 @@ export class PerformanceTracker {
       await this.ensureDataDir();
       await fs.writeFile(METRICS_FILE, JSON.stringify(this.metrics, null, 2));
     } catch (error) {
-      console.error('Failed to save metrics:', error);
+      log.error({ err: error }, 'Failed to save metrics')
     }
   }
 
@@ -77,7 +80,7 @@ export class PerformanceTracker {
       await this.ensureDataDir();
       await fs.writeFile(ISSUES_FILE, JSON.stringify(this.issues, null, 2));
     } catch (error) {
-      console.error('Failed to save issues:', error);
+      log.error({ err: error }, 'Failed to save issues')
     }
   }
 
@@ -108,7 +111,7 @@ export class PerformanceTracker {
     };
 
     this.metrics.push(tradeMetric);
-    
+
     // Keep only last 1000 trades in memory
     if (this.metrics.length > 1000) {
       this.metrics = this.metrics.slice(-1000);
@@ -145,9 +148,9 @@ export class PerformanceTracker {
 
     await this.saveIssues();
 
-    // Log to console based on severity
-    const logMethod = severity === 'error' ? console.error : severity === 'warning' ? console.warn : console.log;
-    logMethod(`[${severity.toUpperCase()}] [${category}] ${message}`, details || '');
+    // Log to structured logger based on severity
+    const logLevel = severity === 'error' ? 'error' : severity === 'warning' ? 'warn' : 'info';
+    log[logLevel]({ category, details }, message);
   }
 
   /**
@@ -204,7 +207,7 @@ export class PerformanceTracker {
    * Get wallet-specific statistics
    */
   getWalletStats(address: string): WalletStats {
-    const walletTrades = this.metrics.filter(m => 
+    const walletTrades = this.metrics.filter(m =>
       m.walletAddress.toLowerCase() === address.toLowerCase()
     );
 
@@ -287,7 +290,7 @@ export class PerformanceTracker {
     }
 
     // Sort trades by timestamp
-    const sortedTrades = [...this.metrics].sort((a, b) => 
+    const sortedTrades = [...this.metrics].sort((a, b) =>
       a.timestamp.getTime() - b.timestamp.getTime()
     );
 
@@ -308,7 +311,7 @@ export class PerformanceTracker {
     let successfulCount = 0;
     for (const trade of sortedTrades) {
       cumulativeVolume += parseFloat(trade.amount) || 0;
-      
+
       // Simulate balance change
       // For successful trades, assume small profit/loss based on price movement
       // This is a simplified model - in reality you'd track actual P&L

@@ -3,6 +3,9 @@ import { PolymarketApi } from './polymarketApi.js';
 import { LadderExitManager } from './ladderExitManager.js';
 import { SmartStopLossManager } from './smartStopLoss.js';
 import { EventEmitter } from 'events';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('PriceMonitor');
 
 // ============================================================================
 // TYPES
@@ -50,14 +53,14 @@ export class PriceMonitor extends EventEmitter {
   start(): void {
     if (this.isRunning) return;
     this.isRunning = true;
-    console.log(`[PriceMonitor] Started (interval: ${this.config.pollIntervalMs}ms)`);
+    log.info(`[PriceMonitor] Started (interval: ${this.config.pollIntervalMs}ms)`);
 
     this.interval = setInterval(() => {
-      this.tick().catch(err => console.error('[PriceMonitor] Tick error:', err.message));
+      this.tick().catch(err => log.error('[PriceMonitor] Tick error:', err.message));
     }, this.config.pollIntervalMs);
 
     // Initial tick
-    this.tick().catch(err => console.error('[PriceMonitor] Initial tick error:', err.message));
+    this.tick().catch(err => log.error('[PriceMonitor] Initial tick error:', err.message));
   }
 
   stop(): void {
@@ -66,7 +69,7 @@ export class PriceMonitor extends EventEmitter {
       this.interval = null;
     }
     this.isRunning = false;
-    console.log('[PriceMonitor] Stopped');
+    log.info('[PriceMonitor] Stopped');
   }
 
   private async tick(): Promise<void> {
@@ -104,7 +107,7 @@ export class PriceMonitor extends EventEmitter {
           priceMap.set(tokenId, price);
         }
       } catch (err: any) {
-        console.error(`[PriceMonitor] Failed to fetch price for ${tokenId}:`, err.message);
+        log.error({ detail: err.message }, `[PriceMonitor] Failed to fetch price for ${tokenId}`)
       }
     }
 
@@ -114,7 +117,7 @@ export class PriceMonitor extends EventEmitter {
     const ladderTriggers = this.ladderManager.checkLadders(priceMap);
     for (const trigger of ladderTriggers) {
       const stepIndex = trigger.ladder.steps.indexOf(trigger.step);
-      console.log(
+      log.info(
         `[PriceMonitor] Ladder step triggered: ${trigger.ladder.marketTitle} ` +
         `step ${stepIndex + 1} — sell ${trigger.sharesToSell.toFixed(2)} shares`
       );
@@ -130,7 +133,7 @@ export class PriceMonitor extends EventEmitter {
     // Process stop-losses
     const stopLossTriggers = this.stopLossManager.updatePrices(priceMap);
     for (const order of stopLossTriggers) {
-      console.log(
+      log.info(
         `[PriceMonitor] Stop-loss triggered: ${order.marketTitle} ${order.outcome} ` +
         `@ ${order.triggeredPrice?.toFixed(4)} — sell ${order.shares} shares`
       );

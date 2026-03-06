@@ -4,6 +4,9 @@ import path from 'path';
 import { config } from './config.js';
 import { createRoutes } from './api/routes.js';
 import { CopyTrader } from './copyTrader.js';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('Server');
 
 /**
  * Create and configure the Express server
@@ -25,7 +28,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   
   // API 404 handler - catch any unmatched /api routes and return JSON
   app.use('/api/*', (req, res) => {
-    console.error(`[API] 404 - Route not found: ${req.method} ${req.originalUrl}`);
+    log.error(`[API] 404 - Route not found: ${req.method} ${req.originalUrl}`);
     res.status(404).json({ 
       success: false, 
       error: `Route not found: ${req.method} ${req.path}` 
@@ -34,7 +37,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   
   // API error handler - ensure API errors return JSON, not HTML
   app.use('/api', (err: any, req: any, res: any, next: any) => {
-    console.error(`[API] Error:`, err);
+    log.error({ err: err }, `[API] Error`)
     res.status(err.status || 500).json({ 
       success: false, 
       error: err.message || 'Internal server error' 
@@ -61,19 +64,19 @@ export async function startServer(app: express.Application): Promise<void> {
   return new Promise((resolve, reject) => {
     const host = process.env.HOST || '0.0.0.0'; // Listen on all interfaces for cloud/docker
     const server = app.listen(config.port, host, () => {
-      console.log(`\n🚀 Server running on http://${host}:${config.port}`);
-      console.log(`📊 Open your browser to manage wallets and control the bot\n`);
+      log.info(`\n🚀 Server running on http://${host}:${config.port}`);
+      log.info(`📊 Open your browser to manage wallets and control the bot\n`);
       resolve();
     });
 
     server.on('error', (error: any) => {
       if (error.code === 'EADDRINUSE') {
-        console.error(`\n❌ Port ${config.port} is already in use!\n`);
-        console.error('To fix this, you can:');
-        console.error(`  1. Kill the process using port ${config.port}:`);
-        console.error(`     lsof -ti:${config.port} | xargs kill -9`);
-        console.error(`  2. Or use a different port by setting PORT in your .env file`);
-        console.error(`     Example: PORT=3001 npm run dev\n`);
+        log.error(`\n❌ Port ${config.port} is already in use!\n`);
+        log.error('To fix this, you can:');
+        log.error(`  1. Kill the process using port ${config.port}:`);
+        log.error(`     lsof -ti:${config.port} | xargs kill -9`);
+        log.error(`  2. Or use a different port by setting PORT in your .env file`);
+        log.error(`     Example: PORT=3001 npm run dev\n`);
         reject(error);
       } else {
         reject(error);

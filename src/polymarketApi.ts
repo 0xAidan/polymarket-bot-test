@@ -3,6 +3,9 @@ import * as ethers from 'ethers';
 import crypto from 'crypto';
 import { config } from './config.js';
 import { DetectedTrade } from './types.js';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('PolymarketApi');
 
 /**
  * Retry configuration for API requests
@@ -124,30 +127,30 @@ export class PolymarketApi {
     
     const normalizedEoa = address.toLowerCase();
     if (knownProxyWallets[normalizedEoa]) {
-      console.log(`[API] Using known proxy wallet mapping: ${knownProxyWallets[normalizedEoa]} for EOA: ${address}`);
+      log.info(`[API] Using known proxy wallet mapping: ${knownProxyWallets[normalizedEoa]} for EOA: ${address}`);
       return knownProxyWallets[normalizedEoa];
     }
 
     // PRIMARY METHOD: Extract proxy wallet from positions API response
     // The positions API returns proxyWallet field in each position
     try {
-      console.log(`[API] Attempting to extract proxy wallet from positions for ${address.substring(0, 8)}...`);
+      log.info(`[API] Attempting to extract proxy wallet from positions for ${address.substring(0, 8)}...`);
       const positions = await this.getUserPositions(address);
       
       if (positions && positions.length > 0 && positions[0].proxyWallet) {
         const proxyWallet = positions[0].proxyWallet;
-        console.log(`[API] ✓ Found proxy wallet from positions: ${proxyWallet} for EOA: ${address.substring(0, 8)}...`);
+        log.info(`[API] ✓ Found proxy wallet from positions: ${proxyWallet} for EOA: ${address.substring(0, 8)}...`);
         return proxyWallet;
       }
       
-      console.log(`[API] No positions or no proxyWallet field found for ${address.substring(0, 8)}...`);
+      log.info(`[API] No positions or no proxyWallet field found for ${address.substring(0, 8)}...`);
     } catch (positionsError: any) {
-      console.warn(`[API] Failed to get positions for proxy wallet lookup:`, positionsError.message);
+      log.warn({ err: positionsError.message }, `[API] Failed to get positions for proxy wallet lookup`);
     }
 
     // FALLBACK: Try Dome API (but it often fails with 403)
     try {
-      console.log(`[API] Fallback: Attempting Dome API for ${address.substring(0, 8)}...`);
+      log.info(`[API] Fallback: Attempting Dome API for ${address.substring(0, 8)}...`);
       const domeResponse = await this.retryRequest(async () => {
         return await axios.get('https://api.domeapi.io/v1/polymarket/wallet', {
           params: { eoa: address.toLowerCase() },
@@ -157,25 +160,25 @@ export class PolymarketApi {
       
       if (domeResponse.data?.proxyWallet || domeResponse.data?.proxy) {
         const proxyWallet = domeResponse.data.proxyWallet || domeResponse.data.proxy;
-        console.log(`[API] ✓ Found proxy wallet via Dome API: ${proxyWallet} for EOA: ${address.substring(0, 8)}...`);
+        log.info(`[API] ✓ Found proxy wallet via Dome API: ${proxyWallet} for EOA: ${address.substring(0, 8)}...`);
         return proxyWallet;
       }
     } catch (domeError: any) {
       // Dome API often fails with 403, this is expected
-      console.log(`[API] Dome API unavailable for ${address.substring(0, 8)}... (this is normal)`);
+      log.info(`[API] Dome API unavailable for ${address.substring(0, 8)}... (this is normal)`);
     }
     
     // FALLBACK: Check POLYMARKET_FUNDER_ADDRESS env variable
     // This is the most reliable method if the user has set it
     const funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS;
     if (funderAddress && funderAddress.toLowerCase() !== normalizedEoa) {
-      console.log(`[API] ✓ Using POLYMARKET_FUNDER_ADDRESS: ${funderAddress} for EOA: ${address.substring(0, 8)}...`);
+      log.info(`[API] ✓ Using POLYMARKET_FUNDER_ADDRESS: ${funderAddress} for EOA: ${address.substring(0, 8)}...`);
       return funderAddress;
     }
     
     // No proxy wallet found - the EOA will be used directly with the Data API
     // Note: Polymarket Data API works with EOA addresses directly
-    console.log(`[API] No proxy wallet found for ${address.substring(0, 8)}..., using EOA directly (this is OK)`);
+    log.info(`[API] No proxy wallet found for ${address.substring(0, 8)}..., using EOA directly (this is OK)`);
     return null;
   }
 
@@ -218,11 +221,11 @@ export class PolymarketApi {
         if (config.polymarketApiKey) {
           this.setApiKeyHeaders();
         } else {
-          console.warn('Authentication endpoint not available, using public API');
+          log.warn('Authentication endpoint not available, using public API');
         }
       }
     } catch (error: any) {
-      console.warn('Authentication failed, continuing with public endpoints:', error.message);
+      log.warn({ detail: error.message }, 'Authentication failed, continuing with public endpoints')
     }
   }
 
@@ -271,7 +274,7 @@ export class PolymarketApi {
         
         // Calculate exponential backoff delay
         const delay = RETRY_CONFIG.retryDelayMs * Math.pow(2, attempt);
-        console.warn(`${operation} failed (attempt ${attempt + 1}/${retries + 1}), retrying in ${delay}ms...`, error.message);
+        log.warn({ detail: error.message }, `${operation} failed (attempt ${attempt + 1}/${retries + 1}), retrying in ${delay}ms...`)
         await sleep(delay);
       }
     }
@@ -312,23 +315,23 @@ export class PolymarketApi {
         
         // DEBUG: Log first position structure on first successful fetch
         if (positions.length > 0) {
-          console.log(`[API] ✓ Fetched ${positions.length} position(s) for ${userAddress.substring(0, 8)}...`);
+          log.info(`[API] ✓ Fetched ${positions.length} position(s) for ${userAddress.substring(0, 8)}...`);
           // Log available fields to help with debugging field name issues
           const samplePos = positions[0];
-          console.log(`[API] Position fields available: ${Object.keys(samplePos).join(', ')}`);
+          log.info(`[API] Position fields available: ${Object.keys(samplePos).join(', ')}`);
         } else {
-          console.log(`[API] No positions found for ${userAddress.substring(0, 8)}...`);
+          log.info(`[API] No positions found for ${userAddress.substring(0, 8)}...`);
         }
         
         return positions;
       } catch (error: any) {
         if (error.response?.status === 404) {
           // User has no positions
-          console.log(`[API] No positions found for ${userAddress.substring(0, 8)}... (404)`);
+          log.info(`[API] No positions found for ${userAddress.substring(0, 8)}... (404)`);
           return [];
         }
         // Log error for debugging
-        console.warn(`[API] Error fetching positions for ${userAddress.substring(0, 8)}...:`, error.message);
+        log.warn({ detail: error.message }, `[API] Error fetching positions for ${userAddress.substring(0, 8)}...`)
         // Re-throw to trigger retry logic
         throw error;
       }
@@ -357,19 +360,19 @@ export class PolymarketApi {
       const proxyAddress = await this.getProxyWalletAddress(userAddress);
       const walletToCheck = proxyAddress || userAddress;
       
-      console.log(`[API] Calculating portfolio value for ${userAddress.substring(0, 8)}...`);
-      console.log(`[API]   EOA: ${userAddress.substring(0, 10)}...`);
-      console.log(`[API]   Proxy wallet: ${proxyAddress ? proxyAddress.substring(0, 10) + '...' : 'NOT FOUND'}`);
-      console.log(`[API]   Checking: ${walletToCheck.substring(0, 10)}...`);
+      log.info(`[API] Calculating portfolio value for ${userAddress.substring(0, 8)}...`);
+      log.info(`[API]   EOA: ${userAddress.substring(0, 10)}...`);
+      log.info(`[API]   Proxy wallet: ${proxyAddress ? proxyAddress.substring(0, 10) + '...' : 'NOT FOUND'}`);
+      log.info(`[API]   Checking: ${walletToCheck.substring(0, 10)}...`);
       
       // 1. Get on-chain USDC balance from the proxy wallet
       let usdcBalance = 0;
       if (balanceTracker && walletToCheck) {
         try {
           usdcBalance = await balanceTracker.getBalance(walletToCheck);
-          console.log(`[API]   On-chain USDC balance: $${usdcBalance.toFixed(2)}`);
+          log.info(`[API]   On-chain USDC balance: $${usdcBalance.toFixed(2)}`);
         } catch (balanceError: any) {
-          console.warn(`[API]   Could not fetch on-chain USDC: ${balanceError.message}`);
+          log.warn(`[API]   Could not fetch on-chain USDC: ${balanceError.message}`);
         }
       }
       
@@ -399,8 +402,8 @@ export class PolymarketApi {
       // 3. Total portfolio = USDC + positions
       const totalValue = usdcBalance + positionsValue;
       
-      console.log(`[API]   Positions value: $${positionsValue.toFixed(2)} (${positionDetails.length} positions)`);
-      console.log(`[API]   TOTAL PORTFOLIO: $${totalValue.toFixed(2)} (USDC: $${usdcBalance.toFixed(2)} + Positions: $${positionsValue.toFixed(2)})`);
+      log.info(`[API]   Positions value: $${positionsValue.toFixed(2)} (${positionDetails.length} positions)`);
+      log.info(`[API]   TOTAL PORTFOLIO: $${totalValue.toFixed(2)} (USDC: $${usdcBalance.toFixed(2)} + Positions: $${positionsValue.toFixed(2)})`);
       
       return {
         totalValue,
@@ -411,7 +414,7 @@ export class PolymarketApi {
         positions: positionDetails
       };
     } catch (error: any) {
-      console.error(`[API] Error calculating portfolio value for ${userAddress}:`, error.message);
+      log.error({ detail: error.message }, `[API] Error calculating portfolio value for ${userAddress}`)
       return { totalValue: 0, usdcBalance: 0, positionsValue: 0, positionCount: 0, proxyWallet: null, positions: [] };
     }
   }
@@ -458,7 +461,7 @@ export class PolymarketApi {
           const trades = response.data || [];
 
           if (page === 0 && trades.length > 0) {
-            console.log(`[API] Trade fields available: ${Object.keys(trades[0]).join(', ')}`);
+            log.info(`[API] Trade fields available: ${Object.keys(trades[0]).join(', ')}`);
           }
 
           if (trades.length === 0) break;
@@ -481,18 +484,18 @@ export class PolymarketApi {
         }
 
         if (allTrades.length > 0) {
-          console.log(`[API] ✓ Fetched ${allTrades.length} trade(s) for ${userAddress.substring(0, 8)}...`);
+          log.info(`[API] ✓ Fetched ${allTrades.length} trade(s) for ${userAddress.substring(0, 8)}...`);
         } else {
-          console.log(`[API] No trades found for ${userAddress.substring(0, 8)}...`);
+          log.info(`[API] No trades found for ${userAddress.substring(0, 8)}...`);
         }
         
         return allTrades;
       } catch (error: any) {
         if (error.response?.status === 404) {
-          console.log(`[API] No trades found for ${userAddress.substring(0, 8)}... (404)`);
+          log.info(`[API] No trades found for ${userAddress.substring(0, 8)}... (404)`);
           return [];
         }
-        console.warn(`[API] Error fetching trades for ${userAddress.substring(0, 8)}...:`, error.message);
+        log.warn({ detail: error.message }, `[API] Error fetching trades for ${userAddress.substring(0, 8)}...`)
         throw error;
       }
     }, `getUserTrades(${userAddress.substring(0, 8)}...)`);
@@ -523,7 +526,7 @@ export class PolymarketApi {
         const positions = response.data || [];
 
         if (positions.length > 0) {
-          console.log(`[API] Filtered positions for ${userAddress.substring(0, 8)}...: ${positions.length} result(s) (filters: ${JSON.stringify(filters)})`);
+          log.info(`[API] Filtered positions for ${userAddress.substring(0, 8)}...: ${positions.length} result(s) (filters: ${JSON.stringify(filters)})`);
         }
 
         return positions;
@@ -659,10 +662,10 @@ export class PolymarketApi {
       // Get Builder API authentication headers
       const authHeaders = this.getBuilderAuthHeaders('POST', path, requestBody);
       
-      console.log(`Placing order with Builder API authentication...`);
-      console.log(`Order details:`, JSON.stringify(order, null, 2));
-      console.log(`Using endpoint: ${path}`);
-      console.log(`Builder API Key: ${config.polymarketBuilderApiKey.substring(0, 10)}...`);
+      log.info(`Placing order with Builder API authentication...`);
+      log.info({ detail: JSON.stringify(order, null, 2) }, `Order details`)
+      log.info(`Using endpoint: ${path}`);
+      log.info(`Builder API Key: ${config.polymarketBuilderApiKey.substring(0, 10)}...`);
       
       // Make the request with Builder API headers
       const response = await this.clobApiClient.post(path, order, {
@@ -672,7 +675,7 @@ export class PolymarketApi {
         }
       });
 
-      console.log(`Order placed successfully! Response:`, JSON.stringify(response.data, null, 2));
+      log.info({ detail: JSON.stringify(response.data, null, 2) }, `Order placed successfully! Response`)
       return response.data;
     } catch (error: any) {
       // Provide more detailed error information
@@ -701,20 +704,20 @@ export class PolymarketApi {
         errorMessage = error.message || 'Unknown error';
       }
       
-      console.error('❌ Order placement failed!');
-      console.error(`Error: ${errorMessage}`);
-      console.error(`Status: ${error.response?.status || 'N/A'}`);
+      log.error('❌ Order placement failed!');
+      log.error(`Error: ${errorMessage}`);
+      log.error(`Status: ${error.response?.status || 'N/A'}`);
       if (error.response?.data) {
-        console.error('Full error response:', JSON.stringify(error.response.data, null, 2));
+        log.error({ detail: JSON.stringify(error.response.data, null, 2) }, 'Full error response')
       }
       if (error.response?.headers) {
-        console.error('Response headers:', JSON.stringify(error.response.headers, null, 2));
+        log.error({ detail: JSON.stringify(error.response.headers, null, 2) }, 'Response headers')
       }
       // Note: order and authHeaders may be out of scope here, so we log what we can
-      console.error('Request that failed:', {
+      log.error({
         url: `${this.clobApiClient.defaults.baseURL}/order`,
         method: 'POST'
-      });
+      }, 'Request that failed');
       
       // Create a more informative error
       const enhancedError = new Error(errorMessage);

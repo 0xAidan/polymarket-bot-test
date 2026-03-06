@@ -31,6 +31,9 @@ import {
   listStoredWalletIds,
   updateWalletBuilderCredentials,
 } from '../walletManager.js';
+import { createComponentLogger } from '../logger.js';
+
+const log = createComponentLogger('Routes');
 
 /**
  * API routes for managing the bot
@@ -39,21 +42,21 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   const router = Router();
   const performanceTracker = copyTrader.getPerformanceTracker();
   const lifecycleManager = new PositionLifecycleManager();
-  lifecycleManager.start().catch(err => console.error('[Lifecycle] Failed to start:', err.message));
+  lifecycleManager.start().catch(err => log.error('[Lifecycle] Failed to start:', err.message));
   const arbScanner = new ArbScanner();
   const entityManager = new EntityManager();
-  entityManager.init().catch(err => console.error('[Routes] EntityManager init failed:', err.message));
+  entityManager.init().catch(err => log.error('[Routes] EntityManager init failed:', err.message));
   const hedgeCalculator = new HedgeCalculator();
   const crossPlatformExecutor = new CrossPlatformExecutor();
-  crossPlatformExecutor.init().catch(err => console.error('[Routes] CrossPlatformExecutor init failed:', err.message));
+  crossPlatformExecutor.init().catch(err => log.error('[Routes] CrossPlatformExecutor init failed:', err.message));
   const pnlTracker = new CrossPlatformPnlTracker();
-  pnlTracker.init().catch(err => console.error('[Routes] PnlTracker init failed:', err.message));
+  pnlTracker.init().catch(err => log.error('[Routes] PnlTracker init failed:', err.message));
 
   // Ladder exits + stop-loss
   const ladderManager = new LadderExitManager();
-  ladderManager.init().catch(err => console.error('[Routes] LadderExit init failed:', err.message));
+  ladderManager.init().catch(err => log.error('[Routes] LadderExit init failed:', err.message));
   const stopLossManager = new SmartStopLossManager();
-  stopLossManager.init().catch(err => console.error('[Routes] StopLoss init failed:', err.message));
+  stopLossManager.init().catch(err => log.error('[Routes] StopLoss init failed:', err.message));
   const priceMonitor = new PriceMonitor(ladderManager, stopLossManager);
 
   // Auto-start price monitor if there are active ladders or stop-loss orders
@@ -61,7 +64,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     const hasActiveLadders = ladderManager.getLadders(true).length > 0;
     const hasActiveStopLosses = stopLossManager.getOrders(true).length > 0;
     if ((hasActiveLadders || hasActiveStopLosses) && !priceMonitor.getStatus().isRunning) {
-      console.log(`[Routes] Auto-starting PriceMonitor (${ladderManager.getLadders(true).length} ladders, ${stopLossManager.getOrders(true).length} stop-losses)`);
+      log.info(`[Routes] Auto-starting PriceMonitor (${ladderManager.getLadders(true).length} ladders, ${stopLossManager.getOrders(true).length} stop-losses)`);
       priceMonitor.start();
     }
   };
@@ -72,10 +75,10 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // Wire up ladder trigger events — execute real trades when in live mode
   priceMonitor.on('ladder-trigger', async (data: any) => {
     const ladderConfig = ladderManager.getConfig();
-    console.log(`[LadderExit] Step triggered: ${data.ladder.marketTitle} step ${data.stepIndex + 1}, ${data.sharesToSell.toFixed(2)} shares @ $${data.currentPrice?.toFixed(4)}`);
+    log.info(`[LadderExit] Step triggered: ${data.ladder.marketTitle} step ${data.stepIndex + 1}, ${data.sharesToSell.toFixed(2)} shares @ $${data.currentPrice?.toFixed(4)}`);
 
     if (!ladderConfig.liveMode) {
-      console.log(`[LadderExit] PAPER MODE — logging only, no real trade executed`);
+      log.info(`[LadderExit] PAPER MODE — logging only, no real trade executed`);
       ladderManager.markStepExecuted(data.ladder.id, data.stepIndex, data.currentPrice, data.sharesToSell);
       return;
     }
@@ -93,21 +96,21 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         negRisk: false,
       };
 
-      console.log(`[LadderExit] LIVE MODE — executing SELL: ${order.amount} shares of ${data.ladder.marketTitle} @ $${order.price}`);
+      log.info(`[LadderExit] LIVE MODE — executing SELL: ${order.amount} shares of ${data.ladder.marketTitle} @ $${order.price}`);
       const result = await tradeExecutor.executeTrade(order);
 
       if (result.success) {
-        console.log(`[LadderExit] SELL executed successfully (order: ${result.orderId})`);
+        log.info(`[LadderExit] SELL executed successfully (order: ${result.orderId})`);
         ladderManager.markStepExecuted(data.ladder.id, data.stepIndex, data.currentPrice, data.sharesToSell);
       } else {
-        console.error(`[LadderExit] SELL failed: ${result.error} — step NOT marked executed, will retry next tick`);
+        log.error(`[LadderExit] SELL failed: ${result.error} — step NOT marked executed, will retry next tick`);
       }
     } catch (err: any) {
-      console.error(`[LadderExit] SELL execution error: ${err.message} — step NOT marked executed, will retry next tick`);
+      log.error(`[LadderExit] SELL execution error: ${err.message} — step NOT marked executed, will retry next tick`);
     }
   });
   priceMonitor.on('stoploss-trigger', async (data: any) => {
-    console.log(
+    log.info(
       `[StopLoss] TRIGGERED: ${data.order.marketTitle} ${data.order.outcome}, ` +
       `${data.order.shares} shares @ $${data.currentPrice?.toFixed(4)}`
     );
@@ -124,19 +127,19 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         negRisk: false,
       };
 
-      console.log(
+      log.info(
         `[StopLoss] Executing SELL: ${order.amount} shares of ` +
         `${data.order.marketTitle} @ $${order.price}`
       );
       const result = await tradeExecutor.executeTrade(order);
 
       if (result.success) {
-        console.log(`[StopLoss] ✅ SELL executed successfully (order: ${result.orderId})`);
+        log.info(`[StopLoss] ✅ SELL executed successfully (order: ${result.orderId})`);
       } else {
-        console.error(`[StopLoss] ❌ SELL failed: ${result.error}`);
+        log.error(`[StopLoss] ❌ SELL failed: ${result.error}`);
       }
     } catch (err: any) {
-      console.error(`[StopLoss] SELL execution error: ${err.message}`);
+      log.error(`[StopLoss] SELL execution error: ${err.message}`);
     }
   });
 
@@ -276,7 +279,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       res.json({ success: true, ...result });
 
       // Wallets are now available — trigger an immediate lifecycle check
-      lifecycleManager.triggerCheck().catch(() => {});
+      lifecycleManager.triggerCheck().catch(() => { });
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
     }
@@ -387,7 +390,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const positions = await api.getUserPositions(wallet.address);
       res.json({ success: true, walletId: wallet.id, walletLabel: wallet.label, positions: positions || [] });
     } catch (error: any) {
-      console.error(`Failed to load positions for trading wallet ${req.params.id}:`, error.message);
+      log.error({ detail: error.message }, `Failed to load positions for trading wallet ${req.params.id}`)
       res.json({ success: true, positions: [], error: error.message });
     }
   });
@@ -862,7 +865,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
       // Auto-start price monitor if not already running
       if (!priceMonitor.getStatus().isRunning) {
-        console.log('[Routes] Auto-starting PriceMonitor after ladder creation');
+        log.info('[Routes] Auto-starting PriceMonitor after ladder creation');
         priceMonitor.start();
       }
 
@@ -917,7 +920,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
       // Auto-start price monitor if not already running
       if (!priceMonitor.getStatus().isRunning) {
-        console.log('[Routes] Auto-starting PriceMonitor after stop-loss creation');
+        log.info('[Routes] Auto-starting PriceMonitor after stop-loss creation');
         priceMonitor.start();
       }
 
@@ -1082,7 +1085,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         );
       } catch (error: any) {
         // If wallet lookup fails, use empty maps (no labels/tags shown)
-        console.warn('[API] Failed to load wallet labels for trades:', error.message);
+        log.warn({ detail: error.message }, '[API] Failed to load wallet labels for trades')
       }
 
       // Step 3: Enrich trades with labels and tags (safe, synchronous)
@@ -1256,10 +1259,10 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.get('/wallet/balance', async (req: Request, res: Response) => {
     try {
       const eoaAddress = copyTrader.getWalletAddress();
-      console.log(`[API] /wallet/balance requested. EOA address: ${eoaAddress || 'NOT SET'}`);
+      log.info(`[API] /wallet/balance requested. EOA address: ${eoaAddress || 'NOT SET'}`);
 
       if (!eoaAddress) {
-        console.log('[API] No wallet address configured, returning 0 balance');
+        log.info('[API] No wallet address configured, returning 0 balance');
         return res.json({
           success: true,
           currentBalance: 0,
@@ -1275,14 +1278,14 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       try {
         const clobClient = copyTrader.getClobClient();
         currentBalance = await clobClient.getUsdcBalance();
-        console.log(`[API] ✓ CLOB API balance: $${currentBalance.toFixed(2)} USDC`);
+        log.info(`[API] ✓ CLOB API balance: $${currentBalance.toFixed(2)} USDC`);
       } catch (clobError: any) {
-        console.error(`[API] CLOB balance failed:`, clobError.message);
+        log.error({ err: clobError.message }, `[API] CLOB balance failed`);
         // Log full error for debugging
-        console.error(`[API] Full error:`, clobError);
+        log.error({ err: clobError }, `[API] Full error`);
       }
 
-      console.log(`[API] Final balance: $${currentBalance.toFixed(2)}`)
+      log.info(`[API] Final balance: $${currentBalance.toFixed(2)}`)
 
       res.json({
         success: true,
@@ -1292,8 +1295,8 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         walletAddress: eoaAddress
       });
     } catch (error: any) {
-      console.error('[API] Error fetching wallet balance:', error);
-      console.error('[API] Error stack:', error.stack);
+      log.error({ err: error }, '[API] Error fetching wallet balance')
+      log.error({ err: error.stack }, '[API] Error stack')
       res.status(500).json({
         success: false,
         error: error.message || 'Failed to fetch balance',
@@ -1358,7 +1361,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         currentBalance
       });
     } catch (error: any) {
-      console.error('[API] Error fetching balance history:', error);
+      log.error({ err: error }, '[API] Error fetching balance history')
       res.status(500).json({
         success: false,
         error: error.message || 'Failed to fetch balance history',
@@ -1375,14 +1378,14 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const polymarketApi = copyTrader.getPolymarketApi();
       const balanceTracker = copyTrader.getBalanceTracker();
 
-      console.log(`[API] Fetching tracked wallet portfolio for: ${address}`);
+      log.info(`[API] Fetching tracked wallet portfolio for: ${address}`);
 
       // Get full portfolio value (USDC + positions)
       const portfolioData = await polymarketApi.getPortfolioValue(address, balanceTracker);
 
-      console.log(`[API] Tracked wallet ${address.substring(0, 8)}... portfolio: $${portfolioData.totalValue.toFixed(2)}`);
-      console.log(`[API]   USDC: $${portfolioData.usdcBalance.toFixed(2)}`);
-      console.log(`[API]   Positions: $${portfolioData.positionsValue.toFixed(2)} (${portfolioData.positionCount} positions)`);
+      log.info(`[API] Tracked wallet ${address.substring(0, 8)}... portfolio: $${portfolioData.totalValue.toFixed(2)}`);
+      log.info(`[API]   USDC: $${portfolioData.usdcBalance.toFixed(2)}`);
+      log.info(`[API]   Positions: $${portfolioData.positionsValue.toFixed(2)} (${portfolioData.positionCount} positions)`);
 
       res.json({
         success: true,
@@ -1395,7 +1398,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         source: 'usdc_plus_positions'
       });
     } catch (error: any) {
-      console.error(`[API] Error fetching tracked wallet balance:`, error.message);
+      log.error({ detail: error.message }, `[API] Error fetching tracked wallet balance`)
       res.status(500).json({
         success: false,
         error: error.message,
@@ -1662,7 +1665,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const positions = await api.getUserPositions(address);
       res.json({ success: true, positions: positions || [] });
     } catch (error: any) {
-      console.error(`Failed to load positions for ${address}:`, error.message);
+      log.error({ detail: error.message }, `Failed to load positions for ${address}`)
       res.json({ success: true, positions: [], error: error.message });
     }
   });
@@ -1722,7 +1725,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         ...preview
       });
     } catch (error: any) {
-      console.error('[API] Mirror preview error:', error);
+      log.error({ err: error }, '[API] Mirror preview error')
       res.status(500).json({
         success: false,
         error: error.message
@@ -1732,17 +1735,17 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
   // Execute mirror trades - executes the selected trades from the preview
   router.post('/wallets/:address/mirror-execute', async (req: Request, res: Response) => {
-    console.log(`[API] Mirror execute request received for ${req.params.address}`);
-    console.log(`[API] Request body keys:`, Object.keys(req.body || {}));
+    log.info(`[API] Mirror execute request received for ${req.params.address}`);
+    log.info({ bodyKeys: Object.keys(req.body || {}) }, '[API] Mirror execute request body');
 
     try {
       const { address } = req.params;
       const { trades, slippagePercent } = req.body;
 
-      console.log(`[API] trades is array: ${Array.isArray(trades)}, count: ${trades?.length || 0}`);
+      log.info(`[API] trades is array: ${Array.isArray(trades)}, count: ${trades?.length || 0}`);
 
       if (!trades || !Array.isArray(trades)) {
-        console.log(`[API] Invalid trades param`);
+        log.info(`[API] Invalid trades param`);
         return res.status(400).json({
           success: false,
           error: 'trades array is required'
@@ -1774,7 +1777,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
       res.json(result);
     } catch (error: any) {
-      console.error('[API] Mirror execute error:', error);
+      log.error({ err: error }, '[API] Mirror execute error')
       res.status(500).json({
         success: false,
         error: error.message
@@ -1916,7 +1919,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         await copyTrader.updateMonitoringInterval(intervalMs);
       } catch (error: any) {
         // Bot might not be running, that's okay
-        console.log('[API] Bot not running, interval will apply on next start');
+        log.info('[API] Bot not running, interval will apply on next start');
       }
 
       res.json({
@@ -1998,7 +2001,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       await fs.writeFile(envPath, lines.join('\n'));
 
       // Reinitialize all components with the new private key
-      console.log('[API] Reinitializing bot with new private key...');
+      log.info('[API] Reinitializing bot with new private key...');
       const result = await copyTrader.reinitializeCredentials();
 
       if (result.success) {
@@ -2083,7 +2086,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       await fs.writeFile(envPath, lines.join('\n'));
 
       // Reinitialize all components with the new builder credentials
-      console.log('[API] Reinitializing bot with new builder credentials...');
+      log.info('[API] Reinitializing bot with new builder credentials...');
       const result = await copyTrader.reinitializeCredentials();
 
       if (result.success) {
@@ -2241,7 +2244,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       process.env.POLYMARKET_FUNDER_ADDRESS = trimmedAddress;
 
       // Reinitialize to pick up the new proxy wallet
-      console.log('[API] Reinitializing bot with new proxy wallet address...');
+      log.info('[API] Reinitializing bot with new proxy wallet address...');
       const result = await copyTrader.reinitializeCredentials();
 
       if (result.success) {
@@ -2922,7 +2925,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.get('/test/balance/:address', async (req: Request, res: Response) => {
     try {
       const { address } = req.params;
-      console.log(`[API] Test balance check for: ${address}`);
+      log.info(`[API] Test balance check for: ${address}`);
 
       if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
         return res.status(400).json({
@@ -2940,7 +2943,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         address: address
       });
     } catch (error: any) {
-      console.error('[API] Test balance error:', error);
+      log.error({ err: error }, '[API] Test balance error')
       res.status(500).json({
         success: false,
         error: error.message || 'Failed to fetch balance'

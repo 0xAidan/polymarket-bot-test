@@ -1,6 +1,9 @@
 import { getAdapter, isPlatformConfigured } from './platform/platformRegistry.js';
 import type { Platform, NormalizedOrderResult, PlaceOrderRequest } from './platform/types.js';
 import { Storage } from './storage.js';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('CrossPlatformExecutor');
 
 // ============================================================================
 // Cross-Platform Executor
@@ -64,17 +67,17 @@ export class CrossPlatformExecutor {
       }
       this.executionHistory = cfg.crossPlatformExecutionHistory ?? [];
     } catch { /* defaults */ }
-    console.log(`[CrossPlatformExecutor] Ready (paperMode=${this.config.paperMode})`);
+    log.info(`[CrossPlatformExecutor] Ready (paperMode=${this.config.paperMode})`);
   }
 
   /**
    * Execute an arbitrage pair trade: buy on one platform, sell on the other.
    */
   async executeArbPair(trade: ArbPairTrade): Promise<ExecutionResult> {
-    console.log(`[CrossPlatformExecutor] Executing arb: ${trade.eventTitle}`);
-    console.log(`  BUY ${trade.buySide} on ${trade.buyPlatform} @ ${trade.buyPrice} (${trade.buySize} contracts)`);
-    console.log(`  SELL ${trade.sellSide} on ${trade.sellPlatform} @ ${trade.sellPrice} (${trade.sellSize} contracts)`);
-    console.log(`  Expected profit: $${trade.expectedProfit.toFixed(2)} (${trade.spreadPercent.toFixed(1)}% spread)`);
+    log.info(`[CrossPlatformExecutor] Executing arb: ${trade.eventTitle}`);
+    log.info(`  BUY ${trade.buySide} on ${trade.buyPlatform} @ ${trade.buyPrice} (${trade.buySize} contracts)`);
+    log.info(`  SELL ${trade.sellSide} on ${trade.sellPlatform} @ ${trade.sellPrice} (${trade.sellSize} contracts)`);
+    log.info(`  Expected profit: $${trade.expectedProfit.toFixed(2)} (${trade.spreadPercent.toFixed(1)}% spread)`);
 
     // Validate spread
     if (trade.spreadPercent < this.config.minSpread) {
@@ -112,7 +115,7 @@ export class CrossPlatformExecutor {
 
     // Paper mode simulation
     if (this.config.paperMode) {
-      console.log(`[CrossPlatformExecutor] PAPER MODE: simulating execution`);
+      log.info(`[CrossPlatformExecutor] PAPER MODE: simulating execution`);
       const result: ExecutionResult = {
         arbId: trade.id,
         timestamp: new Date().toISOString(),
@@ -176,7 +179,7 @@ export class CrossPlatformExecutor {
     };
 
     if (result.partialFill) {
-      console.warn(`[CrossPlatformExecutor] PARTIAL FILL on arb ${trade.id}! One leg succeeded, the other failed.`);
+      log.warn(`[CrossPlatformExecutor] PARTIAL FILL on arb ${trade.id}! One leg succeeded, the other failed.`);
     }
 
     this.executionHistory.push(result);
@@ -197,7 +200,7 @@ export class CrossPlatformExecutor {
     price: number;
   }): Promise<NormalizedOrderResult> {
     if (this.config.paperMode) {
-      console.log(`[CrossPlatformExecutor] PAPER HEDGE: ${params.action} ${params.side} on ${params.platform} (${params.size} @ $${params.price})`);
+      log.info(`[CrossPlatformExecutor] PAPER HEDGE: ${params.action} ${params.side} on ${params.platform} (${params.size} @ $${params.price})`);
       return { platform: params.platform, success: true, orderId: `paper-hedge-${Date.now()}`, status: 'filled' };
     }
 
