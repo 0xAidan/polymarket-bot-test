@@ -19,6 +19,7 @@ import {
   dbLoadExecutedPositions,
   dbSaveExecutedPositions,
 } from './database.js';
+import { assertWalletCanBeEnabled } from './walletConfigSafety.js';
 
 // Use getters so tests can patch config.dataDir at runtime
 function walletsFile() { return path.join(config.dataDir, 'tracked_wallets.json'); }
@@ -186,7 +187,12 @@ export class Storage {
       throw new Error('Wallet not found');
     }
 
-    wallet.active = active !== undefined ? active : !wallet.active;
+    const nextActiveState = active !== undefined ? active : !wallet.active;
+    if (nextActiveState) {
+      assertWalletCanBeEnabled(wallet);
+    }
+
+    wallet.active = nextActiveState;
     await this.saveTrackedWallets(wallets);
     return wallet;
   }
