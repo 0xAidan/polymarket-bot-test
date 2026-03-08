@@ -313,6 +313,7 @@ async function main() {
       console.log(`   🔄 Polling: ${status.running ? '✅ ACTIVE' : '⏸️  INACTIVE'}`);
       console.log(`\n💡 Status: ${domeWs?.connected ? 'Real-time (Dome) + polling' : 'Polling mode'}`);
       console.log(`${'='.repeat(60)}\n`);
+
     } catch (error: any) {
       console.error('⚠️  Failed to initialize or start bot:', error.message);
       console.error('⚠️  Bot will not run, but web server is accessible.');
@@ -321,21 +322,14 @@ async function main() {
     }
 
     // Handle graceful shutdown
-    process.on('SIGINT', () => {
+    const handleShutdown = async () => {
       console.log('\n🛑 Shutting down...');
-      if (copyTrader) {
-        copyTrader.stop();
-      }
+      if (copyTrader) { copyTrader.stop(); }
       process.exit(0);
-    });
+    };
 
-    process.on('SIGTERM', () => {
-      console.log('\n🛑 Shutting down...');
-      if (copyTrader) {
-        copyTrader.stop();
-      }
-      process.exit(0);
-    });
+    process.on('SIGINT', handleShutdown);
+    process.on('SIGTERM', handleShutdown);
 
   } catch (error: any) {
     console.error('❌ Fatal error:', error.message);
