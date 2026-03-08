@@ -323,8 +323,26 @@ export class PositionMirror {
     let sharesToTrade = Math.abs(sharesDelta);
     
     if (Math.abs(sharesDelta) < 0.5) {
-      // Delta too small, skip
-      return null;
+      return {
+        marketId,
+        marketTitle,
+        tokenId,
+        outcome,
+        theirShares,
+        theirAvgPrice,
+        theirAllocationPercent,
+        yourShares,
+        yourAllocationPercent,
+        action: 'BUY',
+        sharesToTrade: parseFloat(sharesToTrade.toFixed(4)),
+        estimatedCost: parseFloat((sharesToTrade * currentPrice).toFixed(4)),
+        currentPrice,
+        status: 'skipped',
+        warning: 'Mirror size is too small for your current portfolio',
+        priceDeviationPercent: 0,
+        selected: false,
+        negRisk
+      };
     }
     
     if (sharesDelta > 0) {

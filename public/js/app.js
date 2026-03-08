@@ -1552,8 +1552,13 @@ function renderMirrorTrades(trades) {
   
   tbody.innerHTML = html;
   
-  // Hide skipped rows initially
-  document.querySelectorAll('.skipped-row').forEach(r => r.style.display = 'none');
+  const hasVisibleTargetTrade = actionable.some((trade) => (trade.theirShares || 0) > 0);
+  const shouldExpandSkipped = skipped.length > 0 && !hasVisibleTargetTrade;
+  document.querySelectorAll('.skipped-row').forEach(r => r.style.display = shouldExpandSkipped ? '' : 'none');
+  const icon = document.getElementById('skippedAccordionIcon');
+  if (icon) {
+    icon.textContent = shouldExpandSkipped ? '-' : '+';
+  }
 }
 
 function renderMirrorRow(trade, isSkipped) {
