@@ -31,6 +31,13 @@ import { ApiPoller } from './apiPoller.js';
 import { refreshPositionPrices, backfillPositions } from './positionTracker.js';
 import { evaluatePeriodicSignals } from './signalEngine.js';
 import { computeScoresAndHeat } from './walletScorer.js';
+import {
+  clearDiscoveryRuntimeHeartbeat,
+  getCurrentDiscoveryRuntimeHeartbeat,
+  saveDiscoveryRuntimeHeartbeat,
+} from './discoveryRuntimeState.js';
+
+type DiscoveryManagerMode = 'worker' | 'passive';
 
 export class DiscoveryManager {
   private ingestion: TradeIngestion;
@@ -41,12 +48,20 @@ export class DiscoveryManager {
   private config: DiscoveryConfig;
   private priceRefreshRunning = false;
   private statsCycleRunning = false;
+  private mode: DiscoveryManagerMode;
+  private configSignature: string;
 
-  constructor() {
+  constructor(mode: DiscoveryManagerMode = 'worker') {
     // Use defaults here — DB may not be initialized yet.
     // Real config is loaded in start() after the DB is ready.
+    this.mode = mode;
     this.config = { ...DEFAULT_DISCOVERY_CONFIG };
+    this.configSignature = JSON.stringify(this.config);
     this.ingestion = new TradeIngestion();
+  }
+
+  isPassiveRuntime(): boolean {
+    return this.mode === 'passive';
   }
 
   // -----------------------------------------------------------------------
@@ -55,9 +70,16 @@ export class DiscoveryManager {
 
   async start(): Promise<void> {
     this.config = getDiscoveryConfig();
+    this.configSignature = JSON.stringify(this.config);
+
+    if (this.mode === 'passive') {
+      console.log('[DiscoveryManager] Passive discovery manager ready (worker-owned runtime)');
+      return;
+    }
 
     if (!this.config.enabled) {
       console.log('[DiscoveryManager] Discovery is disabled, skipping start');
+      clearDiscoveryRuntimeHeartbeat();
       return;
     }
 
@@ -94,6 +116,7 @@ export class DiscoveryManager {
     try { aggregateStats(); } catch { /* ok on empty db */ }
     try { computeScoresAndHeat(); } catch { /* ok on empty db */ }
     try { evaluatePeriodicSignals(); } catch { /* ok on empty db */ }
+    this.refreshHeartbeat();
 
     console.log('[DiscoveryManager] Discovery engine started');
   }
@@ -101,6 +124,12 @@ export class DiscoveryManager {
   private async runStatsCycle(): Promise<void> {
     if (this.statsCycleRunning) return;
     this.statsCycleRunning = true;
+
+    await this.syncConfigFromStorage();
+    if (this.mode !== 'worker' || !this.startedAt) {
+      this.statsCycleRunning = false;
+      return;
+    }
 
     if (!this.priceRefreshRunning) {
       this.priceRefreshRunning = true;
@@ -135,11 +164,16 @@ export class DiscoveryManager {
     } catch (err) {
       console.error('[DiscoveryManager] Retention cleanup error:', err);
     } finally {
+      this.refreshHeartbeat();
       this.statsCycleRunning = false;
     }
   }
 
   async stop(): Promise<void> {
+    if (this.mode === 'passive') {
+      return;
+    }
+
     console.log('[DiscoveryManager] Stopping discovery engine...');
 
     if (this.statsTimer) { clearInterval(this.statsTimer); this.statsTimer = null; }
@@ -150,6 +184,7 @@ export class DiscoveryManager {
     this.chainListener = null;
     this.apiPoller = null;
     this.startedAt = undefined;
+    clearDiscoveryRuntimeHeartbeat();
 
     console.log('[DiscoveryManager] Discovery engine stopped');
   }
@@ -177,6 +212,11 @@ export class DiscoveryManager {
   async updateConfig(updates: Partial<DiscoveryConfig>): Promise<DiscoveryConfig> {
     updateDiscoveryConfig(updates);
     this.config = getDiscoveryConfig();
+    this.configSignature = JSON.stringify(this.config);
+
+    if (this.mode !== 'worker') {
+      return this.config;
+    }
 
     // Live-update the poller if it's running (no restart needed)
     if (this.apiPoller) {
@@ -199,8 +239,19 @@ export class DiscoveryManager {
   // -----------------------------------------------------------------------
 
   getStatus(): DiscoveryStatus {
-    const chainStatus = this.chainListener?.getStatus() ?? { connected: false, reconnectCount: 0 };
-    const pollerStatus = this.apiPoller?.getStatus() ?? { running: false, marketsMonitored: 0 };
+    this.config = this.getConfig();
+    const fallbackChainStatus = this.chainListener?.getStatus() ?? { connected: false, reconnectCount: 0 };
+    const fallbackPollerStatus = this.apiPoller?.getStatus() ?? { running: false, marketsMonitored: 0 };
+    const runtimeHeartbeat = getCurrentDiscoveryRuntimeHeartbeat();
+    const heartbeatIsFresh = !!runtimeHeartbeat &&
+      runtimeHeartbeat.running &&
+      Date.now() - runtimeHeartbeat.lastHeartbeatAt <= Math.max(this.config.statsIntervalMs * 2, 60_000);
+    const chainStatus = heartbeatIsFresh && runtimeHeartbeat?.chainListener
+      ? runtimeHeartbeat.chainListener
+      : fallbackChainStatus;
+    const pollerStatus = heartbeatIsFresh && runtimeHeartbeat?.apiPoller
+      ? runtimeHeartbeat.apiPoller
+      : fallbackPollerStatus;
 
     let totalWallets = 0;
     let totalTrades = 0;
@@ -224,7 +275,11 @@ export class DiscoveryManager {
       stats: {
         totalWallets,
         totalTrades,
-        uptimeMs: this.startedAt ? Date.now() - this.startedAt : 0,
+        uptimeMs: heartbeatIsFresh && runtimeHeartbeat
+          ? Date.now() - runtimeHeartbeat.startedAt
+          : this.startedAt
+            ? Date.now() - this.startedAt
+            : 0,
       },
     };
   }
@@ -264,5 +319,67 @@ export class DiscoveryManager {
     } catch {
       return { trades: 0, wallets: 0, positions: 0, signals: 0, marketCache: 0, total: 0 };
     }
+  }
+
+  private async syncConfigFromStorage(): Promise<void> {
+    const latestConfig = getDiscoveryConfig();
+    const latestSignature = JSON.stringify(latestConfig);
+
+    if (latestSignature === this.configSignature) {
+      return;
+    }
+
+    const previousConfig = this.config;
+    this.config = latestConfig;
+    this.configSignature = latestSignature;
+
+    if (this.mode !== 'worker') {
+      return;
+    }
+
+    if (!latestConfig.enabled) {
+      console.log('[DiscoveryManager] Discovery disabled via config update - stopping worker');
+      await this.stop();
+      return;
+    }
+
+    if (this.apiPoller) {
+      this.apiPoller.updateConfig(latestConfig.pollIntervalMs, latestConfig.marketCount);
+    }
+
+    if (this.statsTimer && previousConfig.statsIntervalMs !== latestConfig.statsIntervalMs) {
+      clearInterval(this.statsTimer);
+      this.statsTimer = setInterval(() => {
+        void this.runStatsCycle();
+      }, latestConfig.statsIntervalMs);
+    }
+
+    if (latestConfig.alchemyWsUrl) {
+      if (!this.chainListener) {
+        this.chainListener = new ChainListener(this.ingestion, latestConfig.alchemyWsUrl);
+        await this.chainListener.start();
+      } else if (previousConfig.alchemyWsUrl !== latestConfig.alchemyWsUrl) {
+        this.chainListener.updateUrl(latestConfig.alchemyWsUrl);
+      }
+    } else if (this.chainListener) {
+      this.chainListener.stop();
+      this.chainListener = null;
+    }
+  }
+
+  private refreshHeartbeat(): void {
+    if (this.mode !== 'worker' || !this.startedAt) {
+      return;
+    }
+
+    saveDiscoveryRuntimeHeartbeat(undefined, {
+      mode: 'discovery-worker',
+      pid: process.pid,
+      running: true,
+      startedAt: this.startedAt,
+      lastHeartbeatAt: Date.now(),
+      chainListener: this.chainListener?.getStatus() ?? { connected: false, reconnectCount: 0 },
+      apiPoller: this.apiPoller?.getStatus() ?? { running: false, marketsMonitored: 0 },
+    });
   }
 }

@@ -3,6 +3,10 @@ import { CopyTrader } from './copyTrader.js';
 import { createServer, startServer } from './server.js';
 import { Storage } from './storage.js';
 import { initWalletManager } from './walletManager.js';
+import { initDatabase } from './database.js';
+import { DiscoveryManager } from './discovery/discoveryManager.js';
+import { clearDiscoveryRuntimeHeartbeat } from './discovery/discoveryRuntimeState.js';
+import { getRuntimeServicesForMode, resolveRuntimeMode } from './runtimeMode.js';
 import { existsSync, writeFileSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -221,10 +225,34 @@ function reloadConfig(): void {
   config.polymarketBuilderPassphrase = process.env.POLYMARKET_BUILDER_PASSPHRASE || '';
 }
 
-/**
- * Main entry point for the Polymarket Copytrade Bot
- */
-async function main() {
+const registerAppShutdown = (copyTrader: CopyTrader | null): void => {
+  const handleShutdown = async () => {
+    console.log('\n🛑 Shutting down...');
+    if (copyTrader) {
+      copyTrader.stop();
+    }
+    process.exit(0);
+  };
+
+  process.on('SIGINT', handleShutdown);
+  process.on('SIGTERM', handleShutdown);
+};
+
+const registerDiscoveryShutdown = (discoveryManager: DiscoveryManager): void => {
+  const handleShutdown = async () => {
+    console.log('\n🛑 Shutting down discovery worker...');
+    try {
+      await discoveryManager.stop();
+    } finally {
+      process.exit(0);
+    }
+  };
+
+  process.on('SIGINT', handleShutdown);
+  process.on('SIGTERM', handleShutdown);
+};
+
+async function startAppRuntime() {
   let copyTrader: CopyTrader | null = null;
   
   try {
@@ -313,7 +341,8 @@ async function main() {
       console.log(`   🔄 Polling: ${status.running ? '✅ ACTIVE' : '⏸️  INACTIVE'}`);
       console.log(`\n💡 Status: ${domeWs?.connected ? 'Real-time (Dome) + polling' : 'Polling mode'}`);
       console.log(`${'='.repeat(60)}\n`);
-
+      console.log('[Discovery] Discovery now runs as a separate worker process.');
+      console.log('[Discovery] Start it in another terminal with: npm run discovery:dev');
     } catch (error: any) {
       console.error('⚠️  Failed to initialize or start bot:', error.message);
       console.error('⚠️  Bot will not run, but web server is accessible.');
@@ -321,21 +350,56 @@ async function main() {
       // Don't exit - let the server keep running
     }
 
-    // Handle graceful shutdown
-    const handleShutdown = async () => {
-      console.log('\n🛑 Shutting down...');
-      if (copyTrader) { copyTrader.stop(); }
-      process.exit(0);
-    };
-
-    process.on('SIGINT', handleShutdown);
-    process.on('SIGTERM', handleShutdown);
-
+    registerAppShutdown(copyTrader);
   } catch (error: any) {
     console.error('❌ Fatal error:', error.message);
     console.error(error);
     process.exit(1);
   }
+}
+
+async function startDiscoveryWorkerRuntime() {
+  try {
+    await Storage.ensureDataDir();
+    await initDatabase();
+
+    const discoveryManager = new DiscoveryManager('worker');
+    registerDiscoveryShutdown(discoveryManager);
+
+    const discoveryConfig = discoveryManager.getConfig();
+    if (!discoveryConfig.enabled) {
+      clearDiscoveryRuntimeHeartbeat();
+      console.log('[DiscoveryWorker] Discovery is disabled in config. Enable it from the dashboard before starting the worker.');
+      return;
+    }
+
+    console.log('🔎 Starting discovery worker...');
+    await discoveryManager.start();
+
+    const status = discoveryManager.getStatus();
+    console.log(`   Chain listener: ${status.chainListener.connected ? 'connected' : 'disconnected'}`);
+    console.log(`   API poller: ${status.apiPoller.running ? 'running' : 'stopped'}`);
+    console.log(`   Markets monitored: ${status.apiPoller.marketsMonitored}`);
+  } catch (error: any) {
+    console.error('❌ Discovery worker failed to start:', error.message);
+    console.error(error);
+    process.exit(1);
+  }
+}
+
+/**
+ * Main entry point for the Polymarket Copytrade Bot
+ */
+async function main() {
+  const runtimeMode = resolveRuntimeMode(process.env.APP_RUNTIME, process.argv.slice(2));
+  const runtimeServices = getRuntimeServicesForMode(runtimeMode);
+
+  if (runtimeServices.discoveryWorker) {
+    await startDiscoveryWorkerRuntime();
+    return;
+  }
+
+  await startAppRuntime();
 }
 
 // Run the bot

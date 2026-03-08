@@ -248,21 +248,28 @@ describe('Storage dual-backend', () => {
     });
 
     it('executed positions roundtrip via SQLite', async () => {
-      await Storage.addExecutedPosition('mkt-sql', 'YES', '0xsqlwho');
-      const blocked = await Storage.isPositionBlocked('mkt-sql', 'YES', 24);
+      await Storage.addExecutedPosition('mkt-sql', 'TRUMP', '0xsqlwho', {
+        tokenId: 'token-sql-1',
+        positionKey: 'token:token-sql-1',
+      });
+      const blocked = await Storage.isPositionBlocked('mkt-sql', 'TRUMP', 24, 'token:token-sql-1');
       assert.equal(blocked, true);
+
+      const positions = await Storage.getExecutedPositions();
+      assert.equal(positions[0].positionKey, 'token:token-sql-1');
     });
 
     it('pending positions persist via SQLite', async () => {
-      await Storage.addPendingPosition('mkt-sql-pending', 'YES', '0xsqlwho', 'order-sql', 'token-sql', 4);
+      await Storage.addPendingPosition('mkt-sql-pending', 'TRUMP', '0xsqlwho', 'order-sql', 'token-sql', 4, 'BUY', 'token:token-sql');
 
       const positions = await Storage.getExecutedPositions();
       assert.equal(positions.length, 1);
       assert.equal(positions[0].status, 'pending');
       assert.equal(positions[0].orderId, 'order-sql');
+      assert.equal(positions[0].positionKey, 'token:token-sql');
       assert.equal(positions[0].baselinePositionSize, 4);
 
-      const blocked = await Storage.isPositionBlocked('mkt-sql-pending', 'YES', 24);
+      const blocked = await Storage.isPositionBlocked('mkt-sql-pending', 'TRUMP', 24, 'token:token-sql');
       assert.equal(blocked, true);
     });
   });
