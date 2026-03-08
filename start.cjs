@@ -15,7 +15,7 @@ if (!fs.existsSync(ENV_PATH)) {
   console.log('\n🔧 No configuration found. Running setup first...\n');
   
   // Run setup synchronously and wait for it to complete
-  const result = spawnSync('node', [path.join(__dirname, 'setup.js')], {
+  const result = spawnSync('node', [path.join(__dirname, 'setup.cjs')], {
     stdio: 'inherit',
     cwd: __dirname
   });
