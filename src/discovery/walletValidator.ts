@@ -1,5 +1,6 @@
 import { getDatabase } from '../database.js';
 import { DiscoveryWalletValidation } from './types.js';
+import { isLiveOpenPosition } from './positionTracker.js';
 
 type WalletValidationInput = {
   address: string;
@@ -28,6 +29,12 @@ export const buildWalletValidationRecord = ({
   const normalizedAddress = String(address).trim().toLowerCase();
   const realizedPnls = closedPositions
     .map((position) => parseOptionalNumber(position.realizedPnl ?? position.cashPnl) ?? 0);
+  const openPositionsCount = positions.filter((position) =>
+    isLiveOpenPosition({
+      size: parseOptionalNumber(position.size) ?? 0,
+      redeemable: Boolean(position.redeemable),
+    })
+  ).length;
   const winningClosedPositions = realizedPnls.filter((value) => value > 0).length;
   const tradeActivity = activity.filter((entry) => String(entry.type ?? '').toUpperCase() === 'TRADE');
   const buyActivityCount = tradeActivity.filter((entry) => String(entry.side ?? '').toUpperCase() === 'BUY').length;
@@ -46,7 +53,7 @@ export const buildWalletValidationRecord = ({
     xUsername: profile?.xUsername ? String(profile.xUsername) : undefined,
     verifiedBadge: Boolean(profile?.verifiedBadge),
     tradedMarkets: parseOptionalNumber(traded?.traded),
-    openPositionsCount: positions.length,
+    openPositionsCount,
     closedPositionsCount: closedPositions.length,
     realizedPnl: realizedPnls.reduce((sum, value) => sum + value, 0),
     realizedWinRate: closedPositions.length > 0 ? (winningClosedPositions / closedPositions.length) * 100 : 0,

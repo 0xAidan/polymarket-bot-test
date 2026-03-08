@@ -38,7 +38,27 @@ interface OfficialPositionResponse {
   title?: string;
   slug?: string;
   outcome?: string;
+  redeemable?: boolean;
+  mergeable?: boolean;
 }
+
+const parsePositionSize = (value: unknown): number => {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+export const isLiveOpenPosition = (
+  position: Pick<OfficialPositionResponse, 'size' | 'redeemable'> | Pick<WalletPosition, 'shares' | 'positionStatus'>
+): boolean => {
+  const shares = 'shares' in position ? parsePositionSize(position.shares) : parsePositionSize(position.size);
+  const isRedeemable = 'redeemable' in position
+    ? Boolean(position.redeemable)
+    : Boolean((position as Pick<WalletPosition, 'positionStatus'>).positionStatus === 'redeemable');
+  return shares > 0 && !isRedeemable;
+};
+
+export const filterLiveWalletPositions = <T extends Pick<WalletPosition, 'shares' | 'positionStatus'>>(positions: T[]): T[] =>
+  positions.filter((position) => isLiveOpenPosition(position));
 
 export const updatePosition = (trade: DiscoveredTrade): void => {
   if (!trade.side || trade.price === undefined || trade.price === null) return;
@@ -142,16 +162,24 @@ export const fetchAuthoritativePositions = async (address: string): Promise<Wall
   });
 
   const rows = Array.isArray(resp.data) ? resp.data : [];
-  return rows.map((row) => mapOfficialPositionToWalletPosition(row));
+  return rows
+    .filter((row) => isLiveOpenPosition(row as OfficialPositionResponse))
+    .map((row) => mapOfficialPositionToWalletPosition(row));
 };
 
 export const mapOfficialPositionToWalletPosition = (
-  position: OfficialPositionResponse
+  position: OfficialPositionResponse,
+  dataSource: 'verified' | 'cached' = 'verified'
 ): WalletPosition => {
   const updatedAt = Date.now();
   const shares = Number(position.size || 0);
   const avgEntry = Number(position.avgPrice || 0);
   const totalCost = Number(position.initialValue ?? shares * avgEntry);
+  const positionStatus: WalletPosition['positionStatus'] = position.redeemable
+    ? 'redeemable'
+    : shares > 0
+      ? 'open'
+      : 'closed';
 
   return {
     address: String(position.proxyWallet || '').toLowerCase(),
@@ -172,7 +200,8 @@ export const mapOfficialPositionToWalletPosition = (
     roiPct: Number(position.percentPnl || 0),
     realizedPnl: Number(position.realizedPnl || 0),
     currentValue: Number(position.currentValue || 0),
-    dataSource: 'verified',
+    dataSource,
+    positionStatus,
     updatedAt,
   };
 };
@@ -180,7 +209,7 @@ export const mapOfficialPositionToWalletPosition = (
 export const summarizeAuthoritativePositions = (
   positions: WalletPosition[]
 ): { totalPnl: number; totalCost: number; roiPct: number | null; activePositions: number } => {
-  const activePositions = positions.filter((position) => (position.shares || 0) > 0);
+  const activePositions = filterLiveWalletPositions(positions);
   const totalPnl = activePositions.reduce((sum, position) => sum + Number(position.unrealizedPnl || 0), 0);
   const totalCost = activePositions.reduce((sum, position) => sum + Number(position.totalCost || 0), 0);
 

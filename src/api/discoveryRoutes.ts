@@ -13,6 +13,8 @@ import {
   fetchAuthoritativePositions,
   summarizeAuthoritativePositions,
   buildPositionVerificationSummary,
+  filterLiveWalletPositions,
+  mapOfficialPositionToWalletPosition,
 } from '../discovery/positionTracker.js';
 import {
   markWalletTracked,
@@ -23,6 +25,7 @@ import { computeDiscoveryWalletScore } from '../discovery/walletScorer.js';
 import { classifyDiscoveryMarket } from '../discovery/marketClassifier.js';
 import { getRecentWalletReasons, getWalletReasons } from '../discovery/discoveryScorer.js';
 import { getWalletValidation } from '../discovery/walletValidator.js';
+import { getValidEvmAddress } from '../addressUtils.js';
 
 /**
  * Mask an Alchemy WebSocket URL for safe display.
@@ -69,23 +72,74 @@ export const applyAuthoritativeWalletSummary = <T extends { roiPct?: number | nu
   };
 };
 
+type WalletPositionsSource = 'verified' | 'cached' | 'derived';
+
+const normalizeWalletPositionsSource = (source: WalletPositionsSource | boolean): WalletPositionsSource => {
+  if (typeof source === 'boolean') {
+    return source ? 'verified' : 'derived';
+  }
+  return source;
+};
+
+const normalizeWalletDetailProfile = (
+  address: string,
+  rawProfile?: Record<string, unknown>
+): { profileAddress?: string; profileUrl?: string } => {
+  const profileAddress = getValidEvmAddress(
+    rawProfile?.address ??
+    rawProfile?.walletAddress ??
+    rawProfile?.publicAddress ??
+    rawProfile?.proxyWallet
+  );
+
+  if (!profileAddress || profileAddress !== address.toLowerCase()) {
+    return {};
+  }
+
+  return {
+    profileAddress,
+    profileUrl: `https://polymarket.com/profile/${profileAddress}`,
+  };
+};
+
 export const buildWalletPositionsResponse = (
   address: string,
   positions: any[],
-  authoritativeSuccess: boolean,
+  sourceInput: WalletPositionsSource | boolean,
+  metadata: { profileAddress?: string; profileUrl?: string } = {},
 ) => {
-  if (authoritativeSuccess) {
-    return { success: true, address, positions, source: 'verified' as const };
-  }
+  const source = normalizeWalletPositionsSource(sourceInput);
+  const normalizedPositions = positions.map((position) => {
+    if (source === 'cached') {
+      return {
+        ...position,
+        dataSource: 'cached' as const,
+      };
+    }
+
+    if (source === 'verified') {
+      return {
+        ...position,
+        dataSource: 'verified' as const,
+      };
+    }
+
+    return {
+      ...position,
+      dataSource: position.dataSource ?? 'derived',
+    };
+  });
+
+  const visiblePositions = source === 'derived'
+    ? normalizedPositions
+    : filterLiveWalletPositions(normalizedPositions);
 
   return {
     success: true,
     address,
-    positions: positions.map((position) => ({
-      ...position,
-      dataSource: position.dataSource ?? 'derived',
-    })),
-    source: 'derived' as const,
+    positions: visiblePositions,
+    source,
+    ...metadata,
   };
 };
 
@@ -568,27 +622,26 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
     void (async () => {
       try {
         const address = req.params.address.toLowerCase();
+        const validation = getWalletValidation(address);
+        const profileMetadata = normalizeWalletDetailProfile(address, validation?.rawProfile);
         try {
           const positions = await fetchAuthoritativePositions(address);
-          res.json(buildWalletPositionsResponse(address, positions, true));
+          res.json(buildWalletPositionsResponse(address, positions, 'verified', profileMetadata));
           return;
         } catch {
           /* fall back to derived positions below */
         }
 
-        const validation = getWalletValidation(address);
         if (validation?.rawPositions?.length) {
-          res.json({
-            success: true,
-            address,
-            positions: validation.rawPositions,
-            source: 'verified',
-          });
+          const cachedPositions = validation.rawPositions.map((position) =>
+            mapOfficialPositionToWalletPosition(position as any, 'cached')
+          );
+          res.json(buildWalletPositionsResponse(address, cachedPositions, 'cached', profileMetadata));
           return;
         }
 
         const positions = getPositionsByAddress(address);
-        res.json(buildWalletPositionsResponse(address, positions, false));
+        res.json(buildWalletPositionsResponse(address, positions, 'derived', profileMetadata));
       } catch (err: any) {
         res.status(500).json({ success: false, error: err.message });
       }

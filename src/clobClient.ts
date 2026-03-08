@@ -2,6 +2,7 @@ import { ClobClient, Side, OrderType } from '@polymarket/clob-client';
 import { BuilderConfig } from '@polymarket/builder-signing-sdk';
 import * as ethers from 'ethers';
 import { config } from './config.js';
+import { getValidEvmAddress } from './addressUtils.js';
 
 /**
  * Wrapper for Polymarket CLOB client with proper L2 authentication
@@ -407,9 +408,9 @@ export class PolymarketClobClient {
    * This is the address where Polymarket holds your funds
    */
   getFunderAddress(): string | null {
-    // Check if POLYMARKET_FUNDER_ADDRESS is set
-    const funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS;
-    if (funderAddress && funderAddress !== this.signer?.address) {
+    const funderAddress = getValidEvmAddress(process.env.POLYMARKET_FUNDER_ADDRESS);
+    const signerAddress = this.signer?.address?.toLowerCase();
+    if (funderAddress && funderAddress !== signerAddress) {
       return funderAddress;
     }
     return null;

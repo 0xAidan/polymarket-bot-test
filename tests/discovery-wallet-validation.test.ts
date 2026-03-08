@@ -22,7 +22,10 @@ test('buildWalletValidationRecord summarizes realized pnl and activity mix', () 
       verifiedBadge: true,
     },
     traded: { traded: 14 },
-    positions: [{ conditionId: 'c1' }, { conditionId: 'c2' }],
+    positions: [
+      { conditionId: 'c1', size: 50, redeemable: false },
+      { conditionId: 'c2', size: 20, redeemable: false },
+    ],
     closedPositions: [
       { realizedPnl: 120, title: 'Fed Market' },
       { realizedPnl: -20, title: 'Election Market' },
@@ -47,6 +50,22 @@ test('buildWalletValidationRecord summarizes realized pnl and activity mix', () 
   assert.equal(record.sellActivityCount, 1);
   assert.equal(record.makerRebateCount, 1);
   assert.equal(record.marketsTouched, 1);
+});
+
+test('buildWalletValidationRecord only counts live open positions', () => {
+  const record = buildWalletValidationRecord({
+    address: '0xABC',
+    positions: [
+      { conditionId: 'live-1', size: 100, redeemable: false },
+      { conditionId: 'redeemable-win', size: 250, redeemable: true },
+      { conditionId: 'zero-size', size: 0, redeemable: false },
+      { conditionId: 'string-size', size: '15.5', redeemable: false },
+    ],
+    validatedAt: 1710000000,
+  });
+
+  assert.equal(record.openPositionsCount, 2);
+  assert.equal(record.rawPositions?.length, 4);
 });
 
 test('wallet validation records are persisted and retrieved', async () => {

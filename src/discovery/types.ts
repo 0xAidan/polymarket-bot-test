@@ -316,7 +316,8 @@ export interface WalletPosition {
   roiPct: number;
   realizedPnl?: number;
   currentValue?: number;
-  dataSource?: 'verified' | 'derived';
+  dataSource?: 'verified' | 'cached' | 'derived';
+  positionStatus?: 'open' | 'redeemable' | 'closed';
   updatedAt?: number;
 }
 

@@ -401,6 +401,43 @@ test('buildWalletPositionsResponse trusts successful empty authoritative respons
   assert.deepEqual(response.positions, []);
 });
 
+test('buildWalletPositionsResponse filters out redeemable verified rows', () => {
+  const response = buildWalletPositionsResponse('0x123400000000000000000000000000000000abcd', [
+    {
+      conditionId: 'resolved-market',
+      assetId: 'asset-win',
+      shares: 100,
+      dataSource: 'verified',
+      positionStatus: 'redeemable',
+    },
+    {
+      conditionId: 'open-market',
+      assetId: 'asset-live',
+      shares: 25,
+      dataSource: 'verified',
+      positionStatus: 'open',
+    },
+  ], 'verified');
+
+  assert.equal(response.source, 'verified');
+  assert.equal(response.positions.length, 1);
+  assert.equal(response.positions[0]?.conditionId, 'open-market');
+});
+
+test('buildWalletPositionsResponse marks cached fallback rows distinctly from live verified data', () => {
+  const response = buildWalletPositionsResponse('0x123400000000000000000000000000000000abcd', [
+    {
+      conditionId: 'cached-market',
+      assetId: 'asset-cached',
+      shares: 12,
+      dataSource: 'verified',
+    },
+  ], 'cached');
+
+  assert.equal(response.source, 'cached');
+  assert.equal(response.positions[0]?.dataSource, 'cached');
+});
+
 test('applyDiscoveryWalletScore recalculates wallet score from current wallet performance', () => {
   const wallet = applyDiscoveryWalletScore({
     address: '0x123400000000000000000000000000000000abcd',

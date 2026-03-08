@@ -1524,7 +1524,7 @@ async function openMirrorModal(address) {
     renderMirrorTrades(preview.trades);
     updateMirrorSummary();
   } catch (error) {
-    document.getElementById('mirrorTradesBody').innerHTML = `<tr class="empty-row"><td colspan="8">Error: ${error.message}</td></tr>`;
+    document.getElementById('mirrorTradesBody').innerHTML = `<tr class="empty-row"><td colspan="8">Mirror preview failed: ${error.message}</td></tr>`;
   }
 }
 
@@ -2944,20 +2944,36 @@ const openWalletDetail = async (address) => {
     const positions = posData.success ? (posData.positions || []) : [];
     const signals = sigData.success ? (sigData.signals || []) : [];
     const positionSource = posData.source || 'derived';
+    const positionSourceLabel = positionSource === 'verified'
+      ? 'Live open positions from Polymarket'
+      : positionSource === 'cached'
+        ? 'Cached Polymarket snapshot'
+        : 'Derived from observed discovery trades';
 
-    const profileUrl = 'https://polymarket.com/profile/' + address;
+    const profileUrl = posData.profileUrl || '';
     let html = '<p class="text-mono text-sm mb-4">' + address + '</p>';
-    html += '<p class="mb-8"><a href="' + profileUrl + '" target="_blank" rel="noopener noreferrer" style="color:#0066cc;text-decoration:underline;font-size:12px;" tabindex="0" aria-label="View Polymarket profile for this wallet">View on Polymarket &rarr;</a></p>';
-    html += '<p class="text-sm mb-4">Position source: <strong>' + (positionSource === 'verified' ? 'Verified from Polymarket' : 'Derived from observed discovery trades') + '</strong></p>';
+    if (profileUrl) {
+      html += '<p class="mb-8"><a href="' + profileUrl + '" target="_blank" rel="noopener noreferrer" style="color:#0066cc;text-decoration:underline;font-size:12px;" tabindex="0" aria-label="View Polymarket profile for this wallet">View on Polymarket &rarr;</a></p>';
+    } else {
+      html += '<p class="text-xs text-muted mb-8">No public Polymarket profile link is available for this wallet identity yet.</p>';
+    }
+    html += '<p class="text-sm mb-4">Position source: <strong>' + positionSourceLabel + '</strong></p>';
+    if (positionSource === 'cached') {
+      html += '<p class="text-xs text-muted mb-4">This is a fallback cache from the last successful wallet validation, not a fresh live query.</p>';
+    }
     html += '<h4 class="mb-4">Positions</h4>';
     if (positions.length === 0) {
       html += '<p class="text-muted text-sm">No positions</p>';
     } else {
-      html += '<table class="win-listview"><thead><tr><th>Market</th><th>Shares</th><th>Cost</th><th>PnL</th><th>ROI</th><th>Data</th></tr></thead><tbody>';
+      html += '<table class="win-listview"><thead><tr><th>Market</th><th>Shares</th><th>Cost</th><th>PnL</th><th>ROI</th><th>Trust</th></tr></thead><tbody>';
       positions.forEach((p) => {
         const marketLabel = (p.marketTitle || p.conditionId?.slice(0, 12) || '—') + (p.outcome ? ` (${p.outcome})` : '');
         const priceNote = (p.currentPrice === null || p.currentPrice === undefined) ? ' <span class="text-xs text-muted">(price pending)</span>' : '';
-        const dataBadge = p.dataSource === 'verified' ? 'Verified' : 'Derived';
+        const dataBadge = p.dataSource === 'verified'
+          ? 'Live'
+          : p.dataSource === 'cached'
+            ? 'Cached'
+            : 'Derived';
         html += '<tr><td>' + marketLabel + priceNote + '</td><td>' + (p.shares || 0).toLocaleString() + '</td><td>$' + (p.totalCost || 0).toLocaleString() + '</td><td>' + pnlText(p.unrealizedPnl) + '</td><td>' + roiText(p.roiPct) + '</td><td>' + dataBadge + '</td></tr>';
       });
       html += '</tbody></table>';
