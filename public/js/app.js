@@ -2746,10 +2746,20 @@ const fetchDiscoveryWallets = async (append) => {
         : '<button class="win-btn win-btn-sm win-btn-primary" onclick="event.stopPropagation();trackDiscoveredWallet(\'' + (w.address || '').replace(/'/g, "\\'") + '\', this)" aria-label="Track and activate wallet" tabindex="0">Track &amp; Activate</button>';
       const roiLabel = roiText(w.roiPct) + (w.positionDataSource === 'verified' ? ' <span class="text-xs text-muted">(verified)</span>' : '');
       const categoryBadge = discoveryCategoryBadge(w.focusCategory);
-      const whySurfaced = w.whySurfaced ? `<div class="text-xs text-muted" style="margin-top:2px;max-width:280px;">${w.whySurfaced}</div>` : '';
-      const signalCell = w.lastSignalAt
-        ? `●<div class="text-xs text-muted" style="margin-top:2px;">${(w.lastSignalType || '').replace(/_/g, ' ')}</div>`
-        : '—';
+      const sourceLine = Array.isArray(w.sourceChannels) && w.sourceChannels.length
+        ? `<div class="text-xs text-muted" style="margin-top:2px;">Sources: ${w.sourceChannels.join(', ')}</div>`
+        : '';
+      const marketLine = Array.isArray(w.supportingMarkets) && w.supportingMarkets.length
+        ? `<div class="text-xs text-muted" style="margin-top:2px;max-width:280px;">Markets: ${w.supportingMarkets.join(', ')}</div>`
+        : '';
+      const whySurfaced = w.whySurfaced
+        ? `<div class="text-xs text-muted" style="margin-top:2px;max-width:280px;">${w.whySurfaced}</div>${sourceLine}${marketLine}`
+        : sourceLine + marketLine;
+      const signalCell = Array.isArray(w.failedGates) && w.failedGates.length
+        ? `Gate fail<div class="text-xs text-muted" style="margin-top:2px;">${w.failedGates.join(', ')}</div>`
+        : (Array.isArray(w.warningReasons) && w.warningReasons.length
+          ? `Watch<div class="text-xs text-muted" style="margin-top:2px;">${w.warningReasons[0]}</div>`
+          : 'Qualified');
       tr.innerHTML =
         '<td>' + heatBadge(w.heatIndicator) + '</td>' +
         '<td class="text-mono" title="' + (w.address || '') + '">' + shortAddr + categoryBadge + '</td>' +
@@ -2806,7 +2816,9 @@ const loadDiscoverySignals = async () => {
     const sortedSignals = [...signals].sort((a, b) => (priority[a.signalType] ?? 99) - (priority[b.signalType] ?? 99));
     listEl.innerHTML = sortedSignals.map((s) => {
       const timeAgo = s.detectedAt ? (Date.now() - s.detectedAt < 60000 ? 'Just now' : Math.floor((Date.now() - s.detectedAt) / 60000) + 'm ago') : '';
-      const dismissBtn = '<button class="win-btn win-btn-sm" onclick="dismissSignal(' + s.id + ')" aria-label="Dismiss">Dismiss</button>';
+      const dismissBtn = s.canDismiss
+        ? '<button class="win-btn win-btn-sm" onclick="dismissSignal(' + s.id + ')" aria-label="Dismiss">Dismiss</button>'
+        : '';
       const meta = s.metadata || {};
       const detail = s.signalType === 'CONVICTION_BUILD'
         ? `Fills: ${meta.fills || 0} • Notional: $${Number(meta.totalNotional || 0).toLocaleString()}`
@@ -3064,7 +3076,7 @@ const restartDiscovery = async () => {
     const resp = await fetch('/api/discovery/config/restart', { method: 'POST' });
     const data = await resp.json();
     if (data.success) {
-      win95Dialog.alert('Restarted', 'Discovery engine restarted successfully.');
+      win95Dialog.alert('Restart Needed', 'Discovery settings were saved. The dedicated discovery worker is restarted separately.');
     } else {
       win95Dialog.alert('Error', data.error || 'Failed to restart');
     }

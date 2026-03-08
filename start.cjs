@@ -34,12 +34,33 @@ if (!fs.existsSync(ENV_PATH)) {
   console.log('\n✨ Setup complete! Starting bot...\n');
 }
 
-// Now start the actual bot with tsx
+// Start the main app and the isolated discovery worker sidecar.
 const bot = spawn('npx', ['tsx', 'watch', 'src/index.ts'], {
   stdio: 'inherit',
   cwd: __dirname
 });
 
+const discoveryWorker = spawn('npx', ['tsx', 'watch', 'src/discovery/discoveryWorker.ts'], {
+  stdio: 'inherit',
+  cwd: __dirname
+});
+
+const shutdownChildren = () => {
+  if (!bot.killed) bot.kill('SIGTERM');
+  if (!discoveryWorker.killed) discoveryWorker.kill('SIGTERM');
+};
+
+process.on('SIGINT', shutdownChildren);
+process.on('SIGTERM', shutdownChildren);
+
 bot.on('close', (code) => {
+  if (!discoveryWorker.killed) discoveryWorker.kill('SIGTERM');
   process.exit(code);
+});
+
+discoveryWorker.on('close', (code) => {
+  if (!bot.killed) {
+    console.error(`\n[DiscoveryWorker] exited with code ${code}. Stopping dev runner.\n`);
+    bot.kill('SIGTERM');
+  }
 });

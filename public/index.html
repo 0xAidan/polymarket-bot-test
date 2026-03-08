@@ -377,9 +377,9 @@
               </label>
             </div>
             <div class="form-row mb-8">
-              <label>Alchemy WS URL:</label>
+              <label>Optional Fast-Mode WS URL:</label>
               <div style="flex:1;">
-                <input type="text" id="discoveryAlchemyUrl" placeholder="wss://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY" class="win-input" style="width:100%;" aria-label="Alchemy WebSocket URL" autocomplete="off">
+                <input type="text" id="discoveryAlchemyUrl" placeholder="Optional: fast-mode websocket for later acceleration" class="win-input" style="width:100%;" aria-label="Optional fast-mode websocket URL" autocomplete="off">
                 <div id="discoveryAlchemyUrlHasKey" class="text-sm text-muted" style="margin-top:2px;display:none;"></div>
               </div>
             </div>
@@ -427,11 +427,11 @@
             <div class="metrics-row" id="discoveryStatusMetrics">
               <div class="metric-box">
                 <div class="metric-value" id="discoveryChainStatus">--</div>
-                <div class="metric-label">Chain Listener</div>
+                <div class="metric-label">Fast Mode</div>
               </div>
               <div class="metric-box">
                 <div class="metric-value" id="discoveryPollerStatus">--</div>
-                <div class="metric-label">API Poller</div>
+                <div class="metric-label">Worker Cycle</div>
               </div>
               <div class="metric-box">
                 <div class="metric-value" id="discoveryWalletCount">0</div>
@@ -439,7 +439,7 @@
               </div>
               <div class="metric-box">
                 <div class="metric-value" id="discoveryTradeCount">0</div>
-                <div class="metric-label">Trades Ingested</div>
+                <div class="metric-label">Candidates Last Run</div>
               </div>
               <div class="metric-box">
                 <div class="metric-value" id="discoveryUptime">--</div>

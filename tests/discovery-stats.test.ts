@@ -385,10 +385,11 @@ test('cleanupOldSignals clears wallet signal markers when old signals are remove
 test('createServer initializes the database before discovery startup', async () => {
   closeDatabase();
 
-  const { createServer } = await import('../src/server.js');
+  const { createServer, getDiscoveryManager } = await import('../src/server.js');
   await createServer({
     getPerformanceTracker: () => ({}),
   } as any);
 
   assert.doesNotThrow(() => getDatabase());
+  assert.equal(getDiscoveryManager(), null);
 });

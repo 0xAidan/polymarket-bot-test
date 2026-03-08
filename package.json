@@ -7,9 +7,10 @@
   "scripts": {
     "setup": "node setup.js",
     "dev": "node start.cjs",
+    "discovery:worker": "tsx src/discovery/discoveryWorker.ts",
     "build": "tsc",
     "test": "node --test --import tsx tests/**/*.test.ts",
-    "start": "tsx src/index.ts",
+    "start": "node start.cjs",
     "lint": "eslint src --ext .ts"
   },
   "keywords": [

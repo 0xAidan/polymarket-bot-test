@@ -213,6 +213,126 @@ function createSchema(database: Database.Database): void {
       updated_at   INTEGER DEFAULT (unixepoch())
     );
 
+    CREATE TABLE IF NOT EXISTS discovery_market_pool (
+      condition_id      TEXT PRIMARY KEY,
+      event_id          TEXT,
+      market_id         TEXT,
+      event_slug        TEXT,
+      slug              TEXT,
+      title             TEXT,
+      focus_category    TEXT NOT NULL,
+      tag_slugs         TEXT NOT NULL,
+      token_ids         TEXT NOT NULL,
+      outcomes          TEXT,
+      liquidity         REAL,
+      volume_24h        REAL,
+      open_interest     REAL,
+      accepting_orders  INTEGER DEFAULT 0,
+      competitive       INTEGER DEFAULT 0,
+      start_date        TEXT,
+      end_date          TEXT,
+      updated_at        INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_market_pool_category
+      ON discovery_market_pool (focus_category, volume_24h DESC);
+
+    CREATE TABLE IF NOT EXISTS discovery_token_map (
+      token_id       TEXT PRIMARY KEY,
+      condition_id   TEXT NOT NULL,
+      outcome        TEXT,
+      updated_at     INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_token_map_condition
+      ON discovery_token_map (condition_id);
+
+    CREATE TABLE IF NOT EXISTS discovery_wallet_candidates (
+      address         TEXT NOT NULL,
+      source_type     TEXT NOT NULL,
+      source_label    TEXT NOT NULL,
+      condition_id    TEXT NOT NULL DEFAULT '',
+      market_title    TEXT,
+      source_rank     INTEGER,
+      source_metric   REAL,
+      source_metadata TEXT,
+      first_seen_at   INTEGER NOT NULL,
+      last_seen_at    INTEGER NOT NULL,
+      updated_at      INTEGER NOT NULL,
+      PRIMARY KEY (address, source_type, condition_id, source_label)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_wallet_candidates_updated
+      ON discovery_wallet_candidates (updated_at DESC, source_metric DESC);
+
+    CREATE TABLE IF NOT EXISTS discovery_wallet_validation (
+      address               TEXT PRIMARY KEY,
+      profile_name          TEXT,
+      pseudonym             TEXT,
+      x_username            TEXT,
+      verified_badge        INTEGER DEFAULT 0,
+      traded_markets        INTEGER,
+      open_positions_count  INTEGER NOT NULL DEFAULT 0,
+      closed_positions_count INTEGER NOT NULL DEFAULT 0,
+      realized_pnl          REAL NOT NULL DEFAULT 0,
+      realized_win_rate     REAL NOT NULL DEFAULT 0,
+      maker_rebate_count    INTEGER NOT NULL DEFAULT 0,
+      trade_activity_count  INTEGER NOT NULL DEFAULT 0,
+      buy_activity_count    INTEGER NOT NULL DEFAULT 0,
+      sell_activity_count   INTEGER NOT NULL DEFAULT 0,
+      markets_touched       INTEGER NOT NULL DEFAULT 0,
+      raw_profile           TEXT,
+      raw_positions         TEXT,
+      raw_closed_positions  TEXT,
+      raw_activity          TEXT,
+      last_validated_at     INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS discovery_wallet_scores (
+      address                   TEXT PRIMARY KEY,
+      profitability_score       REAL NOT NULL DEFAULT 0,
+      focus_score               REAL NOT NULL DEFAULT 0,
+      copyability_score         REAL NOT NULL DEFAULT 0,
+      early_score               REAL NOT NULL DEFAULT 0,
+      consistency_score         REAL NOT NULL DEFAULT 0,
+      conviction_score          REAL NOT NULL DEFAULT 0,
+      noise_penalty             REAL NOT NULL DEFAULT 0,
+      passed_profitability_gate INTEGER NOT NULL DEFAULT 0,
+      passed_focus_gate         INTEGER NOT NULL DEFAULT 0,
+      passed_copyability_gate   INTEGER NOT NULL DEFAULT 0,
+      final_score               REAL NOT NULL DEFAULT 0,
+      updated_at                INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_wallet_scores_final
+      ON discovery_wallet_scores (final_score DESC, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS discovery_wallet_reasons (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      address      TEXT NOT NULL,
+      reason_type  TEXT NOT NULL,
+      reason_code  TEXT NOT NULL,
+      message      TEXT NOT NULL,
+      created_at   INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_wallet_reasons_address
+      ON discovery_wallet_reasons (address, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS discovery_run_log (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      phase               TEXT NOT NULL,
+      gamma_request_count INTEGER NOT NULL DEFAULT 0,
+      data_request_count  INTEGER NOT NULL DEFAULT 0,
+      clob_request_count  INTEGER NOT NULL DEFAULT 0,
+      candidate_count     INTEGER NOT NULL DEFAULT 0,
+      qualified_count     INTEGER NOT NULL DEFAULT 0,
+      rejected_count      INTEGER NOT NULL DEFAULT 0,
+      duration_ms         INTEGER NOT NULL DEFAULT 0,
+      notes               TEXT,
+      created_at          INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS discovery_config (
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL
