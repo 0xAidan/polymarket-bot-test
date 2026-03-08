@@ -31,6 +31,10 @@ import {
   listStoredWalletIds,
   updateWalletBuilderCredentials,
 } from '../walletManager.js';
+import {
+  classifyTradeExecutionFailure,
+  summarizeClobConnectivityDiagnosis,
+} from '../tradeExecutionDiagnostics.js';
 
 /**
  * API routes for managing the bot
@@ -2893,19 +2897,48 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       // Test 3: Check signature type configuration
       results.signatureType = parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '0', 10);
       results.funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS || 'Not set (using EOA)';
+      results.signatureConfig = {
+        proxyModeConfigured: results.signatureType === 2 && results.funderAddress !== 'Not set (using EOA)',
+        missingProxyFunder: results.signatureType === 2 && results.funderAddress === 'Not set (using EOA)',
+      };
+
+      // Test 4: Safe authenticated probe - read open orders without placing a trade.
+      try {
+        const clobClient = copyTrader.getClobClient();
+        await clobClient.initialize();
+        const openOrders = await clobClient.getOpenOrders();
+        results.authProbe = {
+          name: 'Authenticated open-orders probe',
+          success: true,
+          openOrdersCount: Array.isArray(openOrders) ? openOrders.length : null,
+        };
+      } catch (e: any) {
+        const failure = classifyTradeExecutionFailure({
+          errorMessage: e.message,
+          authProbeSucceeded: false,
+        });
+        results.authProbe = {
+          name: 'Authenticated open-orders probe',
+          success: false,
+          error: e.message,
+          classification: failure.classification,
+          summary: failure.summary,
+        };
+      }
 
       // Summary
       const allTestsPassed = results.tests.every((t: any) => t.success);
       const anyCloudflareBlocks = results.tests.some((t: any) => t.isCloudflareBlock);
+      const authProbeSucceeded = results.authProbe?.success === true;
 
       results.summary = {
         allTestsPassed,
         anyCloudflareBlocks,
-        diagnosis: anyCloudflareBlocks
-          ? 'CLOUDFLARE BLOCKING DETECTED - Your server IP is blocked by Polymarket. Try running locally or using a different server.'
-          : allTestsPassed
-            ? 'CLOB API is accessible - credentials configured correctly'
-            : 'CLOB API unreachable - network or configuration issue'
+        diagnosis: summarizeClobConnectivityDiagnosis({
+          allTestsPassed,
+          anyCloudflareBlocks,
+          authProbe: results.authProbe,
+        })
       };
 
       res.json({ success: true, ...results });

@@ -6,6 +6,7 @@ import { createRoutes } from './api/routes.js';
 import { createDiscoveryRoutes } from './api/discoveryRoutes.js';
 import { CopyTrader } from './copyTrader.js';
 import { DiscoveryManager } from './discovery/discoveryManager.js';
+import { initDatabase } from './database.js';
 
 let discoveryManagerInstance: DiscoveryManager | null = null;
 
@@ -15,6 +16,7 @@ export const getDiscoveryManager = (): DiscoveryManager | null => discoveryManag
  * Create and configure the Express server
  */
 export async function createServer(copyTrader: CopyTrader): Promise<express.Application> {
+  await initDatabase();
   const app = express();
 
   // Middleware
@@ -27,7 +29,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   app.use(express.static(publicPath));
 
   // Initialize Discovery Manager
-  discoveryManagerInstance = new DiscoveryManager();
+  discoveryManagerInstance = new DiscoveryManager('passive');
 
   // API routes
   app.use('/api', createRoutes(copyTrader));

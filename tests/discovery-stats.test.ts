@@ -392,3 +392,19 @@ test('createServer initializes the database before discovery startup', async () 
 
   assert.doesNotThrow(() => getDatabase());
 });
+
+test('createServer keeps discovery runtime passive inside the main app process', async () => {
+  closeDatabase();
+
+  const { createServer, getDiscoveryManager } = await import('../src/server.js');
+  await createServer({
+    getPerformanceTracker: () => ({}),
+  } as any);
+
+  const discoveryManager = getDiscoveryManager();
+  assert.ok(discoveryManager);
+  assert.equal(discoveryManager.isPassiveRuntime(), true);
+  const status = discoveryManager.getStatus();
+  assert.equal(status.apiPoller.running, false);
+  assert.equal(status.chainListener.connected, false);
+});
