@@ -221,6 +221,15 @@ export function getCopyAssignments(): CopyAssignment[] {
   return [...copyAssignments];
 }
 
+/**
+ * Get copy assignments for a specific tracked wallet.
+ */
+export function getAssignmentsForTrackedWallet(trackedWalletAddress: string): CopyAssignment[] {
+  return copyAssignments.filter(
+    a => a.trackedWalletAddress.toLowerCase() === trackedWalletAddress.toLowerCase()
+  );
+}
+
 // ============================================================================
 // WALLET UNLOCK / LOCK
 // ============================================================================
