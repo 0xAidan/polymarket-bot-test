@@ -2752,14 +2752,25 @@ const fetchDiscoveryWallets = async (append) => {
       const marketLine = Array.isArray(w.supportingMarkets) && w.supportingMarkets.length
         ? `<div class="text-xs text-muted" style="margin-top:2px;max-width:280px;">Markets: ${w.supportingMarkets.join(', ')}</div>`
         : '';
+      const stateLine = w.discoveryState
+        ? `<div class="text-xs" style="margin-top:2px;"><strong>${w.discoveryState}</strong>${w.whyNotTracked ? ` • ${w.whyNotTracked}` : ''}</div>`
+        : '';
+      const changeLine = w.whatChanged
+        ? `<div class="text-xs text-muted" style="margin-top:2px;max-width:280px;">Changed: ${w.whatChanged}</div>`
+        : '';
+      const reasonCodeLine = Array.isArray(w.reasonCodes) && w.reasonCodes.length
+        ? `<div class="text-xs text-muted" style="margin-top:2px;">Codes: ${w.reasonCodes.join(', ')}</div>`
+        : '';
       const whySurfaced = w.whySurfaced
-        ? `<div class="text-xs text-muted" style="margin-top:2px;max-width:280px;">${w.whySurfaced}</div>${sourceLine}${marketLine}`
-        : sourceLine + marketLine;
-      const signalCell = Array.isArray(w.failedGates) && w.failedGates.length
-        ? `Gate fail<div class="text-xs text-muted" style="margin-top:2px;">${w.failedGates.join(', ')}</div>`
-        : (Array.isArray(w.warningReasons) && w.warningReasons.length
-          ? `Watch<div class="text-xs text-muted" style="margin-top:2px;">${w.warningReasons[0]}</div>`
-          : 'Qualified');
+        ? `<div class="text-xs text-muted" style="margin-top:2px;max-width:280px;">${w.whySurfaced}</div>${stateLine}${changeLine}${sourceLine}${marketLine}${reasonCodeLine}`
+        : `${stateLine}${changeLine}${sourceLine}${marketLine}${reasonCodeLine}`;
+      const signalCell = w.discoveryState
+        ? `${w.discoveryState}${Array.isArray(w.failedGates) && w.failedGates.length
+          ? `<div class="text-xs text-muted" style="margin-top:2px;">${w.failedGates.join(', ')}</div>`
+          : (Array.isArray(w.warningReasons) && w.warningReasons.length
+            ? `<div class="text-xs text-muted" style="margin-top:2px;">${w.warningReasons[0]}</div>`
+            : '')}`
+        : 'Qualified';
       tr.innerHTML =
         '<td>' + heatBadge(w.heatIndicator) + '</td>' +
         '<td class="text-mono" title="' + (w.address || '') + '">' + shortAddr + categoryBadge + '</td>' +

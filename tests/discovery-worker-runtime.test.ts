@@ -179,3 +179,71 @@ test('DiscoveryWorkerRuntime uses saved marketCount to cap seeded markets', asyn
     }
   }
 });
+
+test('DiscoveryWorkerRuntime records budget and acceptance metrics in the run log', async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), 'discovery-worker-metrics-'));
+  (config as any).dataDir = tempDir;
+  closeDatabase();
+  await initDatabase();
+  updateDiscoveryConfig({ enabled: true, marketCount: 1 });
+
+  try {
+    const runtime = new DiscoveryWorkerRuntime({
+      now: () => 1710000000,
+      marketSeedLimit: 1,
+      leaderboardCategories: ['POLITICS'],
+      leaderboardWindows: ['WEEK'],
+      fetchActiveEvents: async () => [
+        {
+          id: 'event-1',
+          slug: 'fed-rates',
+          title: 'Fed Rates',
+          tags: [{ slug: 'economics', label: 'Economics' }],
+          markets: [
+            {
+              id: 'market-1',
+              conditionId: 'condition-fed',
+              slug: 'will-the-fed-cut-rates-in-june',
+              question: 'Will the Fed cut rates in June?',
+              clobTokenIds: JSON.stringify(['yes-fed', 'no-fed']),
+              outcomes: ['Yes', 'No'],
+              volume24hr: '450000',
+              acceptingOrders: true,
+              competitive: true,
+            },
+          ],
+        },
+      ],
+      fetchLeaderboard: async () => [
+        { proxyWallet: '0xabc', rank: 1, pnl: 500, vol: 10000 },
+      ],
+      fetchMarketPositions: async () => [
+        { positions: [{ proxyWallet: '0xabc', totalPnl: 400, currentValue: 1000 }] },
+      ],
+      fetchHolders: async () => [{ proxyWallet: '0xabc', size: 1000 }],
+      fetchTrades: async () => [{ proxyWallet: '0xabc', size: 100, price: 0.4 }],
+      fetchProfile: async () => ({ name: 'Macro Alpha', pseudonym: 'macro-alpha', verifiedBadge: true }),
+      fetchTraded: async () => ({ traded: 8 }),
+      fetchPositions: async () => [{ conditionId: 'condition-fed' }],
+      fetchClosedPositions: async () => [{ realizedPnl: 120 }],
+      fetchActivity: async () => [{ type: 'TRADE', side: 'BUY', marketSlug: 'fed-rates' }],
+      fetchMarketContext: async () => ({ averageSpreadBps: 20, averageTopOfBookUsd: 5000 }),
+    });
+
+    await runtime.runCycle();
+
+    const runLog = getLatestDiscoveryRunLog();
+
+    assert.ok(runLog, 'expected discovery run log to exist');
+    assert.equal(runLog?.freeModeNoAlchemy, true);
+    assert.equal(runLog?.categoryPurityPct, 100);
+    assert.equal(runLog?.copyabilityPassPct, 100);
+    assert.equal(runLog?.walletsWithTwoReasonsPct, 100);
+    assert.equal(typeof runLog?.estimatedCostUsd, 'number');
+  } finally {
+    closeDatabase();
+    if (existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+});

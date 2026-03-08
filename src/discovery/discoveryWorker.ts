@@ -51,8 +51,10 @@ const DEFAULT_DISCOVERY_CYCLE_MS = 15 * 60 * 1000;
 const DEFAULT_MARKET_SEED_LIMIT = 10;
 const DEFAULT_LEADERBOARD_CATEGORIES = ['POLITICS', 'ECONOMICS', 'TECH', 'FINANCE'];
 const DEFAULT_LEADERBOARD_WINDOWS = ['WEEK', 'MONTH'];
+const NOISE_CATEGORIES = new Set(['sports', 'crypto']);
 
 const clamp = (value: number, min = 0, max = 100): number => Math.max(min, Math.min(max, value));
+const roundPct = (value: number): number => Math.round(value * 10) / 10;
 
 export class DiscoveryWorkerRuntime {
   private readonly now: () => number;
@@ -108,6 +110,8 @@ export class DiscoveryWorkerRuntime {
     let gammaRequestCount = 0;
     let dataRequestCount = 0;
     let clobRequestCount = 0;
+    let copyabilityPassCount = 0;
+    let walletsWithTwoReasonsCount = 0;
 
     const events = await (async () => {
       gammaRequestCount += 1;
@@ -190,11 +194,15 @@ export class DiscoveryWorkerRuntime {
     let qualifiedCount = 0;
     let rejectedCount = 0;
     const candidateAddresses = [...new Set(getWalletCandidates(200).map((candidate) => candidate.address))];
+    let categorizedCandidateCount = 0;
     for (const address of candidateAddresses) {
       const validation = getWalletValidation(address);
       if (!validation) continue;
 
       const focusSummary = getWalletCandidateFocusSummary(address);
+      if (focusSummary.focusCategory && !NOISE_CATEGORIES.has(focusSummary.focusCategory)) {
+        categorizedCandidateCount += 1;
+      }
       const candidates = getWalletCandidatesByAddress(address);
       const marketContexts = await Promise.all(
         candidates
@@ -254,7 +262,14 @@ export class DiscoveryWorkerRuntime {
       });
 
       upsertWalletScoreRow(row);
-      replaceWalletReasons(address, buildDiscoveryReasonRows(row), runTimestamp);
+      const reasons = buildDiscoveryReasonRows(row);
+      replaceWalletReasons(address, reasons, runTimestamp);
+      if (row.passedCopyabilityGate) {
+        copyabilityPassCount += 1;
+      }
+      if (reasons.filter((reason) => reason.reasonType === 'supporting').length >= 2) {
+        walletsWithTwoReasonsCount += 1;
+      }
 
       if (row.passedProfitabilityGate && row.passedFocusGate && row.passedCopyabilityGate) {
         qualifiedCount++;
@@ -272,6 +287,17 @@ export class DiscoveryWorkerRuntime {
       qualifiedCount,
       rejectedCount,
       durationMs: Date.now() - startedAt,
+      estimatedCostUsd: 0,
+      categoryPurityPct: candidateAddresses.length > 0
+        ? roundPct((categorizedCandidateCount / candidateAddresses.length) * 100)
+        : 0,
+      copyabilityPassPct: candidateAddresses.length > 0
+        ? roundPct((copyabilityPassCount / candidateAddresses.length) * 100)
+        : 0,
+      walletsWithTwoReasonsPct: candidateAddresses.length > 0
+        ? roundPct((walletsWithTwoReasonsCount / candidateAddresses.length) * 100)
+        : 0,
+      freeModeNoAlchemy: !cfg.alchemyWsUrl,
       notes: 'Category-first wallet-seeded discovery cycle',
       createdAt: runTimestamp,
     });

@@ -55,6 +55,16 @@ export async function initDatabase(): Promise<Database.Database> {
   safeAddColumn(db, 'discovery_positions', 'outcome', 'TEXT');
   safeAddColumn(db, 'discovery_positions', 'price_updated_at', 'INTEGER');
   safeAddColumn(db, 'discovery_market_cache', 'outcomes', 'TEXT');
+  safeAddColumn(db, 'discovery_wallet_scores', 'previous_final_score', 'REAL');
+  safeAddColumn(db, 'discovery_wallet_scores', 'previous_updated_at', 'INTEGER');
+  safeAddColumn(db, 'discovery_wallet_scores', 'previous_passed_profitability_gate', 'INTEGER');
+  safeAddColumn(db, 'discovery_wallet_scores', 'previous_passed_focus_gate', 'INTEGER');
+  safeAddColumn(db, 'discovery_wallet_scores', 'previous_passed_copyability_gate', 'INTEGER');
+  safeAddColumn(db, 'discovery_run_log', 'estimated_cost_usd', 'REAL DEFAULT 0');
+  safeAddColumn(db, 'discovery_run_log', 'category_purity_pct', 'REAL DEFAULT 0');
+  safeAddColumn(db, 'discovery_run_log', 'copyability_pass_pct', 'REAL DEFAULT 0');
+  safeAddColumn(db, 'discovery_run_log', 'wallets_with_two_reasons_pct', 'REAL DEFAULT 0');
+  safeAddColumn(db, 'discovery_run_log', 'free_mode_no_alchemy', 'INTEGER DEFAULT 1');
   safeCreateIndex(
     db,
     'idx_discovery_trades_event_key',
@@ -301,6 +311,11 @@ function createSchema(database: Database.Database): void {
       passed_focus_gate         INTEGER NOT NULL DEFAULT 0,
       passed_copyability_gate   INTEGER NOT NULL DEFAULT 0,
       final_score               REAL NOT NULL DEFAULT 0,
+      previous_final_score      REAL,
+      previous_updated_at       INTEGER,
+      previous_passed_profitability_gate INTEGER,
+      previous_passed_focus_gate INTEGER,
+      previous_passed_copyability_gate INTEGER,
       updated_at                INTEGER NOT NULL
     );
 
@@ -329,6 +344,11 @@ function createSchema(database: Database.Database): void {
       qualified_count     INTEGER NOT NULL DEFAULT 0,
       rejected_count      INTEGER NOT NULL DEFAULT 0,
       duration_ms         INTEGER NOT NULL DEFAULT 0,
+      estimated_cost_usd  REAL NOT NULL DEFAULT 0,
+      category_purity_pct REAL NOT NULL DEFAULT 0,
+      copyability_pass_pct REAL NOT NULL DEFAULT 0,
+      wallets_with_two_reasons_pct REAL NOT NULL DEFAULT 0,
+      free_mode_no_alchemy INTEGER NOT NULL DEFAULT 1,
       notes               TEXT,
       created_at          INTEGER NOT NULL
     );

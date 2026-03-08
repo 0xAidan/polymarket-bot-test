@@ -191,6 +191,11 @@ export interface DiscoveryWalletScoreRow {
   passedFocusGate: boolean;
   passedCopyabilityGate: boolean;
   finalScore: number;
+  previousFinalScore?: number;
+  previousUpdatedAt?: number;
+  previousPassedProfitabilityGate?: boolean;
+  previousPassedFocusGate?: boolean;
+  previousPassedCopyabilityGate?: boolean;
   updatedAt: number;
 }
 
@@ -212,6 +217,11 @@ export interface DiscoveryRunLog {
   qualifiedCount: number;
   rejectedCount: number;
   durationMs: number;
+  estimatedCostUsd?: number;
+  categoryPurityPct?: number;
+  copyabilityPassPct?: number;
+  walletsWithTwoReasonsPct?: number;
+  freeModeNoAlchemy?: boolean;
   notes?: string;
   createdAt: number;
 }

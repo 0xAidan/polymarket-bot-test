@@ -110,6 +110,11 @@ export const upsertWalletScoreRow = (row: DiscoveryWalletScoreRow): void => {
       passed_focus_gate, passed_copyability_gate, final_score, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(address) DO UPDATE SET
+      previous_final_score = discovery_wallet_scores.final_score,
+      previous_updated_at = discovery_wallet_scores.updated_at,
+      previous_passed_profitability_gate = discovery_wallet_scores.passed_profitability_gate,
+      previous_passed_focus_gate = discovery_wallet_scores.passed_focus_gate,
+      previous_passed_copyability_gate = discovery_wallet_scores.passed_copyability_gate,
       profitability_score = excluded.profitability_score,
       focus_score = excluded.focus_score,
       copyability_score = excluded.copyability_score,
@@ -162,6 +167,17 @@ export const getWalletScoreRow = (address: string): DiscoveryWalletScoreRow | nu
     passedFocusGate: Boolean(row.passed_focus_gate),
     passedCopyabilityGate: Boolean(row.passed_copyability_gate),
     finalScore: Number(row.final_score),
+    previousFinalScore: row.previous_final_score === null || row.previous_final_score === undefined ? undefined : Number(row.previous_final_score),
+    previousUpdatedAt: row.previous_updated_at === null || row.previous_updated_at === undefined ? undefined : Number(row.previous_updated_at),
+    previousPassedProfitabilityGate: row.previous_passed_profitability_gate === null || row.previous_passed_profitability_gate === undefined
+      ? undefined
+      : Boolean(row.previous_passed_profitability_gate),
+    previousPassedFocusGate: row.previous_passed_focus_gate === null || row.previous_passed_focus_gate === undefined
+      ? undefined
+      : Boolean(row.previous_passed_focus_gate),
+    previousPassedCopyabilityGate: row.previous_passed_copyability_gate === null || row.previous_passed_copyability_gate === undefined
+      ? undefined
+      : Boolean(row.previous_passed_copyability_gate),
     updatedAt: Number(row.updated_at),
   };
 };
