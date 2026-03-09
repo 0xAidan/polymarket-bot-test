@@ -391,7 +391,7 @@ test('createServer initializes the database before discovery startup', async () 
   } as any);
 
   assert.doesNotThrow(() => getDatabase());
-  assert.equal(getDiscoveryManager(), null);
+  assert.ok(getDiscoveryManager());
 });
 
 test('createServer keeps discovery runtime passive inside the main app process', async () => {
