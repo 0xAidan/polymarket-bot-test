@@ -9,7 +9,6 @@ async function main(): Promise<void> {
   await initDatabase();
 
   const manager = new DiscoveryManager();
-  await manager.start();
 
   const app = express();
   app.use(cors());
@@ -21,6 +20,9 @@ async function main(): Promise<void> {
 
   const server = app.listen(config.discoveryWorkerPort, '0.0.0.0', () => {
     console.log(`🔎 Discovery worker running on http://0.0.0.0:${config.discoveryWorkerPort}`);
+    void manager.start().catch((error) => {
+      console.error('Discovery manager startup failed:', error);
+    });
   });
 
   const shutdown = async (): Promise<void> => {
