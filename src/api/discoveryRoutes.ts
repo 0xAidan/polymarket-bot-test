@@ -7,23 +7,25 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { initDatabase } from '../database.js';
-import { DiscoveryManager } from '../discovery/discoveryManager.js';
+import { Storage } from '../storage.js';
 import { DiscoveryConfig, DiscoveryMarketCategory } from '../discovery/types.js';
 import {
   fetchAuthoritativePositions,
   summarizeAuthoritativePositions,
   buildPositionVerificationSummary,
+  filterLiveWalletPositions,
+  mapOfficialPositionToWalletPosition,
 } from '../discovery/positionTracker.js';
 import {
   markWalletTracked,
-  getRecentSignals,
-  getUnusualMarkets,
   dismissSignal,
   getPositionsByAddress,
-  getSignalsForAddress,
 } from '../discovery/statsStore.js';
 import { computeDiscoveryWalletScore } from '../discovery/walletScorer.js';
 import { classifyDiscoveryMarket } from '../discovery/marketClassifier.js';
+import { getRecentWalletReasons, getWalletReasons } from '../discovery/discoveryScorer.js';
+import { getWalletValidation } from '../discovery/walletValidator.js';
+import { getValidEvmAddress } from '../addressUtils.js';
 
 /**
  * Mask an Alchemy WebSocket URL for safe display.
@@ -70,23 +72,74 @@ export const applyAuthoritativeWalletSummary = <T extends { roiPct?: number | nu
   };
 };
 
+type WalletPositionsSource = 'verified' | 'cached' | 'derived';
+
+const normalizeWalletPositionsSource = (source: WalletPositionsSource | boolean): WalletPositionsSource => {
+  if (typeof source === 'boolean') {
+    return source ? 'verified' : 'derived';
+  }
+  return source;
+};
+
+const normalizeWalletDetailProfile = (
+  address: string,
+  rawProfile?: Record<string, unknown>
+): { profileAddress?: string; profileUrl?: string } => {
+  const profileAddress = getValidEvmAddress(
+    rawProfile?.address ??
+    rawProfile?.walletAddress ??
+    rawProfile?.publicAddress ??
+    rawProfile?.proxyWallet
+  );
+
+  if (!profileAddress || profileAddress !== address.toLowerCase()) {
+    return {};
+  }
+
+  return {
+    profileAddress,
+    profileUrl: `https://polymarket.com/profile/${profileAddress}`,
+  };
+};
+
 export const buildWalletPositionsResponse = (
   address: string,
   positions: any[],
-  authoritativeSuccess: boolean,
+  sourceInput: WalletPositionsSource | boolean,
+  metadata: { profileAddress?: string; profileUrl?: string } = {},
 ) => {
-  if (authoritativeSuccess) {
-    return { success: true, address, positions, source: 'verified' as const };
-  }
+  const source = normalizeWalletPositionsSource(sourceInput);
+  const normalizedPositions = positions.map((position) => {
+    if (source === 'cached') {
+      return {
+        ...position,
+        dataSource: 'cached' as const,
+      };
+    }
+
+    if (source === 'verified') {
+      return {
+        ...position,
+        dataSource: 'verified' as const,
+      };
+    }
+
+    return {
+      ...position,
+      dataSource: position.dataSource ?? 'derived',
+    };
+  });
+
+  const visiblePositions = source === 'derived'
+    ? normalizedPositions
+    : filterLiveWalletPositions(normalizedPositions);
 
   return {
     success: true,
     address,
-    positions: positions.map((position) => ({
-      ...position,
-      dataSource: position.dataSource ?? 'derived',
-    })),
-    source: 'derived' as const,
+    positions: visiblePositions,
+    source,
+    ...metadata,
   };
 };
 
@@ -217,6 +270,7 @@ export const matchesDiscoveryFocusFilter = <T extends {
 };
 
 const annotateDiscoveryWallet = <T extends {
+  whySurfaced?: string;
   focusCategory?: DiscoveryMarketCategory;
   highInformationVolume7d?: number;
   volume7d?: number;
@@ -227,7 +281,7 @@ const annotateDiscoveryWallet = <T extends {
   wallet: T,
 ): T & { whySurfaced: string } => ({
   ...wallet,
-  whySurfaced: buildDiscoveryWalletExplanation(wallet),
+  whySurfaced: wallet.whySurfaced || buildDiscoveryWalletExplanation(wallet),
 });
 
 const filterDiscoveryWalletsForPresentation = <T extends {
@@ -291,11 +345,16 @@ export const buildDiscoveryOverview = (
   }>,
   days: number,
 ) => {
+  const normalizeTimestamp = (value?: number): number => {
+    const timestamp = Number(value || 0);
+    if (!timestamp) return 0;
+    return timestamp < 1_000_000_000_000 ? timestamp * 1000 : timestamp;
+  };
   const surfacedWallets = wallets.filter(shouldIncludeDiscoveryWallet);
   const surfacedCutoff = Date.now() - 24 * 3600 * 1000;
   const signalCutoff = Date.now() - days * 86400 * 1000;
   const highInformationCategories = new Set(['politics', 'macro', 'company', 'legal', 'geopolitics']);
-  const surfacedToday = surfacedWallets.filter((wallet) => Number(wallet.lastActive || 0) >= surfacedCutoff);
+  const surfacedToday = surfacedWallets.filter((wallet) => normalizeTimestamp(wallet.lastActive) >= surfacedCutoff);
   const highInformationWallets = surfacedWallets.filter((wallet) => highInformationCategories.has(wallet.focusCategory || ''));
   const strongSignalCounts = new Map<string, number>();
 
@@ -323,7 +382,7 @@ export const buildDiscoveryOverview = (
     .sort((a, b) => b.count - a.count || (DISCOVERY_CATEGORY_PRIORITY[a.category] ?? 99) - (DISCOVERY_CATEGORY_PRIORITY[b.category] ?? 99));
 
   const topWalletsByDay = [...surfacedWallets.reduce((acc, wallet) => {
-    const bucket = new Date(Number(wallet.lastActive || 0)).toISOString().slice(0, 10);
+    const bucket = new Date(normalizeTimestamp(wallet.lastActive)).toISOString().slice(0, 10);
     const list = acc.get(bucket) ?? [];
     list.push({
       address: wallet.address,
@@ -365,7 +424,34 @@ const ensureDatabase = async (_req: Request, _res: Response, next: NextFunction)
   }
 };
 
-export const createDiscoveryRoutes = (manager: DiscoveryManager): Router => {
+type DiscoveryRoutesController = {
+  getConfig(): DiscoveryConfig;
+  updateConfig(updates: Partial<DiscoveryConfig>): Promise<DiscoveryConfig>;
+  getStatus(): {
+    enabled: boolean;
+    chainListener: { connected: boolean; lastEventAt?: number; reconnectCount: number };
+    apiPoller: { running: boolean; lastPollAt?: number; marketsMonitored: number };
+    stats: { totalWallets: number; totalTrades: number; uptimeMs: number };
+  };
+  getWallets(
+    sort: 'volume' | 'trades' | 'recent' | 'score' | 'roi',
+    limit: number,
+    offset: number,
+    filters?: { minScore?: number; heat?: string; hasSignals?: boolean }
+  ): unknown[];
+  purgeData(olderThanDays: number): number;
+  resetData(): {
+    trades: number;
+    wallets: number;
+    positions: number;
+    signals: number;
+    marketCache: number;
+    total: number;
+  };
+  restart(): Promise<void>;
+};
+
+export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Router => {
   const router = Router();
 
   router.use(ensureDatabase);
@@ -446,8 +532,19 @@ export const createDiscoveryRoutes = (manager: DiscoveryManager): Router => {
       const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
       const offset = parseInt(req.query.offset as string) || 0;
       const severity = req.query.severity as string | undefined;
-      const signalType = req.query.signalType as string | undefined;
-      const signals = getRecentSignals(limit, offset, { severity, signalType });
+      const reasonSignals = getRecentWalletReasons(limit * 3, offset).map((reason, index) => ({
+        id: offset + index + 1,
+        signalType: reason.reasonCode,
+        severity: reason.reasonType === 'rejection' ? 'high' : reason.reasonType === 'warning' ? 'medium' : 'low',
+        address: reason.address,
+        title: reason.reasonCode,
+        description: reason.message,
+        detectedAt: reason.createdAt,
+        canDismiss: false,
+      }));
+      const signals = severity
+        ? reasonSignals.filter((signal) => signal.severity === severity).slice(0, limit)
+        : reasonSignals.slice(0, limit);
       res.json({ success: true, signals });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -460,7 +557,29 @@ export const createDiscoveryRoutes = (manager: DiscoveryManager): Router => {
   router.get('/signals/markets', (req: Request, res: Response) => {
     try {
       const days = parseInt(req.query.days as string) || 7;
-      const markets = getUnusualMarkets(days);
+      const cutoff = Date.now() - days * 86400 * 1000;
+      const marketCounts = new Map<string, { marketTitle: string; signal_count: number; wallets: Set<string> }>();
+      const normalizeTimestamp = (value?: number): number => {
+        const timestamp = Number(value || 0);
+        return timestamp < 1_000_000_000_000 ? timestamp * 1000 : timestamp;
+      };
+      for (const wallet of manager.getWallets('score', 200, 0) as any[]) {
+        if (!Array.isArray(wallet.supportingMarkets)) continue;
+        if (normalizeTimestamp(wallet.updatedAt) < cutoff) continue;
+        for (const marketTitle of wallet.supportingMarkets) {
+          const entry = marketCounts.get(marketTitle) ?? { marketTitle, signal_count: 0, wallets: new Set<string>() };
+          entry.signal_count += 1;
+          entry.wallets.add(wallet.address);
+          marketCounts.set(marketTitle, entry);
+        }
+      }
+      const markets = [...marketCounts.values()]
+        .sort((a, b) => b.signal_count - a.signal_count)
+        .map((entry) => ({
+          market_title: entry.marketTitle,
+          signal_count: entry.signal_count,
+          wallets: [...entry.wallets].join(','),
+        }));
       res.json({ success: true, markets });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -470,8 +589,17 @@ export const createDiscoveryRoutes = (manager: DiscoveryManager): Router => {
   router.get('/summary', (req: Request, res: Response) => {
     try {
       const days = Math.min(parseInt(req.query.days as string) || 7, 14);
-      const wallets = manager.getWallets('score', 1000, 0);
-      const signals = getRecentSignals(500, 0);
+      const wallets = manager.getWallets('score', 1000, 0) as any[];
+      const signals: any[] = wallets.flatMap((wallet) =>
+        (wallet.warningReasons || []).map((reason: string, index: number) => ({
+          address: wallet.address,
+          severity: 'high',
+          marketTitle: wallet.supportingMarkets?.[index] || wallet.supportingMarkets?.[0],
+          detectedAt: wallet.updatedAt,
+          signalType: 'DISCOVERY_REASON',
+          description: reason,
+        }))
+      );
       res.json({
         success: true,
         overview: buildDiscoveryOverview(wallets as any, signals as any, days),
@@ -500,16 +628,26 @@ export const createDiscoveryRoutes = (manager: DiscoveryManager): Router => {
     void (async () => {
       try {
         const address = req.params.address.toLowerCase();
+        const validation = getWalletValidation(address);
+        const profileMetadata = normalizeWalletDetailProfile(address, validation?.rawProfile);
         try {
           const positions = await fetchAuthoritativePositions(address);
-          res.json(buildWalletPositionsResponse(address, positions, true));
+          res.json(buildWalletPositionsResponse(address, positions, 'verified', profileMetadata));
           return;
         } catch {
           /* fall back to derived positions below */
         }
 
+        if (validation?.rawPositions?.length) {
+          const cachedPositions = validation.rawPositions.map((position) =>
+            mapOfficialPositionToWalletPosition(position as any, 'cached')
+          );
+          res.json(buildWalletPositionsResponse(address, cachedPositions, 'cached', profileMetadata));
+          return;
+        }
+
         const positions = getPositionsByAddress(address);
-        res.json(buildWalletPositionsResponse(address, positions, false));
+        res.json(buildWalletPositionsResponse(address, positions, 'derived', profileMetadata));
       } catch (err: any) {
         res.status(500).json({ success: false, error: err.message });
       }
@@ -521,7 +659,15 @@ export const createDiscoveryRoutes = (manager: DiscoveryManager): Router => {
   // -----------------------------------------------------------------------
   router.get('/wallets/:address/signals', (req: Request, res: Response) => {
     try {
-      const signals = getSignalsForAddress(req.params.address.toLowerCase());
+      const signals = getWalletReasons(req.params.address.toLowerCase()).map((reason, index) => ({
+        id: index + 1,
+        signalType: reason.reasonCode,
+        severity: reason.reasonType === 'rejection' ? 'high' : reason.reasonType === 'warning' ? 'medium' : 'low',
+        address: reason.address,
+        title: reason.reasonCode,
+        description: reason.message,
+        detectedAt: reason.createdAt,
+      }));
       res.json({ success: true, signals });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -602,8 +748,11 @@ export const createDiscoveryRoutes = (manager: DiscoveryManager): Router => {
   // -----------------------------------------------------------------------
   router.post('/config/restart', async (req: Request, res: Response) => {
     try {
-      await manager.restart();
-      res.json({ success: true, message: 'Discovery engine restarted' });
+      await manager.restart().catch(() => {});
+      res.status(202).json({
+        success: true,
+        message: 'Discovery worker settings saved. Restart the dedicated discovery worker process to apply them.',
+      });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -643,12 +792,21 @@ export const createDiscoveryRoutes = (manager: DiscoveryManager): Router => {
   // POST /wallets/:address/track — mark a discovered wallet as tracked
   // -----------------------------------------------------------------------
   router.post('/wallets/:address/track', (req: Request, res: Response) => {
-    try {
-      markWalletTracked(req.params.address, true);
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
-    }
+    void (async () => {
+      try {
+        const address = req.params.address.toLowerCase();
+        try {
+          await Storage.addWallet(address);
+        } catch {
+          /* already tracked */
+        }
+        await Storage.toggleWalletActive(address, true);
+        markWalletTracked(address, true);
+        res.json({ success: true });
+      } catch (err: any) {
+        res.status(500).json({ success: false, error: err.message });
+      }
+    })();
   });
 
   return router;

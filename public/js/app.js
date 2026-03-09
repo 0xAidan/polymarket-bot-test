@@ -1534,7 +1534,7 @@ async function openMirrorModal(address) {
     renderMirrorTrades(preview.trades);
     updateMirrorSummary();
   } catch (error) {
-    document.getElementById('mirrorTradesBody').innerHTML = `<tr class="empty-row"><td colspan="8">Error: ${error.message}</td></tr>`;
+    document.getElementById('mirrorTradesBody').innerHTML = `<tr class="empty-row"><td colspan="8">Mirror preview failed: ${error.message}</td></tr>`;
   }
 }
 
@@ -1562,8 +1562,13 @@ function renderMirrorTrades(trades) {
   
   tbody.innerHTML = html;
   
-  // Hide skipped rows initially
-  document.querySelectorAll('.skipped-row').forEach(r => r.style.display = 'none');
+  const hasVisibleTargetTrade = actionable.some((trade) => (trade.theirShares || 0) > 0);
+  const shouldExpandSkipped = skipped.length > 0 && !hasVisibleTargetTrade;
+  document.querySelectorAll('.skipped-row').forEach(r => r.style.display = shouldExpandSkipped ? '' : 'none');
+  const icon = document.getElementById('skippedAccordionIcon');
+  if (icon) {
+    icon.textContent = shouldExpandSkipped ? '-' : '+';
+  }
 }
 
 function renderMirrorRow(trade, isSkipped) {
@@ -2795,10 +2800,31 @@ const fetchDiscoveryWallets = async (append) => {
         ? ' <span class="text-xs text-muted">(verified)</span>'
         : ' <span class="text-xs text-muted">(estimated)</span>');
       const categoryBadge = discoveryCategoryBadge(w.focusCategory);
-      const whySurfaced = w.whySurfaced ? `<div class="text-xs text-muted" style="margin-top:2px;max-width:280px;">${w.whySurfaced}</div>` : '';
-      const signalCell = w.lastSignalAt
-        ? `●<div class="text-xs text-muted" style="margin-top:2px;">${(w.lastSignalType || '').replace(/_/g, ' ')}</div>`
-        : '—';
+      const sourceLine = Array.isArray(w.sourceChannels) && w.sourceChannels.length
+        ? `<div class="text-xs text-muted" style="margin-top:2px;">Sources: ${w.sourceChannels.join(', ')}</div>`
+        : '';
+      const marketLine = Array.isArray(w.supportingMarkets) && w.supportingMarkets.length
+        ? `<div class="text-xs text-muted" style="margin-top:2px;max-width:280px;">Markets: ${w.supportingMarkets.join(', ')}</div>`
+        : '';
+      const stateLine = w.discoveryState
+        ? `<div class="text-xs" style="margin-top:2px;"><strong>${w.discoveryState}</strong>${w.whyNotTracked ? ` • ${w.whyNotTracked}` : ''}</div>`
+        : '';
+      const changeLine = w.whatChanged
+        ? `<div class="text-xs text-muted" style="margin-top:2px;max-width:280px;">Changed: ${w.whatChanged}</div>`
+        : '';
+      const reasonCodeLine = Array.isArray(w.reasonCodes) && w.reasonCodes.length
+        ? `<div class="text-xs text-muted" style="margin-top:2px;">Codes: ${w.reasonCodes.join(', ')}</div>`
+        : '';
+      const whySurfaced = w.whySurfaced
+        ? `<div class="text-xs text-muted" style="margin-top:2px;max-width:280px;">${w.whySurfaced}</div>${stateLine}${changeLine}${sourceLine}${marketLine}${reasonCodeLine}`
+        : `${stateLine}${changeLine}${sourceLine}${marketLine}${reasonCodeLine}`;
+      const signalCell = w.discoveryState
+        ? `${w.discoveryState}${Array.isArray(w.failedGates) && w.failedGates.length
+          ? `<div class="text-xs text-muted" style="margin-top:2px;">${w.failedGates.join(', ')}</div>`
+          : (Array.isArray(w.warningReasons) && w.warningReasons.length
+            ? `<div class="text-xs text-muted" style="margin-top:2px;">${w.warningReasons[0]}</div>`
+            : '')}`
+        : 'Qualified';
       tr.innerHTML =
         '<td>' + heatBadge(w.heatIndicator) + '</td>' +
         '<td class="text-mono" title="' + (w.address || '') + '">' + shortAddr + categoryBadge + '</td>' +
@@ -2855,7 +2881,9 @@ const loadDiscoverySignals = async () => {
     const sortedSignals = [...signals].sort((a, b) => (priority[a.signalType] ?? 99) - (priority[b.signalType] ?? 99));
     listEl.innerHTML = sortedSignals.map((s) => {
       const timeAgo = s.detectedAt ? (Date.now() - s.detectedAt < 60000 ? 'Just now' : Math.floor((Date.now() - s.detectedAt) / 60000) + 'm ago') : '';
-      const dismissBtn = '<button class="win-btn win-btn-sm" onclick="dismissSignal(' + s.id + ')" aria-label="Dismiss">Dismiss</button>';
+      const dismissBtn = s.canDismiss
+        ? '<button class="win-btn win-btn-sm" onclick="dismissSignal(' + s.id + ')" aria-label="Dismiss">Dismiss</button>'
+        : '';
       const meta = s.metadata || {};
       const detail = s.signalType === 'CONVICTION_BUILD'
         ? `Fills: ${meta.fills || 0} • Notional: $${Number(meta.totalNotional || 0).toLocaleString()}`
@@ -2980,20 +3008,36 @@ const openWalletDetail = async (address) => {
     const positions = posData.success ? (posData.positions || []) : [];
     const signals = sigData.success ? (sigData.signals || []) : [];
     const positionSource = posData.source || 'derived';
+    const positionSourceLabel = positionSource === 'verified'
+      ? 'Live open positions from Polymarket'
+      : positionSource === 'cached'
+        ? 'Cached Polymarket snapshot'
+        : 'Derived from observed discovery trades';
 
-    const profileUrl = 'https://polymarket.com/profile/' + address;
+    const profileUrl = posData.profileUrl || '';
     let html = '<p class="text-mono text-sm mb-4">' + address + '</p>';
-    html += '<p class="mb-8"><a href="' + profileUrl + '" target="_blank" rel="noopener noreferrer" style="color:#0066cc;text-decoration:underline;font-size:12px;" tabindex="0" aria-label="View Polymarket profile for this wallet">View on Polymarket &rarr;</a></p>';
-    html += '<p class="text-sm mb-4">Position source: <strong>' + (positionSource === 'verified' ? 'Verified from Polymarket' : 'Derived from observed discovery trades') + '</strong></p>';
+    if (profileUrl) {
+      html += '<p class="mb-8"><a href="' + profileUrl + '" target="_blank" rel="noopener noreferrer" style="color:#0066cc;text-decoration:underline;font-size:12px;" tabindex="0" aria-label="View Polymarket profile for this wallet">View on Polymarket &rarr;</a></p>';
+    } else {
+      html += '<p class="text-xs text-muted mb-8">No public Polymarket profile link is available for this wallet identity yet.</p>';
+    }
+    html += '<p class="text-sm mb-4">Position source: <strong>' + positionSourceLabel + '</strong></p>';
+    if (positionSource === 'cached') {
+      html += '<p class="text-xs text-muted mb-4">This is a fallback cache from the last successful wallet validation, not a fresh live query.</p>';
+    }
     html += '<h4 class="mb-4">Positions</h4>';
     if (positions.length === 0) {
       html += '<p class="text-muted text-sm">No positions</p>';
     } else {
-      html += '<table class="win-listview"><thead><tr><th>Market</th><th>Shares</th><th>Cost</th><th>PnL</th><th>ROI</th><th>Data</th></tr></thead><tbody>';
+      html += '<table class="win-listview"><thead><tr><th>Market</th><th>Shares</th><th>Cost</th><th>PnL</th><th>ROI</th><th>Trust</th></tr></thead><tbody>';
       positions.forEach((p) => {
         const marketLabel = (p.marketTitle || p.conditionId?.slice(0, 12) || '—') + (p.outcome ? ` (${p.outcome})` : '');
         const priceNote = (p.currentPrice === null || p.currentPrice === undefined) ? ' <span class="text-xs text-muted">(price pending)</span>' : '';
-        const dataBadge = p.dataSource === 'verified' ? 'Verified' : 'Derived';
+        const dataBadge = p.dataSource === 'verified'
+          ? 'Live'
+          : p.dataSource === 'cached'
+            ? 'Cached'
+            : 'Derived';
         html += '<tr><td>' + marketLabel + priceNote + '</td><td>' + (p.shares || 0).toLocaleString() + '</td><td>$' + (p.totalCost || 0).toLocaleString() + '</td><td>' + pnlText(p.unrealizedPnl) + '</td><td>' + roiText(p.roiPct) + '</td><td>' + dataBadge + '</td></tr>';
       });
       html += '</tbody></table>';
@@ -3123,7 +3167,7 @@ const restartDiscovery = async () => {
     const resp = await fetch('/api/discovery/config/restart', { method: 'POST' });
     const data = await resp.json();
     if (data.success) {
-      win95Dialog.alert('Restarted', 'Discovery engine restarted successfully.');
+      win95Dialog.alert('Restart Needed', 'Discovery settings were saved. The dedicated discovery worker is restarted separately.');
     } else {
       win95Dialog.alert('Error', data.error || 'Failed to restart');
     }

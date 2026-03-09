@@ -113,6 +113,119 @@ export interface MarketCacheEntry {
   updatedAt: number;
 }
 
+export interface DiscoveryMarketPoolEntry {
+  conditionId: string;
+  eventId?: string;
+  marketId?: string;
+  eventSlug?: string;
+  slug?: string;
+  title?: string;
+  focusCategory: DiscoveryMarketCategory;
+  tagSlugs: string[];
+  tokenIds: string[];
+  outcomes?: string[];
+  liquidity?: number;
+  volume24h?: number;
+  openInterest?: number;
+  acceptingOrders?: boolean;
+  competitive?: boolean;
+  startDate?: string;
+  endDate?: string;
+  updatedAt: number;
+}
+
+export interface DiscoveryTokenMapEntry {
+  conditionId: string;
+  tokenId: string;
+  outcome?: string;
+  updatedAt: number;
+}
+
+export interface DiscoveryWalletCandidate {
+  address: string;
+  sourceType: 'leaderboard' | 'market-positions' | 'holders' | 'trades';
+  sourceLabel: string;
+  conditionId?: string;
+  marketTitle?: string;
+  sourceRank?: number;
+  sourceMetric?: number;
+  sourceMetadata?: Record<string, unknown>;
+  firstSeenAt: number;
+  lastSeenAt: number;
+  updatedAt: number;
+}
+
+export interface DiscoveryWalletValidation {
+  address: string;
+  profileName?: string;
+  pseudonym?: string;
+  xUsername?: string;
+  verifiedBadge?: boolean;
+  tradedMarkets?: number;
+  openPositionsCount: number;
+  closedPositionsCount: number;
+  realizedPnl: number;
+  realizedWinRate: number;
+  makerRebateCount: number;
+  tradeActivityCount: number;
+  buyActivityCount: number;
+  sellActivityCount: number;
+  marketsTouched: number;
+  lastValidatedAt: number;
+  rawProfile?: Record<string, unknown>;
+  rawPositions?: Record<string, unknown>[];
+  rawClosedPositions?: Record<string, unknown>[];
+  rawActivity?: Record<string, unknown>[];
+}
+
+export interface DiscoveryWalletScoreRow {
+  address: string;
+  profitabilityScore: number;
+  focusScore: number;
+  copyabilityScore: number;
+  earlyScore: number;
+  consistencyScore: number;
+  convictionScore: number;
+  noisePenalty: number;
+  passedProfitabilityGate: boolean;
+  passedFocusGate: boolean;
+  passedCopyabilityGate: boolean;
+  finalScore: number;
+  previousFinalScore?: number;
+  previousUpdatedAt?: number;
+  previousPassedProfitabilityGate?: boolean;
+  previousPassedFocusGate?: boolean;
+  previousPassedCopyabilityGate?: boolean;
+  updatedAt: number;
+}
+
+export interface DiscoveryWalletReason {
+  address: string;
+  reasonType: 'supporting' | 'warning' | 'rejection';
+  reasonCode: string;
+  message: string;
+  createdAt: number;
+}
+
+export interface DiscoveryRunLog {
+  runId?: number;
+  phase: string;
+  gammaRequestCount: number;
+  dataRequestCount: number;
+  clobRequestCount: number;
+  candidateCount: number;
+  qualifiedCount: number;
+  rejectedCount: number;
+  durationMs: number;
+  estimatedCostUsd?: number;
+  categoryPurityPct?: number;
+  copyabilityPassPct?: number;
+  walletsWithTwoReasonsPct?: number;
+  freeModeNoAlchemy?: boolean;
+  notes?: string;
+  createdAt: number;
+}
+
 export interface DiscoveryConfig {
   enabled: boolean;
   alchemyWsUrl: string;
@@ -203,7 +316,8 @@ export interface WalletPosition {
   roiPct: number;
   realizedPnl?: number;
   currentValue?: number;
-  dataSource?: 'verified' | 'derived';
+  dataSource?: 'verified' | 'cached' | 'derived';
+  positionStatus?: 'open' | 'redeemable' | 'closed';
   updatedAt?: number;
 }
 

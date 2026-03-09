@@ -5,13 +5,19 @@ import { config } from './config.js';
 import { createRoutes } from './api/routes.js';
 import { CopyTrader } from './copyTrader.js';
 import { initDatabase } from './database.js';
+import { createDiscoveryRoutes } from './api/discoveryRoutes.js';
+import { DiscoveryManager } from './discovery/discoveryManager.js';
+import { DiscoveryControlPlane } from './discovery/discoveryControlPlane.js';
+
+let discoveryManagerInstance: DiscoveryManager | null = null;
+
+export const getDiscoveryManager = (): DiscoveryManager | null => discoveryManagerInstance;
 
 /**
  * Create and configure the Express server
  */
 export async function createServer(copyTrader: CopyTrader): Promise<express.Application> {
   await initDatabase();
-
   const app = express();
 
   // Middleware
@@ -23,34 +29,13 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   const publicPath = path.join(process.cwd(), 'public');
   app.use(express.static(publicPath));
 
+  // Discovery runtime now lives in the dedicated worker process.
+  discoveryManagerInstance = null;
+  const discoveryControlPlane = new DiscoveryControlPlane();
+
   // API routes
   app.use('/api', createRoutes(copyTrader));
-  app.use('/api/discovery', async (req, res) => {
-    const proxyUrl = `${config.discoveryWorkerUrl}${req.originalUrl}`;
-    const isBodyMethod = req.method !== 'GET' && req.method !== 'HEAD';
-    try {
-      const proxied = await fetch(proxyUrl, {
-        method: req.method,
-        headers: {
-          'content-type': 'application/json',
-        },
-        body: isBodyMethod ? JSON.stringify(req.body || {}) : undefined,
-      });
-      const payload = await proxied.text();
-      res.status(proxied.status);
-      const contentType = proxied.headers.get('content-type');
-      if (contentType) {
-        res.setHeader('content-type', contentType);
-      }
-      res.send(payload);
-    } catch (error: any) {
-      res.status(503).json({
-        success: false,
-        error: `Discovery worker unavailable at ${config.discoveryWorkerUrl}`,
-        detail: error?.message || 'Proxy request failed',
-      });
-    }
-  });
+  app.use('/api/discovery', createDiscoveryRoutes(discoveryControlPlane as any));
   
   // API 404 handler - catch any unmatched /api routes and return JSON
   app.use('/api/*', (req, res) => {
