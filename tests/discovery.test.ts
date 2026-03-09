@@ -191,13 +191,38 @@ test('getTradeParticipantAddresses ignores empty counterparties', () => {
   assert.deepEqual(addresses, ['0x123400000000000000000000000000000000abcd']);
 });
 
-test('getTradeParticipantAddresses only returns the observed wallet side', () => {
+test('getTradeParticipantAddresses returns both maker and taker when present', () => {
   const addresses = getTradeParticipantAddresses({
     maker: '0x123400000000000000000000000000000000abcd',
     taker: '0x987600000000000000000000000000000000dcba',
   });
 
-  assert.deepEqual(addresses, ['0x123400000000000000000000000000000000abcd']);
+  assert.deepEqual(addresses, [
+    '0x123400000000000000000000000000000000abcd',
+    '0x987600000000000000000000000000000000dcba',
+  ]);
+});
+
+test('mapApiTradeToDiscoveredTrade normalizes ISO timestamps', () => {
+  const market: MarketCacheEntry = {
+    conditionId: '0xmarket',
+    slug: 'will-fed-cut-rates',
+    title: 'Will the Fed cut rates?',
+    tokenIds: ['asset-yes', 'asset-no'],
+    outcomes: ['Yes', 'No'],
+    updatedAt: 1,
+  };
+  const trade = mapApiTradeToDiscoveredTrade({
+    proxyWallet: '0x123400000000000000000000000000000000abcd',
+    side: 'BUY',
+    asset: 'asset-yes',
+    conditionId: '0xmarket',
+    size: 10,
+    price: 0.55,
+    timestamp: '2026-03-09T12:00:00.000Z',
+    transactionHash: '0xiso',
+  }, market, 0);
+  assert.equal(trade.detectedAt, new Date('2026-03-09T12:00:00.000Z').getTime());
 });
 
 test('mapOfficialPositionToWalletPosition marks authoritative wallet state correctly', () => {

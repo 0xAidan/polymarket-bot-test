@@ -37,6 +37,11 @@ export const config = {
   
   // Server configuration
   port: parseInt(process.env.PORT || '3001', 10),
+  discoveryWorkerPort: parseInt(process.env.DISCOVERY_WORKER_PORT || '3002', 10),
+  discoveryWorkerUrl: ensureProtocol(
+    process.env.DISCOVERY_WORKER_URL || `http://127.0.0.1:${parseInt(process.env.DISCOVERY_WORKER_PORT || '3002', 10)}`,
+    `http://127.0.0.1:${parseInt(process.env.DISCOVERY_WORKER_PORT || '3002', 10)}`
+  ),
   
   // Data directory
   dataDir: process.env.DATA_DIR || './data',

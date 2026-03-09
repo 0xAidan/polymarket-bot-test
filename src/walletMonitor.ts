@@ -15,6 +15,7 @@ export class WalletMonitor {
   private pollingInterval: NodeJS.Timeout | null = null;
   private currentIntervalMs: number = config.monitoringIntervalMs;
   private onTradeDetectedCallback: ((trade: DetectedTrade) => void) | null = null;
+  private pollCycleInProgress = false;
 
   constructor() {
     this.api = new PolymarketApi();
@@ -53,7 +54,7 @@ export class WalletMonitor {
     // Start polling for trade history
     // Run immediately on start, then at intervals
     console.log(`[Monitor] Running initial trade check...`);
-    await this.checkWalletsForTrades(onTradeDetected);
+    await this.runPollingCycle(onTradeDetected);
     
     this.startPolling();
 
@@ -92,14 +93,24 @@ export class WalletMonitor {
 
     this.pollingInterval = setInterval(async () => {
       if (!this.isMonitoring || !this.onTradeDetectedCallback) return;
-      try {
-        await this.checkWalletsForTrades(this.onTradeDetectedCallback);
-      } catch (error: any) {
-        console.error(`[Monitor] Error in polling cycle:`, error.message);
-        console.error(`[Monitor] Stack:`, error.stack);
-        // Continue polling even if one cycle fails
-      }
+      await this.runPollingCycle(this.onTradeDetectedCallback);
     }, this.currentIntervalMs);
+  }
+
+  private async runPollingCycle(onTradeDetected: (trade: DetectedTrade) => void): Promise<void> {
+    if (this.pollCycleInProgress) {
+      console.warn('[Monitor] Skipping poll cycle because previous cycle is still running');
+      return;
+    }
+    this.pollCycleInProgress = true;
+    try {
+      await this.checkWalletsForTrades(onTradeDetected);
+    } catch (error: any) {
+      console.error(`[Monitor] Error in polling cycle:`, error.message);
+      console.error(`[Monitor] Stack:`, error.stack);
+    } finally {
+      this.pollCycleInProgress = false;
+    }
   }
 
   /**
@@ -154,9 +165,14 @@ export class WalletMonitor {
             console.warn(`[Monitor] Failed to fetch trade history:`, tradesError.message);
             recentTrades = [];
           }
-          
+
           const now = Date.now();
-          
+          const fallbackWindowMs = 5 * 60 * 1000;
+          const cursorMs = wallet.lastSeen instanceof Date
+            ? wallet.lastSeen.getTime()
+            : now - fallbackWindowMs;
+          let maxSeenTradeTime = cursorMs;
+
           let processedTradeCount = 0;
           for (const trade of recentTrades) {
             // FIXED: Handle both Unix seconds and milliseconds timestamps from Polymarket API
@@ -174,14 +190,16 @@ export class WalletMonitor {
               tradeTime = 0;
             }
 
-            // TIME WINDOW FILTER: Only process trades within the last 5 minutes
-            // This prevents executing old historical trades on bot startup
-            // The CopyTrader also has compound key deduplication as a backup
-            const MAX_TRADE_AGE_MS = 5 * 60 * 1000; // 5 minutes
-            if (now - tradeTime > MAX_TRADE_AGE_MS) {
-              continue; // Skip trades older than 5 minutes
+            if (!Number.isFinite(tradeTime) || tradeTime <= 0) {
+              continue;
             }
-            
+            if (tradeTime <= cursorMs) {
+              continue;
+            }
+            if (tradeTime > maxSeenTradeTime) {
+              maxSeenTradeTime = tradeTime;
+            }
+
             {
               processedTradeCount++;
               console.log(`[Monitor] Processing recent trade from ${new Date(tradeTime).toISOString()}:`, JSON.stringify(trade, null, 2).substring(0, 500));
@@ -217,6 +235,9 @@ export class WalletMonitor {
             }
           }
           console.log(`[Monitor] Processed ${processedTradeCount} trade(s) from history for ${eoaAddress.substring(0, 8)}...`);
+          if (maxSeenTradeTime > cursorMs) {
+            await Storage.updateWalletLastSeen(eoaAddress, new Date(maxSeenTradeTime));
+          }
         } catch (error: any) {
           if (error.response?.status !== 404) {
             console.warn(`[Monitor] ⚠️ Trade history not available for ${eoaAddress.substring(0, 8)}...:`, error.message);
@@ -260,34 +281,41 @@ export class WalletMonitor {
   ): Promise<DetectedTrade | null> {
     try {
       // FIXED: Use conditionId as the market ID (this is what Polymarket API returns)
-      let marketId = trade.conditionId;
-      
-      // Fallback: try asset (token ID) as market ID if no conditionId
-      if (!marketId && trade.asset) {
-        marketId = trade.asset;
-      }
-      
-      // If still no marketId, we can't proceed
+      const marketId = String(trade.conditionId || '').trim();
+
+      // If no conditionId, we can't safely proceed
       if (!marketId || marketId === 'unknown') {
-        console.warn(`[Monitor] Cannot determine marketId from trade data (no conditionId or asset), skipping trade`);
+        console.warn(`[Monitor] Cannot determine marketId from trade data (missing conditionId), skipping trade`);
         return null;
       }
 
-      // FIXED: Determine outcome from 'outcome' or 'outcomeIndex' fields
-      let outcome: 'YES' | 'NO' = 'YES';
+      // Determine outcome from 'outcome' or 'outcomeIndex' fields.
+      // Do not coerce unknown labels into YES to avoid lossy parsing.
+      let outcome: 'YES' | 'NO' | null = null;
       if (trade.outcome) {
-        // outcome field contains "Yes" or "No" as strings
-        outcome = trade.outcome.toUpperCase() === 'NO' ? 'NO' : 'YES';
+        const label = String(trade.outcome).trim().toUpperCase();
+        if (label === 'YES' || label === 'Y') outcome = 'YES';
+        if (label === 'NO' || label === 'N') outcome = 'NO';
       } else if (trade.outcomeIndex !== undefined) {
         // outcomeIndex: 0 = Yes, 1 = No
-        outcome = trade.outcomeIndex === 1 ? 'NO' : 'YES';
+        if (trade.outcomeIndex === 1) outcome = 'NO';
+        if (trade.outcomeIndex === 0) outcome = 'YES';
+      }
+      if (!outcome) {
+        console.warn(`[Monitor] Cannot determine binary outcome from trade data, skipping trade`);
+        return null;
       }
 
       // FIXED: Use 'side' field directly from Polymarket API
-      let side: 'BUY' | 'SELL' = 'BUY';
+      let side: 'BUY' | 'SELL' | null = null;
       if (trade.side) {
         const tradeSide = trade.side.toUpperCase();
-        side = (tradeSide === 'SELL' || tradeSide === 'S') ? 'SELL' : 'BUY';
+        if (tradeSide === 'SELL' || tradeSide === 'S') side = 'SELL';
+        if (tradeSide === 'BUY' || tradeSide === 'B') side = 'BUY';
+      }
+      if (!side) {
+        console.warn(`[Monitor] Cannot determine side from trade data, skipping trade`);
+        return null;
       }
 
       // FIXED: Use 'price' and 'size' fields from Polymarket API

@@ -184,9 +184,7 @@ export const mapApiTradeToDiscoveredTrade = (
   const notionalUsd = Number.isFinite(size) && Number.isFinite(price) ? size * price : 0;
   const assetId = String(rawTrade.asset || rawTrade.tokenId || '');
   const outcome = String(rawTrade.outcome || resolveOutcomeLabel(market, assetId) || '');
-  const detectedAt = rawTrade.timestamp
-    ? (typeof rawTrade.timestamp === 'number' && rawTrade.timestamp < 1e12 ? rawTrade.timestamp * 1000 : Number(rawTrade.timestamp))
-    : now;
+  const detectedAt = parseDetectedTimestamp(rawTrade.timestamp, now);
   const txHash = String(rawTrade.transactionHash || rawTrade.id || rawTrade.tradeID || 'api');
   const eventKey = `${txHash}:${detectedAt}:${assetId}:${side}`;
 
@@ -208,4 +206,21 @@ export const mapApiTradeToDiscoveredTrade = (
     source: 'api',
     detectedAt,
   };
+};
+
+const parseDetectedTimestamp = (value: unknown, fallback: number): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value < 1e12 ? value * 1000 : value;
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return numeric < 1e12 ? numeric * 1000 : numeric;
+    }
+    const parsed = new Date(value).getTime();
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return fallback;
 };

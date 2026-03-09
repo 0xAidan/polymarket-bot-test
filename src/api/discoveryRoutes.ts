@@ -404,9 +404,14 @@ export const createDiscoveryRoutes = (manager: DiscoveryManager): Router => {
 
         const wallets = filteredWallets.slice(offset, offset + limit);
         if (!hydratePositions || wallets.length === 0) {
+          const derivedWallets = wallets.map((wallet) => ({
+            ...wallet,
+            positionDataSource: 'derived' as const,
+          }));
           res.json({
             success: true,
-            wallets,
+            wallets: derivedWallets,
+            positionsSource: 'derived',
           });
           return;
         }
@@ -425,6 +430,7 @@ export const createDiscoveryRoutes = (manager: DiscoveryManager): Router => {
         res.json({
           success: true,
           wallets: hydratedWallets.map(annotateDiscoveryWallet),
+          positionsSource: 'verified',
         });
       } catch (err: any) {
         res.status(500).json({ success: false, error: err.message });

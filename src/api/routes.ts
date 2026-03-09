@@ -997,7 +997,11 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         monitoringMode: status.monitoringMode,
         domeWs: status.domeWs,
         monitoringMethods: {
-          primary: status.monitoringMode === 'websocket' ? 'dome-websocket' : 'polling',
+          primary: status.monitoringMode === 'stopped'
+            ? 'stopped'
+            : status.monitoringMode === 'websocket'
+              ? 'dome-websocket'
+              : 'polling',
           domeWebsocket: status.domeWs?.connected ?? false,
           polling: status.running
         },

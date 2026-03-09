@@ -13,15 +13,10 @@ import {
   upsertWallet,
   tradeExistsByHash,
   tradeExistsByEventKey,
-  getWalletStats,
-  refreshWalletStats,
-  aggregateWalletPnL,
 } from './statsStore.js';
 import { enrichTrade, resolveWalletPseudonym } from './tradeEnricher.js';
 import { getDatabase } from '../database.js';
 import { updatePosition } from './positionTracker.js';
-import { evaluateTradeSignals } from './signalEngine.js';
-import { computeScoresAndHeat } from './walletScorer.js';
 
 const DEDUP_SET_MAX = 50_000;
 const BATCH_FLUSH_INTERVAL_MS = 2_000;
@@ -149,22 +144,10 @@ export class TradeIngestion extends EventEmitter {
         console.error('[Ingestion] Position tracking error:', err);
       }
 
-      try {
-        aggregateWalletPnL();
-        refreshWalletStats([...walletsSeen]);
-        computeScoresAndHeat();
-
-        for (const t of batch) {
-          for (const signalTrade of buildSignalEvaluationTrades(t)) {
-            const walletStats = getWalletStats(signalTrade.maker);
-            if (walletStats) {
-              evaluateTradeSignals(signalTrade, walletStats);
-            }
-          }
-        }
-      } catch (err) {
-        console.error('[Ingestion] Signal evaluation error:', err);
-      }
+      // Keep ingestion lightweight so the web server stays responsive.
+      // The scheduled discovery stats cycle recomputes wallet aggregates,
+      // scores, and signals in bulk; doing that work on every flush causes
+      // the main app process to get buried in synchronous SQLite writes.
 
       if (inserted > 0) {
         this.emit('flushed', { inserted, total: batch.length });
@@ -222,7 +205,11 @@ export const getTradeParticipantAddresses = (
   trade: Pick<DiscoveredTrade, 'maker' | 'taker'>
 ): string[] => {
   const maker = String(trade.maker || '').trim().toLowerCase();
-  return maker ? [maker] : [];
+  const taker = String(trade.taker || '').trim().toLowerCase();
+  if (!maker && !taker) return [];
+  if (!taker || taker === maker) return maker ? [maker] : [];
+  if (!maker) return [taker];
+  return [maker, taker];
 };
 
 export const buildSignalEvaluationTrades = (trade: DiscoveredTrade): DiscoveredTrade[] => {
