@@ -32,6 +32,52 @@ export async function initDatabase(): Promise<Database.Database> {
 
   createSchema(db);
 
+  safeAddColumn(db, 'discovery_wallets', 'whale_score', 'REAL DEFAULT 0');
+  safeAddColumn(db, 'discovery_wallets', 'heat_indicator', "TEXT DEFAULT 'NEW'");
+  safeAddColumn(db, 'discovery_wallets', 'total_pnl', 'REAL DEFAULT 0');
+  safeAddColumn(db, 'discovery_wallets', 'roi_pct', 'REAL DEFAULT 0');
+  safeAddColumn(db, 'discovery_wallets', 'win_rate', 'REAL DEFAULT 0');
+  safeAddColumn(db, 'discovery_wallets', 'active_positions', 'INTEGER DEFAULT 0');
+  safeAddColumn(db, 'discovery_wallets', 'last_signal_type', 'TEXT');
+  safeAddColumn(db, 'discovery_wallets', 'last_signal_at', 'INTEGER');
+  safeAddColumn(db, 'discovery_wallets', 'prior_active_at', 'INTEGER');
+  safeAddColumn(db, 'discovery_wallets', 'high_information_volume_7d', 'REAL DEFAULT 0');
+  safeAddColumn(db, 'discovery_wallets', 'focus_category', 'TEXT');
+  safeAddColumn(db, 'discovery_trades', 'event_key', 'TEXT');
+  safeAddColumn(db, 'discovery_trades', 'notional_usd', 'REAL');
+  safeAddColumn(db, 'executed_positions', 'status', "TEXT DEFAULT 'executed'");
+  safeAddColumn(db, 'executed_positions', 'order_id', 'TEXT');
+  safeAddColumn(db, 'executed_positions', 'token_id', 'TEXT');
+  safeAddColumn(db, 'executed_positions', 'baseline_position_size', 'REAL');
+  safeAddColumn(db, 'executed_positions', 'missing_order_checks', 'INTEGER DEFAULT 0');
+  safeAddColumn(db, 'executed_positions', 'trade_side_action', 'TEXT');
+  safeAddColumn(db, 'discovery_positions', 'asset_id', 'TEXT');
+  safeAddColumn(db, 'discovery_positions', 'outcome', 'TEXT');
+  safeAddColumn(db, 'discovery_positions', 'price_updated_at', 'INTEGER');
+  safeAddColumn(db, 'discovery_market_cache', 'outcomes', 'TEXT');
+  safeAddColumn(db, 'discovery_wallet_scores', 'previous_final_score', 'REAL');
+  safeAddColumn(db, 'discovery_wallet_scores', 'previous_updated_at', 'INTEGER');
+  safeAddColumn(db, 'discovery_wallet_scores', 'previous_passed_profitability_gate', 'INTEGER');
+  safeAddColumn(db, 'discovery_wallet_scores', 'previous_passed_focus_gate', 'INTEGER');
+  safeAddColumn(db, 'discovery_wallet_scores', 'previous_passed_copyability_gate', 'INTEGER');
+  safeAddColumn(db, 'discovery_run_log', 'estimated_cost_usd', 'REAL DEFAULT 0');
+  safeAddColumn(db, 'discovery_run_log', 'category_purity_pct', 'REAL DEFAULT 0');
+  safeAddColumn(db, 'discovery_run_log', 'copyability_pass_pct', 'REAL DEFAULT 0');
+  safeAddColumn(db, 'discovery_run_log', 'wallets_with_two_reasons_pct', 'REAL DEFAULT 0');
+  safeAddColumn(db, 'discovery_run_log', 'free_mode_no_alchemy', 'INTEGER DEFAULT 1');
+  safeCreateIndex(
+    db,
+    'idx_discovery_trades_event_key',
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_discovery_trades_event_key ON discovery_trades (event_key) WHERE event_key IS NOT NULL'
+  );
+
+  migrateDiscoveryPositionsSchema(db);
+  safeCreateIndex(
+    db,
+    'idx_disc_positions_asset',
+    'CREATE INDEX IF NOT EXISTS idx_disc_positions_asset ON discovery_positions (asset_id)'
+  );
+
   return db;
 }
 
@@ -105,11 +151,263 @@ function createSchema(database: Database.Database): void {
       market_id       TEXT NOT NULL,
       side            TEXT NOT NULL,
       timestamp       INTEGER NOT NULL,
-      wallet_address  TEXT NOT NULL
+      wallet_address  TEXT NOT NULL,
+      status          TEXT NOT NULL DEFAULT 'executed',
+      order_id        TEXT,
+      token_id        TEXT,
+      baseline_position_size REAL,
+      missing_order_checks INTEGER NOT NULL DEFAULT 0,
+      trade_side_action TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_executed_positions_market
       ON executed_positions (market_id, side);
+
+    -- =======================================================================
+    -- DISCOVERY ENGINE TABLES
+    -- =======================================================================
+
+    CREATE TABLE IF NOT EXISTS discovery_trades (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      tx_hash     TEXT UNIQUE NOT NULL,
+      event_key   TEXT,
+      maker       TEXT NOT NULL,
+      taker       TEXT NOT NULL,
+      asset_id    TEXT NOT NULL,
+      condition_id TEXT,
+      market_slug TEXT,
+      market_title TEXT,
+      side        TEXT,
+      size        REAL,
+      price       REAL,
+      notional_usd REAL,
+      fee         REAL,
+      source      TEXT NOT NULL,
+      detected_at INTEGER NOT NULL,
+      block_number INTEGER,
+      created_at  INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_trades_maker
+      ON discovery_trades (maker);
+    CREATE INDEX IF NOT EXISTS idx_discovery_trades_taker
+      ON discovery_trades (taker);
+    CREATE INDEX IF NOT EXISTS idx_discovery_trades_detected
+      ON discovery_trades (detected_at);
+
+    CREATE TABLE IF NOT EXISTS discovery_wallets (
+      address          TEXT PRIMARY KEY,
+      pseudonym        TEXT,
+      first_seen       INTEGER NOT NULL,
+      last_active      INTEGER NOT NULL,
+      prior_active_at  INTEGER,
+      trade_count_7d   INTEGER DEFAULT 0,
+      volume_7d        REAL DEFAULT 0,
+      volume_prev_7d   REAL DEFAULT 0,
+      high_information_volume_7d REAL DEFAULT 0,
+      focus_category   TEXT,
+      largest_trade    REAL DEFAULT 0,
+      unique_markets_7d INTEGER DEFAULT 0,
+      avg_trade_size   REAL DEFAULT 0,
+      is_tracked       INTEGER DEFAULT 0,
+      updated_at       INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS discovery_market_cache (
+      condition_id TEXT PRIMARY KEY,
+      slug         TEXT,
+      title        TEXT,
+      volume_24h   REAL,
+      token_ids    TEXT,
+      outcomes     TEXT,
+      updated_at   INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS discovery_market_pool (
+      condition_id      TEXT PRIMARY KEY,
+      event_id          TEXT,
+      market_id         TEXT,
+      event_slug        TEXT,
+      slug              TEXT,
+      title             TEXT,
+      focus_category    TEXT NOT NULL,
+      tag_slugs         TEXT NOT NULL,
+      token_ids         TEXT NOT NULL,
+      outcomes          TEXT,
+      liquidity         REAL,
+      volume_24h        REAL,
+      open_interest     REAL,
+      accepting_orders  INTEGER DEFAULT 0,
+      competitive       INTEGER DEFAULT 0,
+      start_date        TEXT,
+      end_date          TEXT,
+      updated_at        INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_market_pool_category
+      ON discovery_market_pool (focus_category, volume_24h DESC);
+
+    CREATE TABLE IF NOT EXISTS discovery_token_map (
+      token_id       TEXT PRIMARY KEY,
+      condition_id   TEXT NOT NULL,
+      outcome        TEXT,
+      updated_at     INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_token_map_condition
+      ON discovery_token_map (condition_id);
+
+    CREATE TABLE IF NOT EXISTS discovery_wallet_candidates (
+      address         TEXT NOT NULL,
+      source_type     TEXT NOT NULL,
+      source_label    TEXT NOT NULL,
+      condition_id    TEXT NOT NULL DEFAULT '',
+      market_title    TEXT,
+      source_rank     INTEGER,
+      source_metric   REAL,
+      source_metadata TEXT,
+      first_seen_at   INTEGER NOT NULL,
+      last_seen_at    INTEGER NOT NULL,
+      updated_at      INTEGER NOT NULL,
+      PRIMARY KEY (address, source_type, condition_id, source_label)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_wallet_candidates_updated
+      ON discovery_wallet_candidates (updated_at DESC, source_metric DESC);
+
+    CREATE TABLE IF NOT EXISTS discovery_wallet_validation (
+      address               TEXT PRIMARY KEY,
+      profile_name          TEXT,
+      pseudonym             TEXT,
+      x_username            TEXT,
+      verified_badge        INTEGER DEFAULT 0,
+      traded_markets        INTEGER,
+      open_positions_count  INTEGER NOT NULL DEFAULT 0,
+      closed_positions_count INTEGER NOT NULL DEFAULT 0,
+      realized_pnl          REAL NOT NULL DEFAULT 0,
+      realized_win_rate     REAL NOT NULL DEFAULT 0,
+      maker_rebate_count    INTEGER NOT NULL DEFAULT 0,
+      trade_activity_count  INTEGER NOT NULL DEFAULT 0,
+      buy_activity_count    INTEGER NOT NULL DEFAULT 0,
+      sell_activity_count   INTEGER NOT NULL DEFAULT 0,
+      markets_touched       INTEGER NOT NULL DEFAULT 0,
+      raw_profile           TEXT,
+      raw_positions         TEXT,
+      raw_closed_positions  TEXT,
+      raw_activity          TEXT,
+      last_validated_at     INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS discovery_wallet_scores (
+      address                   TEXT PRIMARY KEY,
+      profitability_score       REAL NOT NULL DEFAULT 0,
+      focus_score               REAL NOT NULL DEFAULT 0,
+      copyability_score         REAL NOT NULL DEFAULT 0,
+      early_score               REAL NOT NULL DEFAULT 0,
+      consistency_score         REAL NOT NULL DEFAULT 0,
+      conviction_score          REAL NOT NULL DEFAULT 0,
+      noise_penalty             REAL NOT NULL DEFAULT 0,
+      passed_profitability_gate INTEGER NOT NULL DEFAULT 0,
+      passed_focus_gate         INTEGER NOT NULL DEFAULT 0,
+      passed_copyability_gate   INTEGER NOT NULL DEFAULT 0,
+      final_score               REAL NOT NULL DEFAULT 0,
+      previous_final_score      REAL,
+      previous_updated_at       INTEGER,
+      previous_passed_profitability_gate INTEGER,
+      previous_passed_focus_gate INTEGER,
+      previous_passed_copyability_gate INTEGER,
+      updated_at                INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_wallet_scores_final
+      ON discovery_wallet_scores (final_score DESC, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS discovery_wallet_reasons (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      address      TEXT NOT NULL,
+      reason_type  TEXT NOT NULL,
+      reason_code  TEXT NOT NULL,
+      message      TEXT NOT NULL,
+      created_at   INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_wallet_reasons_address
+      ON discovery_wallet_reasons (address, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS discovery_run_log (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      phase               TEXT NOT NULL,
+      gamma_request_count INTEGER NOT NULL DEFAULT 0,
+      data_request_count  INTEGER NOT NULL DEFAULT 0,
+      clob_request_count  INTEGER NOT NULL DEFAULT 0,
+      candidate_count     INTEGER NOT NULL DEFAULT 0,
+      qualified_count     INTEGER NOT NULL DEFAULT 0,
+      rejected_count      INTEGER NOT NULL DEFAULT 0,
+      duration_ms         INTEGER NOT NULL DEFAULT 0,
+      estimated_cost_usd  REAL NOT NULL DEFAULT 0,
+      category_purity_pct REAL NOT NULL DEFAULT 0,
+      copyability_pass_pct REAL NOT NULL DEFAULT 0,
+      wallets_with_two_reasons_pct REAL NOT NULL DEFAULT 0,
+      free_mode_no_alchemy INTEGER NOT NULL DEFAULT 1,
+      notes               TEXT,
+      created_at          INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS discovery_config (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    -- POSITIONS: per-wallet per-market per-outcome position accumulation
+    CREATE TABLE IF NOT EXISTS discovery_positions (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      address       TEXT NOT NULL,
+      condition_id  TEXT NOT NULL,
+      asset_id      TEXT NOT NULL,
+      outcome       TEXT,
+      market_slug   TEXT,
+      market_title  TEXT,
+      side          TEXT,
+      shares        REAL DEFAULT 0,
+      avg_entry     REAL DEFAULT 0,
+      total_cost    REAL DEFAULT 0,
+      total_trades  INTEGER DEFAULT 0,
+      first_entry   INTEGER,
+      last_entry    INTEGER,
+      current_price REAL,
+      price_updated_at INTEGER,
+      unrealized_pnl REAL DEFAULT 0,
+      roi_pct       REAL DEFAULT 0,
+      updated_at    INTEGER DEFAULT (unixepoch()),
+      UNIQUE(address, condition_id, asset_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_disc_positions_addr
+      ON discovery_positions (address);
+    CREATE INDEX IF NOT EXISTS idx_disc_positions_cond
+      ON discovery_positions (condition_id);
+    -- SIGNALS: fired by signal engine
+    CREATE TABLE IF NOT EXISTS discovery_signals (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      signal_type   TEXT NOT NULL,
+      severity      TEXT NOT NULL,
+      address       TEXT NOT NULL,
+      condition_id  TEXT,
+      market_title  TEXT,
+      title         TEXT NOT NULL,
+      description   TEXT NOT NULL,
+      metadata      TEXT,
+      detected_at   INTEGER NOT NULL,
+      dismissed     INTEGER DEFAULT 0,
+      created_at    INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_disc_signals_type
+      ON discovery_signals (signal_type);
+    CREATE INDEX IF NOT EXISTS idx_disc_signals_addr
+      ON discovery_signals (address);
+    CREATE INDEX IF NOT EXISTS idx_disc_signals_detected
+      ON discovery_signals (detected_at);
   `);
 
   // Set schema version if not set
@@ -117,6 +415,97 @@ function createSchema(database: Database.Database): void {
   if (!row) {
     database.prepare('INSERT INTO schema_version (version) VALUES (?)').run(SCHEMA_VERSION);
   }
+}
+
+function safeAddColumn(database: Database.Database, table: string, column: string, definition: string): void {
+  try {
+    database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  } catch (err: any) {
+    if (!err.message.includes('duplicate column')) throw err;
+  }
+}
+
+function safeCreateIndex(database: Database.Database, indexName: string, sql: string): void {
+  try {
+    database.exec(sql);
+  } catch (err: any) {
+    console.warn(`[Database] Failed to create index ${indexName}: ${err.message}`);
+  }
+}
+
+function migrateDiscoveryPositionsSchema(database: Database.Database): void {
+  const columns = database
+    .prepare(`PRAGMA table_info('discovery_positions')`)
+    .all() as Array<{ name: string }>;
+  const hasAssetColumn = columns.some((c) => c.name === 'asset_id');
+  const tableRow = database
+    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'discovery_positions'`)
+    .get() as { sql?: string } | undefined;
+  const hasThreeKeyUniqueness = String(tableRow?.sql || '').includes('UNIQUE(address, condition_id, asset_id)');
+  if (hasAssetColumn && hasThreeKeyUniqueness) return;
+
+  database.exec(`
+    ALTER TABLE discovery_positions RENAME TO discovery_positions_legacy;
+
+    CREATE TABLE discovery_positions (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      address         TEXT NOT NULL,
+      condition_id    TEXT NOT NULL,
+      asset_id        TEXT NOT NULL,
+      outcome         TEXT,
+      market_slug     TEXT,
+      market_title    TEXT,
+      side            TEXT,
+      shares          REAL DEFAULT 0,
+      avg_entry       REAL DEFAULT 0,
+      total_cost      REAL DEFAULT 0,
+      total_trades    INTEGER DEFAULT 0,
+      first_entry     INTEGER,
+      last_entry      INTEGER,
+      current_price   REAL,
+      price_updated_at INTEGER,
+      unrealized_pnl  REAL DEFAULT 0,
+      roi_pct         REAL DEFAULT 0,
+      updated_at      INTEGER DEFAULT (unixepoch()),
+      UNIQUE(address, condition_id, asset_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_disc_positions_addr
+      ON discovery_positions (address);
+    CREATE INDEX IF NOT EXISTS idx_disc_positions_cond
+      ON discovery_positions (condition_id);
+    CREATE INDEX IF NOT EXISTS idx_disc_positions_asset
+      ON discovery_positions (asset_id);
+
+    INSERT INTO discovery_positions (
+      id, address, condition_id, asset_id, outcome, market_slug, market_title, side,
+      shares, avg_entry, total_cost, total_trades, first_entry, last_entry,
+      current_price, price_updated_at, unrealized_pnl, roi_pct, updated_at
+    )
+    SELECT
+      id,
+      address,
+      condition_id,
+      COALESCE(NULLIF(asset_id, ''), condition_id || ':legacy'),
+      outcome,
+      market_slug,
+      market_title,
+      side,
+      shares,
+      avg_entry,
+      total_cost,
+      total_trades,
+      first_entry,
+      last_entry,
+      current_price,
+      price_updated_at,
+      unrealized_pnl,
+      roi_pct,
+      updated_at
+    FROM discovery_positions_legacy;
+
+    DROP TABLE discovery_positions_legacy;
+  `);
 }
 
 // ============================================================================
@@ -264,6 +653,12 @@ export function dbLoadExecutedPositions(): ExecutedPosition[] {
     side: r.side as 'YES' | 'NO',
     timestamp: r.timestamp,
     walletAddress: r.wallet_address,
+    status: (r.status as 'executed' | 'pending' | undefined) ?? 'executed',
+    orderId: r.order_id ?? undefined,
+    tokenId: r.token_id ?? undefined,
+    baselinePositionSize: r.baseline_position_size ?? undefined,
+    missingOrderChecks: r.missing_order_checks ?? undefined,
+    tradeSideAction: r.trade_side_action ?? undefined,
   }));
 }
 
@@ -272,10 +667,21 @@ export function dbSaveExecutedPositions(positions: ExecutedPosition[]): void {
   const tx = database.transaction(() => {
     database.prepare('DELETE FROM executed_positions').run();
     const insert = database.prepare(
-      'INSERT INTO executed_positions (market_id, side, timestamp, wallet_address) VALUES (?, ?, ?, ?)'
+      'INSERT INTO executed_positions (market_id, side, timestamp, wallet_address, status, order_id, token_id, baseline_position_size, missing_order_checks, trade_side_action) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     for (const p of positions) {
-      insert.run(p.marketId, p.side, p.timestamp, p.walletAddress);
+      insert.run(
+        p.marketId,
+        p.side,
+        p.timestamp,
+        p.walletAddress,
+        p.status ?? 'executed',
+        p.orderId ?? null,
+        p.tokenId ?? null,
+        p.baselinePositionSize ?? null,
+        p.missingOrderChecks ?? 0,
+        p.tradeSideAction ?? null
+      );
     }
   });
   tx();

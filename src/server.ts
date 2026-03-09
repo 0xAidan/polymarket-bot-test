@@ -3,12 +3,21 @@ import cors from 'cors';
 import path from 'path';
 import { config } from './config.js';
 import { createRoutes } from './api/routes.js';
+import { createDiscoveryRoutes } from './api/discoveryRoutes.js';
 import { CopyTrader } from './copyTrader.js';
+import { DiscoveryManager } from './discovery/discoveryManager.js';
+import { DiscoveryControlPlane } from './discovery/discoveryControlPlane.js';
+import { initDatabase } from './database.js';
+
+let discoveryManagerInstance: DiscoveryManager | null = null;
+
+export const getDiscoveryManager = (): DiscoveryManager | null => discoveryManagerInstance;
 
 /**
  * Create and configure the Express server
  */
 export async function createServer(copyTrader: CopyTrader): Promise<express.Application> {
+  await initDatabase();
   const app = express();
 
   // Middleware
@@ -20,8 +29,13 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   const publicPath = path.join(process.cwd(), 'public');
   app.use(express.static(publicPath));
 
+  // Discovery runtime now lives in the dedicated worker process.
+  discoveryManagerInstance = null;
+  const discoveryControlPlane = new DiscoveryControlPlane();
+
   // API routes
   app.use('/api', createRoutes(copyTrader));
+  app.use('/api/discovery', createDiscoveryRoutes(discoveryControlPlane as any));
   
   // API 404 handler - catch any unmatched /api routes and return JSON
   app.use('/api/*', (req, res) => {

@@ -3,6 +3,7 @@ import * as ethers from 'ethers';
 import crypto from 'crypto';
 import { config } from './config.js';
 import { DetectedTrade } from './types.js';
+import { getValidEvmAddress } from './addressUtils.js';
 
 /**
  * Retry configuration for API requests
@@ -167,8 +168,8 @@ export class PolymarketApi {
     
     // FALLBACK: Check POLYMARKET_FUNDER_ADDRESS env variable
     // This is the most reliable method if the user has set it
-    const funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS;
-    if (funderAddress && funderAddress.toLowerCase() !== normalizedEoa) {
+    const funderAddress = getValidEvmAddress(process.env.POLYMARKET_FUNDER_ADDRESS);
+    if (funderAddress && funderAddress !== normalizedEoa) {
       console.log(`[API] ✓ Using POLYMARKET_FUNDER_ADDRESS: ${funderAddress} for EOA: ${address.substring(0, 8)}...`);
       return funderAddress;
     }

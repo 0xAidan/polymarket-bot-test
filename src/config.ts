@@ -56,6 +56,13 @@ export const config = {
   kalshiPrivateKeyPath: process.env.KALSHI_PRIVATE_KEY_PATH || '',
   kalshiPrivateKeyPem: process.env.KALSHI_PRIVATE_KEY_PEM || '',
 
+  // Discovery Engine (.env values are defaults; runtime config in SQLite overrides)
+  discoveryEnabled: process.env.DISCOVERY_ENABLED === 'true',
+  discoveryAlchemyWsUrl: process.env.DISCOVERY_ALCHEMY_WS_URL || '',
+  discoveryPollIntervalMs: parseInt(process.env.DISCOVERY_POLL_INTERVAL_MS || '30000', 10),
+  discoveryMarketCount: parseInt(process.env.DISCOVERY_MARKET_COUNT || '50', 10),
+  discoveryStatsIntervalMs: parseInt(process.env.DISCOVERY_STATS_INTERVAL_MS || '300000', 10),
+
   // Validate required configuration
   validate(): void {
     if (!this.privateKey) {

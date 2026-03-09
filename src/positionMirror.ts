@@ -2,6 +2,7 @@ import { PolymarketApi } from './polymarketApi.js';
 import { PolymarketClobClient } from './clobClient.js';
 import { Storage } from './storage.js';
 import { Side } from '@polymarket/clob-client';
+import { getValidEvmAddress } from './addressUtils.js';
 
 /**
  * Mirror trade action types
@@ -148,13 +149,20 @@ export class PositionMirror {
     }
     
     // Check for proxy wallet - try funder address first, then resolve via API
-    const funderAddress = this.clobClient.getFunderAddress();
-    const proxyAddress = funderAddress || await this.polymarketApi.getProxyWalletAddress(eoaAddress);
+    const configuredFunderAddress = getValidEvmAddress(this.clobClient.getFunderAddress());
+    const proxyAddress = configuredFunderAddress || await this.polymarketApi.getProxyWalletAddress(eoaAddress);
     const userAddress = proxyAddress || eoaAddress;
     
     console.log(`[Mirror] Your wallet: EOA=${eoaAddress.substring(0, 10)}..., Proxy=${proxyAddress ? proxyAddress.substring(0, 10) + '...' : 'none'}, Using=${userAddress.substring(0, 10)}...`);
     
-    const yourPositions = await this.polymarketApi.getUserPositions(userAddress);
+    let yourPositions: any[];
+    try {
+      yourPositions = await this.polymarketApi.getUserPositions(userAddress);
+    } catch (error: any) {
+      throw new Error(
+        `Could not load positions for your trading wallet (${userAddress.slice(0, 10)}...). Check your Polymarket proxy wallet configuration. ${error.message}`
+      );
+    }
     const yourUsdcBalance = await this.clobClient.getUsdcBalance();
     
     // Calculate your portfolio value (USDC + positions)
@@ -315,8 +323,26 @@ export class PositionMirror {
     let sharesToTrade = Math.abs(sharesDelta);
     
     if (Math.abs(sharesDelta) < 0.5) {
-      // Delta too small, skip
-      return null;
+      return {
+        marketId,
+        marketTitle,
+        tokenId,
+        outcome,
+        theirShares,
+        theirAvgPrice,
+        theirAllocationPercent,
+        yourShares,
+        yourAllocationPercent,
+        action: 'BUY',
+        sharesToTrade: parseFloat(sharesToTrade.toFixed(4)),
+        estimatedCost: parseFloat((sharesToTrade * currentPrice).toFixed(4)),
+        currentPrice,
+        status: 'skipped',
+        warning: 'Mirror size is too small for your current portfolio',
+        priceDeviationPercent: 0,
+        selected: false,
+        negRisk
+      };
     }
     
     if (sharesDelta > 0) {

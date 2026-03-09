@@ -98,6 +98,54 @@ describe('Storage dual-backend', () => {
       const blocked = await Storage.isPositionBlocked('mkt2', 'NO', 0);
       assert.equal(blocked, false);
     });
+
+    it('pending positions block repeats until removed', async () => {
+      await Storage.addPendingPosition('mkt-pending', 'YES', '0xwho', 'order-1', 'token-1', 12);
+
+      const blocked = await Storage.isPositionBlocked('mkt-pending', 'YES', 24);
+      assert.equal(blocked, true);
+
+      await Storage.removePendingPosition('order-1');
+
+      const unblocked = await Storage.isPositionBlocked('mkt-pending', 'YES', 24);
+      assert.equal(unblocked, false);
+    });
+
+    it('pending positions can be promoted to executed positions', async () => {
+      await Storage.addPendingPosition('mkt-promote', 'NO', '0xwho', 'order-2', 'token-2');
+      await Storage.markPendingPositionExecuted('order-2');
+
+      const positions = await Storage.getExecutedPositions();
+      assert.equal(positions.length, 1);
+      assert.equal(positions[0].status, 'executed');
+      assert.equal(positions[0].orderId, 'order-2');
+      assert.equal(positions[0].tokenId, 'token-2');
+
+      const blocked = await Storage.isPositionBlocked('mkt-promote', 'NO', 24);
+      assert.equal(blocked, true);
+    });
+
+    it('cleanup keeps pending positions for later reconciliation', async () => {
+      await Storage.addPendingPosition('mkt-cleanup', 'YES', '0xwho', 'order-3', 'token-3');
+
+      const removed = await Storage.cleanupExpiredPositions(1);
+      assert.equal(removed, 0);
+
+      const blocked = await Storage.isPositionBlocked('mkt-cleanup', 'YES', 1);
+      assert.equal(blocked, true);
+    });
+
+    it('keeps multiple pending orders for the same market and outcome', async () => {
+      await Storage.addPendingPosition('mkt-multi', 'YES', '0xwallet-a', 'order-a', 'token-a');
+      await Storage.addPendingPosition('mkt-multi', 'YES', '0xwallet-b', 'order-b', 'token-b');
+
+      const positions = await Storage.getExecutedPositions();
+      assert.equal(positions.length, 2);
+      assert.deepEqual(
+        positions.map(position => position.orderId).sort(),
+        ['order-a', 'order-b']
+      );
+    });
   });
 
   // ── SQLite backend ──
@@ -159,6 +207,19 @@ describe('Storage dual-backend', () => {
     it('executed positions roundtrip via SQLite', async () => {
       await Storage.addExecutedPosition('mkt-sql', 'YES', '0xsqlwho');
       const blocked = await Storage.isPositionBlocked('mkt-sql', 'YES', 24);
+      assert.equal(blocked, true);
+    });
+
+    it('pending positions persist via SQLite', async () => {
+      await Storage.addPendingPosition('mkt-sql-pending', 'YES', '0xsqlwho', 'order-sql', 'token-sql', 4);
+
+      const positions = await Storage.getExecutedPositions();
+      assert.equal(positions.length, 1);
+      assert.equal(positions[0].status, 'pending');
+      assert.equal(positions[0].orderId, 'order-sql');
+      assert.equal(positions[0].baselinePositionSize, 4);
+
+      const blocked = await Storage.isPositionBlocked('mkt-sql-pending', 'YES', 24);
       assert.equal(blocked, true);
     });
   });

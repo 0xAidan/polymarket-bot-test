@@ -68,7 +68,6 @@ const DEFAULT_CONFIG: LifecycleConfig = {
 
 export class PositionLifecycleManager {
   private api: PolymarketApi;
-  private provider: ethers.providers.JsonRpcProvider;
   private checkInterval: ReturnType<typeof setInterval> | null = null;
   private isRunning = false;
   private lastCheckTime: number = 0;
@@ -81,7 +80,6 @@ export class PositionLifecycleManager {
 
   constructor() {
     this.api = new PolymarketApi();
-    this.provider = new ethers.providers.JsonRpcProvider(config.polygonRpcUrl);
     this.lifecycleConfig = { ...DEFAULT_CONFIG };
   }
 
@@ -301,8 +299,6 @@ export class PositionLifecycleManager {
    * transactions on-chain and pays gas — the wallet only signs.
    */
   private createRelayClient(signer: ethers.Wallet): RelayClient {
-    const connectedSigner = signer.connect(this.provider);
-
     const builderConfig = new BuilderConfig({
       localBuilderCreds: {
         key: config.polymarketBuilderApiKey,
@@ -314,7 +310,7 @@ export class PositionLifecycleManager {
     return new RelayClient(
       RELAYER_URL,
       POLYGON_CHAIN_ID,
-      connectedSigner as any,
+      signer as any,
       builderConfig,
       RelayerTxType.SAFE,
     );
