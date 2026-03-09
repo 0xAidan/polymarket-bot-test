@@ -286,7 +286,7 @@ async function main() {
         console.log('   To start copy trading:');
         console.log('   1. Open the web dashboard at http://localhost:' + config.port);
         console.log('   2. Add wallet addresses to track');
-        console.log('   3. The bot will automatically start monitoring them\n');
+        console.log('   3. Click "Start Bot" when you are ready\n');
       } else {
         console.log(`\n📋 Tracked Wallets: ${trackedWallets.length} total, ${activeWallets.length} active`);
         console.log(`${'─'.repeat(60)}`);
@@ -297,21 +297,13 @@ async function main() {
         console.log(`${'='.repeat(60)}\n`);
       }
 
-      // Start the copy trading bot
-      console.log('🤖 Starting copy trading bot...');
-      await copyTrader.start();
-      
-      // Get status after starting
-      const status = copyTrader.getStatus();
-      const domeWs = status.domeWs;
-
       console.log(`\n${'='.repeat(60)}`);
-      console.log(`✅ BOT STARTED SUCCESSFULLY`);
+      console.log(`✅ BOT READY`);
       console.log(`${'='.repeat(60)}`);
-      console.log(`Monitoring Methods:`);
-      console.log(`   🌐 Dome WebSocket: ${domeWs?.connected ? '✅ CONNECTED' : '⏳ Not connected'} — ${domeWs?.trackedWallets ?? 0} wallets`);
-      console.log(`   🔄 Polling: ${status.running ? '✅ ACTIVE' : '⏸️  INACTIVE'}`);
-      console.log(`\n💡 Status: ${domeWs?.connected ? 'Real-time (Dome) + polling' : 'Polling mode'}`);
+      console.log(`   Server: http://localhost:${config.port}`);
+      console.log(`   Trading bot: ⏸️  idle until you click "Start Bot"`);
+      console.log(`   Discovery: ⏸️  idle until you restart it from the dashboard`);
+      console.log(`\n💡 This keeps the dashboard responsive during startup.`);
       console.log(`${'='.repeat(60)}\n`);
 
     } catch (error: any) {
