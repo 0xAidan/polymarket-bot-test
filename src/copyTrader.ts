@@ -928,6 +928,53 @@ export class CopyTrader {
         );
         return;
       }
+
+      // Pre-flight affordability guard for BUY orders.
+      // We cap order size to spendable collateral to avoid avoidable CLOB 400 failures.
+      if (trade.side === 'BUY') {
+        try {
+          const clobClient = this.executor.getClobClient();
+          const collateral = await clobClient.getCollateralStatus();
+          const reserveUsdc = 0.5; // Keep a tiny reserve to avoid edge-case precision rejections.
+          const maxSpendableUsdc = Math.max(0, collateral.spendableUsdc - reserveUsdc);
+
+          if (maxSpendableUsdc <= 0) {
+            console.error(`\n❌ [CopyTrader] BUY BLOCKED — spendable collateral is $0.00`);
+            console.error(`   Balance: $${collateral.balanceUsdc.toFixed(2)}`);
+            console.error(`   Allowance: ${collateral.allowanceUsdc === null ? 'unknown' : '$' + collateral.allowanceUsdc.toFixed(2)}`);
+            console.error(`   Required before reserve: $${tradeSizeUsdcNum.toFixed(2)}\n`);
+            await this.performanceTracker.recordTrade({
+              timestamp: new Date(),
+              walletAddress: trade.walletAddress,
+              marketId: trade.marketId,
+              marketTitle: trade.marketTitle,
+              outcome: trade.outcome,
+              amount: trade.amount,
+              price: trade.price,
+              success: false,
+              status: 'rejected',
+              executionTimeMs: Date.now() - executionStart,
+              error: `Insufficient spendable collateral (balance/allowance): $${collateral.spendableUsdc.toFixed(2)} available`,
+              detectedTxHash: trade.transactionHash,
+              tokenId: trade.tokenId,
+            });
+            return;
+          }
+
+          if (tradeSizeUsdcNum > maxSpendableUsdc) {
+            const originalTradeSize = tradeSizeUsdcNum;
+            tradeSizeUsdcNum = parseFloat(maxSpendableUsdc.toFixed(2));
+            tradeSizeSource = `${tradeSizeSource}, clamped to spendable collateral`;
+            console.log(
+              `[Trade] Clamped BUY size from $${originalTradeSize.toFixed(2)} to ` +
+              `$${tradeSizeUsdcNum.toFixed(2)} based on spendable collateral ` +
+              `($${collateral.spendableUsdc.toFixed(2)} before reserve)`
+            );
+          }
+        } catch (collateralError: any) {
+          console.warn(`[CopyTrader] Could not run collateral pre-flight check: ${collateralError.message}`);
+        }
+      }
       
       // Calculate number of shares based on USDC amount and price
       // shares = USDC amount / price per share

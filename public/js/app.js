@@ -2658,8 +2658,15 @@ const loadDiscoveryConfig = async () => {
   } catch { /* best-effort */ }
 };
 
+const normalizeEpochMs = (value) => {
+  const raw = Number(value || 0);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  // Some backend fields are epoch-seconds; normalize to milliseconds for UI.
+  return raw < 1_000_000_000_000 ? raw * 1000 : raw;
+};
+
 const relativeTimeFromMs = (value) => {
-  const ts = Number(value || 0);
+  const ts = normalizeEpochMs(value);
   if (!Number.isFinite(ts) || ts <= 0) return 'never';
   const delta = Date.now() - ts;
   if (delta < 5000) return 'just now';
@@ -2688,17 +2695,25 @@ const loadDiscoveryStatus = async () => {
 
     if (chainEl) {
       const cl = data.chainListener || {};
-      const lastEventText = relativeTimeFromMs(cl.lastEventAt);
-      chainEl.textContent = cl.connected ? `Connected • last ${lastEventText}` : `Disconnected • last ${lastEventText}`;
-      chainEl.style.color = cl.connected ? 'var(--success)' : 'var(--danger, #c00)';
+      const lastEventMs = normalizeEpochMs(cl.lastEventAt);
+      const usingCycleOnlyMode = !cl.connected && !lastEventMs && Boolean(data.latestRun);
+      if (usingCycleOnlyMode) {
+        chainEl.textContent = 'Cycle mode • no live chain stream';
+        chainEl.style.color = '';
+      } else {
+        const lastEventText = relativeTimeFromMs(lastEventMs);
+        chainEl.textContent = cl.connected ? `Connected • last ${lastEventText}` : `Disconnected • last ${lastEventText}`;
+        chainEl.style.color = cl.connected ? 'var(--success)' : 'var(--danger, #c00)';
+      }
     }
     if (pollerEl) {
       const ap = data.apiPoller || {};
-      const lastPollText = relativeTimeFromMs(ap.lastPollAt);
+      const lastPollMs = normalizeEpochMs(ap.lastPollAt);
+      const lastPollText = relativeTimeFromMs(lastPollMs);
       pollerEl.textContent = ap.running
         ? `Polling (${ap.marketsMonitored}) • last ${lastPollText}`
         : `Stopped • last ${lastPollText}`;
-      const stale = ap.lastPollAt && Date.now() - Number(ap.lastPollAt) > 60000;
+      const stale = lastPollMs && Date.now() - lastPollMs > 60000;
       pollerEl.style.color = ap.running && !stale ? 'var(--success)' : (stale ? 'var(--danger, #c00)' : '');
     }
     if (walletEl) walletEl.textContent = (data.stats?.totalWallets ?? 0).toLocaleString();

@@ -199,6 +199,19 @@ export const getWalletCandidates = (limit = 100): DiscoveryWalletCandidate[] => 
   }));
 };
 
+export const getCandidateAddressesForScoring = (limit = 200): string[] => {
+  const db = getDatabase();
+  const rows = db.prepare(`
+    SELECT address
+    FROM discovery_wallet_candidates
+    GROUP BY address
+    ORDER BY MAX(updated_at) DESC
+    LIMIT ?
+  `).all(limit) as Array<{ address: string }>;
+
+  return rows.map((row) => row.address);
+};
+
 export const getWalletCandidatesByAddress = (address: string): DiscoveryWalletCandidate[] => {
   const db = getDatabase();
   const rows = db.prepare(`
