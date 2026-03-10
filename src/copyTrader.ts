@@ -22,7 +22,7 @@ export class CopyTrader {
   private performanceTracker: PerformanceTracker;
   private balanceTracker: BalanceTracker;
   private isRunning = false;
-  private monitoringMode: 'polling' | 'websocket' = 'polling';
+  private monitoringMode: 'polling' | 'websocket' | 'stopped' = 'stopped';
   private processedTrades = new Map<string, number>(); // Track processed trades by tx hash to prevent duplicates
   private executedTradesCount = 0; // Number of trades successfully executed this session
   private processedCompoundKeys = new Map<string, number>(); // Track by compound key (wallet-market-outcome-side-timeWindow) to catch same trade with different hashes
@@ -197,6 +197,7 @@ export class CopyTrader {
 
     console.log('Stopping copy trading bot...');
     this.isRunning = false;
+    this.monitoringMode = 'stopped';
     
     // Stop Dome WebSocket if running
     if (this.domeWsMonitor) {
@@ -557,6 +558,33 @@ export class CopyTrader {
         }
       } catch (noRepeatError: any) {
         console.error(`[CopyTrader] No-repeat check FAILED — BLOCKING trade for safety: ${noRepeatError.message}`);
+        await this.performanceTracker.recordTrade({
+          timestamp: new Date(),
+          walletAddress: trade.walletAddress,
+          marketId: trade.marketId,
+          marketTitle: trade.marketTitle,
+          outcome: trade.outcome,
+          amount: trade.amount,
+          price: trade.price,
+          success: false,
+          status: 'rejected',
+          executionTimeMs: 0,
+          error: `[NO_REPEAT_CHECK_FAILED] ${noRepeatError.message}`,
+          detectedTxHash: trade.transactionHash,
+          tokenId: trade.tokenId,
+        });
+        await this.performanceTracker.logIssue(
+          'warning',
+          'trade_execution',
+          `[NO_REPEAT_CHECK_FAILED] Trade blocked for safety`,
+          {
+            walletAddress: trade.walletAddress,
+            marketId: trade.marketId,
+            outcome: trade.outcome,
+            side: trade.side,
+            error: noRepeatError.message,
+          }
+        );
         return;
       }
     }
@@ -1220,7 +1248,7 @@ export class CopyTrader {
   getStatus(): {
     running: boolean;
     executedTradesCount: number;
-    monitoringMode: 'polling' | 'websocket';
+    monitoringMode: 'polling' | 'websocket' | 'stopped';
     domeWs: { connected: boolean; subscriptionId: string | null; trackedWallets: number } | null;
   } {
     return {

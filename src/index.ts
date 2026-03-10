@@ -305,7 +305,6 @@ async function main() {
       console.log(`   Discovery: ⏸️  idle until you restart it from the dashboard`);
       console.log(`\n💡 This keeps the dashboard responsive during startup.`);
       console.log(`${'='.repeat(60)}\n`);
-
     } catch (error: any) {
       console.error('⚠️  Failed to initialize or start bot:', error.message);
       console.error('⚠️  Bot will not run, but web server is accessible.');

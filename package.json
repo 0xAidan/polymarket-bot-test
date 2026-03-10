@@ -8,9 +8,11 @@
     "setup": "node setup.cjs",
     "dev": "node start.cjs",
     "discovery:worker": "tsx src/discovery/discoveryWorker.ts",
+    "dev:discovery": "tsx watch src/discovery/discoveryWorker.ts",
     "build": "tsc",
     "test": "node --test --import tsx tests/**/*.test.ts",
     "start": "node start.cjs",
+    "start:discovery": "tsx src/discovery/discoveryWorker.ts",
     "lint": "eslint src --ext .ts"
   },
   "keywords": [

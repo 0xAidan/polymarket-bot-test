@@ -67,17 +67,34 @@ export const updatePosition = (trade: DiscoveredTrade): void => {
   if (trade.size <= 0) return;
 
   try {
+    const normalizedSide = trade.side.toUpperCase();
+    const takerSide = normalizedSide === 'BUY' ? 'SELL' : 'BUY';
     upsertPosition(
       trade.maker,
       trade.conditionId,
       trade.assetId,
-      trade.side.toUpperCase(),
+      normalizedSide,
       trade.size,
       trade.price,
       trade.outcome,
       trade.marketTitle,
       trade.marketSlug,
     );
+
+    const taker = String(trade.taker || '').toLowerCase();
+    if (taker && taker !== String(trade.maker || '').toLowerCase()) {
+      upsertPosition(
+        taker,
+        trade.conditionId,
+        trade.assetId,
+        takerSide,
+        trade.size,
+        trade.price,
+        trade.outcome,
+        trade.marketTitle,
+        trade.marketSlug,
+      );
+    }
   } catch (err) {
     console.error('[PositionTracker] Failed to update position:', err);
   }

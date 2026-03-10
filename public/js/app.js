@@ -189,7 +189,17 @@ function refreshCurrentTab() {
       refreshExecutorStatus();
       break;
     case 'discovery':
-      startDiscoveryRefresh();
+      if (!discoveryRefreshTimer) {
+        startDiscoveryRefresh();
+      } else {
+        loadDiscoveryStatus();
+        if (discoveryWalletOffset === 0) {
+          fetchDiscoveryWallets(false);
+        }
+        loadDiscoveryOverview();
+        loadDiscoverySignals();
+        loadUnusualMarkets();
+      }
       break;
   }
 }
@@ -2546,6 +2556,7 @@ const toggleBotMenu = () => {
 const toggleViewMenu = () => {
   showMenu('menuView', [
     { label: 'Dashboard', action: () => switchTab('dashboard') },
+    { label: 'Discovery', action: () => switchTab('discovery') },
     { label: 'Tracked Wallets', action: () => switchTab('wallets') },
     { label: 'Trading Wallets', action: () => switchTab('trading-wallets') },
     { label: 'Platforms', action: () => switchTab('platforms') },
@@ -2624,6 +2635,8 @@ const loadDiscoveryConfig = async () => {
 
     if (enabledEl) enabledEl.checked = cfg.enabled;
     if (pollEl) pollEl.value = Math.round((cfg.pollIntervalMs || 30000) / 1000);
+    const fastModeEl = document.getElementById('discoveryFastMode');
+    if (fastModeEl) fastModeEl.checked = Number(cfg.pollIntervalMs || 30000) <= 15000;
     if (marketEl) marketEl.value = cfg.marketCount || 50;
     if (statsEl) statsEl.value = Math.round((cfg.statsIntervalMs || 300000) / 60000);
 
@@ -2645,27 +2658,48 @@ const loadDiscoveryConfig = async () => {
   } catch { /* best-effort */ }
 };
 
+const relativeTimeFromMs = (value) => {
+  const ts = Number(value || 0);
+  if (!Number.isFinite(ts) || ts <= 0) return 'never';
+  const delta = Date.now() - ts;
+  if (delta < 5000) return 'just now';
+  if (delta < 60000) return `${Math.round(delta / 1000)}s ago`;
+  if (delta < 3600000) return `${Math.round(delta / 60000)}m ago`;
+  return `${(delta / 3600000).toFixed(1)}h ago`;
+};
+
 const loadDiscoveryStatus = async () => {
+  const chainEl = document.getElementById('discoveryChainStatus');
+  const pollerEl = document.getElementById('discoveryPollerStatus');
+  const walletEl = document.getElementById('discoveryWalletCount');
+  const tradeEl = document.getElementById('discoveryTradeCount');
+  const uptimeEl = document.getElementById('discoveryUptime');
   try {
     const resp = await fetch('/api/discovery/status');
     const data = await resp.json();
-    if (!data.success) return;
-
-    const chainEl = document.getElementById('discoveryChainStatus');
-    const pollerEl = document.getElementById('discoveryPollerStatus');
-    const walletEl = document.getElementById('discoveryWalletCount');
-    const tradeEl = document.getElementById('discoveryTradeCount');
-    const uptimeEl = document.getElementById('discoveryUptime');
+    if (!data.success) {
+      if (chainEl) chainEl.textContent = 'Unavailable';
+      if (pollerEl) pollerEl.textContent = 'Unavailable';
+      if (walletEl) walletEl.textContent = '0';
+      if (tradeEl) tradeEl.textContent = '0';
+      if (uptimeEl) uptimeEl.textContent = '--';
+      return;
+    }
 
     if (chainEl) {
       const cl = data.chainListener || {};
-      chainEl.textContent = cl.connected ? 'Connected' : 'Disconnected';
+      const lastEventText = relativeTimeFromMs(cl.lastEventAt);
+      chainEl.textContent = cl.connected ? `Connected • last ${lastEventText}` : `Disconnected • last ${lastEventText}`;
       chainEl.style.color = cl.connected ? 'var(--success)' : 'var(--danger, #c00)';
     }
     if (pollerEl) {
       const ap = data.apiPoller || {};
-      pollerEl.textContent = ap.running ? `Polling (${ap.marketsMonitored})` : 'Stopped';
-      pollerEl.style.color = ap.running ? 'var(--success)' : '';
+      const lastPollText = relativeTimeFromMs(ap.lastPollAt);
+      pollerEl.textContent = ap.running
+        ? `Polling (${ap.marketsMonitored}) • last ${lastPollText}`
+        : `Stopped • last ${lastPollText}`;
+      const stale = ap.lastPollAt && Date.now() - Number(ap.lastPollAt) > 60000;
+      pollerEl.style.color = ap.running && !stale ? 'var(--success)' : (stale ? 'var(--danger, #c00)' : '');
     }
     if (walletEl) walletEl.textContent = (data.stats?.totalWallets ?? 0).toLocaleString();
     if (tradeEl) tradeEl.textContent = (data.stats?.totalTrades ?? 0).toLocaleString();
@@ -2676,12 +2710,25 @@ const loadDiscoveryStatus = async () => {
       else if (ms < 3600000) { uptimeEl.textContent = Math.round(ms / 60000) + 'm'; }
       else { uptimeEl.textContent = (ms / 3600000).toFixed(1) + 'h'; }
     }
-  } catch { /* best-effort */ }
+  } catch {
+    if (chainEl) chainEl.textContent = 'Unavailable';
+    if (pollerEl) pollerEl.textContent = 'Unavailable';
+    if (walletEl) walletEl.textContent = '0';
+    if (tradeEl) tradeEl.textContent = '0';
+    if (uptimeEl) uptimeEl.textContent = '--';
+  }
 };
 
 const loadDiscoveryWallets = async () => {
   discoveryWalletOffset = 0;
   await fetchDiscoveryWallets(false);
+};
+
+const handleDiscoveryFastModeToggle = () => {
+  const fastModeEl = document.getElementById('discoveryFastMode');
+  const pollEl = document.getElementById('discoveryPollInterval');
+  if (!fastModeEl || !pollEl) return;
+  pollEl.value = fastModeEl.checked ? '15' : '30';
 };
 
 const loadMoreDiscoveryWallets = async () => {
@@ -2749,7 +2796,9 @@ const fetchDiscoveryWallets = async (append) => {
       const trackBtn = w.isTracked
         ? '<button class="win-btn win-btn-sm" disabled>Tracked</button>'
         : '<button class="win-btn win-btn-sm win-btn-primary" onclick="event.stopPropagation();trackDiscoveredWallet(\'' + (w.address || '').replace(/'/g, "\\'") + '\', this)" aria-label="Track and activate wallet" tabindex="0">Track &amp; Activate</button>';
-      const roiLabel = roiText(w.roiPct) + (w.positionDataSource === 'verified' ? ' <span class="text-xs text-muted">(verified)</span>' : '');
+      const roiLabel = roiText(w.roiPct) + (w.positionDataSource === 'verified'
+        ? ' <span class="text-xs text-muted">(verified)</span>'
+        : ' <span class="text-xs text-muted">(estimated)</span>');
       const categoryBadge = discoveryCategoryBadge(w.focusCategory);
       const sourceLine = Array.isArray(w.sourceChannels) && w.sourceChannels.length
         ? `<div class="text-xs text-muted" style="margin-top:2px;">Sources: ${w.sourceChannels.join(', ')}</div>`
@@ -2874,7 +2923,17 @@ const loadUnusualMarkets = async () => {
       const types = (m.signal_types || '').replace(/,/g, ', ');
       const walletCount = m.wallets ? m.wallets.split(',').length : 0;
       const firstDetected = m.first_detected ? new Date(m.first_detected).toLocaleString() : '—';
-      return '<tr><td>' + title + '</td><td>' + types + '</td><td>' + walletCount + '</td><td>' + firstDetected + '</td></tr>';
+      const wallets = (m.wallets || '').split(',').filter(Boolean);
+      const walletActions = wallets.slice(0, 3).map((wallet) => {
+        const safeWallet = String(wallet).replace(/'/g, "\\'");
+        return `<button class="win-btn win-btn-sm" style="margin-right:4px;" onclick="event.stopPropagation();openWalletDetail('${safeWallet}')">${wallet.slice(0, 6)}...${wallet.slice(-4)}</button>`;
+      }).join('');
+      return `<tr>
+        <td>${title}</td>
+        <td>${types}</td>
+        <td>${walletCount}</td>
+        <td>${firstDetected}<div style="margin-top:4px;">${walletActions || '<span class="text-xs text-muted">No linked wallets</span>'}</div></td>
+      </tr>`;
     }).join('');
   } catch { /* best-effort */ }
 };
@@ -3211,7 +3270,9 @@ const startDiscoveryRefresh = () => {
       return;
     }
     loadDiscoveryStatus();
-    loadDiscoveryWallets();
+    if (discoveryWalletOffset === 0) {
+      fetchDiscoveryWallets(false);
+    }
     loadDiscoveryOverview();
     loadDiscoverySignals();
     loadUnusualMarkets();
