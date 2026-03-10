@@ -29,8 +29,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   const publicPath = path.join(process.cwd(), 'public');
   app.use(express.static(publicPath));
 
-  // Discovery runtime now lives in the dedicated worker process.
-  discoveryManagerInstance = null;
+  discoveryManagerInstance = new DiscoveryManager('passive');
   const discoveryControlPlane = new DiscoveryControlPlane();
 
   // API routes

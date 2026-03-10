@@ -2,6 +2,12 @@ import * as ethers from 'ethers';
 import { config } from './config.js';
 import { Storage } from './storage.js';
 import { PolymarketApi } from './polymarketApi.js';
+import { buildPositionKey, normalizeOutcomeLabel, resolveTradeMarketId } from './tradeIdentity.js';
+import {
+  logTradeRegressionDebug,
+  summarizeActivityTradeForDebug,
+  summarizeDetectedTradeForDebug,
+} from './tradeDiagnostics.js';
 import { DetectedTrade } from './types.js';
 
 /**
@@ -203,8 +209,10 @@ export class WalletMonitor {
             {
               processedTradeCount++;
               console.log(`[Monitor] Processing recent trade from ${new Date(tradeTime).toISOString()}:`, JSON.stringify(trade, null, 2).substring(0, 500));
+              logTradeRegressionDebug('wallet-monitor.raw-activity-trade', summarizeActivityTradeForDebug(trade as Record<string, unknown>));
               const detectedTrade = await this.parseTradeData(eoaAddress, trade);
               if (detectedTrade) {
+                logTradeRegressionDebug('wallet-monitor.detected-trade', summarizeDetectedTradeForDebug(detectedTrade));
                 // Validate the detected trade before triggering
                 const priceNum = parseFloat(detectedTrade.price || '0');
                 const amountNum = parseFloat(detectedTrade.amount || '0');
@@ -280,29 +288,26 @@ export class WalletMonitor {
     trade: any
   ): Promise<DetectedTrade | null> {
     try {
-      // FIXED: Use conditionId as the market ID (this is what Polymarket API returns)
-      const marketId = String(trade.conditionId || '').trim();
-
-      // If no conditionId, we can't safely proceed
+      // Only use the condition id as the market identity.
+      // Falling back to the asset token id corrupts dedupe and no-repeat matching.
+      const marketId = resolveTradeMarketId({
+        conditionId: typeof trade.conditionId === 'string' ? trade.conditionId : undefined,
+        asset: typeof trade.asset === 'string' ? trade.asset : undefined,
+      });
+      
+      // If still no marketId, we can't proceed
       if (!marketId || marketId === 'unknown') {
-        console.warn(`[Monitor] Cannot determine marketId from trade data (missing conditionId), skipping trade`);
+        console.warn('[Monitor] Cannot determine marketId from trade data (missing conditionId), skipping trade');
         return null;
       }
 
-      // Determine outcome from 'outcome' or 'outcomeIndex' fields.
-      // Do not coerce unknown labels into YES to avoid lossy parsing.
-      let outcome: 'YES' | 'NO' | null = null;
-      if (trade.outcome) {
-        const label = String(trade.outcome).trim().toUpperCase();
-        if (label === 'YES' || label === 'Y') outcome = 'YES';
-        if (label === 'NO' || label === 'N') outcome = 'NO';
-      } else if (trade.outcomeIndex !== undefined) {
-        // outcomeIndex: 0 = Yes, 1 = No
-        if (trade.outcomeIndex === 1) outcome = 'NO';
-        if (trade.outcomeIndex === 0) outcome = 'YES';
-      }
-      if (!outcome) {
-        console.warn(`[Monitor] Cannot determine binary outcome from trade data, skipping trade`);
+      const outcome = normalizeOutcomeLabel(
+        typeof trade.outcome === 'string' ? trade.outcome : undefined,
+        typeof trade.outcomeIndex === 'number' ? trade.outcomeIndex : undefined,
+      );
+      const tokenId = typeof trade.asset === 'string' ? trade.asset : undefined;
+      if (outcome === 'UNKNOWN') {
+        console.warn('[Monitor] Cannot determine binary outcome from trade data, skipping trade');
         return null;
       }
 
@@ -363,8 +368,9 @@ export class WalletMonitor {
         side,
         timestamp: tradeTimestamp,
         transactionHash: trade.transactionHash || trade.id || `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        tokenId: trade.asset,
+        tokenId,
         negRisk: (trade as any).negativeRisk ?? undefined, // CLOB client looks up when undefined
+        positionKey: buildPositionKey({ marketId, tokenId, outcome }),
         // Per-wallet trade config (ALL settings, not just sizing)
         tradeSizingMode: walletSettings?.tradeSizingMode,
         fixedTradeSize: walletSettings?.fixedTradeSize,

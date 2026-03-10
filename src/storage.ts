@@ -19,6 +19,7 @@ import {
   dbLoadExecutedPositions,
   dbSaveExecutedPositions,
 } from './database.js';
+import { assertWalletCanBeEnabled } from './walletConfigSafety.js';
 
 // Use getters so tests can patch config.dataDir at runtime
 function walletsFile() { return path.join(config.dataDir, 'tracked_wallets.json'); }
@@ -196,7 +197,12 @@ export class Storage {
       throw new Error('Wallet not found');
     }
 
-    wallet.active = active !== undefined ? active : !wallet.active;
+    const nextActiveState = active !== undefined ? active : !wallet.active;
+    if (nextActiveState) {
+      assertWalletCanBeEnabled(wallet);
+    }
+
+    wallet.active = nextActiveState;
     await this.saveTrackedWallets(wallets);
     return wallet;
   }
@@ -548,18 +554,29 @@ export class Storage {
 
   static async addExecutedPosition(
     marketId: string, 
-    side: 'YES' | 'NO', 
+    side: string, 
     walletAddress: string,
     details?: {
       orderId?: string;
       tokenId?: string;
+      positionKey?: string;
     }
   ): Promise<void> {
     const positions = await this.loadExecutedPositions();
+    const matchesIdentity = (position: ExecutedPosition): boolean => {
+      if (details?.positionKey) {
+        if (position.positionKey === details.positionKey) {
+          return true;
+        }
+        if (position.tokenId && details.positionKey === `token:${position.tokenId}`) {
+          return true;
+        }
+      }
+
+      return position.marketId === marketId && position.side === side;
+    };
     const pendingMatch = positions.find(
-      p => p.marketId === marketId &&
-           p.side === side &&
-           (p.status ?? 'executed') === 'pending'
+      p => matchesIdentity(p) && (p.status ?? 'executed') === 'pending'
     );
 
     if (pendingMatch) {
@@ -567,14 +584,13 @@ export class Storage {
       pendingMatch.timestamp = Date.now();
       pendingMatch.orderId = details?.orderId ?? pendingMatch.orderId;
       pendingMatch.tokenId = details?.tokenId ?? pendingMatch.tokenId;
+      pendingMatch.positionKey = details?.positionKey ?? pendingMatch.positionKey;
       await this.saveExecutedPositions(positions);
       return;
     }
     
     const existing = positions.find(
-      p => p.marketId === marketId &&
-           p.side === side &&
-           (p.status ?? 'executed') === 'executed'
+      p => matchesIdentity(p) && (p.status ?? 'executed') === 'executed'
     );
     
     if (!existing) {
@@ -585,7 +601,8 @@ export class Storage {
         walletAddress: walletAddress.toLowerCase(),
         status: 'executed',
         orderId: details?.orderId,
-        tokenId: details?.tokenId
+        tokenId: details?.tokenId,
+        positionKey: details?.positionKey,
       });
       await this.saveExecutedPositions(positions);
     }
@@ -593,12 +610,13 @@ export class Storage {
 
   static async addPendingPosition(
     marketId: string,
-    side: 'YES' | 'NO',
+    side: string,
     walletAddress: string,
     orderId: string,
     tokenId?: string,
     baselinePositionSize?: number,
-    tradeSideAction?: 'BUY' | 'SELL'
+    tradeSideAction?: 'BUY' | 'SELL',
+    positionKey?: string,
   ): Promise<void> {
     const positions = await this.loadExecutedPositions();
     const existingIndex = positions.findIndex(p => p.orderId === orderId);
@@ -611,6 +629,7 @@ export class Storage {
       status: 'pending',
       orderId,
       tokenId,
+      positionKey,
       baselinePositionSize,
       missingOrderChecks: 0,
       tradeSideAction
@@ -686,12 +705,24 @@ export class Storage {
 
   static async isPositionBlocked(
     marketId: string, 
-    side: 'YES' | 'NO', 
-    blockPeriodHours: number
+    side: string, 
+    blockPeriodHours: number,
+    positionKey?: string,
   ): Promise<boolean> {
     const positions = await this.loadExecutedPositions();
     const matchingPositions = positions.filter(
-      p => p.marketId === marketId && p.side === side
+      p => {
+        if (positionKey) {
+          if (p.positionKey === positionKey) {
+            return true;
+          }
+          if (p.tokenId && positionKey === `token:${p.tokenId}`) {
+            return true;
+          }
+        }
+
+        return p.marketId === marketId && p.side === side;
+      }
     );
 
     if (matchingPositions.some(p => (p.status ?? 'executed') === 'pending')) {

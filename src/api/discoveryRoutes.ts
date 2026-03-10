@@ -748,11 +748,26 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
   // -----------------------------------------------------------------------
   router.post('/config/restart', async (req: Request, res: Response) => {
     try {
-      await manager.restart().catch(() => {});
-      res.status(202).json({
-        success: true,
-        message: 'Discovery worker settings saved. Restart the dedicated discovery worker process to apply them.',
-      });
+      if (typeof (manager as any).isPassiveRuntime === 'function' && (manager as any).isPassiveRuntime()) {
+        return res.json({
+          success: true,
+          message: 'Discovery worker runs separately. Shared config updates are already persisted; restart the worker manually after code changes.',
+          restarted: false,
+          runtime: 'worker-owned',
+        });
+      }
+
+      try {
+        await manager.restart();
+        res.json({ success: true, message: 'Discovery engine restarted', restarted: true });
+      } catch {
+        res.status(202).json({
+          success: true,
+          message: 'Discovery worker settings saved. Restart the dedicated discovery worker process to apply them.',
+          restarted: false,
+          runtime: 'worker-owned',
+        });
+      }
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }

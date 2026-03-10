@@ -9,9 +9,12 @@
     "dev": "node start.cjs",
     "discovery:worker": "tsx src/discovery/discoveryWorker.ts",
     "dev:discovery": "tsx watch src/discovery/discoveryWorker.ts",
+    "dev:app": "node start.cjs",
+    "discovery:dev": "APP_RUNTIME=discovery-worker node start.cjs",
     "build": "tsc",
     "test": "node --test --import tsx tests/**/*.test.ts",
     "start": "node start.cjs",
+    "start:app": "tsx src/index.ts",
     "start:discovery": "tsx src/discovery/discoveryWorker.ts",
     "lint": "eslint src --ext .ts"
   },
