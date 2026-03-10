@@ -33,11 +33,11 @@
       <div style="padding: 8px 8px 0;">
         <div class="win-tabs">
           <button class="win-tab active" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
+          <button class="win-tab" data-tab="discovery" onclick="switchTab('discovery')">Discovery</button>
           <button class="win-tab" data-tab="wallets" onclick="switchTab('wallets')">Tracked Wallets</button>
           <button class="win-tab" data-tab="trading-wallets" onclick="switchTab('trading-wallets')">Trading Wallets</button>
           <button class="win-tab" data-tab="platforms" onclick="switchTab('platforms')">Platforms</button>
           <button class="win-tab" data-tab="cross-platform" onclick="switchTab('cross-platform')">Cross-Platform</button>
-          <button class="win-tab" data-tab="discovery" onclick="switchTab('discovery')">Discovery</button>
           <button class="win-tab" data-tab="settings" onclick="switchTab('settings')">Settings</button>
           <button class="win-tab" data-tab="diagnostics" onclick="switchTab('diagnostics')">Diagnostics</button>
         </div>
@@ -387,6 +387,13 @@
               <div class="form-row">
                 <label>Poll Interval (s):</label>
                 <input type="number" id="discoveryPollInterval" value="30" min="15" max="120" class="win-input" style="width:80px;">
+              </div>
+              <div class="form-row">
+                <label>Fast mode:</label>
+                <label class="flex-row gap-8" style="align-items:center;">
+                  <input type="checkbox" id="discoveryFastMode" onchange="handleDiscoveryFastModeToggle()">
+                  <span class="text-sm text-muted">15s polling</span>
+                </label>
               </div>
               <div class="form-row">
                 <label>Markets to monitor:</label>

@@ -31,6 +31,9 @@ import { ApiPoller } from './apiPoller.js';
 import { refreshPositionPrices, backfillPositions } from './positionTracker.js';
 import { evaluatePeriodicSignals } from './signalEngine.js';
 import { computeScoresAndHeat } from './walletScorer.js';
+import { getDatabase } from '../database.js';
+
+const DEFAULT_BACKFILL_MAX_TRADES = 250_000;
 import {
   clearDiscoveryRuntimeHeartbeat,
   getCurrentDiscoveryRuntimeHeartbeat,
@@ -48,6 +51,7 @@ export class DiscoveryManager {
   private config: DiscoveryConfig;
   private priceRefreshRunning = false;
   private statsCycleRunning = false;
+  private initialBackfillStarted = false;
   private mode: DiscoveryManagerMode;
   private configSignature: string;
 
@@ -110,8 +114,10 @@ export class DiscoveryManager {
       void this.runStatsCycle();
     }, this.config.statsIntervalMs);
 
-    // Backfill positions from existing trades, then run full stats cycle
-    try { backfillPositions(); } catch { /* ok on empty db */ }
+    // Defer heavy backfill so worker API can come up immediately.
+    this.scheduleInitialBackfill();
+
+    // Run an initial best-effort stats cycle
     try { await refreshPositionPrices(); } catch { /* best-effort */ }
     try { aggregateStats(); } catch { /* ok on empty db */ }
     try { computeScoresAndHeat(); } catch { /* ok on empty db */ }
@@ -119,6 +125,30 @@ export class DiscoveryManager {
     this.refreshHeartbeat();
 
     console.log('[DiscoveryManager] Discovery engine started');
+  }
+
+  private scheduleInitialBackfill(): void {
+    if (this.initialBackfillStarted) return;
+    this.initialBackfillStarted = true;
+    setTimeout(() => {
+      try {
+        const db = getDatabase();
+        const row = db.prepare(
+          `SELECT COUNT(*) as cnt FROM discovery_trades WHERE side IS NOT NULL AND price IS NOT NULL AND price > 0 AND condition_id IS NOT NULL`
+        ).get() as { cnt: number };
+        const maxTrades = Number.parseInt(process.env.DISCOVERY_BACKFILL_MAX_TRADES || '', 10);
+        const threshold = Number.isFinite(maxTrades) && maxTrades > 0 ? maxTrades : DEFAULT_BACKFILL_MAX_TRADES;
+        if ((row?.cnt || 0) > threshold) {
+          console.warn(
+            `[DiscoveryManager] Skipping automatic position backfill (${row.cnt} trades > ${threshold} threshold).`
+          );
+          return;
+        }
+        backfillPositions();
+      } catch (err: any) {
+        console.error('[DiscoveryManager] Initial backfill skipped due to error:', err?.message || err);
+      }
+    }, 0);
   }
 
   private async runStatsCycle(): Promise<void> {

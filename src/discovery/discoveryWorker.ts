@@ -10,9 +10,9 @@ import {
   buildLeaderboardSeedCandidates,
   buildMarketPositionSeedCandidates,
   buildTradeSeedCandidates,
+  getCandidateAddressesForScoring,
   getCandidateAddressesNeedingValidation,
   getWalletCandidateFocusSummary,
-  getWalletCandidates,
   getWalletCandidatesByAddress,
   upsertWalletCandidates,
 } from './walletSeedEngine.js';
@@ -79,6 +79,7 @@ export class DiscoveryWorkerRuntime {
     if (this.timer) return;
     const cfg = getDiscoveryConfig();
     const intervalMs = this.cycleIntervalMs ?? Math.max(10_000, cfg.pollIntervalMs || 30_000);
+    console.log('[DiscoveryWorker] Polling every', Math.round(intervalMs / 1000), 's');
     this.timer = setInterval(() => {
       void this.tick().catch((error) => {
         console.error('[DiscoveryWorker] Scheduled cycle failed:', error);
@@ -104,6 +105,7 @@ export class DiscoveryWorkerRuntime {
     }
 
     this.cycleInFlight = true;
+    console.log('[DiscoveryWorker] Running cycle...');
     try {
     const startedAt = Date.now();
     const runTimestamp = this.now();
@@ -170,114 +172,130 @@ export class DiscoveryWorkerRuntime {
     upsertWalletCandidates(seededCandidates);
 
     const addressesForValidation = getCandidateAddressesNeedingValidation(15, runTimestamp - 6 * 3600);
+    let validatedCount = 0;
     for (const address of addressesForValidation) {
-      dataRequestCount += 5;
-      const [profile, traded, positions, closedPositions, activity] = await Promise.all([
-        this.fetchProfile(address),
-        this.fetchTraded(address),
-        this.fetchPositions(address),
-        this.fetchClosedPositions(address),
-        this.fetchActivity(address),
-      ]);
+      try {
+        dataRequestCount += 5;
+        const [profile, traded, positions, closedPositions, activity] = await Promise.all([
+          this.fetchProfile(address),
+          this.fetchTraded(address),
+          this.fetchPositions(address),
+          this.fetchClosedPositions(address),
+          this.fetchActivity(address),
+        ]);
 
-      upsertWalletValidation(buildWalletValidationRecord({
-        address,
-        profile,
-        traded,
-        positions,
-        closedPositions,
-        activity,
-        validatedAt: runTimestamp,
-      }));
+        upsertWalletValidation(buildWalletValidationRecord({
+          address,
+          profile,
+          traded,
+          positions,
+          closedPositions,
+          activity,
+          validatedAt: runTimestamp,
+        }));
+        validatedCount += 1;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[DiscoveryWorker] Skipping validation for ${address}:`, message);
+      }
+    }
+    if (addressesForValidation.length > 0) {
+      console.log(`[DiscoveryWorker] Validated ${validatedCount}/${addressesForValidation.length} addresses`);
     }
 
     let qualifiedCount = 0;
     let rejectedCount = 0;
-    const candidateAddresses = [...new Set(getWalletCandidates(200).map((candidate) => candidate.address))];
+    const candidateAddresses = getCandidateAddressesForScoring(200);
     let categorizedCandidateCount = 0;
     for (const address of candidateAddresses) {
       const validation = getWalletValidation(address);
       if (!validation) continue;
 
-      const focusSummary = getWalletCandidateFocusSummary(address);
-      if (focusSummary.focusCategory && !NOISE_CATEGORIES.has(focusSummary.focusCategory)) {
-        categorizedCandidateCount += 1;
-      }
-      const candidates = getWalletCandidatesByAddress(address);
-      const marketContexts = await Promise.all(
-        candidates
-          .map((candidate) => candidate.conditionId)
-          .filter((conditionId): conditionId is string => Boolean(conditionId))
-          .slice(0, 3)
-          .map(async (conditionId) => {
-            clobRequestCount += 1;
-            return this.fetchMarketContext(conditionId);
-          })
-      );
+      try {
+        const focusSummary = getWalletCandidateFocusSummary(address);
+        if (focusSummary.focusCategory && !NOISE_CATEGORIES.has(focusSummary.focusCategory)) {
+          categorizedCandidateCount += 1;
+        }
+        const candidates = getWalletCandidatesByAddress(address);
+        const marketContexts = await Promise.all(
+          candidates
+            .map((candidate) => candidate.conditionId)
+            .filter((conditionId): conditionId is string => Boolean(conditionId))
+            .slice(0, 3)
+            .map(async (conditionId) => {
+              clobRequestCount += 1;
+              return this.fetchMarketContext(conditionId);
+            })
+        );
 
-      const averageSpreadBps = marketContexts.length > 0
-        ? marketContexts.reduce((sum, ctx) => sum + ctx.averageSpreadBps, 0) / marketContexts.length
-        : 100;
-      const averageTopOfBookUsd = marketContexts.length > 0
-        ? marketContexts.reduce((sum, ctx) => sum + ctx.averageTopOfBookUsd, 0) / marketContexts.length
-        : 0;
+        const averageSpreadBps = marketContexts.length > 0
+          ? marketContexts.reduce((sum, ctx) => sum + ctx.averageSpreadBps, 0) / marketContexts.length
+          : 100;
+        const averageTopOfBookUsd = marketContexts.length > 0
+          ? marketContexts.reduce((sum, ctx) => sum + ctx.averageTopOfBookUsd, 0) / marketContexts.length
+          : 0;
 
-      const latestTradeCandidate = candidates.find((candidate) => candidate.sourceType === 'trades');
-      const latestTradePrice = Number(latestTradeCandidate?.sourceMetadata?.price ?? NaN);
-      const currentPrice = marketContexts.find((ctx) => Number.isFinite(ctx.currentPrice))?.currentPrice;
+        const latestTradeCandidate = candidates.find((candidate) => candidate.sourceType === 'trades');
+        const latestTradePrice = Number(latestTradeCandidate?.sourceMetadata?.price ?? NaN);
+        const currentPrice = marketContexts.find((ctx) => Number.isFinite(ctx.currentPrice))?.currentPrice;
 
-      const profitabilityScore = clamp((validation.realizedWinRate * 0.7) + (validation.realizedPnl / 25));
-      const focusScore = clamp(
-        (focusSummary.focusCategory ? 55 : 35) +
-        Math.min(20, focusSummary.sourceChannels.length * 5) +
-        Math.min(15, validation.marketsTouched * 3)
-      );
-      const copyabilityScore = computeCopyabilityScore(validation, {
-        averageSpreadBps,
-        averageTopOfBookUsd,
-      });
-      const earlyScore = computeEarlyEntryScore({
-        entryPrice: Number.isFinite(latestTradePrice) ? latestTradePrice : undefined,
-        currentPrice,
-      });
-      const consistencyScore = clamp(validation.realizedWinRate * 0.6 + validation.tradeActivityCount * 4);
-      const convictionScore = clamp(Math.max(...candidates.map((candidate) => Number(candidate.sourceMetric ?? 0)), 0) / 100);
-      const noisePenalty = clamp(
-        (validation.makerRebateCount * 8) +
-        (focusSummary.focusCategory ? 0 : 10),
-        0,
-        30
-      );
+        const profitabilityScore = clamp((validation.realizedWinRate * 0.7) + (validation.realizedPnl / 25));
+        const focusScore = clamp(
+          (focusSummary.focusCategory ? 55 : 35) +
+          Math.min(20, focusSummary.sourceChannels.length * 5) +
+          Math.min(15, validation.marketsTouched * 3)
+        );
+        const copyabilityScore = computeCopyabilityScore(validation, {
+          averageSpreadBps,
+          averageTopOfBookUsd,
+        });
+        const earlyScore = computeEarlyEntryScore({
+          entryPrice: Number.isFinite(latestTradePrice) ? latestTradePrice : undefined,
+          currentPrice,
+        });
+        const consistencyScore = clamp(validation.realizedWinRate * 0.6 + validation.tradeActivityCount * 4);
+        const convictionScore = clamp(Math.max(...candidates.map((candidate) => Number(candidate.sourceMetric ?? 0)), 0) / 100);
+        const noisePenalty = clamp(
+          (validation.makerRebateCount * 8) +
+          (focusSummary.focusCategory ? 0 : 10),
+          0,
+          30
+        );
 
-      const row = buildWalletScoreRow({
-        address,
-        profitabilityScore,
-        focusScore,
-        copyabilityScore,
-        earlyScore,
-        consistencyScore,
-        convictionScore,
-        noisePenalty,
-        updatedAt: runTimestamp,
-      });
+        const row = buildWalletScoreRow({
+          address,
+          profitabilityScore,
+          focusScore,
+          copyabilityScore,
+          earlyScore,
+          consistencyScore,
+          convictionScore,
+          noisePenalty,
+          updatedAt: runTimestamp,
+        });
 
-      upsertWalletScoreRow(row);
-      const reasons = buildDiscoveryReasonRows(row);
-      replaceWalletReasons(address, reasons, runTimestamp);
-      if (row.passedCopyabilityGate) {
-        copyabilityPassCount += 1;
-      }
-      if (reasons.filter((reason) => reason.reasonType === 'supporting').length >= 2) {
-        walletsWithTwoReasonsCount += 1;
-      }
+        upsertWalletScoreRow(row);
+        const reasons = buildDiscoveryReasonRows(row);
+        replaceWalletReasons(address, reasons, runTimestamp);
+        if (row.passedCopyabilityGate) {
+          copyabilityPassCount += 1;
+        }
+        if (reasons.filter((reason) => reason.reasonType === 'supporting').length >= 2) {
+          walletsWithTwoReasonsCount += 1;
+        }
 
-      if (row.passedProfitabilityGate && row.passedFocusGate && row.passedCopyabilityGate) {
-        qualifiedCount++;
-      } else {
-        rejectedCount++;
+        if (row.passedProfitabilityGate && row.passedFocusGate && row.passedCopyabilityGate) {
+          qualifiedCount++;
+        } else {
+          rejectedCount++;
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[DiscoveryWorker] Skipping score for ${address}:`, message);
       }
     }
 
+    const durationMs = Date.now() - startedAt;
     insertDiscoveryRunLog({
       phase: 'free-mode-cycle',
       gammaRequestCount,
@@ -286,7 +304,7 @@ export class DiscoveryWorkerRuntime {
       candidateCount: candidateAddresses.length,
       qualifiedCount,
       rejectedCount,
-      durationMs: Date.now() - startedAt,
+      durationMs,
       estimatedCostUsd: 0,
       categoryPurityPct: candidateAddresses.length > 0
         ? roundPct((categorizedCandidateCount / candidateAddresses.length) * 100)
@@ -302,6 +320,7 @@ export class DiscoveryWorkerRuntime {
       createdAt: runTimestamp,
     });
     this.lastCompletedCycleAt = runTimestamp;
+    console.log(`[DiscoveryWorker] Cycle complete in ${durationMs}ms (${qualifiedCount} qualified, ${rejectedCount} rejected)`);
     } finally {
       this.cycleInFlight = false;
     }
@@ -387,7 +406,9 @@ export class DiscoveryWorkerRuntime {
     const response = await axios.get(`${config.polymarketGammaApiUrl}/public-profile`, {
       params: { address },
       timeout: 10_000,
+      validateStatus: (status) => status === 200 || status === 404,
     });
+    if (response.status === 404) return null;
     return response.data ?? null;
   }
 
@@ -399,7 +420,9 @@ export class DiscoveryWorkerRuntime {
     const response = await axios.get(`${config.polymarketDataApiUrl}/traded`, {
       params: { user: address },
       timeout: 10_000,
+      validateStatus: (status) => status === 200 || status === 404,
     });
+    if (response.status === 404) return null;
     return response.data ?? null;
   }
 
@@ -411,7 +434,9 @@ export class DiscoveryWorkerRuntime {
     const response = await axios.get(`${config.polymarketDataApiUrl}/positions`, {
       params: { user: address },
       timeout: 10_000,
+      validateStatus: (status) => status === 200 || status === 404,
     });
+    if (response.status === 404) return [];
     return response.data ?? [];
   }
 
@@ -423,7 +448,9 @@ export class DiscoveryWorkerRuntime {
     const response = await axios.get(`${config.polymarketDataApiUrl}/closed-positions`, {
       params: { user: address },
       timeout: 10_000,
+      validateStatus: (status) => status === 200 || status === 404,
     });
+    if (response.status === 404) return [];
     return response.data ?? [];
   }
 
@@ -435,7 +462,9 @@ export class DiscoveryWorkerRuntime {
     const response = await axios.get(`${config.polymarketDataApiUrl}/activity`, {
       params: { user: address },
       timeout: 10_000,
+      validateStatus: (status) => status === 200 || status === 404,
     });
+    if (response.status === 404) return [];
     return response.data ?? [];
   }
 
@@ -480,6 +509,8 @@ export const startDiscoveryWorker = async (
   runner: Pick<DiscoveryWorkerRuntime, 'start'> = new DiscoveryWorkerRuntime(),
 ): Promise<Pick<DiscoveryWorkerRuntime, 'start'>> => {
   await initDatabase();
+  const cfg = getDiscoveryConfig();
+  console.log('[DiscoveryWorker] Started. Discovery enabled:', cfg.enabled, cfg.enabled ? '' : '(set DISCOVERY_ENABLED=true or enable in the app to run cycles)');
   await runner.start();
   return runner;
 };

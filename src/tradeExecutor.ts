@@ -343,10 +343,12 @@ export class TradeExecutor {
 
     } catch (error: any) {
       const executionTime = Date.now() - executionStart;
+      const failure = await this.classifyExecutionFailure(error);
       console.error(`\n${'='.repeat(60)}`);
       console.error('❌ [Execute] TRADE EXECUTION FAILED!');
       console.error(`${'='.repeat(60)}`);
       console.error(`Error message: ${error.message}`);
+      console.error(`Failure class: ${failure.code} (${failure.detail})`);
       console.error(`Error stack:`, error.stack);
       
       // Log additional error details if available
@@ -365,7 +367,7 @@ export class TradeExecutor {
       }
       
       // Build comprehensive error message
-      let errorMessage = error.message || 'Unknown error';
+      let errorMessage = `[${failure.code}] ${error.message || 'Unknown error'}`;
       
       // Add request params to error message for diagnostics
       if (error.requestParams) {
@@ -389,6 +391,28 @@ export class TradeExecutor {
         executionTimeMs: executionTime
       };
     }
+  }
+
+  private async classifyExecutionFailure(error: any): Promise<{ code: string; detail: string }> {
+    const message = String(error?.message || '').toLowerCase();
+    if (message.includes('market_closed') || (message.includes('orderbook') && message.includes('does not exist'))) {
+      return { code: 'MARKET_CLOSED', detail: 'Market resolved/closed' };
+    }
+    if (message.includes('invalid signature')) {
+      try {
+        await this.clobClient.getOpenOrders();
+        return { code: 'ORDER_PAYLOAD_OR_MARKET', detail: 'Auth probe succeeded; order likely malformed or market-rejected' };
+      } catch {
+        return { code: 'AUTH_SIGNATURE', detail: 'Auth probe failed after invalid signature error' };
+      }
+    }
+    if (message.includes('http 400')) {
+      return { code: 'ORDER_PAYLOAD', detail: 'Request rejected by CLOB with bad-request semantics' };
+    }
+    if (message.includes('cloudflare') || message.includes('blocked')) {
+      return { code: 'AUTH_OR_NETWORK_BLOCK', detail: 'Request blocked before valid order processing' };
+    }
+    return { code: 'UNKNOWN_EXECUTION_FAILURE', detail: 'Unclassified execution error' };
   }
 
   /**

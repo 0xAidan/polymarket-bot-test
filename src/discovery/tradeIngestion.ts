@@ -205,7 +205,11 @@ export const getTradeParticipantAddresses = (
   trade: Pick<DiscoveredTrade, 'maker' | 'taker'>
 ): string[] => {
   const maker = String(trade.maker || '').trim().toLowerCase();
-  return maker ? [maker] : [];
+  const taker = String(trade.taker || '').trim().toLowerCase();
+  if (!maker && !taker) return [];
+  if (!taker || taker === maker) return maker ? [maker] : [];
+  if (!maker) return [taker];
+  return [maker, taker];
 };
 
 export const buildSignalEvaluationTrades = (trade: DiscoveredTrade): DiscoveredTrade[] => {

@@ -179,6 +179,16 @@ export class Storage {
     return wallets.filter(w => w.active);
   }
 
+  static async updateWalletLastSeen(address: string, lastSeen: Date): Promise<void> {
+    const wallets = await this.loadTrackedWallets();
+    const wallet = wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
+    if (!wallet) {
+      return;
+    }
+    wallet.lastSeen = lastSeen;
+    await this.saveTrackedWallets(wallets);
+  }
+
   static async toggleWalletActive(address: string, active?: boolean): Promise<TrackedWallet> {
     const wallets = await this.loadTrackedWallets();
     const wallet = wallets.find(w => w.address.toLowerCase() === address.toLowerCase());

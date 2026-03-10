@@ -14,6 +14,7 @@ export class PolymarketClobClient {
   private client: ClobClient | null = null;
   private signer: ethers.Wallet | null = null;
   private isInitialized = false;
+  private readonly USDC_DECIMALS = 1_000_000; // 10^6
 
   /**
    * Initialize the CLOB client with User API credentials and Builder credentials
@@ -464,6 +465,20 @@ export class PolymarketClobClient {
    * so we divide by 1e6 to return a human-readable dollar value.
    */
   async getUsdcBalance(): Promise<number> {
+    const collateral = await this.getCollateralStatus();
+    return collateral.balanceUsdc;
+  }
+
+  /**
+   * Fetch collateral balance + allowance and compute spendable USDC.
+   * This is used to prevent avoidable "not enough balance / allowance" order failures.
+   */
+  async getCollateralStatus(): Promise<{
+    balanceUsdc: number;
+    allowanceUsdc: number | null;
+    spendableUsdc: number;
+    raw: unknown;
+  }> {
     if (!this.client) {
       await this.initialize();
     }
@@ -471,24 +486,45 @@ export class PolymarketClobClient {
       throw new Error('CLOB client not initialized');
     }
 
-    const USDC_DECIMALS = 1_000_000; // 10^6
-
     try {
       const response = await (this.client as any).getBalanceAllowance({
         asset_type: 'COLLATERAL'
       });
-      const balanceStr = response?.balance || '0';
-      const rawBalance = parseFloat(balanceStr);
-      if (isNaN(rawBalance) || rawBalance < 0) {
-        throw new Error(`Invalid balance response from CLOB API: ${balanceStr}`);
-      }
-      const balance = rawBalance / USDC_DECIMALS;
-      console.log(`[CLOB] Balance: raw=${rawBalance}, converted=$${balance.toFixed(2)} USDC`);
-      return balance;
+      const balanceRaw = this.parseRawAmount(response?.balance) ?? 0;
+      const allowanceRaw = this.parseRawAmount(response?.allowance);
+
+      const balanceUsdc = balanceRaw / this.USDC_DECIMALS;
+      const allowanceUsdc = allowanceRaw === null ? null : allowanceRaw / this.USDC_DECIMALS;
+      const spendableUsdc = allowanceUsdc === null
+        ? balanceUsdc
+        : Math.min(balanceUsdc, allowanceUsdc);
+
+      console.log(
+        `[CLOB] Collateral status: balance=$${balanceUsdc.toFixed(2)}, ` +
+        `allowance=${allowanceUsdc === null ? 'unknown' : '$' + allowanceUsdc.toFixed(2)}, ` +
+        `spendable=$${spendableUsdc.toFixed(2)}`
+      );
+
+      return {
+        balanceUsdc,
+        allowanceUsdc,
+        spendableUsdc,
+        raw: response,
+      };
     } catch (error: any) {
-      console.error('[CLOB] Failed to get USDC balance:', error.message);
-      console.error('[CLOB] Error details:', error);
+      console.error('[CLOB] Failed to get collateral status:', error.message);
       throw error;
     }
+  }
+
+  private parseRawAmount(value: unknown): number | null {
+    if (value === undefined || value === null || value === '') {
+      return null;
+    }
+    const parsed = Number.parseFloat(String(value));
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return null;
+    }
+    return parsed;
   }
 }

@@ -3,11 +3,11 @@ import cors from 'cors';
 import path from 'path';
 import { config } from './config.js';
 import { createRoutes } from './api/routes.js';
-import { createDiscoveryRoutes } from './api/discoveryRoutes.js';
 import { CopyTrader } from './copyTrader.js';
+import { initDatabase } from './database.js';
+import { createDiscoveryRoutes } from './api/discoveryRoutes.js';
 import { DiscoveryManager } from './discovery/discoveryManager.js';
 import { DiscoveryControlPlane } from './discovery/discoveryControlPlane.js';
-import { initDatabase } from './database.js';
 
 let discoveryManagerInstance: DiscoveryManager | null = null;
 

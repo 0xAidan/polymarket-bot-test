@@ -100,6 +100,13 @@ export class DiscoveryControlPlane {
   getStatus(): DiscoveryStatus {
     const cfg = getDiscoveryConfig();
     const latestRun = getLatestDiscoveryRunLog();
+    const latestRunCreatedAtMs = latestRun
+      ? (latestRun.createdAt < 1_000_000_000_000 ? latestRun.createdAt * 1000 : latestRun.createdAt)
+      : undefined;
+    const runningThresholdMs = Math.max((cfg.statsIntervalMs || 300_000) * 3, 180_000);
+    const isFreshRun = Boolean(
+      latestRunCreatedAtMs && (Date.now() - latestRunCreatedAtMs) <= runningThresholdMs
+    );
     const db = getDatabase();
     const scoredWallets = db.prepare('SELECT COUNT(*) AS count FROM discovery_wallet_scores').get() as { count: number };
     const candidateWallets = db.prepare('SELECT COUNT(DISTINCT address) AS count FROM discovery_wallet_candidates').get() as { count: number };
@@ -113,8 +120,8 @@ export class DiscoveryControlPlane {
         reconnectCount: 0,
       },
       apiPoller: {
-        running: Boolean(latestRun),
-        lastPollAt: latestRun?.createdAt,
+        running: isFreshRun,
+        lastPollAt: latestRunCreatedAtMs,
         marketsMonitored: marketPoolCount,
       },
       stats: {
