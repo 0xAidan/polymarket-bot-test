@@ -3,6 +3,12 @@ import { EventEmitter } from 'events';
 import { config } from './config.js';
 import { DetectedTrade, TrackedWallet } from './types.js';
 import { Storage } from './storage.js';
+import { buildPositionKey, normalizeOutcomeLabel } from './tradeIdentity.js';
+import {
+  logTradeRegressionDebug,
+  summarizeDetectedTradeForDebug,
+  summarizeDomeTradeForDebug,
+} from './tradeDiagnostics.js';
 
 /**
  * Dome WebSocket order event data shape (from SDK docs).
@@ -150,10 +156,7 @@ export class DomeWebSocketMonitor extends EventEmitter {
     const wallet = await Storage.getWallet(userAddress);
 
     // Determine outcome from token_label if available
-    let outcome: 'YES' | 'NO' = 'YES';
-    if (data.token_label) {
-      outcome = data.token_label.toUpperCase() === 'NO' ? 'NO' : 'YES';
-    }
+    const outcome = normalizeOutcomeLabel(data.token_label);
 
     // CRITICAL FIX: Use shares_normalized (human-readable, e.g. 14.56) instead of shares
     // (raw base units with 6 decimals, e.g. 14560000). Previously used data.shares which
@@ -172,11 +175,14 @@ export class DomeWebSocketMonitor extends EventEmitter {
       transactionHash: data.tx_hash || data.order_hash,
       tokenId: data.token_id,
       negRisk: undefined, // CLOB client looks up from market data when undefined
+      positionKey: buildPositionKey({ marketId: data.condition_id, tokenId: data.token_id, outcome }),
 
       // Enrichment from wallet config
       ...(wallet ? this.enrichFromWallet(wallet) : {}),
     };
 
+    logTradeRegressionDebug('dome-websocket.raw-order-event', summarizeDomeTradeForDebug(data as unknown as Record<string, unknown>));
+    logTradeRegressionDebug('dome-websocket.detected-trade', summarizeDetectedTradeForDebug(trade));
     this.emit('trade', trade);
   }
 

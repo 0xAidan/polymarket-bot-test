@@ -73,7 +73,7 @@ export interface DetectedTrade {
   walletAddress: string;
   marketId: string;
   marketTitle?: string; // Human-readable market name (from API title/slug)
-  outcome: 'YES' | 'NO';
+  outcome: string;
   amount: string; // In wei or token units
   price: string; // Price per share
   side: 'BUY' | 'SELL'; // Whether the tracked wallet bought or sold
@@ -81,6 +81,7 @@ export interface DetectedTrade {
   transactionHash: string;
   tokenId?: string;   // Token ID for CLOB client (asset from positions API)
   negRisk?: boolean;  // Negative risk flag from position data
+  positionKey?: string; // Stable identity for dedupe/position matching
   
   // ============================================================
   // Inherited from wallet settings for per-wallet trade configuration
@@ -115,12 +116,13 @@ export interface DetectedTrade {
 export interface TradeOrder {
   marketId: string;
   marketTitle?: string;
-  outcome: 'YES' | 'NO';
+  outcome: string;
   amount: string;
   price: string;
   side: 'BUY' | 'SELL';
   tokenId?: string;   // Token ID for CLOB client
   negRisk?: boolean;  // Negative risk flag
+  positionKey?: string; // Stable identity for matching/debugging
   slippagePercent?: number;  // Per-wallet slippage override (default from storage if not set)
 }
 
@@ -145,7 +147,7 @@ export interface TradeMetrics {
   walletAddress: string;
   marketId: string;
   marketTitle?: string;
-  outcome: 'YES' | 'NO';
+  outcome: string;
   amount: string;
   price: string;
   success: boolean;
@@ -216,7 +218,7 @@ export interface PerformanceDataPoint {
   tradeId?: string;
   tradeDetails?: {
     marketId: string;
-    outcome: 'YES' | 'NO';
+    outcome: string;
     amount: string;
     price: string;
     success: boolean;
@@ -270,12 +272,13 @@ export interface TradeValueFiltersConfig {
  */
 export interface ExecutedPosition {
   marketId: string;
-  side: 'YES' | 'NO';
+  side: string;
   timestamp: number;
   walletAddress: string; // Which tracked wallet triggered this
   status?: 'executed' | 'pending';
   orderId?: string;
   tokenId?: string;
+  positionKey?: string;
   baselinePositionSize?: number;
   missingOrderChecks?: number;
   tradeSideAction?: 'BUY' | 'SELL';

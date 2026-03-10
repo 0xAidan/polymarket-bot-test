@@ -3,6 +3,7 @@ import { BuilderConfig } from '@polymarket/builder-signing-sdk';
 import * as ethers from 'ethers';
 import { config } from './config.js';
 import { getValidEvmAddress } from './addressUtils.js';
+import { logTradeRegressionDebug } from './tradeDiagnostics.js';
 
 /**
  * Wrapper for Polymarket CLOB client with proper L2 authentication
@@ -282,6 +283,20 @@ export class PolymarketClobClient {
             errorDetails = JSON.stringify(responseData);
           }
           
+          logTradeRegressionDebug('clob-client.http-400', {
+            source: 'clob-client',
+            status,
+            responseData,
+            requestParams: {
+              tokenID: params.tokenID,
+              originalPrice: params.price,
+              finalPrice,
+              size: params.size,
+              side: params.side === Side.BUY ? 'BUY' : 'SELL',
+              tickSize,
+              negRisk,
+            },
+          });
           const enhancedMessage = `CLOB API returned HTTP 400 - ${errorDetails || 'request was rejected'}. Params: tokenID=${params.tokenID}, originalPrice=${params.price}, finalPrice=${finalPrice}, size=${params.size}, side=${params.side}, tickSize=${tickSize}, negRisk=${negRisk}. Check: tokenID validity, price/size format, market status, or balance.`;
           enhancedError = new Error(enhancedMessage);
           (enhancedError as any).originalError = innerError;

@@ -3,6 +3,11 @@ import { PolymarketClobClient } from './clobClient.js';
 import { TradeOrder, TradeResult } from './types.js';
 import { Storage } from './storage.js';
 import { Side } from '@polymarket/clob-client';
+import {
+  buildTradeExecutionDiagnosticContext,
+  logTradeRegressionDebug,
+} from './tradeDiagnostics.js';
+import { classifyTradeExecutionFailure } from './tradeExecutionDiagnostics.js';
 
 /**
  * Executes trades on Polymarket via CLOB API using the official CLOB client
@@ -155,17 +160,31 @@ export class TradeExecutor {
 
       // Place order via CLOB client
       console.log(`\n📤 Placing order via CLOB client...`);
+      const clobOrderParams = {
+        tokenID: tokenId,
+        side: side,
+        size: size,
+        price: price,
+        tickSize: tickSize,
+        negRisk: negRisk,
+      };
+      logTradeRegressionDebug('trade-executor.pre-submit', buildTradeExecutionDiagnosticContext({
+        stage: 'pre-submit',
+        order,
+        clobOrderParams,
+        execution: {
+          signatureType: parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '0', 10),
+          funderAddress: process.env.POLYMARKET_FUNDER_ADDRESS || this.clobClient.getWalletAddress() || '',
+          clobHost: process.env.POLYMARKET_CLOB_API_URL || 'https://clob.polymarket.com',
+          builderAuthConfigured: !!process.env.POLYMARKET_BUILDER_API_KEY && !!process.env.POLYMARKET_BUILDER_SECRET && !!process.env.POLYMARKET_BUILDER_PASSPHRASE,
+          retryAttempted: false,
+        },
+        errorMessage: '',
+      }));
       
       let orderResponse: any;
       try {
-        orderResponse = await this.clobClient.createAndPostOrder({
-          tokenID: tokenId,
-          side: side,
-          size: size,
-          price: price,
-          tickSize: tickSize,
-          negRisk: negRisk,
-        });
+        orderResponse = await this.clobClient.createAndPostOrder(clobOrderParams);
       } catch (clobError: any) {
         console.error(`[Execute] CLOB client threw error:`, clobError.message);
         
@@ -185,16 +204,34 @@ export class TradeExecutor {
             console.log(`[Execute] ✓ Re-derived API credentials, retrying order...`);
             
             // Retry the order once with fresh credentials
-            orderResponse = await this.clobClient.createAndPostOrder({
-              tokenID: tokenId,
-              side: side,
-              size: size,
-              price: price,
-              tickSize: tickSize,
-              negRisk: negRisk,
-            });
+            orderResponse = await this.clobClient.createAndPostOrder(clobOrderParams);
           } catch (retryError: any) {
             console.error(`[Execute] ❌ Retry also failed: ${retryError.message}`);
+            let authProbeSucceeded = false;
+            try {
+              await this.clobClient.getOpenOrders();
+              authProbeSucceeded = true;
+            } catch (authProbeError: any) {
+              console.warn(`[Execute]    Auth probe failed after retry: ${authProbeError.message}`);
+            }
+            const failureSummary = classifyTradeExecutionFailure({
+              errorMessage: retryError.message || clobError.message,
+              authProbeSucceeded,
+            });
+            console.error(`[Execute]    Classified failure: ${failureSummary.classification} - ${failureSummary.summary}`);
+            logTradeRegressionDebug('trade-executor.invalid-signature-retry-failed', buildTradeExecutionDiagnosticContext({
+              stage: 'invalid-signature-retry-failed',
+              order,
+              clobOrderParams,
+              execution: {
+                signatureType: parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '0', 10),
+                funderAddress: process.env.POLYMARKET_FUNDER_ADDRESS || this.clobClient.getWalletAddress() || '',
+                clobHost: process.env.POLYMARKET_CLOB_API_URL || 'https://clob.polymarket.com',
+                builderAuthConfigured: !!process.env.POLYMARKET_BUILDER_API_KEY && !!process.env.POLYMARKET_BUILDER_SECRET && !!process.env.POLYMARKET_BUILDER_PASSPHRASE,
+                retryAttempted: true,
+              },
+              errorMessage: retryError.message || clobError.message || 'invalid signature',
+            }));
             console.error(`[Execute]    IMPORTANT: If this keeps happening, you may need to:`);
             console.error(`[Execute]    1. Regenerate your Builder API credentials at https://polymarket.com/settings?tab=builder`);
             console.error(`[Execute]    2. Verify POLYMARKET_SIGNATURE_TYPE matches your wallet type (0=EOA, 1=email, 2=MetaMask+proxy)`);

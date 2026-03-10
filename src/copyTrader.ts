@@ -10,6 +10,12 @@ import { decidePendingOrderReconciliation } from './noRepeatReconciliation.js';
 import { Storage } from './storage.js';
 import { config } from './config.js';
 import { initWalletManager } from './walletManager.js';
+import { assertTradeCanExecuteForWallet } from './walletConfigSafety.js';
+import { buildPositionKey, normalizeOutcomeLabel } from './tradeIdentity.js';
+import {
+  logTradeRegressionDebug,
+  summarizeDetectedTradeForDebug,
+} from './tradeDiagnostics.js';
 
 /**
  * Main copy trading engine that coordinates monitoring and execution
@@ -311,7 +317,7 @@ export class CopyTrader {
       );
       return;
     }
-    
+
     // CRITICAL FIX: Use a COMPOUND KEY for deduplication
     // Problem: Position monitoring generates synthetic hashes (pos-...) while trade history has real hashes
     // This caused the SAME underlying trade to be detected twice and executed twice
@@ -324,7 +330,12 @@ export class CopyTrader {
     const tradeTimestamp = trade.timestamp instanceof Date ? trade.timestamp.getTime() : Date.now();
     // 5-minute compound-key window for same-market dedup (trade history vs Dome can have different hashes)
     const timeWindow = Math.floor(tradeTimestamp / (5 * 60 * 1000));
-    const compoundKey = `${trade.walletAddress.toLowerCase()}-${trade.marketId}-${trade.outcome}-${trade.side}-${timeWindow}`;
+    const positionKey = trade.positionKey || buildPositionKey({
+      marketId: trade.marketId,
+      tokenId: trade.tokenId,
+      outcome: trade.outcome,
+    });
+    const compoundKey = `${trade.walletAddress.toLowerCase()}-${positionKey}-${trade.side}-${timeWindow}`;
     
     // Also track by transaction hash for exact duplicates
     const tradeKey = trade.transactionHash;
@@ -377,6 +388,39 @@ export class CopyTrader {
 
     try {
     // === Everything below is wrapped in try/finally to guarantee inFlightTrades cleanup ===
+
+    try {
+      assertTradeCanExecuteForWallet(trade);
+    } catch (error: any) {
+      // Mark the compound key too so a legacy unsafe wallet does not keep re-logging
+      // the same underlying trade across polling and websocket sources.
+      this.processedCompoundKeys.set(compoundKey, Date.now());
+
+      console.error(`\n❌ [CopyTrader] SAFETY: Refusing to trade unconfigured wallet ${trade.walletAddress.substring(0, 8)}...`);
+      console.error(`   ${error.message}`);
+      await this.performanceTracker.recordTrade({
+        timestamp: new Date(),
+        walletAddress: trade.walletAddress,
+        marketId: trade.marketId,
+        marketTitle: trade.marketTitle,
+        outcome: trade.outcome,
+        amount: trade.amount,
+        price: trade.price,
+        success: false,
+        status: 'rejected',
+        executionTimeMs: 0,
+        error: error.message,
+        detectedTxHash: trade.transactionHash,
+        tokenId: trade.tokenId
+      });
+      await this.performanceTracker.logIssue(
+        'error',
+        'trade_execution',
+        error.message,
+        { trade }
+      );
+      return;
+    }
     
     console.log(`\n${'='.repeat(60)}`);
     console.log(`🔔 TRADE DETECTED`);
@@ -525,7 +569,8 @@ export class CopyTrader {
         const isBlocked = await Storage.isPositionBlocked(
           trade.marketId,
           trade.outcome,
-          blockPeriod
+          blockPeriod,
+          positionKey,
         );
         
         if (isBlocked) {
@@ -1023,8 +1068,24 @@ export class CopyTrader {
         side: trade.side, // Use the side detected from the tracked wallet's trade
         tokenId: trade.tokenId,    // Pass token ID for direct CLOB execution (bypasses Gamma API)
         negRisk: trade.negRisk,    // Pass negative risk flag
+        positionKey,
         slippagePercent: trade.slippagePercent,  // Per-wallet slippage (executor falls back to storage)
       };
+
+      logTradeRegressionDebug('copy-trader.execution-input', {
+        source: 'copy-trader',
+        detectedTrade: summarizeDetectedTradeForDebug(trade),
+        order: {
+          marketId: order.marketId,
+          outcome: order.outcome,
+          amount: order.amount,
+          price: order.price,
+          side: order.side,
+          tokenId: order.tokenId,
+          negRisk: order.negRisk,
+          slippagePercent: order.slippagePercent,
+        },
+      });
 
       console.log(`\n🚀 [Execute] EXECUTING TRADE:`);
       console.log(`   Action: ${order.side}`);
@@ -1086,7 +1147,8 @@ export class CopyTrader {
         try {
           await Storage.addExecutedPosition(trade.marketId, trade.outcome, trade.walletAddress, {
             orderId: result.orderId,
-            tokenId: order.tokenId
+            tokenId: order.tokenId,
+            positionKey,
           });
           console.log(`[CopyTrader] Recorded position for no-repeat-trades: ${trade.marketId} ${trade.outcome}`);
         } catch (recordError: any) {
@@ -1128,7 +1190,8 @@ export class CopyTrader {
             result.orderId,
             order.tokenId,
             baselinePositionSize,
-            trade.side
+            trade.side,
+            positionKey,
           );
           console.log(`[CopyTrader] Recorded pending no-repeat block: ${trade.marketId} ${trade.outcome} (order ${result.orderId})`);
         } catch (recordError: any) {
@@ -1257,10 +1320,18 @@ export class CopyTrader {
   }
 
   private async reconcilePendingNoRepeatBlock(trade: DetectedTrade): Promise<void> {
+    const positionKey = trade.positionKey || buildPositionKey({
+      marketId: trade.marketId,
+      tokenId: trade.tokenId,
+      outcome: trade.outcome,
+    });
     const pendingBlocks = (await Storage.getExecutedPositions()).filter(
       position =>
-        position.marketId === trade.marketId &&
-        position.side === trade.outcome &&
+        (
+          position.positionKey === positionKey ||
+          (position.tokenId && positionKey === `token:${position.tokenId}`) ||
+          (position.marketId === trade.marketId && position.side === trade.outcome)
+        ) &&
         (position.status ?? 'executed') === 'pending'
     );
 
@@ -1376,14 +1447,18 @@ export class CopyTrader {
 
     const livePositions = await this.monitor.getApi().getUserPositions(positionsWallet);
     const matchingPosition = livePositions.find((position: any) => {
-      const positionMarketId = position.conditionId || position.marketId;
-      const positionOutcome = typeof position.outcome === 'string'
-        ? (position.outcome.toUpperCase() === 'NO' ? 'NO' : 'YES')
-        : position.outcomeIndex === 1
-          ? 'NO'
-          : 'YES';
+      const positionTokenId = String(position.asset || position.tokenId || '').trim();
+      if (trade.tokenId && positionTokenId) {
+        return positionTokenId === trade.tokenId;
+      }
 
-      return positionMarketId === trade.marketId && positionOutcome === trade.outcome;
+      const positionMarketId = String(position.conditionId || position.marketId || '').trim();
+      const positionOutcome = normalizeOutcomeLabel(
+        typeof position.outcome === 'string' ? position.outcome : undefined,
+        typeof position.outcomeIndex === 'number' ? position.outcomeIndex : undefined,
+      );
+
+      return positionMarketId === trade.marketId && positionOutcome === normalizeOutcomeLabel(trade.outcome);
     });
 
     return Number(matchingPosition?.size ?? 0);
