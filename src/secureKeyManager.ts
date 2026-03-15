@@ -3,6 +3,9 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { config } from './config.js';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('SecureKeyManager');
 
 // In-memory store of decrypted wallets (populated at unlock time)
 const decryptedWallets = new Map<string, ethers.Wallet>();
@@ -211,7 +214,7 @@ export async function unlockAllWallets(masterPassword: string): Promise<string[]
       decryptedWallets.set(walletId, wallet);
       walletIds.push(walletId);
     } catch {
-      console.error(`[SecureKeys] Failed to decrypt wallet "${walletId}" — wrong password or corrupted file`);
+      log.error(`[SecureKeys] Failed to decrypt wallet "${walletId}" — wrong password or corrupted file`);
       throw new Error(`Failed to decrypt wallet "${walletId}". Check your master password.`);
     }
 
@@ -222,17 +225,17 @@ export async function unlockAllWallets(masterPassword: string): Promise<string[]
       const credsJson = decryptPrivateKey(builderData, masterPassword);
       const creds: BuilderCredentials = JSON.parse(credsJson);
       decryptedBuilderCreds.set(walletId, creds);
-      console.log(`[SecureKeys] Loaded Builder credentials for wallet "${walletId}"`);
+      log.info(`[SecureKeys] Loaded Builder credentials for wallet "${walletId}"`);
     } catch (err: any) {
       if (err.code !== 'ENOENT') {
-        console.warn(`[SecureKeys] Could not decrypt Builder credentials for "${walletId}":`, err.message);
+        log.warn({ detail: err.message }, `[SecureKeys] Could not decrypt Builder credentials for "${walletId}"`)
       }
       // No builder creds file is fine — wallet just won't have them
     }
   }
 
   isUnlocked = true;
-  console.log(`[SecureKeys] Unlocked ${walletIds.length} wallet(s)`);
+  log.info(`[SecureKeys] Unlocked ${walletIds.length} wallet(s)`);
   return walletIds;
 }
 
@@ -300,16 +303,16 @@ export async function migrateEnvPrivateKey(masterPassword: string): Promise<stri
   // Check if "main" wallet already exists
   const existing = await listStoredWalletIds();
   if (existing.includes('main')) {
-    console.log('[SecureKeys] "main" wallet already exists, skipping migration');
+    log.info('[SecureKeys] "main" wallet already exists, skipping migration');
     return null;
   }
 
   try {
     const address = await addEncryptedWallet('main', envKey, masterPassword);
-    console.log(`[SecureKeys] Migrated .env PRIVATE_KEY to encrypted keystore as "main" (${address})`);
+    log.info(`[SecureKeys] Migrated .env PRIVATE_KEY to encrypted keystore as "main" (${address})`);
     return address;
   } catch (err) {
-    console.error('[SecureKeys] Failed to migrate .env private key:', err);
+    log.error({ err: err }, '[SecureKeys] Failed to migrate .env private key')
     return null;
   }
 }

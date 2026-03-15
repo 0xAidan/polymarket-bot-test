@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import { 
+import {
   TrackedWallet, 
   TradeSideFilter,
   NoRepeatTradesConfig,
@@ -20,6 +20,9 @@ import {
   dbSaveExecutedPositions,
 } from './database.js';
 import { assertWalletCanBeEnabled } from './walletConfigSafety.js';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('Storage');
 
 // Use getters so tests can patch config.dataDir at runtime
 function walletsFile() { return path.join(config.dataDir, 'tracked_wallets.json'); }
@@ -71,7 +74,7 @@ async function ensureSqlite(): Promise<boolean> {
     await initDatabase();
     return true;
   } catch (err) {
-    console.error('[Storage] SQLite init failed, falling back to JSON:', err);
+    log.error({ err: err }, '[Storage] SQLite init failed, falling back to JSON')
     return false;
   }
 }
@@ -89,7 +92,7 @@ export class Storage {
     try {
       await fs.mkdir(config.dataDir, { recursive: true });
     } catch (error) {
-      console.error('Failed to create data directory:', error);
+      log.error({ err: error }, 'Failed to create data directory')
       throw error;
     }
   }
@@ -110,7 +113,7 @@ export class Storage {
       }));
     } catch (error: any) {
       if (error.code === 'ENOENT') return [];
-      console.error('Failed to load tracked wallets:', error);
+      log.error({ err: error }, 'Failed to load tracked wallets')
       throw error;
     }
   }
@@ -142,7 +145,7 @@ export class Storage {
       }
       return this._saveTrackedWalletsJson(wallets);
     } catch (error) {
-      console.error('Failed to save tracked wallets:', error);
+      log.error({ err: error }, 'Failed to save tracked wallets')
       throw error;
     }
   }
@@ -329,7 +332,7 @@ export class Storage {
           monitoringIntervalMs: 15000
         };
       }
-      console.error('Failed to load bot config:', error);
+      log.error({ err: error }, 'Failed to load bot config')
       throw error;
     }
   }
@@ -368,7 +371,7 @@ export class Storage {
       }
       return this._saveConfigJson(configData);
     } catch (error) {
-      console.error('Failed to save bot config:', error);
+      log.error({ err: error }, 'Failed to save bot config')
       throw error;
     }
   }
@@ -515,7 +518,7 @@ export class Storage {
       return JSON.parse(data);
     } catch (error: any) {
       if (error.code === 'ENOENT') return [];
-      console.error('Failed to load executed positions:', error);
+      log.error({ err: error }, 'Failed to load executed positions')
       throw error;
     }
   }
@@ -547,7 +550,7 @@ export class Storage {
       }
       return this._saveExecutedPositionsJson(positions);
     } catch (error) {
-      console.error('Failed to save executed positions:', error);
+      log.error({ err: error }, 'Failed to save executed positions')
       throw error;
     }
   }
@@ -772,7 +775,7 @@ export class Storage {
     
     if (removedCount > 0) {
       await this.saveExecutedPositions(validPositions);
-      console.log(`Cleaned up ${removedCount} expired executed position records`);
+      log.info(`Cleaned up ${removedCount} expired executed position records`);
     }
     
     return removedCount;

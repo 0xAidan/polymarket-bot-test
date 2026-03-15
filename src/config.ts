@@ -1,13 +1,16 @@
 import dotenv from 'dotenv';
+import { createComponentLogger } from './logger.js';
 
 dotenv.config();
+
+const log = createComponentLogger('Config');
 
 // Helper function to ensure URLs have a protocol prefix
 function ensureProtocol(url: string, defaultUrl: string): string {
   if (!url) return defaultUrl;
   // If the URL doesn't start with http:// or https://, prepend https://
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    console.warn(`[CONFIG] URL "${url}" is missing protocol, auto-prepending https://`);
+    log.warn({ url }, 'URL is missing protocol, auto-prepending https://');
     return `https://${url}`;
   }
   return url;
@@ -74,25 +77,16 @@ export const config = {
   // Validate required configuration
   validate(): void {
     if (!this.privateKey) {
-      console.error('\n❌ ERROR: Wallet not configured!\n');
-      console.error('Your private key is missing or invalid.');
-      console.error('Please restart the bot to run the setup wizard again.\n');
+      log.error('Wallet not configured — private key is missing or invalid. Restart the bot to configure.');
       throw new Error('PRIVATE_KEY is required. Restart the bot to configure.');
     }
 
     // Builder API credentials are REQUIRED for trading from cloud servers
     // Without Builder authentication, requests will be blocked by Cloudflare
     if (!this.polymarketBuilderApiKey || !this.polymarketBuilderSecret || !this.polymarketBuilderPassphrase) {
-      console.error('\n⚠️  WARNING: Polymarket Builder API credentials not configured!\n');
-      console.error('   Without Builder credentials, order requests WILL BE BLOCKED by Cloudflare.');
-      console.error('   This is the #1 cause of trade execution failures.\n');
-      console.error('   To fix this, add these to your .env file:');
-      console.error('   POLYMARKET_BUILDER_API_KEY=your_key');
-      console.error('   POLYMARKET_BUILDER_SECRET=your_secret');
-      console.error('   POLYMARKET_BUILDER_PASSPHRASE=your_passphrase\n');
-      console.error('   Get these from: https://polymarket.com/settings?tab=builder\n');
+      log.warn('Builder API credentials not configured — order requests WILL be blocked by Cloudflare. Add POLYMARKET_BUILDER_API_KEY, POLYMARKET_BUILDER_SECRET, and POLYMARKET_BUILDER_PASSPHRASE to your .env file. Get them from https://polymarket.com/settings?tab=builder');
     } else {
-      console.log('✓ Builder API credentials configured');
+      log.info('Builder API credentials configured');
     }
   }
 };

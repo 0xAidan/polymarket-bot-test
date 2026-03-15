@@ -12,6 +12,9 @@ import { existsSync, writeFileSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import readline from 'readline';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('Index');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -38,25 +41,25 @@ async function runInteractiveSetup(): Promise<boolean> {
     });
   };
 
-  console.log('\n');
-  console.log('═'.repeat(60));
-  console.log('   🚀 POLYMARKET COPYTRADE BOT - FIRST TIME SETUP');
-  console.log('═'.repeat(60));
-  console.log('\nLet\'s get your bot configured! I\'ll ask for each value one at a time.\n');
+  log.info('\n');
+  log.info('═'.repeat(60));
+  log.info('   🚀 POLYMARKET COPYTRADE BOT - FIRST TIME SETUP');
+  log.info('═'.repeat(60));
+  log.info('\nLet\'s get your bot configured! I\'ll ask for each value one at a time.\n');
 
   try {
     // Step 1: Private Key
-    console.log('─'.repeat(60));
-    console.log('STEP 1 of 4: Your Wallet Private Key');
-    console.log('─'.repeat(60));
-    console.log('\nThis is the private key from your crypto wallet.');
-    console.log('It should start with "0x" and be 66 characters long.');
-    console.log('\n⚠️  IMPORTANT: Never share this with anyone!\n');
+    log.info('─'.repeat(60));
+    log.info('STEP 1 of 4: Your Wallet Private Key');
+    log.info('─'.repeat(60));
+    log.info('\nThis is the private key from your crypto wallet.');
+    log.info('It should start with "0x" and be 66 characters long.');
+    log.info('\n⚠️  IMPORTANT: Never share this with anyone!\n');
 
     const privateKey = await question('Enter your private key: ');
 
     if (!privateKey || !privateKey.trim()) {
-      console.log('\n❌ Private key is required. Setup cancelled.\n');
+      log.info('\n❌ Private key is required. Setup cancelled.\n');
       rl.close();
       return false;
     }
@@ -65,43 +68,43 @@ async function runInteractiveSetup(): Promise<boolean> {
 
     // Basic validation
     if (!trimmedKey.startsWith('0x')) {
-      console.log('\n⚠️  Warning: Private key usually starts with "0x"');
+      log.info('\n⚠️  Warning: Private key usually starts with "0x"');
     }
     if (trimmedKey.length !== 66) {
-      console.log(`⚠️  Warning: Private key length is ${trimmedKey.length}, expected 66`);
+      log.info(`⚠️  Warning: Private key length is ${trimmedKey.length}, expected 66`);
     }
 
     // Step 2: Builder API Key
-    console.log('\n');
-    console.log('─'.repeat(60));
-    console.log('STEP 2 of 4: Polymarket Builder API Key');
-    console.log('─'.repeat(60));
-    console.log('\nGo to: https://polymarket.com/settings?tab=builder');
-    console.log('Click "Create API Key" and copy the API Key here.\n');
-    console.log('(This is REQUIRED for trading to work)\n');
+    log.info('\n');
+    log.info('─'.repeat(60));
+    log.info('STEP 2 of 4: Polymarket Builder API Key');
+    log.info('─'.repeat(60));
+    log.info('\nGo to: https://polymarket.com/settings?tab=builder');
+    log.info('Click "Create API Key" and copy the API Key here.\n');
+    log.info('(This is REQUIRED for trading to work)\n');
 
     const builderApiKey = await question('Enter your Builder API Key: ');
 
     if (!builderApiKey || !builderApiKey.trim()) {
-      console.log('\n⚠️  Warning: Without Builder API credentials, trading will fail!');
+      log.info('\n⚠️  Warning: Without Builder API credentials, trading will fail!');
     }
 
     // Step 3: Builder Secret
-    console.log('\n');
-    console.log('─'.repeat(60));
-    console.log('STEP 3 of 4: Polymarket Builder API Secret');
-    console.log('─'.repeat(60));
-    console.log('\nThis is shown once when you create the API key.');
-    console.log('If you didn\'t save it, you may need to create a new key.\n');
+    log.info('\n');
+    log.info('─'.repeat(60));
+    log.info('STEP 3 of 4: Polymarket Builder API Secret');
+    log.info('─'.repeat(60));
+    log.info('\nThis is shown once when you create the API key.');
+    log.info('If you didn\'t save it, you may need to create a new key.\n');
 
     const builderSecret = await question('Enter your Builder API Secret: ');
 
     // Step 4: Builder Passphrase
-    console.log('\n');
-    console.log('─'.repeat(60));
-    console.log('STEP 4 of 4: Polymarket Builder API Passphrase');
-    console.log('─'.repeat(60));
-    console.log('\nThis is the passphrase you created with your API key.\n');
+    log.info('\n');
+    log.info('─'.repeat(60));
+    log.info('STEP 4 of 4: Polymarket Builder API Passphrase');
+    log.info('─'.repeat(60));
+    log.info('\nThis is the passphrase you created with your API key.\n');
 
     const builderPassphrase = await question('Enter your Builder API Passphrase: ');
 
@@ -151,21 +154,21 @@ DATA_DIR=./data
     // Write to .env file in project root
     const envPath = join(PROJECT_ROOT, '.env');
 
-    console.log(`\n[DEBUG] Writing .env to: ${envPath}`);
+    log.info(`\n[DEBUG] Writing .env to: ${envPath}`);
 
     writeFileSync(envPath, envContent, 'utf-8');
 
-    console.log('\n');
-    console.log('═'.repeat(60));
-    console.log('   ✅ SETUP COMPLETE!');
-    console.log('═'.repeat(60));
-    console.log(`\nYour configuration has been saved to: ${envPath}`);
-    console.log('\nRestarting bot with your new configuration...\n');
+    log.info('\n');
+    log.info('═'.repeat(60));
+    log.info('   ✅ SETUP COMPLETE!');
+    log.info('═'.repeat(60));
+    log.info(`\nYour configuration has been saved to: ${envPath}`);
+    log.info('\nRestarting bot with your new configuration...\n');
 
     return true;
 
   } catch (error: any) {
-    console.error('\n❌ Setup failed:', error.message);
+    log.error({ detail: error.message }, '\n❌ Setup failed')
     rl.close();
     return false;
   }
@@ -177,11 +180,11 @@ DATA_DIR=./data
 function isConfigured(): boolean {
   const envPath = join(PROJECT_ROOT, '.env');
 
-  console.log(`[DEBUG] Checking for .env at: ${envPath}`);
+  log.info(`[DEBUG] Checking for .env at: ${envPath}`);
 
   // Check if .env file exists
   if (!existsSync(envPath)) {
-    console.log(`[DEBUG] .env file does not exist`);
+    log.info(`[DEBUG] .env file does not exist`);
     return false;
   }
 
@@ -193,10 +196,10 @@ function isConfigured(): boolean {
       !envContent.includes('PRIVATE_KEY=your_private_key_here') &&
       !envContent.includes('PRIVATE_KEY=\n') &&
       !envContent.includes('PRIVATE_KEY=$');
-    console.log(`[DEBUG] .env exists, hasPrivateKey: ${hasPrivateKey}`);
+    log.info(`[DEBUG] .env exists, hasPrivateKey: ${hasPrivateKey}`);
     return hasPrivateKey;
   } catch (err) {
-    console.log(`[DEBUG] Error reading .env: ${err}`);
+    log.info(`[DEBUG] Error reading .env: ${err}`);
     return false;
   }
 }
@@ -267,12 +270,12 @@ async function startAppRuntime() {
 
     // Check if configuration exists
     if (!isConfigured()) {
-      console.log('\n🔧 No configuration found. Starting setup wizard...');
+      log.info('\n🔧 No configuration found. Starting setup wizard...');
 
       const setupSuccess = await runInteractiveSetup();
 
       if (!setupSuccess) {
-        console.log('\n❌ Setup was not completed. Please run "npm run dev" again to try setup.\n');
+        log.info('\n❌ Setup was not completed. Please run "npm run dev" again to try setup.\n');
         process.exit(1);
       }
 
@@ -281,83 +284,83 @@ async function startAppRuntime() {
     }
 
     // Initialize wallet manager early (so trading wallets are available to API routes)
-    console.log('🔑 Loading trading wallets...');
+    log.info('🔑 Loading trading wallets...');
     await initWalletManager();
 
     // Create and start web server first (so it's accessible even if bot init fails)
-    console.log('🌐 Starting web server...');
+    log.info('🌐 Starting web server...');
     copyTrader = new CopyTrader();
     const app = await createServer(copyTrader);
     await startServer(app);
 
     // Validate configuration
-    console.log('🔧 Validating configuration...');
+    log.info('🔧 Validating configuration...');
     try {
       config.validate();
     } catch (error: any) {
-      console.error('⚠️  Configuration validation failed:', error.message);
-      console.error('⚠️  Bot will not start, but web server is running.');
-      console.error('⚠️  Please fix your configuration and restart.');
+      log.error({ detail: error.message }, '⚠️  Configuration validation failed')
+      log.error('⚠️  Bot will not start, but web server is running.');
+      log.error('⚠️  Please fix your configuration and restart.');
       // Don't exit - let the server keep running so user can see the error
       return;
     }
 
     // Initialize copy trader
-    console.log('🚀 Initializing copy trader...');
+    log.info('🚀 Initializing copy trader...');
     try {
       await copyTrader.initialize();
 
       // Check if there are any tracked wallets
       const trackedWallets = await Storage.getActiveWallets();
-      const activeWallets = trackedWallets.filter(w => w.active);
+      const activeWallets = trackedWallets.filter((w: { active: boolean }) => w.active);
 
-      console.log(`\n${'='.repeat(60)}`);
-      console.log(`📊 BOT STATUS`);
-      console.log(`${'='.repeat(60)}`);
+      log.info(`\n${'='.repeat(60)}`);
+      log.info(`📊 BOT STATUS`);
+      log.info(`${'='.repeat(60)}`);
 
       if (trackedWallets.length === 0) {
-        console.log('\n⚠️  WARNING: No wallets are being tracked!');
-        console.log('   To start copy trading:');
-        console.log('   1. Open the web dashboard at http://localhost:' + config.port);
-        console.log('   2. Add wallet addresses to track');
-        console.log('   3. The bot will automatically monitor active wallets\n');
+        log.info('\n⚠️  WARNING: No wallets are being tracked!');
+        log.info('   To start copy trading:');
+        log.info('   1. Open the web dashboard at http://localhost:' + config.port);
+        log.info('   2. Add wallet addresses to track');
+        log.info('   3. The bot will automatically monitor active wallets\n');
       } else {
-        console.log(`\n📋 Tracked Wallets: ${trackedWallets.length} total, ${activeWallets.length} active`);
-        console.log(`${'─'.repeat(60)}`);
+        log.info(`\n📋 Tracked Wallets: ${trackedWallets.length} total, ${activeWallets.length} active`);
+        log.info(`${'─'.repeat(60)}`);
         for (const wallet of trackedWallets) {
           const status = wallet.active ? '✅ ACTIVE' : '⏸️  INACTIVE';
-          console.log(`   • ${wallet.address.substring(0, 10)}...${wallet.address.substring(wallet.address.length - 8)} - ${status}`);
+          log.info(`   • ${wallet.address.substring(0, 10)}...${wallet.address.substring(wallet.address.length - 8)} - ${status}`);
         }
-        console.log(`${'='.repeat(60)}\n`);
+        log.info(`${'='.repeat(60)}\n`);
       }
 
-      console.log('🤖 Starting copy trading bot...');
+      log.info('🤖 Starting copy trading bot...');
       await startMonitoringServices(copyTrader, null);
 
       const status = copyTrader.getStatus();
       const domeWs = status.domeWs;
 
-      console.log(`\n${'='.repeat(60)}`);
-      console.log(`✅ BOT STARTED SUCCESSFULLY`);
-      console.log(`${'='.repeat(60)}`);
-      console.log(`   Server: http://localhost:${config.port}`);
-      console.log(`   Dome WebSocket: ${domeWs?.connected ? '✅ CONNECTED' : '⏳ Not connected'} — ${domeWs?.trackedWallets ?? 0} wallets`);
-      console.log(`   Polling: ${status.running ? '✅ ACTIVE' : '⏸️  INACTIVE'}`);
-      console.log(`\n💡 Trading auto-starts on boot; Discovery remains a separate worker process.`);
-      console.log(`${'='.repeat(60)}\n`);
-      console.log('[Discovery] Discovery now runs as a separate worker process.');
-      console.log('[Discovery] Start it in another terminal with: npm run discovery:dev');
+      log.info(`\n${'='.repeat(60)}`);
+      log.info(`✅ BOT STARTED SUCCESSFULLY`);
+      log.info(`${'='.repeat(60)}`);
+      log.info(`   Server: http://localhost:${config.port}`);
+      log.info(`   Dome WebSocket: ${domeWs?.connected ? '✅ CONNECTED' : '⏳ Not connected'} — ${domeWs?.trackedWallets ?? 0} wallets`);
+      log.info(`   Polling: ${status.running ? '✅ ACTIVE' : '⏸️  INACTIVE'}`);
+      log.info(`\n💡 Trading auto-starts on boot; Discovery remains a separate worker process.`);
+      log.info(`${'='.repeat(60)}\n`);
+      log.info('[Discovery] Discovery now runs as a separate worker process.');
+      log.info('[Discovery] Start it in another terminal with: npm run discovery:dev');
     } catch (error: any) {
-      console.error('⚠️  Failed to initialize or start bot:', error.message);
-      console.error('⚠️  Bot will not run, but web server is accessible.');
-      console.error('⚠️  Check your configuration and logs.');
+      log.error({ detail: error.message }, '⚠️  Failed to initialize or start bot')
+      log.error('⚠️  Bot will not run, but web server is accessible.');
+      log.error('⚠️  Check your configuration and logs.');
       // Don't exit - let the server keep running
     }
 
     registerAppShutdown(copyTrader);
   } catch (error: any) {
-    console.error('❌ Fatal error:', error.message);
-    console.error(error);
+    log.error({ detail: error.message }, '❌ Fatal error')
+    log.error(error);
     process.exit(1);
   }
 }
@@ -407,4 +410,4 @@ async function main() {
 }
 
 // Run the bot
-main().catch(console.error);
+main().catch((err) => log.error({ err }, 'Unhandled error in main'));

@@ -6,6 +6,9 @@ import { getTradingWallets } from './walletManager.js';
 import { getSigner, isWalletUnlocked } from './secureKeyManager.js';
 import { RelayClient, RelayerTxType } from '@polymarket/builder-relayer-client';
 import { BuilderConfig } from '@polymarket/builder-signing-sdk';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('PositionLifecycle');
 
 const RELAYER_URL = 'https://relayer-v2.polymarket.com/';
 const POLYGON_CHAIN_ID = 137;
@@ -89,10 +92,10 @@ export class PositionLifecycleManager {
 
     await this.loadConfig();
 
-    console.log('[Lifecycle] Position lifecycle manager started');
-    console.log(`[Lifecycle]   Auto-redeem: ${this.lifecycleConfig.autoRedeemEnabled ? 'ON' : 'OFF'}`);
-    console.log(`[Lifecycle]   Auto-merge: ${this.lifecycleConfig.autoMergeEnabled ? 'ON' : 'OFF'}`);
-    console.log(`[Lifecycle]   Check interval: ${this.lifecycleConfig.checkIntervalMs / 1000}s`);
+    log.info('[Lifecycle] Position lifecycle manager started');
+    log.info(`[Lifecycle]   Auto-redeem: ${this.lifecycleConfig.autoRedeemEnabled ? 'ON' : 'OFF'}`);
+    log.info(`[Lifecycle]   Auto-merge: ${this.lifecycleConfig.autoMergeEnabled ? 'ON' : 'OFF'}`);
+    log.info(`[Lifecycle]   Check interval: ${this.lifecycleConfig.checkIntervalMs / 1000}s`);
 
     if (this.lifecycleConfig.autoRedeemEnabled || this.lifecycleConfig.autoMergeEnabled) {
       this.scheduleCheck();
@@ -105,7 +108,7 @@ export class PositionLifecycleManager {
       clearInterval(this.checkInterval);
       this.checkInterval = null;
     }
-    console.log('[Lifecycle] Position lifecycle manager stopped');
+    log.info('[Lifecycle] Position lifecycle manager stopped');
   }
 
   private scheduleCheck(): void {
@@ -116,11 +119,11 @@ export class PositionLifecycleManager {
       try {
         await this.checkAndProcess();
       } catch (err: any) {
-        console.error('[Lifecycle] Check failed:', err.message);
+        log.error({ detail: err.message }, '[Lifecycle] Check failed')
       }
     }, this.lifecycleConfig.checkIntervalMs);
 
-    this.checkAndProcess().catch(err => console.error('[Lifecycle] Initial check failed:', err.message));
+    this.checkAndProcess().catch(err => log.error('[Lifecycle] Initial check failed:', err.message));
   }
 
   async checkAndProcess(): Promise<RedemptionResult[]> {
@@ -129,48 +132,48 @@ export class PositionLifecycleManager {
 
     try {
       if (!isWalletUnlocked()) {
-        console.log('[Lifecycle] Auto-check skipped — wallets are locked');
+        log.info('[Lifecycle] Auto-check skipped — wallets are locked');
         return results;
       }
 
       const positions = await this.getRedeemablePositions();
 
       if (positions.length === 0) {
-        console.log('[Lifecycle] Auto-check: no redeemable or mergeable positions');
+        log.info('[Lifecycle] Auto-check: no redeemable or mergeable positions');
         return results;
       }
 
-      console.log(`[Lifecycle] Auto-check: found ${positions.length} position(s) to process`);
+      log.info(`[Lifecycle] Auto-check: found ${positions.length} position(s) to process`);
 
       for (const pos of positions) {
         if (pos.estimatedPayout < this.lifecycleConfig.minRedeemValue) {
-          console.log(`[Lifecycle] Skipping ${pos.marketTitle} — payout $${pos.estimatedPayout.toFixed(2)} below min $${this.lifecycleConfig.minRedeemValue}`);
+          log.info(`[Lifecycle] Skipping ${pos.marketTitle} — payout $${pos.estimatedPayout.toFixed(2)} below min $${this.lifecycleConfig.minRedeemValue}`);
           continue;
         }
 
         if (pos.redeemable && this.lifecycleConfig.autoRedeemEnabled) {
-          console.log(`[Lifecycle] Auto-redeeming: ${pos.marketTitle} (~$${pos.estimatedPayout.toFixed(2)})`);
+          log.info(`[Lifecycle] Auto-redeeming: ${pos.marketTitle} (~$${pos.estimatedPayout.toFixed(2)})`);
           const result = await this.redeemPosition(pos);
           results.push(result);
           if (result.success) {
             this.totalRedemptions++;
             this.totalRecovered += result.amountRecovered;
-            console.log(`[Lifecycle] ✓ Redeemed ${pos.marketTitle} — tx ${result.txHash}`);
+            log.info(`[Lifecycle] ✓ Redeemed ${pos.marketTitle} — tx ${result.txHash}`);
           } else {
-            console.error(`[Lifecycle] ✗ Redeem failed: ${pos.marketTitle} — ${result.error}`);
+            log.error(`[Lifecycle] ✗ Redeem failed: ${pos.marketTitle} — ${result.error}`);
           }
         }
 
         if (pos.mergeable && this.lifecycleConfig.autoMergeEnabled) {
-          console.log(`[Lifecycle] Auto-merging: ${pos.marketTitle}`);
+          log.info(`[Lifecycle] Auto-merging: ${pos.marketTitle}`);
           const result = await this.mergePosition(pos);
           results.push(result);
           if (result.success) {
             this.totalMerges++;
             this.totalRecovered += result.amountRecovered;
-            console.log(`[Lifecycle] ✓ Merged ${pos.marketTitle} — tx ${result.txHash}`);
+            log.info(`[Lifecycle] ✓ Merged ${pos.marketTitle} — tx ${result.txHash}`);
           } else {
-            console.error(`[Lifecycle] ✗ Merge failed: ${pos.marketTitle} — ${result.error}`);
+            log.error(`[Lifecycle] ✗ Merge failed: ${pos.marketTitle} — ${result.error}`);
           }
         }
       }
@@ -178,7 +181,7 @@ export class PositionLifecycleManager {
       this.lastResults = results;
       return results;
     } catch (err: any) {
-      console.error('[Lifecycle] Error during auto-check:', err.message);
+      log.error({ detail: err.message }, '[Lifecycle] Error during auto-check')
       return results;
     }
   }
@@ -198,7 +201,7 @@ export class PositionLifecycleManager {
       const wallets = getTradingWallets();
 
       if (wallets.length === 0) {
-        console.log('[Lifecycle] No trading wallets configured');
+        log.info('[Lifecycle] No trading wallets configured');
         return results;
       }
 
@@ -208,7 +211,7 @@ export class PositionLifecycleManager {
         try {
           const proxyAddress = await this.api.getProxyWalletAddress(wallet.address);
           const queryAddress = proxyAddress || wallet.address;
-          console.log(`[Lifecycle] Checking wallet ${wallet.id}: EOA=${wallet.address.substring(0, 10)}... → query=${queryAddress.substring(0, 10)}...`);
+          log.info(`[Lifecycle] Checking wallet ${wallet.id}: EOA=${wallet.address.substring(0, 10)}... → query=${queryAddress.substring(0, 10)}...`);
 
           const redeemablePositions = await this.api.getFilteredPositions(queryAddress, {
             redeemable: true,
@@ -276,16 +279,16 @@ export class PositionLifecycleManager {
           }
 
           if (redeemablePositions.length > 0 || mergeablePositions.length > 0) {
-            console.log(`[Lifecycle] Wallet ${wallet.id}: ${redeemablePositions.length} redeemable (${results.filter(r => r.walletId === wallet.id && r.redeemable).length} with value), ${mergeablePositions.length} mergeable`);
+            log.info(`[Lifecycle] Wallet ${wallet.id}: ${redeemablePositions.length} redeemable (${results.filter(r => r.walletId === wallet.id && r.redeemable).length} with value), ${mergeablePositions.length} mergeable`);
           }
         } catch (walletErr: any) {
-          console.error(`[Lifecycle] Error fetching positions for wallet ${wallet.id} (${wallet.address?.substring(0, 10)}...):`, walletErr.message);
+          log.error({ err: walletErr.message }, `[Lifecycle] Error fetching positions for wallet ${wallet.id} (${wallet.address?.substring(0, 10)}...)`);
         }
       }
 
       return results;
     } catch (err: any) {
-      console.error('[Lifecycle] Error fetching redeemable positions:', err.message);
+      log.error({ detail: err.message }, '[Lifecycle] Error fetching redeemable positions')
       return results;
     }
   }
@@ -361,7 +364,7 @@ export class PositionLifecycleManager {
         targetContract = CTF_ADDRESS;
       }
 
-      console.log(`[Lifecycle] Redeeming via relayer: ${pos.marketTitle} (${pos.size} shares, ~$${pos.estimatedPayout.toFixed(2)})`);
+      log.info(`[Lifecycle] Redeeming via relayer: ${pos.marketTitle} (${pos.size} shares, ~$${pos.estimatedPayout.toFixed(2)})`);
 
       const relayClient = this.createRelayClient(baseSigner);
       const response = await relayClient.execute(
@@ -374,7 +377,7 @@ export class PositionLifecycleManager {
         return { ...baseResult, error: 'Relayer transaction failed or timed out' };
       }
 
-      console.log(`[Lifecycle] Redeemed: ${pos.marketTitle} — tx ${result.transactionHash}`);
+      log.info(`[Lifecycle] Redeemed: ${pos.marketTitle} — tx ${result.transactionHash}`);
 
       return {
         ...baseResult,
@@ -383,7 +386,7 @@ export class PositionLifecycleManager {
         amountRecovered: pos.estimatedPayout,
       };
     } catch (err: any) {
-      console.error(`[Lifecycle] Redeem failed for ${pos.marketTitle}:`, err.message);
+      log.error({ detail: err.message }, `[Lifecycle] Redeem failed for ${pos.marketTitle}`)
       return { ...baseResult, error: err.message };
     }
   }
@@ -424,7 +427,7 @@ export class PositionLifecycleManager {
         mergeAmount,
       ]);
 
-      console.log(`[Lifecycle] Merging via relayer: ${pos.marketTitle} (${pos.size} shares)`);
+      log.info(`[Lifecycle] Merging via relayer: ${pos.marketTitle} (${pos.size} shares)`);
 
       const relayClient = this.createRelayClient(baseSigner);
       const response = await relayClient.execute(
@@ -437,7 +440,7 @@ export class PositionLifecycleManager {
         return { ...baseResult, error: 'Relayer transaction failed or timed out' };
       }
 
-      console.log(`[Lifecycle] Merged: ${pos.marketTitle} — tx ${result.transactionHash}`);
+      log.info(`[Lifecycle] Merged: ${pos.marketTitle} — tx ${result.transactionHash}`);
 
       return {
         ...baseResult,
@@ -446,7 +449,7 @@ export class PositionLifecycleManager {
         amountRecovered: pos.size,
       };
     } catch (err: any) {
-      console.error(`[Lifecycle] Merge failed for ${pos.marketTitle}:`, err.message);
+      log.error({ detail: err.message }, `[Lifecycle] Merge failed for ${pos.marketTitle}`)
       return { ...baseResult, error: err.message };
     }
   }
@@ -459,15 +462,15 @@ export class PositionLifecycleManager {
     if (!this.isRunning) return;
     if (!this.lifecycleConfig.autoRedeemEnabled && !this.lifecycleConfig.autoMergeEnabled) return;
 
-    console.log('[Lifecycle] Triggered immediate check (e.g. wallets just unlocked)');
+    log.info('[Lifecycle] Triggered immediate check (e.g. wallets just unlocked)');
     try {
       const results = await this.checkAndProcess();
       if (results.length > 0) {
         const succeeded = results.filter(r => r.success).length;
-        console.log(`[Lifecycle] Triggered check completed: ${succeeded}/${results.length} succeeded`);
+        log.info(`[Lifecycle] Triggered check completed: ${succeeded}/${results.length} succeeded`);
       }
     } catch (err: any) {
-      console.error('[Lifecycle] Triggered check failed:', err.message);
+      log.error({ detail: err.message }, '[Lifecycle] Triggered check failed')
     }
   }
 
@@ -539,7 +542,7 @@ export class PositionLifecycleManager {
       cfg.lifecycleConfig = this.lifecycleConfig;
       await Storage.saveConfig(cfg);
     } catch (err: any) {
-      console.error('[Lifecycle] Failed to save config:', err.message);
+      log.error({ detail: err.message }, '[Lifecycle] Failed to save config')
     }
   }
 }
