@@ -1,0 +1,26 @@
+---
+description: Never use native browser dialogs (alert, confirm, prompt). Use the win95Dialog system instead.
+globs: ["public/js/**/*.js", "public/**/*.html"]
+alwaysApply: false
+---
+
+# No Native Browser Dialogs
+
+NEVER use `alert()`, `confirm()`, or `prompt()` in any frontend code. These produce ugly, unbranded OS-level popups that cannot be styled, tracked, or debugged.
+
+## Use the `win95Dialog` system instead
+
+The custom dialog system lives at the top of `public/js/app.js` and provides:
+
+- `await win95Dialog.alert(message, title?)` — informational message, returns `true`
+- `await win95Dialog.success(message, title?)` — green success text, returns `true`
+- `await win95Dialog.error(message, title?)` — red error text, returns `true`
+- `await win95Dialog.confirm(message, title?)` — OK/Cancel, returns `true` or `false`
+- `await win95Dialog.prompt(message, defaultValue?, title?)` — text input, returns `string` or `null`
+
+## Rules
+
+1. All dialog calls are async — use `await` and ensure the enclosing function is `async`
+2. Use `.error()` for failure messages, `.success()` for success messages, `.alert()` for informational
+3. For confirm patterns: `if (!await win95Dialog.confirm('...')) return;`
+4. For prompt patterns: `const val = await win95Dialog.prompt('...'); if (!val) return;`

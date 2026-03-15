@@ -1,0 +1,840 @@
+---
+description: Comprehensive project knowledge for AI agents. Attach to every chat session. Contains full architecture, file map, types, APIs, safety rules, and development context needed to work on this codebase without scanning files.
+globs: 
+alwaysApply: true
+---
+
+# Polymarket CopyTrade Bot — Agent Knowledge Base
+
+> **Purpose**: This document gives a new AI agent instance everything it needs to execute tasks in this codebase without re-scanning files. It is the single source of truth for project context. Keep it updated after every significant change.
+>
+> **Last updated**: 2026-03-15
+
+---
+
+## 1. PROJECT IDENTITY
+
+- **Name**: polymarket-copytrade-bot
+- **Repo**: `git@github.com:0xAidan/polymarket-bot-test.git`
+- **What it does**: A Node.js bot that monitors "whale" wallets on Polymarket (a prediction market platform on Polygon) and automatically copies their trades into the user's own wallet(s). It also has a Discovery Engine that finds profitable wallets to track.
+- **Owner context**: The owner (Aidan) is non-technical. All code changes, explanations, and decisions must be presented as if to someone with no engineering background. Every idea should be evaluated honestly — do not blindly affirm bad ideas.
+- **Current branch**: `integrate/pr47-api-auth` (check `git status` before branching)
+- **Main branch**: `main`
+
+---
+
+## 2. TECH STACK
+
+| Layer | Technology | Version/Notes |
+|-------|-----------|---------------|
+| Language | TypeScript | 5.3, strict mode |
+| Runtime | Node.js | 18+ required, ESM (`"type": "module"`) |
+| Build | tsc | target ES2022, module NodeNext |
+| Dev runner | tsx | watch mode for hot reload |
+| Web framework | Express | 4.18 |
+| Frontend | Vanilla JS + HTML + CSS | Windows 95 retro theme, NO frameworks |
+| Database | JSON files (default) OR SQLite | `STORAGE_BACKEND` env var (`json` | `sqlite`) |
+| SQLite lib | better-sqlite3 | 12.6 |
+| Blockchain | Polygon chain via ethers 5 + viem 2 | |
+| Polymarket SDK | @polymarket/clob-client 5.2, builder-signing-sdk/relayer-client 0.0.8 | |
+| Real-time data | WebSocket (ws 8.14) + Dome API SDK | |
+| HTTP client | axios 1.6 | |
+| Logging | pino 10.3 | structured JSON logs |
+| Testing | Node built-in `node:test` + tsx | `npm test` |
+| Linting | ESLint + @typescript-eslint | |
+| Container | Docker (Node 20 Alpine) | Dockerfile at root |
+
+### Import conventions
+- All internal imports use `.js` extensions (ESM requirement): `import { config } from './config.js'`
+- TypeScript compiles to `dist/` but dev runs from source via tsx
+- Package is `"type": "module"` — no CommonJS in `src/`, only in `setup.cjs` and `start.cjs`
+
+---
+
+## 3. DIRECTORY STRUCTURE
+
+```
+polymarket-bot-test/
+├── .cursor/rules/           # Cursor AI rules (trade safety, auth, dialogs, this file)
+├── docs/                    # Plans, research, roadmap
+│   ├── plans/
+│   └── research/
+├── public/                  # Frontend (served by Express static)
+│   ├── index.html           # Main dashboard HTML (Win95 UI)
+│   ├── styles.css           # Win95 styles
+│   ├── tour.css             # Walkthrough tour styles
+│   └── js/
+│       ├── app.js           # Main frontend logic, win95Dialog system
+│       ├── api.js           # API client (fetch wrapper with auth)
+│       └── tour.js          # Walkthrough tour
+├── src/                     # Backend TypeScript source
+│   ├── index.ts             # ★ MAIN ENTRY POINT
+│   ├── config.ts            # Central configuration from .env
+│   ├── types.ts             # Shared TypeScript types
+│   ├── logger.ts            # Pino logger factory
+│   ├── runtimeMode.ts       # App vs discovery-worker mode selector
+│   ├── startup.ts           # Boot monitoring services
+│   ├── server.ts            # Express server + auth middleware
+│   ├── storage.ts           # Dual JSON/SQLite storage abstraction
+│   ├── database.ts          # SQLite schema, migrations, queries
+│   │
+│   ├── copyTrader.ts        # ★ CORE: Copy trading orchestrator
+│   ├── walletMonitor.ts     # Polls Data API for tracked wallet trades
+│   ├── tradeExecutor.ts     # Executes orders via CLOB
+│   ├── polymarketApi.ts     # Polymarket REST API client (Data/CLOB/Gamma)
+│   ├── clobClient.ts        # @polymarket/clob-client wrapper
+│   │
+│   ├── domeWebSocket.ts     # Dome WebSocket real-time trade feed
+│   ├── domeClient.ts        # Dome REST API client
+│   │
+│   ├── walletManager.ts     # Multi-wallet management
+│   ├── secureKeyManager.ts  # AES-256-GCM encrypted keystores
+│   ├── balanceTracker.ts    # USDC balance tracking
+│   ├── performanceTracker.ts # Trade metrics and performance
+│   ├── positionMirror.ts    # Mirror tracked wallet positions
+│   ├── positionLifecycle.ts # Position lifecycle (auto-redemption)
+│   │
+│   ├── tradeIdentity.ts     # Outcome normalization, position keys
+│   ├── walletConfigSafety.ts # Trade sizing validation
+│   ├── noRepeatReconciliation.ts # Pending order reconciliation
+│   ├── tradeDiagnostics.ts  # Debug logging for trade detection
+│   ├── tradeExecutionDiagnostics.ts # Execution failure classification
+│   ├── addressUtils.ts      # EVM address normalization
+│   │
+│   ├── priceMonitor.ts      # Price monitoring for ladders/stop-loss
+│   ├── ladderExitManager.ts # Ladder exit orders
+│   ├── smartStopLoss.ts     # Stop-loss management
+│   ├── arbScanner.ts        # Arbitrage scanner
+│   ├── hedgeCalculator.ts   # Hedge calculations
+│   ├── crossPlatformExecutor.ts # Cross-platform execution
+│   ├── crossPlatformPnl.ts  # Cross-platform PnL
+│   ├── entityManager.ts     # Entity linking across platforms
+│   ├── kalshiClient.ts      # Kalshi API client
+│   │
+│   ├── api/
+│   │   ├── routes.ts        # ★ Main REST API routes
+│   │   └── discoveryRoutes.ts # Discovery REST API routes
+│   ├── discovery/           # Discovery Engine (wallet finder)
+│   │   ├── discoveryManager.ts # Orchestrates discovery
+│   │   ├── discoveryWorker.ts  # Standalone worker process entry
+│   │   ├── types.ts         # Discovery-specific types + ABI
+│   │   ├── tradeIngestion.ts # Trade ingestion pipeline
+│   │   ├── chainListener.ts # Polygon OrderFilled event listener
+│   │   ├── apiPoller.ts     # Polymarket API polling for trades
+│   │   ├── positionTracker.ts # Position tracking
+│   │   ├── signalEngine.ts  # Signal generation
+│   │   ├── walletScorer.ts  # Wallet scoring algorithm
+│   │   ├── statsStore.ts    # Discovery stats and config
+│   │   ├── discoveryControlPlane.ts # Control plane
+│   │   ├── discoveryRuntimeState.ts # Runtime heartbeat
+│   │   ├── marketClassifier.ts # Market categorization
+│   │   ├── walletValidator.ts # Wallet validation
+│   │   ├── discoveryScorer.ts # Scoring logic
+│   │   ├── copyabilityScorer.ts # Copyability scoring
+│   │   ├── earlyEntryScorer.ts # Early entry scoring
+│   │   ├── tokenMapper.ts   # Token mapping
+│   │   ├── categorySeeder.ts # Category seeding
+│   │   ├── walletSeedEngine.ts # Wallet seeding
+│   │   ├── tradeEnricher.ts # Trade enrichment
+│   │   └── runLog.ts        # Run logging
+│   ├── platform/            # Multi-platform abstraction
+│   │   ├── platformRegistry.ts
+│   │   ├── polymarketAdapter.ts
+│   │   ├── kalshiAdapter.ts
+│   │   └── types.ts
+│   ├── types/               # External type declarations
+│   │   ├── clob-client.d.ts
+│   │   └── builder-signing-sdk.d.ts
+│   └── utils/
+│       └── booleanParsing.ts
+├── tests/                   # Test files (node:test)
+├── package.json
+├── tsconfig.json
+├── Dockerfile
+├── start.cjs                # Dev startup script (runs app + discovery worker)
+├── setup.cjs                # Interactive setup wizard
+├── ENV_EXAMPLE.txt          # .env template
+├── README.md
+├── CODEBASE_GUIDE.md
+└── MULTI_PLATFORM_PLAN_v3.md
+```
+
+---
+
+## 4. HOW TO RUN
+
+| Command | What it does |
+|---------|-------------|
+| `npm install` | Install dependencies |
+| `npm run setup` | Interactive wizard → creates `.env` |
+| `npm run dev` | Start app + discovery worker (tsx watch, auto-reload) |
+| `npm run dev:app` | Start only the main app |
+| `npm run dev:discovery` | Start only the discovery worker |
+| `npm test` | Run all tests |
+| `npm run build` | Compile TypeScript to `dist/` |
+| `npm start` | Same as `dev` |
+| `npm run lint` | ESLint check |
+
+### Boot sequence
+1. `start.cjs` checks for `.env`, runs `setup.cjs` if missing
+2. Spawns two parallel processes:
+   - Main app: `tsx watch src/index.ts` (port 3001)
+   - Discovery worker: `tsx watch src/discovery/discoveryWorker.ts` (port 3002)
+3. Main app: `index.ts` → `startAppRuntime()` → Storage init → config validate → wallet init → Express server → CopyTrader → monitoring
+4. Discovery worker: separate process, communicates via HTTP to `DISCOVERY_WORKER_URL`
+
+### Dashboard
+- `http://localhost:3001` — Win95-style web dashboard
+- Manages tracked wallets, trading wallets, trade feed, discovery, configuration
+
+---
+
+## 5. ENVIRONMENT VARIABLES
+
+All loaded from `.env` in project root via `dotenv`. See `ENV_EXAMPLE.txt` for template.
+
+### Required
+| Variable | Purpose |
+|----------|---------|
+| `PRIVATE_KEY` | Main wallet private key (hex, with or without 0x prefix) |
+| `POLYMARKET_BUILDER_API_KEY` | Builder API key (get from polymarket.com/settings?tab=builder) |
+| `POLYMARKET_BUILDER_SECRET` | Builder API secret |
+| `POLYMARKET_BUILDER_PASSPHRASE` | Builder API passphrase |
+
+### Important
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `POLYMARKET_SIGNATURE_TYPE` | `0` | 0=EOA, 1=Magic Link, **2=Browser wallet + Proxy (CORRECT FOR THIS PROJECT)** |
+| `POLYMARKET_FUNDER_ADDRESS` | — | Proxy wallet address (required when sig type=2) |
+| `API_SECRET` | — | Bearer token for dashboard/API auth (leave empty = open) |
+| `STORAGE_BACKEND` | `json` | `json` or `sqlite` |
+| `PORT` | `3001` | Server port |
+| `MONITORING_INTERVAL_MS` | `5000` | Wallet poll interval (ms) |
+
+### Optional
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `POLYMARKET_CLOB_API_URL` | `https://clob.polymarket.com` | CLOB API base URL |
+| `POLYMARKET_DATA_API_URL` | `https://data-api.polymarket.com` | Data API base URL |
+| `POLYMARKET_GAMMA_API_URL` | `https://gamma-api.polymarket.com` | Gamma API base URL |
+| `POLYGON_RPC_URL` | `https://polygon-rpc.com` | Polygon RPC endpoint |
+| `HOST` | `0.0.0.0` | Bind address |
+| `DATA_DIR` | `./data` | Data storage directory |
+| `DOME_API_KEY` | — | Dome API key for WebSocket feed |
+| `KALSHI_API_KEY_ID` | — | Kalshi API key ID |
+| `KALSHI_PRIVATE_KEY_PEM` | — | Kalshi RSA private key |
+| `DISCOVERY_ENABLED` | `false` | Enable discovery engine |
+| `DISCOVERY_ALCHEMY_WS_URL` | — | Alchemy WebSocket for chain events |
+| `DISCOVERY_POLL_INTERVAL_MS` | `30000` | Discovery poll interval |
+| `DISCOVERY_MARKET_COUNT` | `50` | Markets to poll |
+| `LOG_LEVEL` | `info` | Pino log level |
+| `TRADE_DEBUG_LOGGING` | — | Enable verbose trade debug logs |
+| `MASTER_PASSWORD` | — | Unlock encrypted keystores |
+
+### Wallet Auth Configuration (CRITICAL)
+This project uses a **MetaMask/Rabby EOA** with a **Polymarket proxy wallet**:
+- EOA: `0x2D43e332aF357CAb0fa1b2692E1e0Fdb0B733010`
+- Proxy: `0xD56276b120ad094ba9F429386427F2492233B6d1`
+- **Must use** `POLYMARKET_SIGNATURE_TYPE=2` and `POLYMARKET_FUNDER_ADDRESS=<proxy>`
+- See `.cursor/rules/polymarket-auth.mdc` for full auth documentation
+
+---
+
+## 6. ARCHITECTURE & DATA FLOW
+
+### Core copy-trading flow
+```
+[Tracked Wallets on Polymarket]
+       │
+       ├──→ WalletMonitor (polls Data API every 5s)
+       │         │
+       │         ▼
+       │    parseTradeData() → DetectedTrade
+       │         │
+       └──→ DomeWebSocketMonitor (real-time via Dome SDK)
+                 │
+                 ▼
+          handleOrderEvent() → DetectedTrade
+                 │
+                 ▼
+         CopyTrader.handleDetectedTrade()
+                 │
+                 ├── Deduplication (txHash + compound key)
+                 ├── In-flight guard
+                 ├── Wallet config validation
+                 ├── Side filter
+                 ├── Price limits check
+                 ├── No-repeat check
+                 ├── Value filter
+                 ├── Rate limit check
+                 ├── Stop-loss check
+                 ├── Trade sizing (fixed/proportional/global)
+                 ├── Safety cap (2× configured size)
+                 ├── Min order size check
+                 ├── SELL: verify share ownership
+                 │
+                 ▼
+         TradeExecutor.executeTrade()
+                 │
+                 ├── tokenId required
+                 ├── Slippage adjustment
+                 ├── PolymarketClobClient.createAndPostOrder()
+                 │       │
+                 │       ├── Derive L2 API key from wallet
+                 │       ├── Create CLOB client with sig type + funder
+                 │       └── POST order to CLOB
+                 │
+                 ▼
+         Storage.addExecutedPosition()
+         PerformanceTracker.recordTrade()
+```
+
+### Discovery Engine flow
+```
+[Polygon Chain]                    [Polymarket API]
+      │                                  │
+      ▼                                  ▼
+ ChainListener                     ApiPoller
+ (OrderFilled events               (REST polling
+  via Alchemy WS)                   every 30s)
+      │                                  │
+      └──────────┬───────────────────────┘
+                 │
+                 ▼
+          TradeIngestion
+          (batch dedup + flush every 2s)
+                 │
+                 ▼
+          DiscoveryManager
+                 │
+                 ├── WalletScorer (scoring algorithm)
+                 ├── SignalEngine (anomaly detection)
+                 ├── MarketClassifier
+                 ├── PositionTracker
+                 └── StatsStore (SQLite persistence)
+                 │
+                 ▼
+          [Discovery Dashboard UI]
+          (surface wallets for tracking)
+```
+
+### Two runtime modes
+1. **`app`** (default): Express server + CopyTrader + monitoring
+2. **`discovery-worker`**: Standalone discovery process (set `APP_RUNTIME=discovery-worker`)
+3. `start.cjs` runs BOTH in parallel during development
+
+---
+
+## 7. KEY TYPES (from `src/types.ts`)
+
+```typescript
+type TradeSizingMode = 'fixed' | 'proportional';
+type TradeSideFilter = 'all' | 'buy_only' | 'sell_only';
+
+interface TrackedWallet {
+  address: string;
+  addedAt: Date;
+  active: boolean;  // Default false for new wallets
+  label?: string;
+  tags?: string[];
+  tradeSizingMode?: TradeSizingMode;
+  fixedTradeSize?: number;
+  thresholdEnabled?: boolean;
+  thresholdPercent?: number;
+  tradeSideFilter?: TradeSideFilter;
+  noRepeatEnabled?: boolean;
+  noRepeatPeriodHours?: number;
+  priceLimitsMin?: number;  // Default 0.01
+  priceLimitsMax?: number;  // Default 0.99
+  rateLimitEnabled?: boolean;
+  rateLimitPerHour?: number;
+  rateLimitPerDay?: number;
+  valueFilterEnabled?: boolean;
+  valueFilterMin?: number | null;
+  valueFilterMax?: number | null;
+  slippagePercent?: number;
+}
+
+interface DetectedTrade {
+  walletAddress: string;
+  marketId: string;
+  marketTitle?: string;
+  outcome: string;
+  amount: string;
+  price: string;
+  side: 'BUY' | 'SELL';
+  timestamp: Date;
+  transactionHash: string;
+  tokenId?: string;
+  negRisk?: boolean;
+  positionKey?: string;
+  // + ALL wallet settings inherited
+}
+
+interface TradeOrder {
+  marketId: string;
+  outcome: string;
+  amount: string;
+  price: string;
+  side: 'BUY' | 'SELL';
+  tokenId?: string;
+  negRisk?: boolean;
+  positionKey?: string;
+  slippagePercent?: number;
+}
+
+interface TradeResult {
+  success: boolean;
+  status?: 'executed' | 'pending' | 'failed' | 'rejected';
+  orderId?: string;
+  transactionHash?: string;
+  error?: string;
+  executionTimeMs?: number;
+}
+
+interface TradingWallet {
+  id: string;
+  label: string;
+  address: string;
+  proxyAddress?: string;
+  isActive: boolean;
+  createdAt: string;
+  domeUserId?: string;
+  hasCredentials: boolean;
+}
+
+interface CopyAssignment {
+  trackedWalletAddress: string;
+  tradingWalletId: string;
+  useOwnConfig: boolean;
+}
+```
+
+---
+
+## 8. REST API ROUTES
+
+### Authentication
+- `GET /api/auth/required` — returns `{ required: boolean }` (always open)
+- `POST /api/auth/check` — validates Bearer token
+- All other `/api/*` routes require `Authorization: Bearer <API_SECRET>` header when `API_SECRET` is set
+
+### Bot control
+- `GET /api/status` — bot status, config, performance stats
+- `POST /api/start` — start copy trading
+- `POST /api/stop` — stop copy trading
+
+### User wallet
+- `GET /api/wallet` — user wallet address and balance
+- `GET /api/wallet/balance` — USDC balance
+- `GET /api/wallet/balance-history` — balance history
+
+### Tracked wallets (wallets being monitored)
+- `GET /api/wallets` — list all tracked wallets
+- `POST /api/wallets` — add tracked wallet `{ address, label?, tags? }`
+- `DELETE /api/wallets/:address` — remove tracked wallet
+- `PATCH /api/wallets/:address` — update wallet settings
+- `POST /api/wallets/:address/toggle` — toggle active/inactive
+- `GET /api/wallets/:address/positions` — wallet's current positions
+- `GET /api/wallets/:address/trades` — wallet's recent trades
+- `GET /api/wallets/:address/stats` — wallet performance stats
+- `GET /api/wallets/:address/balance` — tracked wallet's portfolio value
+- `GET /api/wallets/:address/mirror-preview` — preview position mirror
+- `POST /api/wallets/:address/mirror-execute` — execute position mirror
+
+### Trading wallets (bot's own wallets)
+- `GET /api/trading-wallets` — list trading wallets
+- `POST /api/trading-wallets` — add trading wallet
+- `DELETE /api/trading-wallets/:id` — remove trading wallet
+- `GET /api/copy-assignments` — list copy assignments
+- `POST /api/wallets/unlock` — unlock encrypted keystores
+- `GET /api/wallets/lock-status` — keystore lock status
+
+### Config
+- `POST /api/config/trade-size` — set global trade size
+- `POST /api/config/monitoring-interval` — set poll interval
+- `POST /api/config/usage-stop-loss` — configure stop-loss
+- `POST /api/config/proxy-wallet` — set proxy wallet + sig type
+- `POST /api/config/private-key` — update private key
+- `POST /api/config/builder-credentials` — update Builder API creds
+- `POST /api/config/kalshi` — update Kalshi credentials
+
+### Trades
+- `GET /api/trades` — trade history (with pagination)
+- `GET /api/trades/failed` — failed trades
+
+### Advanced features
+- `GET/POST /api/ladder/*` — ladder exit orders
+- `GET/POST /api/stoploss/*` — stop-loss orders
+- `GET/POST /api/pricemonitor/*` — price monitor control
+- `GET/POST /api/lifecycle/*` — position lifecycle (auto-redemption)
+- `GET /api/pnl/*` — PnL tracking
+- `GET/POST /api/arb/*` — arbitrage scanning
+- `GET/POST /api/hedge/*` — hedge recommendations
+- `GET/POST /api/entities/*` — entity linking
+- `GET /api/platforms/*` — multi-platform status
+- `GET /api/executor/*` — cross-platform executor
+
+### Discovery
+- `GET /api/discovery/wallets` — discovered wallets with scores
+- `GET /api/discovery/signals` — discovery signals
+- `GET /api/discovery/summary` — discovery summary stats
+- `GET /api/discovery/status` — discovery engine status
+- `GET /api/discovery/config` — discovery configuration
+- `POST /api/discovery/config` — update discovery config
+- `POST /api/discovery/wallets/:address/track` — promote discovered wallet to tracked
+- `POST /api/discovery/purge` — purge discovery data
+
+### Health
+- `GET /health` — `{ status: 'ok', timestamp }`
+
+---
+
+## 9. STORAGE SYSTEM
+
+### Dual backend
+- `STORAGE_BACKEND=json` (default): Files in `DATA_DIR` (`./data/`)
+  - `tracked_wallets.json`, `config.json`, `executed_positions.json`
+- `STORAGE_BACKEND=sqlite`: `copytrade.db` in `DATA_DIR`
+  - WAL mode, `synchronous = NORMAL`, foreign keys enabled
+  - Auto-migration from JSON on first SQLite boot
+
+### Key Storage operations (static class)
+- `Storage.loadTrackedWallets()` / `.saveTrackedWallets()`
+- `Storage.addExecutedPosition()` / `.isPositionBlocked()`
+- `Storage.loadConfig()` / `.saveConfig()`
+- `Storage.getTradeHistory()` / `.getFailedTrades()`
+
+### SQLite tables
+`tracked_wallets`, `bot_config`, `executed_positions`, `discovery_trades`, `discovery_wallets`, `discovery_market_cache`, `discovery_market_pool`, `discovery_positions`, `discovery_wallet_candidates`, `discovery_wallet_validation`, `discovery_wallet_scores`, `discovery_wallet_reasons`, `discovery_run_log`, `discovery_token_map`, `schema_version`
+
+---
+
+## 10. TRADE SAFETY INVARIANTS (CRITICAL — NEVER VIOLATE)
+
+These rules protect real money. Violating them has caused actual financial losses.
+
+### 1. No-Repeat Trades: ALWAYS active, ALWAYS recorded
+- `Storage.isPositionBlocked` MUST run for EVERY trade (not gated on `noRepeatEnabled`)
+- When `noRepeatEnabled` is true, use configured `noRepeatPeriodHours`. When false/undefined, use 5-minute safety minimum
+- `Storage.addExecutedPosition` MUST be called after EVERY successful trade
+- If the no-repeat storage read fails, BLOCK the trade (fail-safe)
+
+### 2. Concurrency Guard: inFlightTrades.add() BEFORE any await
+- `inFlightTrades.add(tradeKey)` and `inFlightTrades.add(compoundKey)` MUST be called IMMEDIATELY after the in-flight check, BEFORE any `await`
+- `try/finally` MUST wrap everything after the add to guarantee cleanup
+- ZERO async operations between the in-flight check and the add
+
+### 3. USDC Commitment Stop-Loss: Fail-Safe
+- If any API call fails inside `getUsageStopLossStatus`, return `active: true` (block trades)
+- Position value MUST use `curPrice` (market price), not `avgPrice` (cost basis)
+
+### 4. Wallet Settings: ALL fields passed through
+- `parseTradeData` in `walletMonitor.ts` MUST pass ALL wallet settings to `DetectedTrade`
+- `enrichFromWallet` in `domeWebSocket.ts` MUST also pass ALL wallet settings
+- If a new wallet setting is added, it MUST be added to BOTH locations
+
+### 5. Order Size Safety Cap
+- Every trade MUST be checked against max order size (2× configured trade size)
+- Check happens AFTER sizing calculation but BEFORE sending to CLOB
+
+### 6. Always Rebuild After Code Changes
+- `npm run build` before restart if running compiled code
+- Dev mode (`tsx watch`) auto-reloads
+
+---
+
+## 11. POLYMARKET AUTH (CRITICAL)
+
+### Signature types
+| Type | Name | When |
+|------|------|------|
+| 0 | EOA | Pure EOA with NO proxy (rare) |
+| 1 | POLY_PROXY | Magic Link / email signup |
+| **2** | **POLY_GNOSIS_SAFE** | **Browser wallet (MetaMask/Rabby) WITH proxy** |
+
+### This project's setup
+- **EOA**: `0x2D43e332aF357CAb0fa1b2692E1e0Fdb0B733010`
+- **Proxy**: `0xD56276b120ad094ba9F429386427F2492233B6d1`
+- **Signature type**: 2 (POLY_GNOSIS_SAFE)
+- Funds live in the PROXY wallet, not the EOA
+
+### CLOB client initialization (clobClient.ts)
+1. Derive API key with ONLY the signer (no signatureType/funder)
+2. Create full client WITH signatureType and funder address
+3. Builder API creds prevent Cloudflare blocks on cloud servers
+
+### Common errors
+| Error | Cause | Fix |
+|-------|-------|-----|
+| "invalid signature" | Wrong signatureType | Use type 2 |
+| "not enough balance" | Looking at EOA not proxy | Set POLYMARKET_FUNDER_ADDRESS to proxy |
+
+---
+
+## 12. EXTERNAL APIs
+
+### Polymarket
+| API | Base URL | Purpose |
+|-----|----------|---------|
+| Data API | `https://data-api.polymarket.com` | Positions, activity, trades, profiles |
+| CLOB API | `https://clob.polymarket.com` | Order placement, order book |
+| Gamma API | `https://gamma-api.polymarket.com` | Market metadata, conditions |
+| Builder API | (auth layer on CLOB) | Required for cloud server auth |
+
+### Dome
+| API | Purpose |
+|-----|---------|
+| REST | Market prices, positions, Kalshi markets |
+| WebSocket | Real-time trade feed |
+
+### Blockchain
+| API | Purpose |
+|-----|---------|
+| Polygon RPC | Balance checks, contract calls |
+| Alchemy WebSocket | OrderFilled chain events (discovery) |
+
+### Contract addresses
+- CTF Exchange: `0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E`
+- Neg Risk CTF Exchange: `0xC5d563A36AE78145C45a50134d48A1215220f80a`
+- OrderFilled topic: `0xd0a08e8c493f9c94f29311604c9de1b4e8c8d4c06bd0c789af57f2d65bfec0f6`
+
+---
+
+## 13. FRONTEND RULES
+
+### Win95 UI
+- All UI is Windows 95 themed (no modern frameworks)
+- Custom dialog system in `public/js/app.js`:
+  - `await win95Dialog.alert(message, title?)`
+  - `await win95Dialog.success(message, title?)`
+  - `await win95Dialog.error(message, title?)`
+  - `await win95Dialog.confirm(message, title?)` → `true` | `false`
+  - `await win95Dialog.prompt(message, defaultValue?, title?)` → `string` | `null`
+- **NEVER** use native `alert()`, `confirm()`, `prompt()` — use `win95Dialog` instead
+- All dialog calls are async — use `await`
+
+### API client
+- `public/js/api.js` wraps `fetch` with auth header from `sessionStorage.getItem('api_token')`
+- Base path: `/api`
+
+---
+
+## 14. SCHEDULING / INTERVALS
+
+| Component | Interval | Purpose |
+|-----------|----------|---------|
+| WalletMonitor | 5s (configurable) | Poll for tracked wallet trades |
+| DiscoveryManager | 5 min | Aggregate stats |
+| Discovery ApiPoller | 30s | Poll Polymarket for trades |
+| Discovery market refresh | 15 min | Refresh market metadata |
+| ChainListener ping | 30s | WebSocket keepalive |
+| TradeIngestion flush | 2s | Batch flush trades |
+| PriceMonitor | 15s | Check prices for ladders/stop-loss |
+| ArbScanner | 60s | Scan for arb opportunities |
+| BalanceTracker | 5 min | Refresh USDC balance |
+| SmartStopLoss | 30s | Check stop-loss conditions |
+| Frontend refresh | 5s | Dashboard auto-refresh |
+
+### Reconnect strategies
+- ChainListener: 3s initial → 60s max (exponential backoff)
+- DomeWebSocket: 3s delay, max 50 attempts
+
+---
+
+## 15. ERROR HANDLING PATTERNS
+
+### Retry with backoff (`polymarketApi.ts`)
+- Retries on: 429, 500, 502, 503, 504, ECONNRESET, ETIMEDOUT, ENOTFOUND
+- Max 3 retries, 1s base delay, exponential backoff
+
+### Trade execution failures (`tradeExecutionDiagnostics.ts`)
+- `classifyTradeExecutionFailure()` categorizes: MARKET_CLOSED, AUTH_SIGNATURE, ORDER_PAYLOAD, etc.
+- One retry on invalid signature errors
+
+### Storage fallback
+- If SQLite init fails, falls back to JSON storage
+
+### Fail-safe pattern
+- Trade safety checks default to BLOCKING on error (never proceed if status unknown)
+
+---
+
+## 16. TESTING
+
+- Framework: Node.js built-in `node:test`
+- Runner: `node --test --import tsx tests/**/*.test.ts`
+- Test files: `tests/*.test.ts`
+- Key test areas: boolean parsing, cross-platform, database, discovery (scoring, control plane, runtime, stats, wallet seed, wallet validation, worker), no-repeat reconciliation, position mirror, secure key manager, setup script, startup, storage, trade diagnostics, trade execution diagnostics, trade identity, wallet config safety, wallet manager
+- Run with: `npm test`
+
+---
+
+## 17. DOCKER
+
+```dockerfile
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+RUN npm prune --production
+EXPOSE 3001
+CMD ["node", "dist/index.js"]
+```
+- Production runs compiled JS from `dist/`
+- Port 3001 exposed
+- `.dockerignore` excludes: node_modules, dist, .env, *.log, data, .git, *.md
+
+---
+
+## 18. GIT & BRANCHING
+
+### Conventions
+- Remote: `origin` → `git@github.com:0xAidan/polymarket-bot-test.git`
+- Main branch: `main`
+- Feature branches: `feature/<name>` (e.g., `feature/phase3-discovery-engine`)
+- Fix branches: `fix/<name>` (e.g., `fix/trade-feed-accuracy`)
+- All changes go through PRs
+- **Owner rule**: All changes must be pushed as PRs, not saved locally
+
+### Active branch families
+- `feature/phase0a-cleanup` through `feature/phase7-ladder-stoploss` (phased development)
+- `feature/phase3-discovery-engine` (most recent major feature)
+- `integrate/pr47-api-auth` (current working branch)
+
+### Development phases completed
+1. Phase 0A: Cleanup
+2. Phase 0B: SQLite storage
+3. Phase 1A: Dome WebSocket integration
+4. Phase 1B: Multi-wallet support
+5. Phase 2: Win95 UI
+6. Phase 3: Auto-redemption + Discovery Engine
+7. Phase 4: Arbitrage detection
+8. Phase 5: Entity linking
+9. Phase 6: Hedge/auto-arb
+10. Phase 7: Ladder exits + stop-loss
+
+---
+
+## 19. CURSOR RULES
+
+Located in `.cursor/rules/`:
+
+| File | Scope | Purpose |
+|------|-------|---------|
+| `trade-safety-invariants.mdc` | `src/copyTrader.ts`, `walletMonitor.ts`, `tradeExecutor.ts`, `clobClient.ts`, `domeWebSocket.ts` | Critical safety rules for trade execution |
+| `polymarket-auth.mdc` | — | Polymarket CLOB authentication setup and common errors |
+| `no-native-dialogs.mdc` | `public/js/**/*.js`, `public/**/*.html` | Use win95Dialog, never native dialogs |
+| `notion-board-standards.mdc` | Always | Notion board creation standards |
+| `agent-knowledge.mdc` | Always | This file |
+
+---
+
+## 20. DISCOVERY ENGINE DETAILS
+
+### Scoring dimensions (DiscoveryWalletScoreRow)
+Each discovered wallet is scored across 6 dimensions + a noise penalty:
+- `profitabilityScore` — based on realized PnL, ROI, win rate
+- `focusScore` — category concentration (politics, crypto, sports, etc.)
+- `copyabilityScore` — trade sizes, frequency, market liquidity (can we actually copy them?)
+- `earlyScore` — how early they enter markets before price moves
+- `consistencyScore` — regular trading activity over time
+- `convictionScore` — concentration of capital in high-conviction positions
+- `noisePenalty` — deduction for noisy/scattered activity
+
+### Quality gates (all must pass for high ranking)
+- `passedProfitabilityGate` — profitable track record
+- `passedFocusGate` — focused on analyzable market categories
+- `passedCopyabilityGate` — trades are practically copyable
+
+### Market categories
+`politics | macro | company | legal | geopolitics | entertainment | sports | crypto | event | other`
+
+### Signal types (anomaly detection)
+| Signal | Severity | What it detects |
+|--------|----------|-----------------|
+| SIZE_ANOMALY | medium-high | Trade 5× larger than wallet's average |
+| VOLUME_SPIKE | medium | Volume 3× above 7-day average |
+| DORMANT_ACTIVATION | high | Dormant wallet (14+ days) suddenly active |
+| MARKET_PIONEER | high | Early $100K+ position with <3 smart money wallets |
+| NEW_WHALE | high | New wallet with $5K+ first trade |
+| COORDINATED_ENTRY | critical | 3+ wallets entering same market within 30 min |
+| CONVICTION_BUILD | medium | 4+ fills totaling $5K+ in same market within 2 hours |
+
+### Default signal thresholds
+```
+sizeAnomalyMultiplier: 5, sizeAnomalyMinTrades: 5, sizeAnomalyMinNotionalUsd: 500
+volumeSpikeMultiplier: 3, volumeSpikeMinVolume: 10000
+dormantDays: 14, dormantMinVolume: 5000
+newWhaleMinSize: 5000
+marketPioneerMinPosition: 100000, marketPioneerMaxSmartMoney: 3
+coordinatedMinWallets: 3, coordinatedMinVolume: 50000, coordinatedWindowMinutes: 30
+convictionMinFills: 4, convictionMinNotionalUsd: 5000, convictionWindowMinutes: 120
+maxSignalsPerDay: 50
+```
+
+### Heat indicators
+`HOT | WARMING | STEADY | COOLING | COLD | NEW` — based on recent volume vs 7-day average
+
+---
+
+## 21. KNOWN PATTERNS & GOTCHAS
+
+### Things that have broken before
+1. **Wrong signature type** → "invalid signature" errors (must be type 2 with funder)
+2. **Missing tokenId** → CLOB rejects orders without token IDs
+3. **No-repeat check skipped** → duplicate trades costing real money
+4. **Wallet settings not passed through** → trades execute with wrong sizing
+5. **In-flight guard race condition** → duplicate concurrent trades
+6. **Stop-loss API failure** → must default to blocking, never to allowing
+
+### Code patterns to follow
+- All config flows through `src/config.ts` — never read `process.env` directly in other files
+- Storage is a static class — `Storage.method()`, not `new Storage()`
+- Logger uses `createComponentLogger('ComponentName')` for scoped logs
+- Express routes return `{ success: boolean, ...data }` JSON
+- Frontend uses `apiCall()` wrapper from `api.js` for all backend requests
+- Internal imports always use `.js` extension even for `.ts` files (ESM)
+- Use `const` for function expressions: `const handleClick = () => {}`
+
+### What NOT to do
+- Do not add new native browser dialogs (alert/confirm/prompt)
+- Do not skip no-repeat checks for any code path
+- Do not read .env directly — use `config` object
+- Do not use CommonJS (`require`) in `src/` — ESM only
+- Do not make overly optimistic trade safety assumptions
+- Do not commit `.env`, `*.keystore.json`, `*.db` files
+
+---
+
+## 21. DEVELOPMENT WORKFLOW FOR THIS PROJECT
+
+1. **Always branch from `main`** (or the current working branch if instructed)
+2. **Make changes** with full understanding of trade safety invariants
+3. **Run tests**: `npm test`
+4. **Push as PR**: Every change goes through a pull request (owner requirement)
+5. **Explain changes** in plain language — the owner is non-technical
+6. **Be honest** about ideas — don't affirm bad ideas just to be agreeable
+
+### When modifying trade logic
+- Read `trade-safety-invariants.mdc` FIRST
+- Verify all 6 invariants still hold after changes
+- Run `npm test` and check for regressions
+- Test with small amounts before deploying
+
+### When modifying frontend
+- Use `win95Dialog` for all dialogs
+- Maintain Win95 aesthetic
+- Use `apiCall()` from `api.js` for backend requests
+- Test the dashboard at `http://localhost:3001`
+
+### When adding new wallet settings
+- Add to `TrackedWallet` interface in `types.ts`
+- Add to `DetectedTrade` interface in `types.ts`
+- Pass through in `walletMonitor.ts` `parseTradeData()`
+- Pass through in `domeWebSocket.ts` `enrichFromWallet()`
+- Add UI controls in `public/js/app.js`
+- Add API handling in `api/routes.ts`
+- Add storage handling in `storage.ts` and `database.ts` (if SQLite)

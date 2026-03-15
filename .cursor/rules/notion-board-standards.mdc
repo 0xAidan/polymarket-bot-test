@@ -1,0 +1,44 @@
+---
+description: Standards for creating Notion workboards and project boards
+alwaysApply: true
+---
+
+# Notion Board Standards
+
+When creating Notion boards for ANY repository or project, follow this standard:
+
+## Board structure
+- A main hub page with clear navigation and inline board view
+- An active-only execution database (no completed items cluttering the view)
+- A dedicated Immediate Action Items page with meeting agenda and prep instructions
+- A Phase Goals page with per-phase narrative, key tasks, and success criteria
+- A Brainstorming Outline page with scoring rubric (user value, build effort, risk)
+- Research notes as separate pages when vendor/technology decisions are involved
+- Legacy/archive database kept separate for historical reference
+
+## Phase naming
+- Name phases with descriptive labels, not just numbers (e.g., "Phase 1- Discovery Launch" not "Phase 1")
+- Each phase name should make the purpose immediately obvious
+
+## Database columns
+- Rich detail fields: Owner, Why This Matters, Definition of Done, Dependencies, Next Checkpoint (date), Notes
+- Track type (Goal, Action Item, Immediate Action, Roadmap, Research, Risk, Decision)
+- Priority (P0-P3), Status (Immediate, This Week, In Progress, Blocked, Planned)
+- Source tags tracing where each item originated
+- Owner fields should be LEFT BLANK for the user to assign when presenting to their team
+- Prefer more phases with fewer tasks each (2-5 tasks per phase) over fewer phases with many tasks
+- Phase names should be descriptive and numbered (e.g., "0: Lock the Plan", "3: Build the Discovery Engine")
+- No meeting agendas, meeting prep, or meeting references. This is an action-oriented board.
+
+## Task page content (most important)
+- Every task must have a click-into detail page written for a NON-TECHNICAL audience
+- Structure: What is this task? > Why are we doing this? > What does done look like? > Action items checklist > Discussion questions
+- Use analogies to explain technical concepts in plain language
+- Include step-by-step action item checklists inside each task
+- Add discussion questions the team can use in meetings
+- The owner should be able to read a task and confidently present/discuss it without a technical background
+
+## Process
+- Run a codebase audit (via explore agent) to find missing tasks before finalizing the board
+- Use the Notion MCP tools (notion-create-database, notion-create-pages, notion-update-page) to build directly in Notion
+- Batch page creation but keep batches small (3-4 pages) to avoid timeouts
