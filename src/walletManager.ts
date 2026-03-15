@@ -225,10 +225,8 @@ export function getCopyAssignments(): CopyAssignment[] {
  * Get copy assignments for a specific tracked wallet.
  */
 export function getAssignmentsForTrackedWallet(trackedWalletAddress: string): CopyAssignment[] {
-  const normalizedAddress = trackedWalletAddress.toLowerCase();
-  return copyAssignments.filter(
-    (assignment) => assignment.trackedWalletAddress.toLowerCase() === normalizedAddress
-  );
+  const lowerAddress = trackedWalletAddress.toLowerCase();
+  return copyAssignments.filter(a => a.trackedWalletAddress === lowerAddress);
 }
 
 // ============================================================================

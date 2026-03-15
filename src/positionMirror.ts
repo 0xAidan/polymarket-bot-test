@@ -320,7 +320,7 @@ export class PositionMirror {
     
     // Determine action
     let action: MirrorAction;
-    let sharesToTrade = Math.abs(sharesDelta);
+    const sharesToTrade = Math.abs(sharesDelta);
     
     if (Math.abs(sharesDelta) < 0.5) {
       return {

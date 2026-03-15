@@ -61,7 +61,7 @@ export class WalletMonitor {
     // Run immediately on start, then at intervals
     console.log(`[Monitor] Running initial trade check...`);
     await this.runPollingCycle(onTradeDetected);
-    
+
     this.startPolling();
 
     const wallets = await Storage.getActiveWallets();
@@ -70,7 +70,7 @@ export class WalletMonitor {
     console.log(`${'='.repeat(60)}`);
     console.log(`[Monitor] Monitoring interval: ${this.currentIntervalMs}ms (${this.currentIntervalMs / 1000}s)`);
     console.log(`[Monitor] Active wallets: ${wallets.length}`);
-    
+
     if (wallets.length === 0) {
       console.warn(`\n[Monitor] ⚠️  WARNING: No wallets are being tracked!`);
       console.warn(`[Monitor] Add wallets via the web UI or API to start copy trading`);
@@ -92,7 +92,7 @@ export class WalletMonitor {
     if (this.pollingInterval) {
       clearInterval(this.pollingInterval);
     }
-    
+
     if (!this.onTradeDetectedCallback) {
       return;
     }
@@ -131,7 +131,7 @@ export class WalletMonitor {
     }
 
     this.currentIntervalMs = intervalMs;
-    
+
     // If monitoring is active, restart polling with new interval
     if (this.isMonitoring && this.onTradeDetectedCallback) {
       console.log(`[Monitor] Updating monitoring interval to ${intervalMs}ms (${intervalMs / 1000}s)`);
@@ -146,7 +146,7 @@ export class WalletMonitor {
     onTradeDetected: (trade: DetectedTrade) => void
   ): Promise<void> {
     const wallets = await Storage.getActiveWallets();
-    
+
     if (wallets.length === 0) {
       // No wallets to monitor, skip this check
       return;
@@ -216,9 +216,9 @@ export class WalletMonitor {
                 // Validate the detected trade before triggering
                 const priceNum = parseFloat(detectedTrade.price || '0');
                 const amountNum = parseFloat(detectedTrade.amount || '0');
-                
+
                 if (detectedTrade.marketId && detectedTrade.marketId !== 'unknown' &&
-                    priceNum > 0 && priceNum <= 1 && amountNum > 0) {
+                  priceNum > 0 && priceNum <= 1 && amountNum > 0) {
                   console.log(`\n🔔 [Monitor] TRADE DETECTED: From trade history`);
                   console.log(`   Side: ${detectedTrade.side}`);
                   console.log(`   Amount: ${detectedTrade.amount} shares`);
@@ -261,7 +261,7 @@ export class WalletMonitor {
         // Don't throw - continue with other wallets
       }
     }
-    
+
     console.log(`[Monitor] ✓ Completed trade check cycle for all wallets`);
   }
 
@@ -294,7 +294,7 @@ export class WalletMonitor {
         conditionId: typeof trade.conditionId === 'string' ? trade.conditionId : undefined,
         asset: typeof trade.asset === 'string' ? trade.asset : undefined,
       });
-      
+
       // If still no marketId, we can't proceed
       if (!marketId || marketId === 'unknown') {
         console.warn('[Monitor] Cannot determine marketId from trade data (missing conditionId), skipping trade');
@@ -324,16 +324,16 @@ export class WalletMonitor {
       }
 
       // FIXED: Use 'price' and 'size' fields from Polymarket API
-      let price = trade.price;
-      let amount = trade.size;
-      
+      const price = trade.price;
+      const amount = trade.size;
+
       // Validate price
       const priceNum = parseFloat(price || '0');
       if (!price || isNaN(priceNum) || priceNum <= 0 || priceNum > 1) {
         console.warn(`[Monitor] Invalid or missing price (${price}) for trade on market ${marketId}, skipping`);
         return null;
       }
-      
+
       // Validate amount
       const amountNum = parseFloat(amount || '0');
       if (!amount || isNaN(amountNum) || amountNum <= 0) {
@@ -344,7 +344,7 @@ export class WalletMonitor {
       // Look up wallet settings to get trade config
       const wallets = await Storage.getActiveWallets();
       const walletSettings = wallets.find(w => w.address.toLowerCase() === walletAddress.toLowerCase());
-      
+
       // FIXED: Handle Unix seconds timestamp from API
       let tradeTimestamp: Date;
       if (trade.timestamp) {
@@ -357,7 +357,7 @@ export class WalletMonitor {
       } else {
         tradeTimestamp = new Date();
       }
-      
+
       return {
         walletAddress: walletAddress.toLowerCase(),
         marketId,
