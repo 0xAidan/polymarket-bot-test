@@ -310,6 +310,7 @@ export class PolymarketClobClient {
       }
 
       if (response && typeof response === 'object') {
+        // TODO: Handle specific response types if necessary
       }
 
       // CRITICAL: Check for HTTP error status FIRST (handles both string and number)
