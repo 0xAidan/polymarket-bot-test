@@ -24,7 +24,7 @@ export const config = {
   polymarketClobApiUrl: ensureProtocol(process.env.POLYMARKET_CLOB_API_URL || '', 'https://clob.polymarket.com'),
   polymarketDataApiUrl: ensureProtocol(process.env.POLYMARKET_DATA_API_URL || '', 'https://data-api.polymarket.com'),
   polymarketGammaApiUrl: ensureProtocol(process.env.POLYMARKET_GAMMA_API_URL || '', 'https://gamma-api.polymarket.com'),
-  
+
   // Polymarket Builder API credentials (OPTIONAL - only for order attribution)
   // These are NOT required for trading, only for getting credit on Builder Leaderboard
   polymarketBuilderApiKey: process.env.POLYMARKET_BUILDER_API_KEY || '',
@@ -34,7 +34,10 @@ export const config = {
   // Blockchain configuration
   // Using Alchemy RPC for reliable balance fetching (needed for position threshold filter)
   polygonRpcUrl: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
-  
+
+  // API authentication (static bearer token)
+  apiSecret: process.env.API_SECRET || '',
+
   // Server configuration
   port: parseInt(process.env.PORT || '3001', 10),
   discoveryWorkerPort: parseInt(process.env.DISCOVERY_WORKER_PORT || '3002', 10),
@@ -42,7 +45,7 @@ export const config = {
     process.env.DISCOVERY_WORKER_URL || `http://127.0.0.1:${parseInt(process.env.DISCOVERY_WORKER_PORT || '3002', 10)}`,
     `http://127.0.0.1:${parseInt(process.env.DISCOVERY_WORKER_PORT || '3002', 10)}`
   ),
-  
+
   // Data directory
   dataDir: process.env.DATA_DIR || './data',
 
@@ -76,7 +79,7 @@ export const config = {
       console.error('Please restart the bot to run the setup wizard again.\n');
       throw new Error('PRIVATE_KEY is required. Restart the bot to configure.');
     }
-    
+
     // Builder API credentials are REQUIRED for trading from cloud servers
     // Without Builder authentication, requests will be blocked by Cloudflare
     if (!this.polymarketBuilderApiKey || !this.polymarketBuilderSecret || !this.polymarketBuilderPassphrase) {

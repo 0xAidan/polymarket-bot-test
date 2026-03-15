@@ -43,7 +43,6 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   const router = Router();
   const performanceTracker = copyTrader.getPerformanceTracker();
   const lifecycleManager = new PositionLifecycleManager();
-  lifecycleManager.start().catch(err => console.error('[Lifecycle] Failed to start:', err.message));
   const arbScanner = new ArbScanner();
   const entityManager = new EntityManager();
   entityManager.init().catch(err => console.error('[Routes] EntityManager init failed:', err.message));
@@ -278,9 +277,6 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       }
       const result = await unlockWallets(masterPassword);
       res.json({ success: true, ...result });
-
-      // Wallets are now available — trigger an immediate lifecycle check
-      lifecycleManager.triggerCheck().catch(() => {});
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
     }
@@ -896,6 +892,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
   router.get('/stoploss/status', (req: Request, res: Response) => {
     res.json({ success: true, ...stopLossManager.getStatus() });
+    console.log('[Routes] StopLoss status:');
   });
 
   router.get('/stoploss/orders', (req: Request, res: Response) => {
@@ -986,13 +983,16 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const lastExecutedTrade = recentTrades.find(t => t.success) || null;
       const lastDetectedTrade = recentTrades.length > 0 ? recentTrades[0] : null;
 
+      const domeWs = status.domeWs;
       res.json({
         success: true,
         running: status.running,
         executedTradesCount: status.executedTradesCount,
         websocket: {
-          connected: status.domeWs?.connected ?? false,
-          trackedWallets: status.domeWs?.trackedWallets ?? 0
+          connected: domeWs?.connected ?? false,
+          monitoring: status.monitoringMode === 'websocket',
+          lastConnectionTime: null,
+          trackedWalletsCount: domeWs?.trackedWallets ?? 0
         },
         polling: {
           active: status.running,
@@ -1006,7 +1006,8 @@ export function createRoutes(copyTrader: CopyTrader): Router {
             : status.monitoringMode === 'websocket'
               ? 'dome-websocket'
               : 'polling',
-          domeWebsocket: status.domeWs?.connected ?? false,
+          domeWebsocket: domeWs?.connected ?? false,
+          legacyWebsocket: domeWs?.connected ?? false,
           polling: status.running
         },
         wallets: {
@@ -1824,6 +1825,60 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
       await Storage.setTradeSize(tradeSize);
       res.json({ success: true, message: 'Trade size updated', tradeSize, unit: 'USDC' });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get position threshold configuration
+  // @deprecated - Use per-wallet trade config instead (PATCH /api/wallets/:address/trade-config)
+  // This global threshold is no longer used - filters are now per-wallet only
+  router.get('/config/position-threshold', async (req: Request, res: Response) => {
+    try {
+      res.json({
+        success: true,
+        enabled: false,
+        percent: 0,
+        deprecated: true,
+        message: 'This endpoint is deprecated. Use per-wallet trade config instead (PATCH /api/wallets/:address/trade-config). Global threshold is no longer applied.'
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Set position threshold configuration
+  // @deprecated - Use per-wallet trade config instead (PATCH /api/wallets/:address/trade-config)
+  // This global threshold is no longer used - filters are now per-wallet only
+  router.post('/config/position-threshold', async (req: Request, res: Response) => {
+    try {
+      const { enabled, percent } = req.body;
+
+      // Validate enabled is boolean
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({
+          success: false,
+          error: 'enabled must be a boolean'
+        });
+      }
+
+      // Validate percent is a number between 0.1 and 100
+      const percentNum = parseFloat(percent);
+      if (isNaN(percentNum) || percentNum < 0.1 || percentNum > 100) {
+        return res.status(400).json({
+          success: false,
+          error: 'percent must be a number between 0.1 and 100'
+        });
+      }
+
+      // Deprecated: global position threshold no longer stored; per-wallet config only
+      res.json({
+        success: true,
+        message: 'WARNING: This setting is deprecated and no longer applied. Use per-wallet trade config instead.',
+        deprecated: true,
+        enabled,
+        percent: percentNum
+      });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }

@@ -32,25 +32,59 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   discoveryManagerInstance = new DiscoveryManager('passive');
   const discoveryControlPlane = new DiscoveryControlPlane();
 
+  // ─── Auth status endpoint (always open, tells frontend if auth is needed) ───
+  app.get('/api/auth/required', (req, res) => {
+    res.json({ required: !!config.apiSecret });
+  });
+
+  // ─── API authentication middleware ───
+  if (config.apiSecret) {
+    // Token-check endpoint (validates the token the frontend sends)
+    app.post('/api/auth/check', (req, res) => {
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      if (token === config.apiSecret) {
+        res.json({ success: true });
+      } else {
+        res.status(401).json({ success: false, error: 'Invalid token' });
+      }
+    });
+
+    // Gate every other /api/* route
+    app.use('/api', (req, res, next) => {
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      if (token !== config.apiSecret) {
+        return res.status(401).json({
+          success: false,
+          error: 'Unauthorized — invalid or missing API token'
+        });
+      }
+      next();
+    });
+    console.log('🔒 API authentication enabled (API_SECRET is set)');
+  } else {
+    console.warn('⚠️  WARNING: API_SECRET not set! Your bot API is open to anyone who can reach this server.');
+    console.warn('   Add API_SECRET=your-secret-here to your .env file to secure it.');
+  }
+
   // API routes
   app.use('/api', createRoutes(copyTrader));
   app.use('/api/discovery', createDiscoveryRoutes(discoveryControlPlane as any));
-  
+
   // API 404 handler - catch any unmatched /api routes and return JSON
   app.use('/api/*', (req, res) => {
     console.error(`[API] 404 - Route not found: ${req.method} ${req.originalUrl}`);
-    res.status(404).json({ 
-      success: false, 
-      error: `Route not found: ${req.method} ${req.path}` 
+    res.status(404).json({
+      success: false,
+      error: `Route not found: ${req.method} ${req.path}`
     });
   });
-  
+
   // API error handler - ensure API errors return JSON, not HTML
   app.use('/api', (err: any, req: any, res: any, next: any) => {
     console.error(`[API] Error:`, err);
-    res.status(err.status || 500).json({ 
-      success: false, 
-      error: err.message || 'Internal server error' 
+    res.status(err.status || 500).json({
+      success: false,
+      error: err.message || 'Internal server error'
     });
   });
 
