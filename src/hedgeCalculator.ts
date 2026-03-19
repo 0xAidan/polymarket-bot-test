@@ -2,6 +2,9 @@ import { ArbOpportunity } from './arbScanner.js';
 import { DetectedHedge } from './entityManager.js';
 import { getAdapter, isPlatformConfigured } from './platform/platformRegistry.js';
 import type { Platform } from './platform/types.js';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('HedgeCalculator');
 
 // ============================================================================
 // TYPES
@@ -197,7 +200,7 @@ export class HedgeCalculator {
       result.success = true;
       result.executedPrice = recommendation.estimatedPrice;
       result.executedSize = recommendation.size;
-      console.log(`[HedgeCalc] PAPER TRADE: ${recommendation.action} ${recommendation.size.toFixed(2)} shares of ${recommendation.outcome} on ${recommendation.platform} @ $${recommendation.estimatedPrice.toFixed(2)}`);
+      log.info(`[HedgeCalc] PAPER TRADE: ${recommendation.action} ${recommendation.size.toFixed(2)} shares of ${recommendation.outcome} on ${recommendation.platform} @ $${recommendation.estimatedPrice.toFixed(2)}`);
     } else if (recommendation.executable) {
       // Live execution via platform adapter
       try {

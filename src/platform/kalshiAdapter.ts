@@ -1,6 +1,9 @@
 import { PlatformAdapter, NormalizedPosition, NormalizedOrderResult, PlaceOrderRequest } from './types.js';
 import { isKalshiConfigured, kalshiPlaceOrder, kalshiGetBalance, kalshiGetPositions } from '../kalshiClient.js';
 import { domeGetKalshiMarkets, isDomeConfigured } from '../domeClient.js';
+import { createComponentLogger } from '../logger.js';
+
+const log = createComponentLogger('KalshiAdapter');
 
 // ============================================================================
 // Kalshi Platform Adapter
@@ -34,7 +37,7 @@ export class KalshiAdapter implements PlatformAdapter {
       const noPrice = (data.no?.price ?? (100 - (data.yes?.price ?? 50))) / 100;
       return { yesPrice, noPrice };
     } catch (err: any) {
-      console.error(`[KalshiAdapter] Failed to get price for ${ticker}:`, err.message);
+      log.error({ detail: err.message }, `[KalshiAdapter] Failed to get price for ${ticker}`)
       return null;
     }
   }
@@ -55,7 +58,7 @@ export class KalshiAdapter implements PlatformAdapter {
         currentPrice: (p.last_price || 0) / 100,     // cents to 0-1
       }));
     } catch (err: any) {
-      console.error('[KalshiAdapter] Failed to get positions:', err.message);
+      log.error({ detail: err.message }, '[KalshiAdapter] Failed to get positions')
       return [];
     }
   }

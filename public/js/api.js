@@ -4,23 +4,47 @@
  */
 
 const API = {
-  // Base fetch with error handling
+  // ── Auth token management ──
+  getToken() {
+    return sessionStorage.getItem('api_token') || '';
+  },
+
+  setToken(token) {
+    sessionStorage.setItem('api_token', token);
+  },
+
+  clearToken() {
+    sessionStorage.removeItem('api_token');
+  },
+
+  // Base fetch with error handling + auth
   async fetch(endpoint, options = {}) {
     try {
+      const token = this.getToken();
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        ...options.headers
+      };
+
       const response = await fetch(`/api${endpoint}`, {
-        headers: {
-          'Content-Type': 'application/json',
-          ...options.headers
-        },
+        headers,
         ...options
       });
-      
+
+      // If 401, show login modal and bail
+      if (response.status === 401) {
+        this.clearToken();
+        showAuthModal();
+        throw new Error('Authentication required');
+      }
+
       const data = await response.json();
-      
+
       if (!response.ok || data.success === false) {
         throw new Error(data.error || `HTTP ${response.status}`);
       }
-      
+
       return data;
     } catch (error) {
       console.error(`API Error [${endpoint}]:`, error);
@@ -59,7 +83,7 @@ const API = {
   // ============================================================
   // BOT CONTROL
   // ============================================================
-  
+
   async getStatus() {
     return this.get('/status');
   },
@@ -290,12 +314,22 @@ const API = {
 
   async executeMirrorTrades(address, trades, slippagePercent = 2) {
     try {
+      const token = this.getToken();
       const response = await fetch(`/api/wallets/${address}/mirror-execute`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({ trades, slippagePercent })
       });
-      
+
+      if (response.status === 401) {
+        this.clearToken();
+        showAuthModal();
+        throw new Error('Authentication required');
+      }
+
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || `HTTP ${response.status}`);

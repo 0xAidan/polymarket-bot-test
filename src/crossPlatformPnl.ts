@@ -1,6 +1,9 @@
 import { getAdapter, getConfiguredAdapters } from './platform/platformRegistry.js';
 import type { NormalizedPosition, Platform } from './platform/types.js';
 import { Storage } from './storage.js';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('CrossPlatformPnl');
 
 // ============================================================================
 // Cross-Platform P&L Tracker
@@ -50,7 +53,7 @@ export class CrossPlatformPnlTracker {
       this.matchedMarkets = cfg.matchedMarkets ?? [];
       this.pnlHistory = cfg.pnlHistory ?? [];
     } catch { /* defaults */ }
-    console.log(`[CrossPlatformPnl] Loaded ${this.matchedMarkets.length} matched market(s)`);
+    log.info(`[CrossPlatformPnl] Loaded ${this.matchedMarkets.length} matched market(s)`);
   }
 
   /**

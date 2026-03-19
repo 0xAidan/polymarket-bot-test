@@ -9,6 +9,9 @@ import {
   summarizeDetectedTradeForDebug,
   summarizeDomeTradeForDebug,
 } from './tradeDiagnostics.js';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('DomeWebSocket');
 
 /**
  * Dome WebSocket order event data shape (from SDK docs).
@@ -57,7 +60,7 @@ export class DomeWebSocketMonitor extends EventEmitter {
    */
   async start(): Promise<void> {
     if (!config.domeApiKey) {
-      console.log('[DomeWS] No DOME_API_KEY configured, skipping WebSocket');
+      log.info('[DomeWS] No DOME_API_KEY configured, skipping WebSocket');
       return;
     }
 
@@ -71,7 +74,7 @@ export class DomeWebSocketMonitor extends EventEmitter {
       .map(w => w.address.toLowerCase());
 
     if (this.trackedAddresses.length === 0) {
-      console.log('[DomeWS] No active wallets to monitor via WebSocket');
+      log.info('[DomeWS] No active wallets to monitor via WebSocket');
       return;
     }
 
@@ -89,18 +92,18 @@ export class DomeWebSocketMonitor extends EventEmitter {
           delay: 3000,
         },
         onOpen: () => {
-          console.log('[DomeWS] Connected to Dome WebSocket');
+          log.info('[DomeWS] Connected to Dome WebSocket');
           this.emit('connected');
           this.subscribeToWallets().catch(err =>
-            console.error('[DomeWS] Subscribe failed after connect:', err)
+            log.error({ err: err }, '[DomeWS] Subscribe failed after connect')
           );
         },
         onClose: () => {
-          console.log('[DomeWS] Disconnected from Dome WebSocket');
+          log.info('[DomeWS] Disconnected from Dome WebSocket');
           this.emit('disconnected');
         },
         onError: (error: any) => {
-          console.error('[DomeWS] WebSocket error:', error);
+          log.error({ err: error }, '[DomeWS] WebSocket error')
           this.emit('error', error);
         },
       });
@@ -108,18 +111,18 @@ export class DomeWebSocketMonitor extends EventEmitter {
       // Listen for order events (catch so handler errors don't break the socket)
       this.ws.on('order', (data: DomeOrderEvent) => {
         this.handleOrderEvent(data).catch((err: any) => {
-          console.error('[DomeWS] Error in order event handler:', err);
+          log.error({ err: err }, '[DomeWS] Error in order event handler')
           this.emit('error', err);
         });
       });
 
       // Connect
       this.ws.connect().catch((err: any) => {
-        console.error('[DomeWS] Failed to connect:', err);
+        log.error({ err: err }, '[DomeWS] Failed to connect')
         this.emit('error', err);
       });
     } catch (err) {
-      console.error('[DomeWS] Failed to create WebSocket connection:', err);
+      log.error({ err: err }, '[DomeWS] Failed to create WebSocket connection')
       this.emit('error', err);
     }
   }
@@ -133,9 +136,9 @@ export class DomeWebSocketMonitor extends EventEmitter {
       });
 
       this.subscriptionId = sub?.subscription_id ?? null;
-      console.log(`[DomeWS] Subscribed to ${this.trackedAddresses.length} wallets (sub: ${this.subscriptionId})`);
+      log.info(`[DomeWS] Subscribed to ${this.trackedAddresses.length} wallets (sub: ${this.subscriptionId})`);
     } catch (err) {
-      console.error('[DomeWS] Failed to subscribe:', err);
+      log.error({ err: err }, '[DomeWS] Failed to subscribe')
       this.emit('error', err);
     }
   }
@@ -248,9 +251,9 @@ export class DomeWebSocketMonitor extends EventEmitter {
       await this.ws.update(this.subscriptionId, {
         users: this.trackedAddresses,
       });
-      console.log(`[DomeWS] Updated subscription to ${this.trackedAddresses.length} wallets`);
+      log.info(`[DomeWS] Updated subscription to ${this.trackedAddresses.length} wallets`);
     } catch (err) {
-      console.error('[DomeWS] Failed to update subscription:', err);
+      log.error({ err: err }, '[DomeWS] Failed to update subscription')
       // Fallback: unsubscribe and re-subscribe
       try {
         await this.ws.unsubscribe(this.subscriptionId);
