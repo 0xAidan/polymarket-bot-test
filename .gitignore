@@ -15,5 +15,6 @@ data/keystores/
 *.db
 *.sqlite
 
-# Editor
-.cursor/
+# Editor (keep .cursor/rules/ tracked for AI agent context)
+.cursor/*
+!.cursor/rules/
