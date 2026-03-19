@@ -66,7 +66,7 @@ export class CrossPlatformPnlTracker {
       const identifiers = walletsByPlatform[adapter.platform] || [];
       if (identifiers.length === 0) continue;
 
-      let allPositions: NormalizedPosition[] = [];
+      const allPositions: NormalizedPosition[] = [];
       for (const id of identifiers) {
         try {
           const positions = await adapter.getPositions(id);

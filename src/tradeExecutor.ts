@@ -66,9 +66,9 @@ export class TradeExecutor {
 
       // Use tokenId directly if provided (bypasses Gamma API entirely)
       // This is the critical fix - Gamma API doesn't accept conditionId format
-      let tokenId: string | undefined = order.tokenId;
-      let tickSize: string = '0.01';  // Default tick size for most Polymarket markets
-      let negRisk: boolean = order.negRisk ?? false;
+      const tokenId: string | undefined = order.tokenId;
+      const tickSize: string = '0.01';  // Default tick size for most Polymarket markets
+      const negRisk: boolean = order.negRisk ?? false;
 
       if (!tokenId) {
         // Token ID is required - fail if not provided

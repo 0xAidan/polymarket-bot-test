@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import * as ethers from 'ethers';
 import crypto from 'crypto';
 import { config } from './config.js';

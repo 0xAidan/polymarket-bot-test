@@ -1051,7 +1051,7 @@ export class CopyTrader {
       }
       
       // Check if calculated shares are below market minimum
-      let finalCalculatedShares = sharesAmountRounded;
+      const finalCalculatedShares = sharesAmountRounded;
       if (sharesAmountRounded < marketMinShares) {
         const minUsdcRequired = marketMinShares * priceNum;
         
