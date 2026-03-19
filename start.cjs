@@ -37,7 +37,8 @@ if (!fs.existsSync(ENV_PATH)) {
 // Start the main app and the isolated discovery worker sidecar.
 const bot = spawn('npx', ['tsx', 'watch', 'src/index.ts'], {
   stdio: 'inherit',
-  cwd: __dirname
+  cwd: __dirname,
+  shell: true
 });
 
 const discoveryWorker = spawn('npx', ['tsx', 'watch', 'src/discovery/discoveryWorker.ts'], {

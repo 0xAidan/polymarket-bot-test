@@ -1,3 +1,9 @@
+# API Authentication (protects your bot's dashboard and API endpoints)
+# If set, all /api/* requests require "Authorization: Bearer <API_SECRET>" header.
+# The dashboard will prompt for this token on page load.
+# If left empty, the API is open (a warning will be printed on startup).
+API_SECRET=your_api_secret_here
+
 # Your wallet private key (NEVER commit this to git!)
 PRIVATE_KEY=your_private_key_here
 

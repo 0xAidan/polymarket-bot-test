@@ -14,6 +14,9 @@ import {
   updateBuilderCredentials,
   type BuilderCredentials,
 } from './secureKeyManager.js';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('WalletManager');
 import { Storage } from './storage.js';
 
 // In-memory trading wallet registry
@@ -49,7 +52,7 @@ async function saveWalletConfig(): Promise<void> {
  */
 export async function initWalletManager(): Promise<void> {
   await loadWalletConfig();
-  console.log(`[WalletManager] Loaded ${tradingWallets.length} trading wallet(s)`);
+  log.info(`[WalletManager] Loaded ${tradingWallets.length} trading wallet(s)`);
 }
 
 /**
@@ -85,13 +88,13 @@ export async function addTradingWallet(
   };
 
   if (!hasBuilder) {
-    console.warn(`[WalletManager] ⚠️  Wallet "${id}" added WITHOUT Builder API credentials — it will NOT be able to place orders.`);
+    log.warn(`[WalletManager] ⚠️  Wallet "${id}" added WITHOUT Builder API credentials — it will NOT be able to place orders.`);
   }
 
   tradingWallets.push(wallet);
   await saveWalletConfig();
 
-  console.log(`[WalletManager] Added trading wallet "${id}" (${address}) — Builder creds: ${hasBuilder ? 'YES' : 'NO'}`);
+  log.info(`[WalletManager] Added trading wallet "${id}" (${address}) — Builder creds: ${hasBuilder ? 'YES' : 'NO'}`);
   return wallet;
 }
 
@@ -109,7 +112,7 @@ export async function removeTradingWallet(id: string): Promise<void> {
   copyAssignments = copyAssignments.filter(a => a.tradingWalletId !== id);
 
   await saveWalletConfig();
-  console.log(`[WalletManager] Removed trading wallet "${id}"`);
+  log.info(`[WalletManager] Removed trading wallet "${id}"`);
 }
 
 /**
@@ -296,7 +299,7 @@ export async function updateWalletBuilderCredentials(
   wallet.hasCredentials = true;
   await saveWalletConfig();
 
-  console.log(`[WalletManager] Updated Builder credentials for wallet "${id}"`);
+  log.info(`[WalletManager] Updated Builder credentials for wallet "${id}"`);
   return wallet;
 }
 

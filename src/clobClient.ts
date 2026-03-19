@@ -4,6 +4,9 @@ import * as ethers from 'ethers';
 import { config } from './config.js';
 import { getValidEvmAddress } from './addressUtils.js';
 import { logTradeRegressionDebug } from './tradeDiagnostics.js';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('ClobClient');
 
 /**
  * Wrapper for Polymarket CLOB client with proper L2 authentication
@@ -47,10 +50,10 @@ export class PolymarketClobClient {
       let apiCreds;
       try {
         apiCreds = await tempClient.createOrDeriveApiKey();
-        console.log('✓ Derived User API credentials for L2 authentication');
+        log.info('✓ Derived User API credentials for L2 authentication');
         // The CLOB client returns credentials with properties: key, secret, passphrase
       } catch (apiKeyError: any) {
-        console.error(`❌ CRITICAL: Failed to create/derive API key: ${apiKeyError.message}`);
+        log.error(`❌ CRITICAL: Failed to create/derive API key: ${apiKeyError.message}`);
         throw new Error(`Cannot trade without L2 API credentials. Error: ${apiKeyError.message}. Make sure your wallet has been used on Polymarket before.`);
       }
       
@@ -58,12 +61,12 @@ export class PolymarketClobClient {
       // Note: CLOB client returns {key, secret, passphrase} not {apiKey, apiSecret, apiPassphrase}
       const creds = apiCreds as any;
       if (!creds || !creds.key || !creds.secret || !creds.passphrase) {
-        console.error(`❌ CRITICAL: API credentials are invalid or missing!`);
-        console.error(`   apiCreds: ${JSON.stringify(apiCreds)}`);
+        log.error(`❌ CRITICAL: API credentials are invalid or missing!`);
+        log.error(`   apiCreds: ${JSON.stringify(apiCreds)}`);
         throw new Error('Failed to obtain valid L2 API credentials. The wallet may not be registered on Polymarket.');
       }
       
-      console.log(`✓ API credentials validated successfully`);
+      log.info(`✓ API credentials validated successfully`);
 
       // STEP 2: Now read signature type and funder address for the full client
       // Per Polymarket docs: https://docs.polymarket.com/developers/CLOB/authentication
@@ -99,14 +102,14 @@ export class PolymarketClobClient {
             passphrase: config.polymarketBuilderPassphrase,
           }
         });
-        console.log('✓ Builder API credentials configured for authenticated trading');
+        log.info('✓ Builder API credentials configured for authenticated trading');
         // Log partial credentials for debugging (first 8 chars only for security)
       } else {
-        console.error('❌ Builder API credentials NOT configured!');
-        console.error('   Orders WILL BE BLOCKED by Cloudflare without Builder authentication.');
-        console.error('   This is the #1 cause of trade execution failures on cloud servers.');
-        console.error('   Set POLYMARKET_BUILDER_API_KEY, POLYMARKET_BUILDER_SECRET, POLYMARKET_BUILDER_PASSPHRASE');
-        console.error('   Get these from: https://polymarket.com/settings?tab=builder');
+        log.error('❌ Builder API credentials NOT configured!');
+        log.error('   Orders WILL BE BLOCKED by Cloudflare without Builder authentication.');
+        log.error('   This is the #1 cause of trade execution failures on cloud servers.');
+        log.error('   Set POLYMARKET_BUILDER_API_KEY, POLYMARKET_BUILDER_SECRET, POLYMARKET_BUILDER_PASSPHRASE');
+        log.error('   Get these from: https://polymarket.com/settings?tab=builder');
       }
 
       // Initialize the trading client with ALL 9 parameters including BuilderConfig
@@ -124,21 +127,21 @@ export class PolymarketClobClient {
       );
 
       this.isInitialized = true;
-      console.log('✓ CLOB client initialized successfully');
-      console.log(`   Host: ${HOST}`);
-      console.log(`   Wallet (EOA): ${this.signer.address}`);
-      console.log(`   Funder: ${funderAddress}`);
-      console.log(`   Signature Type: ${signatureType} (${signatureType === 0 ? 'EOA' : signatureType === 1 ? 'POLY_PROXY' : signatureType === 2 ? 'POLY_GNOSIS_SAFE' : 'UNKNOWN'})`);
-      console.log(`   Builder Auth: ${builderConfig ? 'ENABLED' : 'DISABLED'}`);
-      console.log(`   Builder API Key: ${config.polymarketBuilderApiKey ? config.polymarketBuilderApiKey.substring(0, 8) + '...' : 'NOT SET'}`);
+      log.info('✓ CLOB client initialized successfully');
+      log.info(`   Host: ${HOST}`);
+      log.info(`   Wallet (EOA): ${this.signer.address}`);
+      log.info(`   Funder: ${funderAddress}`);
+      log.info(`   Signature Type: ${signatureType} (${signatureType === 0 ? 'EOA' : signatureType === 1 ? 'POLY_PROXY' : signatureType === 2 ? 'POLY_GNOSIS_SAFE' : 'UNKNOWN'})`);
+      log.info(`   Builder Auth: ${builderConfig ? 'ENABLED' : 'DISABLED'}`);
+      log.info(`   Builder API Key: ${config.polymarketBuilderApiKey ? config.polymarketBuilderApiKey.substring(0, 8) + '...' : 'NOT SET'}`);
       if (signatureType === 2 && funderAddress === this.signer.address) {
-        console.warn(`   ⚠️ WARNING: Signature type is 2 (POLY_GNOSIS_SAFE) but funder address = signer address!`);
-        console.warn(`      You probably need to set POLYMARKET_FUNDER_ADDRESS to your Polymarket proxy wallet address.`);
+        log.warn(`   ⚠️ WARNING: Signature type is 2 (POLY_GNOSIS_SAFE) but funder address = signer address!`);
+        log.warn(`      You probably need to set POLYMARKET_FUNDER_ADDRESS to your Polymarket proxy wallet address.`);
       }
     } catch (error: any) {
-      console.error('❌ Failed to initialize CLOB client:', error.message);
+      log.error({ detail: error.message }, '❌ Failed to initialize CLOB client')
       if (error.stack) {
-        console.error('Stack trace:', error.stack);
+        log.error({ err: error.stack }, 'Stack trace')
       }
       throw error;
     }
@@ -167,13 +170,13 @@ export class PolymarketClobClient {
       // The API returns min_order_size as a string
       const minSize = parseFloat(market?.min_order_size || market?.minOrderSize || '5');
       if (isNaN(minSize) || minSize <= 0) {
-        console.log(`[CLOB] No valid min_order_size found for ${tokenId.substring(0, 20)}..., defaulting to 5`);
+        log.info(`[CLOB] No valid min_order_size found for ${tokenId.substring(0, 20)}..., defaulting to 5`);
         return 5;
       }
-      console.log(`[CLOB] Market min_order_size for ${tokenId.substring(0, 20)}...: ${minSize}`);
+      log.info(`[CLOB] Market min_order_size for ${tokenId.substring(0, 20)}...: ${minSize}`);
       return minSize;
     } catch (error: any) {
-      console.warn(`[CLOB] Could not fetch min_order_size for ${tokenId.substring(0, 20)}..., defaulting to 5:`, error.message);
+      log.warn({ detail: error.message }, `[CLOB] Could not fetch min_order_size for ${tokenId.substring(0, 20)}..., defaulting to 5`)
       return 5; // Default to 5 shares as that's what most markets use
     }
   }
@@ -205,9 +208,9 @@ export class PolymarketClobClient {
         const market = await this.getMarket(params.tokenID);
         tickSize = tickSize || market.tickSize || '0.01';
         negRisk = negRisk !== undefined ? negRisk : (market.negRisk || false);
-        console.log(`[CLOB] Market info: tickSize=${tickSize}, negRisk=${negRisk}`);
+        log.info(`[CLOB] Market info: tickSize=${tickSize}, negRisk=${negRisk}`);
       } catch (error: any) {
-        console.warn(`[CLOB] Could not fetch market info for tokenID ${params.tokenID}, using defaults:`, error.message);
+        log.warn({ detail: error.message }, `[CLOB] Could not fetch market info for tokenID ${params.tokenID}, using defaults`)
         tickSize = tickSize || '0.01';
         negRisk = negRisk !== undefined ? negRisk : false;
       }
@@ -223,11 +226,11 @@ export class PolymarketClobClient {
       // Polymarket allows (0, 1) only; reject 0 and 1
       if (roundedPrice > 0 && roundedPrice < 1) {
         if (Math.abs(roundedPrice - params.price) > 0.0001) {
-          console.log(`[CLOB] Price rounded from ${params.price} to ${roundedPrice} to match tickSize ${tickSize}`);
+          log.info(`[CLOB] Price rounded from ${params.price} to ${roundedPrice} to match tickSize ${tickSize}`);
         }
         finalPrice = roundedPrice;
       } else {
-        console.warn(`[CLOB] Price rounding resulted in invalid value: ${roundedPrice}, using original: ${params.price}`);
+        log.warn(`[CLOB] Price rounding resulted in invalid value: ${roundedPrice}, using original: ${params.price}`);
       }
     }
 
@@ -238,7 +241,7 @@ export class PolymarketClobClient {
 
     // Place the order with proper error handling
     try {
-      console.log(`[CLOB] Placing order: tokenID=${params.tokenID}, originalPrice=${params.price}, size=${params.size}, side=${params.side}, tickSize=${tickSize}`);
+      log.info(`[CLOB] Placing order: tokenID=${params.tokenID}, originalPrice=${params.price}, size=${params.size}, side=${params.side}, tickSize=${tickSize}`);
       
       
       let response: any;
@@ -258,7 +261,7 @@ export class PolymarketClobClient {
         );
       } catch (innerError: any) {
         // CLOB client threw an error - this is the expected behavior for failures
-        console.error(`[CLOB] Client threw error:`, innerError.message);
+        log.error({ err: innerError.message }, `[CLOB] Client threw error`);
         const responseData = innerError.response?.data;
         
         // DETAILED ERROR LOGGING FOR 400 ERRORS
@@ -266,11 +269,11 @@ export class PolymarketClobClient {
         let enhancedError = innerError;
         
         if (status === 400) {
-          console.error(`[CLOB] ===== 400 BAD REQUEST DETAILS =====`);
-          console.error(`[CLOB] Response data:`, JSON.stringify(responseData, null, 2));
-          console.error(`[CLOB] Request params: tokenID=${params.tokenID}, price=${params.price}, size=${params.size}, side=${params.side}`);
-          console.error(`[CLOB] Options: tickSize=${tickSize}, negRisk=${negRisk}`);
-          console.error(`[CLOB] ======================================`);
+          log.error(`[CLOB] ===== 400 BAD REQUEST DETAILS =====`);
+          log.error({ detail: JSON.stringify(responseData, null, 2) }, `[CLOB] Response data`)
+          log.error(`[CLOB] Request params: tokenID=${params.tokenID}, price=${params.price}, size=${params.size}, side=${params.side}`);
+          log.error(`[CLOB] Options: tickSize=${tickSize}, negRisk=${negRisk}`);
+          log.error(`[CLOB] ======================================`);
           
           // Create enhanced error message with response details
           let errorDetails = '';
@@ -363,11 +366,11 @@ export class PolymarketClobClient {
                               String(orderId).length > 0;
       
       if (!isValidOrderId) {
-        console.error(`[DEBUG] VALIDATION FAILED: orderId="${orderId}", type=${typeof orderId}`);
+        log.error(`[DEBUG] VALIDATION FAILED: orderId="${orderId}", type=${typeof orderId}`);
         throw new Error(`CLOB response missing valid orderID. Got orderId="${orderId}". Full response: ${JSON.stringify(response)}`);
       }
 
-      console.log(`[CLOB] Order placed successfully: orderID=${orderId}`);
+      log.info(`[CLOB] Order placed successfully: orderID=${orderId}`);
       return response;
     } catch (error: any) {
       // Extract meaningful error message from various error formats
@@ -391,7 +394,7 @@ export class PolymarketClobClient {
         errorMessage = error.message;
       }
 
-      console.error(`[CLOB] Order failed:`, errorMessage);
+      log.error({ err: errorMessage }, `[CLOB] Order failed`);
       throw new Error(`Failed to place order: ${errorMessage}`);
     }
   }
@@ -414,7 +417,7 @@ export class PolymarketClobClient {
         return wallet.address;
       }
     } catch (error: any) {
-      console.warn('[CLOB] Could not derive wallet address:', error.message);
+      log.warn({ detail: error.message }, '[CLOB] Could not derive wallet address')
     }
     
     return null;
@@ -500,7 +503,7 @@ export class PolymarketClobClient {
         ? balanceUsdc
         : Math.min(balanceUsdc, allowanceUsdc);
 
-      console.log(
+      log.info(
         `[CLOB] Collateral status: balance=$${balanceUsdc.toFixed(2)}, ` +
         `allowance=${allowanceUsdc === null ? 'unknown' : '$' + allowanceUsdc.toFixed(2)}, ` +
         `spendable=$${spendableUsdc.toFixed(2)}`
@@ -513,7 +516,7 @@ export class PolymarketClobClient {
         raw: response,
       };
     } catch (error: any) {
-      console.error('[CLOB] Failed to get collateral status:', error.message);
+      log.error({ detail: error.message }, '[CLOB] Failed to get collateral status');
       throw error;
     }
   }

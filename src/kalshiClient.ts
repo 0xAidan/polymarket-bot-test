@@ -1,4 +1,7 @@
 import { config } from './config.js';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('KalshiClient');
 
 // ============================================================================
 // Kalshi API client wrapper using kalshi-typescript SDK
@@ -46,10 +49,10 @@ async function ensureInit(): Promise<{ portfolioApi: any; marketsApi: any }> {
     portfolioApi = new PortfolioApi(kalshiConfig);
     marketsApi = new MarketApi(kalshiConfig);
 
-    console.log('[KalshiClient] Initialized successfully');
+    log.info('[KalshiClient] Initialized successfully');
     return { portfolioApi, marketsApi };
   } catch (err: any) {
-    console.error('[KalshiClient] Failed to initialize:', err.message);
+    log.error({ detail: err.message }, '[KalshiClient] Failed to initialize')
     throw err;
   }
 }
@@ -104,7 +107,7 @@ export async function kalshiPlaceOrder(params: KalshiOrderParams): Promise<Kalsh
       status: order?.status,
     };
   } catch (err: any) {
-    console.error('[KalshiClient] Order placement failed:', err.message);
+    log.error({ detail: err.message }, '[KalshiClient] Order placement failed')
     return { success: false, error: err.message };
   }
 }
@@ -125,7 +128,7 @@ export async function kalshiGetBalance(): Promise<{ balance: number; availableBa
       availableBalance: result?.available_balance ?? result?.balance ?? 0,
     };
   } catch (err: any) {
-    console.error('[KalshiClient] Failed to get balance:', err.message);
+    log.error({ detail: err.message }, '[KalshiClient] Failed to get balance')
     return null;
   }
 }
@@ -139,7 +142,7 @@ export async function kalshiGetPositions(): Promise<any[]> {
     const result = await api.getPositions({});
     return result?.market_positions || result?.positions || [];
   } catch (err: any) {
-    console.error('[KalshiClient] Failed to get positions:', err.message);
+    log.error({ detail: err.message }, '[KalshiClient] Failed to get positions')
     return [];
   }
 }

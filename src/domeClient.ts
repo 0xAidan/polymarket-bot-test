@@ -1,5 +1,8 @@
 import { DomeClient as DomeSdkClient } from '@dome-api/sdk';
 import { config } from './config.js';
+import { createComponentLogger } from './logger.js';
+
+const log = createComponentLogger('DomeClient');
 
 let client: DomeSdkClient | null = null;
 
@@ -37,7 +40,7 @@ export async function domeGetMarketPrice(tokenId: string): Promise<{ price: numb
     const result = await dome.polymarket.markets.getMarketPrice({ token_id: tokenId });
     return result as { price: number };
   } catch (err) {
-    console.error('[DomeClient] Failed to fetch market price:', err);
+    log.error({ err: err }, '[DomeClient] Failed to fetch market price')
     return null;
   }
 }
@@ -53,7 +56,7 @@ export async function domeGetPositions(address: string): Promise<any[]> {
     const result = await dome.polymarket.wallet.getPositions({ wallet_address: address });
     return (result as any)?.positions ?? [];
   } catch (err) {
-    console.error('[DomeClient] Failed to fetch positions:', err);
+    log.error({ err: err }, '[DomeClient] Failed to fetch positions')
     return [];
   }
 }
@@ -69,7 +72,7 @@ export async function domeGetKalshiMarkets(params: { event_ticker?: string[]; st
     const result = await dome.kalshi.markets.getMarkets(params as any);
     return (result as any)?.markets ?? [];
   } catch (err) {
-    console.error('[DomeClient] Failed to fetch Kalshi markets:', err);
+    log.error({ err: err }, '[DomeClient] Failed to fetch Kalshi markets')
     return [];
   }
 }
