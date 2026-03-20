@@ -8,7 +8,7 @@ alwaysApply: true
 
 > **Purpose**: This document gives a new AI agent instance everything it needs to execute tasks in this codebase without re-scanning files. It is the single source of truth for project context. Keep it updated after every significant change.
 >
-> **Last updated**: 2026-03-15
+> **Last updated**: 2026-03-20
 
 ---
 
@@ -174,6 +174,7 @@ polymarket-bot-test/
 | `npm run build` | Compile TypeScript to `dist/` |
 | `npm start` | Same as `dev` |
 | `npm run lint` | ESLint check |
+| `npm run validate:egress` | Phase 0: verify Polymarket + Polygon egress (`docs/plans/egress-validation.md`) |
 
 ### Boot sequence
 1. `start.cjs` checks for `.env`, runs `setup.cjs` if missing
