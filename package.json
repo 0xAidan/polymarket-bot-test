@@ -16,7 +16,8 @@
     "start": "node start.cjs",
     "start:app": "tsx src/index.ts",
     "start:discovery": "tsx src/discovery/discoveryWorker.ts",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "validate:egress": "node scripts/validate-polymarket-egress.mjs"
   },
   "keywords": [
     "polymarket",
