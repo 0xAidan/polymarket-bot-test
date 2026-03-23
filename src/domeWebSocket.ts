@@ -7,7 +7,6 @@ import { buildPositionKey, normalizeOutcomeLabel } from './tradeIdentity.js';
 import {
   logTradeRegressionDebug,
   summarizeDetectedTradeForDebug,
-  summarizeDomeTradeForDebug,
 } from './tradeDiagnostics.js';
 import { createComponentLogger } from './logger.js';
 
@@ -184,7 +183,7 @@ export class DomeWebSocketMonitor extends EventEmitter {
       ...(wallet ? this.enrichFromWallet(wallet) : {}),
     };
 
-    logTradeRegressionDebug('dome-websocket.raw-order-event', summarizeDomeTradeForDebug(data as unknown as Record<string, unknown>));
+    logTradeRegressionDebug('dome-websocket.raw-order-event', (data as unknown as Record<string, unknown>));
     logTradeRegressionDebug('dome-websocket.detected-trade', summarizeDetectedTradeForDebug(trade));
     this.emit('trade', trade);
   }

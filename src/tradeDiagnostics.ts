@@ -57,22 +57,6 @@ export const summarizeActivityTradeForDebug = (trade: UnknownRecord): UnknownRec
   transactionHash: trade.transactionHash,
 });
 
-export const summarizeDomeTradeForDebug = (event: UnknownRecord): UnknownRecord => ({
-  source: 'dome',
-  user: event.user,
-  conditionId: event.condition_id,
-  tokenId: event.token_id,
-  tokenLabel: event.token_label,
-  marketSlug: event.market_slug,
-  title: event.title,
-  shares: event.shares,
-  sharesNormalized: event.shares_normalized,
-  price: event.price,
-  side: event.side,
-  timestamp: normalizeTimestamp(event.timestamp),
-  txHash: event.tx_hash,
-  orderHash: event.order_hash,
-});
 
 export const summarizeDetectedTradeForDebug = (trade: DetectedTrade): UnknownRecord => ({
   source: 'detected-trade',
