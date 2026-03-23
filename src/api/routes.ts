@@ -210,11 +210,6 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       // Reload wallets in the monitor so the new wallet is tracked immediately
       await copyTrader.reloadWallets();
 
-      // Also add to Dome WebSocket subscription if available
-      const domeWs = copyTrader.getDomeWsMonitor();
-      if (domeWs) {
-        await domeWs.addWallet(address);
-      }
 
       // Return the updated wallet list so the UI can update immediately
       const wallets = await Storage.loadTrackedWallets();
@@ -237,11 +232,6 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const { address } = req.params;
       await Storage.removeWallet(address);
 
-      // Also remove from Dome WebSocket subscription if available
-      const domeWsRemove = copyTrader.getDomeWsMonitor();
-      if (domeWsRemove) {
-        await domeWsRemove.removeWallet(address);
-      }
 
       // Reload wallets in the monitor to remove the wallet from monitoring
       await copyTrader.reloadWallets();
@@ -252,21 +242,6 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
-  // Dome API status
-  router.get('/dome/status', (req: Request, res: Response) => {
-    const status = copyTrader.getStatus();
-    const domeWs = status.domeWs;
-    res.json({
-      success: true,
-      configured: !!config.domeApiKey,
-      monitoringMode: status.monitoringMode,
-      websocket: domeWs ? {
-        connected: domeWs.connected,
-        subscriptionId: domeWs.subscriptionId,
-        trackedWallets: domeWs.trackedWallets,
-      } : null,
-    });
-  });
 
   // ============================================================================
   // MULTI-WALLET MANAGEMENT
@@ -990,31 +965,19 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const lastExecutedTrade = recentTrades.find(t => t.success) || null;
       const lastDetectedTrade = recentTrades.length > 0 ? recentTrades[0] : null;
 
-      const domeWs = status.domeWs;
       res.json({
         success: true,
         running: status.running,
         executedTradesCount: status.executedTradesCount,
-        websocket: {
-          connected: domeWs?.connected ?? false,
-          monitoring: status.monitoringMode === 'websocket',
-          lastConnectionTime: null,
-          trackedWalletsCount: domeWs?.trackedWallets ?? 0
-        },
         polling: {
           active: status.running,
           interval: config.monitoringIntervalMs
         },
         monitoringMode: status.monitoringMode,
-        domeWs: status.domeWs,
         monitoringMethods: {
           primary: status.monitoringMode === 'stopped'
             ? 'stopped'
-            : status.monitoringMode === 'websocket'
-              ? 'dome-websocket'
-              : 'polling',
-          domeWebsocket: domeWs?.connected ?? false,
-          legacyWebsocket: domeWs?.connected ?? false,
+            : 'polling',
           polling: status.running
         },
         wallets: {
