@@ -334,9 +334,7 @@ export interface TradingWallet {
   proxyAddress?: string;         // Polymarket proxy wallet address
   isActive: boolean;             // Whether this wallet is enabled for trading
   createdAt: string;             // ISO timestamp
-
   // Dome Order Router credentials (stored encrypted in SQLite)
-  domeUserId?: string;           // Dome userId for this wallet
   hasCredentials: boolean;       // Whether CLOB API creds are stored
 }
 
