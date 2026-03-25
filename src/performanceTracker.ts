@@ -1,43 +1,126 @@
-import { promises as fs } from 'fs';
+import { promises as fs, existsSync, readFileSync } from 'fs';
 import path from 'path';
 import { config } from './config.js';
 import { TradeMetrics, SystemIssue, PerformanceStats, WalletStats, PerformanceDataPoint } from './types.js';
 import { createComponentLogger } from './logger.js';
+import { getTenantIdOrDefault } from './tenantContext.js';
 
 const log = createComponentLogger('PerformanceTracker');
 
-const METRICS_FILE = path.join(config.dataDir, 'trade_metrics.json');
-const ISSUES_FILE = path.join(config.dataDir, 'system_issues.json');
+function scopedTenantId(): string {
+  const tenantId = getTenantIdOrDefault();
+  return tenantId.replace(/[^A-Za-z0-9_-]/g, '_');
+}
+
+function metricsFileForTenant(tenantId: string): string {
+  return path.join(config.dataDir, `trade_metrics_${tenantId}.json`);
+}
+
+function issuesFileForTenant(tenantId: string): string {
+  return path.join(config.dataDir, `system_issues_${tenantId}.json`);
+}
 
 /**
  * Tracks performance metrics and system issues
  */
 export class PerformanceTracker {
   private startTime: Date;
-  private metrics: TradeMetrics[] = [];
-  private issues: SystemIssue[] = [];
-  private recentTradeKeys = new Map<string, number>();
+  private metricsByTenant = new Map<string, TradeMetrics[]>();
+  private issuesByTenant = new Map<string, SystemIssue[]>();
+  private recentTradeKeysByTenant = new Map<string, Map<string, number>>();
+  private loadedTenants = new Set<string>();
 
   constructor() {
     this.startTime = new Date();
+  }
+
+  private getMetricsStore(tenantId: string): TradeMetrics[] {
+    let metrics = this.metricsByTenant.get(tenantId);
+    if (!metrics) {
+      metrics = [];
+      this.metricsByTenant.set(tenantId, metrics);
+    }
+    return metrics;
+  }
+
+  private getIssuesStore(tenantId: string): SystemIssue[] {
+    let issues = this.issuesByTenant.get(tenantId);
+    if (!issues) {
+      issues = [];
+      this.issuesByTenant.set(tenantId, issues);
+    }
+    return issues;
+  }
+
+  private getRecentTradeKeyStore(tenantId: string): Map<string, number> {
+    let keys = this.recentTradeKeysByTenant.get(tenantId);
+    if (!keys) {
+      keys = new Map();
+      this.recentTradeKeysByTenant.set(tenantId, keys);
+    }
+    return keys;
+  }
+
+  private async ensureTenantLoaded(tenantId: string): Promise<void> {
+    if (this.loadedTenants.has(tenantId)) {
+      return;
+    }
+    await this.loadMetricsForTenant(tenantId);
+    await this.loadIssuesForTenant(tenantId);
+    this.loadedTenants.add(tenantId);
+  }
+
+  private ensureTenantLoadedSync(tenantId: string): void {
+    if (this.loadedTenants.has(tenantId)) {
+      return;
+    }
+
+    const metricsFile = metricsFileForTenant(tenantId);
+    const issuesFile = issuesFileForTenant(tenantId);
+
+    if (existsSync(metricsFile)) {
+      const metrics = JSON.parse(readFileSync(metricsFile, 'utf-8')).map((m: any) => ({
+        ...m,
+        timestamp: new Date(m.timestamp),
+      }));
+      this.metricsByTenant.set(tenantId, metrics);
+    } else {
+      this.metricsByTenant.set(tenantId, []);
+    }
+
+    if (existsSync(issuesFile)) {
+      const issues = JSON.parse(readFileSync(issuesFile, 'utf-8')).map((i: any) => ({
+        ...i,
+        timestamp: new Date(i.timestamp),
+      }));
+      this.issuesByTenant.set(tenantId, issues);
+    } else {
+      this.issuesByTenant.set(tenantId, []);
+    }
+
+    this.loadedTenants.add(tenantId);
   }
 
   /**
    * Load metrics from file
    */
   async loadMetrics(): Promise<void> {
+    await this.loadMetricsForTenant(scopedTenantId());
+  }
+
+  private async loadMetricsForTenant(tenantId: string): Promise<void> {
     try {
       await this.ensureDataDir();
-      const data = await fs.readFile(METRICS_FILE, 'utf-8');
-      this.metrics = JSON.parse(data).map((m: any) => ({
+      const data = await fs.readFile(metricsFileForTenant(tenantId), 'utf-8');
+      this.metricsByTenant.set(tenantId, JSON.parse(data).map((m: any) => ({
         ...m,
         timestamp: new Date(m.timestamp)
-      }));
+      })));
     } catch (error: any) {
       if (error.code !== 'ENOENT') {
         log.error({ err: error }, 'Failed to load metrics')
       }
-      this.metrics = [];
+      this.metricsByTenant.set(tenantId, []);
     }
   }
 
@@ -45,28 +128,32 @@ export class PerformanceTracker {
    * Load issues from file
    */
   async loadIssues(): Promise<void> {
+    await this.loadIssuesForTenant(scopedTenantId());
+  }
+
+  private async loadIssuesForTenant(tenantId: string): Promise<void> {
     try {
       await this.ensureDataDir();
-      const data = await fs.readFile(ISSUES_FILE, 'utf-8');
-      this.issues = JSON.parse(data).map((i: any) => ({
+      const data = await fs.readFile(issuesFileForTenant(tenantId), 'utf-8');
+      this.issuesByTenant.set(tenantId, JSON.parse(data).map((i: any) => ({
         ...i,
         timestamp: new Date(i.timestamp)
-      }));
+      })));
     } catch (error: any) {
       if (error.code !== 'ENOENT') {
         log.error({ err: error }, 'Failed to load issues')
       }
-      this.issues = [];
+      this.issuesByTenant.set(tenantId, []);
     }
   }
 
   /**
    * Save metrics to file
    */
-  private async saveMetrics(): Promise<void> {
+  private async saveMetrics(tenantId: string): Promise<void> {
     try {
       await this.ensureDataDir();
-      await fs.writeFile(METRICS_FILE, JSON.stringify(this.metrics, null, 2));
+      await fs.writeFile(metricsFileForTenant(tenantId), JSON.stringify(this.getMetricsStore(tenantId), null, 2));
     } catch (error) {
       log.error({ err: error }, 'Failed to save metrics')
     }
@@ -75,10 +162,10 @@ export class PerformanceTracker {
   /**
    * Save issues to file
    */
-  private async saveIssues(): Promise<void> {
+  private async saveIssues(tenantId: string): Promise<void> {
     try {
       await this.ensureDataDir();
-      await fs.writeFile(ISSUES_FILE, JSON.stringify(this.issues, null, 2));
+      await fs.writeFile(issuesFileForTenant(tenantId), JSON.stringify(this.getIssuesStore(tenantId), null, 2));
     } catch (error) {
       log.error({ err: error }, 'Failed to save issues')
     }
@@ -88,6 +175,11 @@ export class PerformanceTracker {
    * Record a trade execution
    */
   async recordTrade(metrics: Omit<TradeMetrics, 'id'>): Promise<void> {
+    const tenantId = scopedTenantId();
+    await this.ensureTenantLoaded(tenantId);
+    const tenantMetrics = this.getMetricsStore(tenantId);
+    const recentTradeKeys = this.getRecentTradeKeyStore(tenantId);
+
     // Dedup: prevent the same trade from being recorded multiple times in the feed.
     // Uses market+outcome+side+status+5min window as the key so identical rejected/failed
     // entries from repeated polling cycles don't spam the trade feed.
@@ -96,28 +188,28 @@ export class PerformanceTracker {
     const dedupKey = `${metrics.walletAddress}-${metrics.marketId}-${metrics.outcome}-${metrics.status || 'unknown'}-${timeWindow}`;
 
     const now = Date.now();
-    for (const [key, time] of this.recentTradeKeys.entries()) {
-      if (now - time > 5 * 60 * 1000) this.recentTradeKeys.delete(key);
+    for (const [key, time] of recentTradeKeys.entries()) {
+      if (now - time > 5 * 60 * 1000) recentTradeKeys.delete(key);
     }
 
-    if (this.recentTradeKeys.has(dedupKey)) {
+    if (recentTradeKeys.has(dedupKey)) {
       return;
     }
-    this.recentTradeKeys.set(dedupKey, now);
+    recentTradeKeys.set(dedupKey, now);
 
     const tradeMetric: TradeMetrics = {
       ...metrics,
       id: `${ts}-${Math.random().toString(36).substr(2, 9)}`
     };
 
-    this.metrics.push(tradeMetric);
+    tenantMetrics.push(tradeMetric);
 
     // Keep only last 1000 trades in memory
-    if (this.metrics.length > 1000) {
-      this.metrics = this.metrics.slice(-1000);
+    if (tenantMetrics.length > 1000) {
+      this.metricsByTenant.set(tenantId, tenantMetrics.slice(-1000));
     }
 
-    await this.saveMetrics();
+    await this.saveMetrics(tenantId);
   }
 
   /**
@@ -129,6 +221,9 @@ export class PerformanceTracker {
     message: string,
     details?: any
   ): Promise<void> {
+    const tenantId = scopedTenantId();
+    await this.ensureTenantLoaded(tenantId);
+    const issues = this.getIssuesStore(tenantId);
     const issue: SystemIssue = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       timestamp: new Date(),
@@ -139,14 +234,14 @@ export class PerformanceTracker {
       resolved: false
     };
 
-    this.issues.push(issue);
+    issues.push(issue);
 
     // Keep only last 500 issues
-    if (this.issues.length > 500) {
-      this.issues = this.issues.slice(-500);
+    if (issues.length > 500) {
+      this.issuesByTenant.set(tenantId, issues.slice(-500));
     }
 
-    await this.saveIssues();
+    await this.saveIssues(tenantId);
 
     // Log to structured logger based on severity
     const logLevel = severity === 'error' ? 'error' : severity === 'warning' ? 'warn' : 'info';
@@ -157,17 +252,21 @@ export class PerformanceTracker {
    * Get performance statistics
    */
   async getStats(walletsTracked: number): Promise<PerformanceStats> {
+    const tenantId = scopedTenantId();
+    await this.ensureTenantLoaded(tenantId);
+    const metrics = this.getMetricsStore(tenantId);
+    const issues = this.getIssuesStore(tenantId);
     const now = new Date();
     const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const lastHour = new Date(now.getTime() - 60 * 60 * 1000);
 
-    const recentTrades = this.metrics.filter(m => m.timestamp >= last24h);
-    const recentTradesLastHour = this.metrics.filter(m => m.timestamp >= lastHour);
+    const recentTrades = metrics.filter(m => m.timestamp >= last24h);
+    const recentTradesLastHour = metrics.filter(m => m.timestamp >= lastHour);
 
-    const successfulTrades = this.metrics.filter(m => m.success);
-    const failedTrades = this.metrics.filter(m => !m.success);
+    const successfulTrades = metrics.filter(m => m.success);
+    const failedTrades = metrics.filter(m => !m.success);
 
-    const totalVolume = this.metrics.reduce((sum, m) => {
+    const totalVolume = metrics.reduce((sum, m) => {
       try {
         return sum + parseFloat(m.amount);
       } catch {
@@ -175,20 +274,20 @@ export class PerformanceTracker {
       }
     }, 0).toString();
 
-    const avgLatency = this.metrics.length > 0
-      ? this.metrics.reduce((sum, m) => sum + m.executionTimeMs, 0) / this.metrics.length
+    const avgLatency = metrics.length > 0
+      ? metrics.reduce((sum, m) => sum + m.executionTimeMs, 0) / metrics.length
       : 0;
 
-    const successRate = this.metrics.length > 0
-      ? (successfulTrades.length / this.metrics.length) * 100
+    const successRate = metrics.length > 0
+      ? (successfulTrades.length / metrics.length) * 100
       : 0;
 
-    const lastTrade = this.metrics.length > 0
-      ? this.metrics[this.metrics.length - 1].timestamp
+    const lastTrade = metrics.length > 0
+      ? metrics[metrics.length - 1].timestamp
       : undefined;
 
     return {
-      totalTrades: this.metrics.length,
+      totalTrades: metrics.length,
       successfulTrades: successfulTrades.length,
       failedTrades: failedTrades.length,
       successRate: Math.round(successRate * 100) / 100,
@@ -198,7 +297,7 @@ export class PerformanceTracker {
       tradesLastHour: recentTradesLastHour.length,
       uptimeMs: now.getTime() - this.startTime.getTime(),
       lastTradeTime: lastTrade,
-      issues: this.issues.filter(i => !i.resolved).slice(-20), // Last 20 unresolved issues
+      issues: issues.filter(i => !i.resolved).slice(-20), // Last 20 unresolved issues
       walletsTracked
     };
   }
@@ -207,7 +306,9 @@ export class PerformanceTracker {
    * Get wallet-specific statistics
    */
   getWalletStats(address: string): WalletStats {
-    const walletTrades = this.metrics.filter(m =>
+    const tenantId = scopedTenantId();
+    this.ensureTenantLoadedSync(tenantId);
+    const walletTrades = this.getMetricsStore(tenantId).filter(m =>
       m.walletAddress.toLowerCase() === address.toLowerCase()
     );
 
@@ -241,14 +342,18 @@ export class PerformanceTracker {
    * Get all recent trades (for display)
    */
   getRecentTrades(limit = 50): TradeMetrics[] {
-    return this.metrics.slice(-limit).reverse();
+    const tenantId = scopedTenantId();
+    this.ensureTenantLoadedSync(tenantId);
+    return this.getMetricsStore(tenantId).slice(-limit).reverse();
   }
 
   /**
    * Get all issues (for display)
    */
   getIssues(resolved = false, limit = 50): SystemIssue[] {
-    const filtered = this.issues.filter(i => i.resolved === resolved);
+    const tenantId = scopedTenantId();
+    this.ensureTenantLoadedSync(tenantId);
+    const filtered = this.getIssuesStore(tenantId).filter(i => i.resolved === resolved);
     return filtered.slice(-limit).reverse();
   }
 
@@ -256,10 +361,12 @@ export class PerformanceTracker {
    * Mark an issue as resolved
    */
   async resolveIssue(issueId: string): Promise<void> {
-    const issue = this.issues.find(i => i.id === issueId);
+    const tenantId = scopedTenantId();
+    await this.ensureTenantLoaded(tenantId);
+    const issue = this.getIssuesStore(tenantId).find(i => i.id === issueId);
     if (issue) {
       issue.resolved = true;
-      await this.saveIssues();
+      await this.saveIssues(tenantId);
     }
   }
 
@@ -279,7 +386,11 @@ export class PerformanceTracker {
    * Simulates balance changes based on trade outcomes
    */
   getPerformanceData(initialBalance = 1000): PerformanceDataPoint[] {
-    if (this.metrics.length === 0) {
+    const tenantId = scopedTenantId();
+    this.ensureTenantLoadedSync(tenantId);
+    const metrics = this.getMetricsStore(tenantId);
+
+    if (metrics.length === 0) {
       return [{
         timestamp: this.startTime,
         balance: initialBalance,
@@ -290,7 +401,7 @@ export class PerformanceTracker {
     }
 
     // Sort trades by timestamp
-    const sortedTrades = [...this.metrics].sort((a, b) =>
+    const sortedTrades = [...metrics].sort((a, b) =>
       a.timestamp.getTime() - b.timestamp.getTime()
     );
 

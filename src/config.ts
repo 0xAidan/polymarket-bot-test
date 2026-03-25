@@ -39,7 +39,18 @@ export const config = {
   polygonRpcUrl: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
 
   // API authentication (static bearer token)
+  authMode: (process.env.AUTH_MODE || (process.env.AUTH0_ISSUER_BASE_URL ? 'oidc' : 'legacy')).toLowerCase() as 'legacy' | 'oidc',
+  authSessionSecret: process.env.AUTH_SESSION_SECRET || '',
+  auth0IssuerBaseUrl: process.env.AUTH0_ISSUER_BASE_URL || '',
+  auth0BaseUrl: process.env.AUTH0_BASE_URL || '',
+  auth0ClientId: process.env.AUTH0_CLIENT_ID || '',
+  auth0ClientSecret: process.env.AUTH0_CLIENT_SECRET || '',
+  authSessionAbsoluteDurationHours: parseInt(process.env.AUTH_SESSION_ABSOLUTE_DURATION_HOURS || '168', 10),
+  authSessionRollingDurationHours: parseInt(process.env.AUTH_SESSION_ROLLING_DURATION_HOURS || '24', 10),
   apiSecret: process.env.API_SECRET || '',
+  // In production, fail closed by default if API_SECRET is missing.
+  // Override with REQUIRE_API_SECRET=false only for controlled environments.
+  requireApiSecret: (process.env.REQUIRE_API_SECRET || (process.env.NODE_ENV === 'production' ? 'true' : 'false')) === 'true',
 
   // Server configuration
   port: parseInt(process.env.PORT || '3001', 10),
@@ -59,9 +70,6 @@ export const config = {
   // Storage backend: 'json' (file-based, default) or 'sqlite'
   storageBackend: (process.env.STORAGE_BACKEND || 'json').toLowerCase() as 'json' | 'sqlite',
 
-  // Dome API (prediction market aggregator)
-  domeApiKey: process.env.DOME_API_KEY || '',
-
   // Kalshi API credentials (RSA-PSS authentication)
   kalshiApiKeyId: process.env.KALSHI_API_KEY_ID || '',
   kalshiPrivateKeyPath: process.env.KALSHI_PRIVATE_KEY_PATH || '',
@@ -76,6 +84,15 @@ export const config = {
 
   // Validate required configuration
   validate(): void {
+    if (this.authMode === 'oidc') {
+      if (!this.authSessionSecret) {
+        throw new Error('AUTH_SESSION_SECRET is required when AUTH_MODE=oidc');
+      }
+      if (!this.auth0IssuerBaseUrl || !this.auth0BaseUrl || !this.auth0ClientId || !this.auth0ClientSecret) {
+        throw new Error('AUTH0_ISSUER_BASE_URL, AUTH0_BASE_URL, AUTH0_CLIENT_ID, and AUTH0_CLIENT_SECRET are required when AUTH_MODE=oidc');
+      }
+    }
+
     if (!this.privateKey) {
       log.error('Wallet not configured — private key is missing or invalid. Restart the bot to configure.');
       throw new Error('PRIVATE_KEY is required. Restart the bot to configure.');

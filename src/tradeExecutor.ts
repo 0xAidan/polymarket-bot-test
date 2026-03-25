@@ -9,6 +9,8 @@ import {
 } from './tradeDiagnostics.js';
 import { classifyTradeExecutionFailure } from './tradeExecutionDiagnostics.js';
 import { createComponentLogger } from './logger.js';
+import { clobRateLimiter } from './clobRateLimiter.js';
+import { getTenantIdOrDefault } from './tenantContext.js';
 
 const log = createComponentLogger('TradeExecutor');
 
@@ -186,64 +188,69 @@ export class TradeExecutor {
       }));
       
       let orderResponse: any;
+      const releaseRateLimit = await clobRateLimiter.acquire(getTenantIdOrDefault());
       try {
-        orderResponse = await this.clobClient.createAndPostOrder(clobOrderParams);
-      } catch (clobError: any) {
-        log.error({ err: clobError.message }, `[Execute] CLOB client threw error`);
-        
-        // AUTO-RETRY: If "invalid signature", try re-deriving API credentials once
-        const isInvalidSig = clobError.message?.toLowerCase().includes('invalid signature');
-        if (isInvalidSig) {
-          log.warn(`[Execute] ⚠️ "invalid signature" detected — attempting to re-derive API credentials...`);
-          log.warn(`[Execute]    This can happen when L2 API keys expire or are revoked by Polymarket.`);
-          log.warn(`[Execute]    Also check that POLYMARKET_SIGNATURE_TYPE and POLYMARKET_FUNDER_ADDRESS are correct.`);
-          log.warn(`[Execute]    Current signature type: ${process.env.POLYMARKET_SIGNATURE_TYPE || '0'}`);
-          log.warn(`[Execute]    Current funder address: ${process.env.POLYMARKET_FUNDER_ADDRESS || '(not set, using signer address)'}`);
+        try {
+          orderResponse = await this.clobClient.createAndPostOrder(clobOrderParams);
+        } catch (clobError: any) {
+          log.error({ err: clobError.message }, `[Execute] CLOB client threw error`);
           
-          try {
-            // Re-create the CLOB client to re-derive credentials
-            this.clobClient = new PolymarketClobClient();
-            await this.clobClient.initialize();
-            log.info(`[Execute] ✓ Re-derived API credentials, retrying order...`);
+          // AUTO-RETRY: If "invalid signature", try re-deriving API credentials once
+          const isInvalidSig = clobError.message?.toLowerCase().includes('invalid signature');
+          if (isInvalidSig) {
+            log.warn(`[Execute] ⚠️ "invalid signature" detected — attempting to re-derive API credentials...`);
+            log.warn(`[Execute]    This can happen when L2 API keys expire or are revoked by Polymarket.`);
+            log.warn(`[Execute]    Also check that POLYMARKET_SIGNATURE_TYPE and POLYMARKET_FUNDER_ADDRESS are correct.`);
+            log.warn(`[Execute]    Current signature type: ${process.env.POLYMARKET_SIGNATURE_TYPE || '0'}`);
+            log.warn(`[Execute]    Current funder address: ${process.env.POLYMARKET_FUNDER_ADDRESS || '(not set, using signer address)'}`);
             
-            // Retry the order once with fresh credentials
-            orderResponse = await this.clobClient.createAndPostOrder(clobOrderParams);
-          } catch (retryError: any) {
-            log.error(`[Execute] ❌ Retry also failed: ${retryError.message}`);
-            let authProbeSucceeded = false;
             try {
-              await this.clobClient.getOpenOrders();
-              authProbeSucceeded = true;
-            } catch (authProbeError: any) {
-              log.warn(`[Execute]    Auth probe failed after retry: ${authProbeError.message}`);
+              // Re-create the CLOB client to re-derive credentials
+              this.clobClient = new PolymarketClobClient();
+              await this.clobClient.initialize();
+              log.info(`[Execute] ✓ Re-derived API credentials, retrying order...`);
+              
+              // Retry the order once with fresh credentials
+              orderResponse = await this.clobClient.createAndPostOrder(clobOrderParams);
+            } catch (retryError: any) {
+              log.error(`[Execute] ❌ Retry also failed: ${retryError.message}`);
+              let authProbeSucceeded = false;
+              try {
+                await this.clobClient.getOpenOrders();
+                authProbeSucceeded = true;
+              } catch (authProbeError: any) {
+                log.warn(`[Execute]    Auth probe failed after retry: ${authProbeError.message}`);
+              }
+              const failureSummary = classifyTradeExecutionFailure({
+                errorMessage: retryError.message || clobError.message,
+                authProbeSucceeded,
+              });
+              log.error(`[Execute]    Classified failure: ${failureSummary.classification} - ${failureSummary.summary}`);
+              logTradeRegressionDebug('trade-executor.invalid-signature-retry-failed', buildTradeExecutionDiagnosticContext({
+                stage: 'invalid-signature-retry-failed',
+                order,
+                clobOrderParams,
+                execution: {
+                  signatureType: parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '0', 10),
+                  funderAddress: process.env.POLYMARKET_FUNDER_ADDRESS || this.clobClient.getWalletAddress() || '',
+                  clobHost: process.env.POLYMARKET_CLOB_API_URL || 'https://clob.polymarket.com',
+                  builderAuthConfigured: !!process.env.POLYMARKET_BUILDER_API_KEY && !!process.env.POLYMARKET_BUILDER_SECRET && !!process.env.POLYMARKET_BUILDER_PASSPHRASE,
+                  retryAttempted: true,
+                },
+                errorMessage: retryError.message || clobError.message || 'invalid signature',
+              }));
+              log.error(`[Execute]    IMPORTANT: If this keeps happening, you may need to:`);
+              log.error(`[Execute]    1. Regenerate your Builder API credentials at https://polymarket.com/settings?tab=builder`);
+              log.error(`[Execute]    2. Verify POLYMARKET_SIGNATURE_TYPE matches your wallet type (0=EOA, 1=email, 2=MetaMask+proxy)`);
+              log.error(`[Execute]    3. Verify POLYMARKET_FUNDER_ADDRESS is your Polymarket proxy wallet address`);
+              throw retryError;
             }
-            const failureSummary = classifyTradeExecutionFailure({
-              errorMessage: retryError.message || clobError.message,
-              authProbeSucceeded,
-            });
-            log.error(`[Execute]    Classified failure: ${failureSummary.classification} - ${failureSummary.summary}`);
-            logTradeRegressionDebug('trade-executor.invalid-signature-retry-failed', buildTradeExecutionDiagnosticContext({
-              stage: 'invalid-signature-retry-failed',
-              order,
-              clobOrderParams,
-              execution: {
-                signatureType: parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '0', 10),
-                funderAddress: process.env.POLYMARKET_FUNDER_ADDRESS || this.clobClient.getWalletAddress() || '',
-                clobHost: process.env.POLYMARKET_CLOB_API_URL || 'https://clob.polymarket.com',
-                builderAuthConfigured: !!process.env.POLYMARKET_BUILDER_API_KEY && !!process.env.POLYMARKET_BUILDER_SECRET && !!process.env.POLYMARKET_BUILDER_PASSPHRASE,
-                retryAttempted: true,
-              },
-              errorMessage: retryError.message || clobError.message || 'invalid signature',
-            }));
-            log.error(`[Execute]    IMPORTANT: If this keeps happening, you may need to:`);
-            log.error(`[Execute]    1. Regenerate your Builder API credentials at https://polymarket.com/settings?tab=builder`);
-            log.error(`[Execute]    2. Verify POLYMARKET_SIGNATURE_TYPE matches your wallet type (0=EOA, 1=email, 2=MetaMask+proxy)`);
-            log.error(`[Execute]    3. Verify POLYMARKET_FUNDER_ADDRESS is your Polymarket proxy wallet address`);
-            throw retryError;
+          } else {
+            throw clobError;
           }
-        } else {
-          throw clobError;
         }
+      } finally {
+        releaseRateLimit();
       }
 
       const executionTime = Date.now() - executionStart;

@@ -1,5 +1,5 @@
 /**
- * CopyTrade95 walkthrough tour — overlay-only, no data replacement.
+ * Jungle Agents walkthrough tour — overlay-only, no data replacement.
  * Entry: Help → Start walkthrough. Requires switchTab from app.js.
  */
 (function () {
@@ -11,7 +11,7 @@
     {
       tab: 'dashboard',
       target: '.win-tabs',
-      title: 'Welcome to CopyTrade95',
+      title: 'Welcome to Jungle Agents',
       body: "Intro; we'll walk through each tab and point out key and easy-to-miss features."
     },
     {

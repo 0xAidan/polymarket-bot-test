@@ -1,4 +1,3 @@
-import { getDomeClient, isDomeConfigured, domeGetMarketPrice } from './domeClient.js';
 import { getAdapter, isPlatformConfigured } from './platform/platformRegistry.js';
 import { Storage } from './storage.js';
 import { createComponentLogger } from './logger.js';
@@ -86,10 +85,6 @@ export class ArbScanner {
    */
   async start(): Promise<void> {
     if (this.isRunning) return;
-    if (!isDomeConfigured()) {
-      log.info('[ArbScanner] Dome API not configured — scanner disabled');
-      return;
-    }
 
     await this.loadConfig();
 
@@ -124,7 +119,7 @@ export class ArbScanner {
     this.scanCount++;
 
     try {
-      // Step 1: Fetch matching markets from Dome
+      // Step 1: Refresh any matched markets already available locally
       await this.refreshMatchedMarkets();
 
       // Step 2: Compare prices and detect opportunities
@@ -151,56 +146,12 @@ export class ArbScanner {
   }
 
   /**
-   * Refresh matched markets by fetching from Dome.
+   * Refresh matched markets from the persisted cache.
+   * This scanner now relies on previously stored matched pairs.
    */
   private async refreshMatchedMarkets(): Promise<void> {
-    const dome = getDomeClient();
-    if (!dome) return;
-
-    try {
-      // Use the matching markets endpoint to get cross-platform pairs
-      const result = await dome.matchingMarkets.getMatchingMarkets({} as any);
-      const matches = (result as any)?.matches ?? (result as any)?.data ?? [];
-
-      if (!Array.isArray(matches) || matches.length === 0) {
-        // Fallback: try to use the markets endpoint and manually match
-        log.info('[ArbScanner] No matching markets from API, using cached data');
-        return;
-      }
-
-      const now = Date.now();
-      const updated: MatchedMarket[] = [];
-
-      for (const match of matches) {
-        const poly = match.polymarket;
-        const kalshi = match.kalshi;
-
-        if (!poly || !kalshi) continue;
-
-        updated.push({
-          eventTitle: match.event_title || match.title || 'Unknown Event',
-          outcome: match.outcome || 'YES',
-          polymarket: {
-            tokenId: poly.token_id || poly.tokenId || '',
-            slug: poly.slug || '',
-            price: parseFloat(poly.price || poly.yes_price || '0'),
-            lastUpdated: now,
-          },
-          kalshi: {
-            ticker: kalshi.ticker || '',
-            eventTicker: kalshi.event_ticker || '',
-            price: parseFloat(kalshi.price || kalshi.yes_price || '0'),
-            lastUpdated: now,
-          },
-        });
-      }
-
-      if (updated.length > 0) {
-        this.matchedMarkets = updated;
-        log.info(`[ArbScanner] Updated ${updated.length} matched market pairs`);
-      }
-    } catch (err: any) {
-      log.error({ detail: err.message }, '[ArbScanner] Failed to refresh matched markets')
+    if (this.matchedMarkets.length === 0) {
+      log.info('[ArbScanner] No matched-market source configured; using cached pairs only');
     }
   }
 

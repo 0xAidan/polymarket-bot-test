@@ -2,7 +2,7 @@ import * as ethers from 'ethers';
 import { config } from './config.js';
 import { PolymarketApi } from './polymarketApi.js';
 import { Storage } from './storage.js';
-import { getTradingWallets } from './walletManager.js';
+import { getTradingWallets, initWalletManager } from './walletManager.js';
 import { getSigner, isWalletUnlocked } from './secureKeyManager.js';
 import { RelayClient, RelayerTxType } from '@polymarket/builder-relayer-client';
 import { BuilderConfig } from '@polymarket/builder-signing-sdk';
@@ -198,6 +198,7 @@ export class PositionLifecycleManager {
     const results: RedeemablePosition[] = [];
 
     try {
+      await initWalletManager();
       const wallets = getTradingWallets();
 
       if (wallets.length === 0) {

@@ -1,0 +1,13 @@
+[Unit]
+Description=Polymarket Data Backup
+After=network.target
+
+[Service]
+Type=oneshot
+User=polymarket
+Group=polymarket
+WorkingDirectory=/opt/polymarket-bot
+Environment=APP_DIR=/opt/polymarket-bot
+Environment=BACKUP_DIR=/opt/polymarket-bot/backups
+EnvironmentFile=/opt/polymarket-bot/.env
+ExecStart=/usr/bin/env bash /opt/polymarket-bot/scripts/backup-data.sh

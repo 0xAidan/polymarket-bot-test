@@ -1,9 +1,10 @@
 import { ethers, Contract } from 'ethers';
-import { promises as fs } from 'fs';
+import { promises as fs, existsSync, readFileSync } from 'fs';
 import path from 'path';
 import { config } from './config.js';
 import { Storage } from './storage.js';
 import { createComponentLogger } from './logger.js';
+import { getTenantIdOrDefault } from './tenantContext.js';
 
 const log = createComponentLogger('BalanceTracker');
 
@@ -31,7 +32,13 @@ interface WalletBalanceHistory {
   snapshots: BalanceSnapshot[];
 }
 
-const BALANCE_HISTORY_FILE = path.join(config.dataDir, 'balance_history.json');
+function scopedTenantId(): string {
+  return getTenantIdOrDefault().replace(/[^A-Za-z0-9_-]/g, '_');
+}
+
+function balanceHistoryFileForTenant(tenantId: string): string {
+  return path.join(config.dataDir, `balance_history_${tenantId}.json`);
+}
 
 /**
  * Tracks wallet balances over time to calculate 24h changes
@@ -40,13 +47,64 @@ export class BalanceTracker {
   private provider: any | null = null;
   private usdcNativeContract: Contract | null = null;
   private usdcBridgedContract: Contract | null = null;
-  private history: Map<string, WalletBalanceHistory> = new Map();
+  private historyByTenant: Map<string, Map<string, WalletBalanceHistory>> = new Map();
   private pollingInterval: NodeJS.Timeout | null = null;
   private isTracking = false;
   private balanceCache: Map<string, { balance: number; timestamp: number }> = new Map();
   private readonly CACHE_TTL_MS = 60000; // Cache balances for 1 minute
   private lastRpcCallTime = 0;
   private readonly MIN_RPC_INTERVAL_MS = 1000; // Minimum 1 second between RPC calls
+  private loadedTenants = new Set<string>();
+
+  private getHistoryStore(tenantId: string): Map<string, WalletBalanceHistory> {
+    let history = this.historyByTenant.get(tenantId);
+    if (!history) {
+      history = new Map();
+      this.historyByTenant.set(tenantId, history);
+    }
+    return history;
+  }
+
+  private getCacheKey(address: string, tenantId: string): string {
+    return `${tenantId}:${address.toLowerCase()}`;
+  }
+
+  private async ensureTenantHistoryLoaded(tenantId: string): Promise<void> {
+    if (this.loadedTenants.has(tenantId)) {
+      return;
+    }
+    await this.loadHistoryForTenant(tenantId);
+    this.loadedTenants.add(tenantId);
+  }
+
+  private ensureTenantHistoryLoadedSync(tenantId: string): void {
+    if (this.loadedTenants.has(tenantId)) {
+      return;
+    }
+
+    const history = this.getHistoryStore(tenantId);
+    history.clear();
+
+    const historyFile = balanceHistoryFileForTenant(tenantId);
+    if (!existsSync(historyFile)) {
+      this.loadedTenants.add(tenantId);
+      return;
+    }
+
+    const historyData = JSON.parse(readFileSync(historyFile, 'utf-8'));
+    for (const [address, walletHistory] of Object.entries(historyData)) {
+      const wh = walletHistory as any;
+      history.set(address.toLowerCase(), {
+        address: wh.address,
+        snapshots: wh.snapshots.map((s: any) => ({
+          timestamp: new Date(s.timestamp),
+          balance: s.balance,
+        })),
+      });
+    }
+
+    this.loadedTenants.add(tenantId);
+  }
 
   /**
    * Initialize the balance tracker
@@ -96,14 +154,19 @@ export class BalanceTracker {
    * Load balance history from file
    */
   private async loadHistory(): Promise<void> {
+    await this.loadHistoryForTenant(scopedTenantId());
+  }
+
+  private async loadHistoryForTenant(tenantId: string): Promise<void> {
     try {
-      const data = await fs.readFile(BALANCE_HISTORY_FILE, 'utf-8');
+      const data = await fs.readFile(balanceHistoryFileForTenant(tenantId), 'utf-8');
       const historyData = JSON.parse(data);
-      
-      this.history.clear();
+
+      const history = this.getHistoryStore(tenantId);
+      history.clear();
       for (const [address, walletHistory] of Object.entries(historyData)) {
         const wh = walletHistory as any;
-        this.history.set(address.toLowerCase(), {
+        history.set(address.toLowerCase(), {
           address: wh.address,
           snapshots: wh.snapshots.map((s: any) => ({
             timestamp: new Date(s.timestamp),
@@ -114,7 +177,7 @@ export class BalanceTracker {
     } catch (error: any) {
       if (error.code === 'ENOENT') {
         // File doesn't exist yet, start with empty history
-        this.history.clear();
+        this.getHistoryStore(tenantId).clear();
       } else {
         log.error({ err: error }, 'Failed to load balance history')
       }
@@ -125,11 +188,12 @@ export class BalanceTracker {
    * Save balance history to file
    */
   private async saveHistory(): Promise<void> {
+    const tenantId = scopedTenantId();
     try {
       await Storage.ensureDataDir();
       const historyData: Record<string, any> = {};
-      
-      for (const [address, walletHistory] of this.history.entries()) {
+
+      for (const [address, walletHistory] of this.getHistoryStore(tenantId).entries()) {
         historyData[address] = {
           address: walletHistory.address,
           snapshots: walletHistory.snapshots.map(s => ({
@@ -139,7 +203,7 @@ export class BalanceTracker {
         };
       }
       
-      await fs.writeFile(BALANCE_HISTORY_FILE, JSON.stringify(historyData, null, 2));
+      await fs.writeFile(balanceHistoryFileForTenant(tenantId), JSON.stringify(historyData, null, 2));
     } catch (error) {
       log.error({ err: error }, 'Failed to save balance history')
     }
@@ -227,6 +291,8 @@ export class BalanceTracker {
     }
 
     try {
+      const tenantId = scopedTenantId();
+      await this.ensureTenantHistoryLoaded(tenantId);
       // Normalize address to checksummed format for consistent querying
       let normalizedAddress: string;
       try {
@@ -241,7 +307,7 @@ export class BalanceTracker {
       let bridgedBalanceNumber = 0;
       
       // Check cached balance first
-      const cacheKey = normalizedAddress.toLowerCase();
+      const cacheKey = this.getCacheKey(normalizedAddress, tenantId);
       const cached = this.balanceCache.get(cacheKey);
       if (cached && (Date.now() - cached.timestamp) < this.CACHE_TTL_MS) {
         log.info(`[Balance] Using cached balance for ${normalizedAddress.substring(0, 10)}...: ${cached.balance} USDC`);
@@ -318,16 +384,20 @@ export class BalanceTracker {
   async recordBalance(address: string): Promise<void> {
     try {
       const balance = await this.getBalance(address);
+      const tenantId = scopedTenantId();
+      await this.ensureTenantHistoryLoaded(tenantId);
       const addressLower = address.toLowerCase();
-      
-      if (!this.history.has(addressLower)) {
-        this.history.set(addressLower, {
+
+      const history = this.getHistoryStore(tenantId);
+
+      if (!history.has(addressLower)) {
+        history.set(addressLower, {
           address: address,
           snapshots: []
         });
       }
 
-      const walletHistory = this.history.get(addressLower)!;
+      const walletHistory = history.get(addressLower)!;
       const now = new Date();
 
       // Add new snapshot
@@ -370,13 +440,15 @@ export class BalanceTracker {
 
     // Always fetch fresh balance from blockchain
     const currentBalance = await this.getBalance(address);
+    const tenantId = scopedTenantId();
+    await this.ensureTenantHistoryLoaded(tenantId);
     const addressLower = address.toLowerCase();
 
     // Find balance 24 hours ago from history
     const now = new Date();
     const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-    const walletHistory = this.history.get(addressLower);
+    const walletHistory = this.getHistoryStore(tenantId).get(addressLower);
     let balance24hAgo: number | null = null;
     let change24h = 0;
 
@@ -459,7 +531,9 @@ export class BalanceTracker {
     if (this.isTracking) {
       // Record balances for new wallets
       for (const address of walletAddresses) {
-        if (!this.history.has(address.toLowerCase())) {
+        const tenantId = scopedTenantId();
+        await this.ensureTenantHistoryLoaded(tenantId);
+        if (!this.getHistoryStore(tenantId).has(address.toLowerCase())) {
           await this.recordBalance(address);
         }
       }
@@ -471,8 +545,10 @@ export class BalanceTracker {
    * Returns array of {timestamp, balance} points for the past 24-48 hours
    */
   getBalanceHistory(address: string): Array<{ timestamp: Date; balance: number }> {
+    const tenantId = scopedTenantId();
+    this.ensureTenantHistoryLoadedSync(tenantId);
     const addressLower = address.toLowerCase();
-    const walletHistory = this.history.get(addressLower);
+    const walletHistory = this.getHistoryStore(tenantId).get(addressLower);
     
     if (!walletHistory || walletHistory.snapshots.length === 0) {
       return [];

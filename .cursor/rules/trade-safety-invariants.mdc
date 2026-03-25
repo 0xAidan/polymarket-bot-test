@@ -1,6 +1,6 @@
 ---
 description: Critical trade safety invariants that must NEVER be broken. Apply when editing trade execution, dedup, no-repeat, stop-loss, or wallet monitoring code.
-globs: src/copyTrader.ts,src/walletMonitor.ts,src/tradeExecutor.ts,src/clobClient.ts,src/domeWebSocket.ts
+globs: src/copyTrader.ts,src/walletMonitor.ts,src/tradeExecutor.ts,src/clobClient.ts
 alwaysApply: false
 ---
 
@@ -30,8 +30,7 @@ These rules protect real money. Violating any of them has caused actual financia
 ## 4. Wallet Settings: ALL fields passed through
 
 - `parseTradeData` in `walletMonitor.ts` MUST pass ALL wallet settings to `DetectedTrade`.
-- `enrichFromWallet` in `domeWebSocket.ts` MUST also pass ALL wallet settings.
-- If a new wallet setting is added, it MUST be added to both locations.
+- If a new wallet setting is added, it MUST be added to every trade-detection entrypoint before that trade reaches `CopyTrader`.
 
 ## 5. Order Size Safety Cap
 

@@ -210,12 +210,6 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       // Reload wallets in the monitor so the new wallet is tracked immediately
       await copyTrader.reloadWallets();
 
-      // Also add to Dome WebSocket subscription if available
-      const domeWs = copyTrader.getDomeWsMonitor();
-      if (domeWs) {
-        await domeWs.addWallet(address);
-      }
-
       // Return the updated wallet list so the UI can update immediately
       const wallets = await Storage.loadTrackedWallets();
       const addedWallet = wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
@@ -237,12 +231,6 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const { address } = req.params;
       await Storage.removeWallet(address);
 
-      // Also remove from Dome WebSocket subscription if available
-      const domeWsRemove = copyTrader.getDomeWsMonitor();
-      if (domeWsRemove) {
-        await domeWsRemove.removeWallet(address);
-      }
-
       // Reload wallets in the monitor to remove the wallet from monitoring
       await copyTrader.reloadWallets();
 
@@ -250,22 +238,6 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
     }
-  });
-
-  // Dome API status
-  router.get('/dome/status', (req: Request, res: Response) => {
-    const status = copyTrader.getStatus();
-    const domeWs = status.domeWs;
-    res.json({
-      success: true,
-      configured: !!config.domeApiKey,
-      monitoringMode: status.monitoringMode,
-      websocket: domeWs ? {
-        connected: domeWs.connected,
-        subscriptionId: domeWs.subscriptionId,
-        trackedWallets: domeWs.trackedWallets,
-      } : null,
-    });
   });
 
   // ============================================================================
@@ -301,7 +273,8 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
 
   // Get all trading wallets
-  router.get('/trading-wallets', (req: Request, res: Response) => {
+  router.get('/trading-wallets', async (req: Request, res: Response) => {
+    await initWalletManager();
     res.json({ success: true, wallets: getTradingWallets() });
   });
 
@@ -386,6 +359,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // Get positions for a trading wallet (by wallet ID)
   router.get('/trading-wallets/:id/positions', async (req: Request, res: Response) => {
     try {
+      await initWalletManager();
       const wallet = getTradingWallet(req.params.id);
       if (!wallet) {
         return res.status(404).json({ success: false, error: `Trading wallet "${req.params.id}" not found` });
@@ -400,7 +374,8 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
 
   // Get copy assignments
-  router.get('/copy-assignments', (req: Request, res: Response) => {
+  router.get('/copy-assignments', async (req: Request, res: Response) => {
+    await initWalletManager();
     res.json({ success: true, assignments: getCopyAssignments() });
   });
 
@@ -990,31 +965,25 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const lastExecutedTrade = recentTrades.find(t => t.success) || null;
       const lastDetectedTrade = recentTrades.length > 0 ? recentTrades[0] : null;
 
-      const domeWs = status.domeWs;
       res.json({
         success: true,
         running: status.running,
         executedTradesCount: status.executedTradesCount,
         websocket: {
-          connected: domeWs?.connected ?? false,
-          monitoring: status.monitoringMode === 'websocket',
+          connected: false,
+          monitoring: false,
           lastConnectionTime: null,
-          trackedWalletsCount: domeWs?.trackedWallets ?? 0
+          trackedWalletsCount: 0
         },
         polling: {
           active: status.running,
           interval: config.monitoringIntervalMs
         },
         monitoringMode: status.monitoringMode,
-        domeWs: status.domeWs,
         monitoringMethods: {
           primary: status.monitoringMode === 'stopped'
             ? 'stopped'
-            : status.monitoringMode === 'websocket'
-              ? 'dome-websocket'
-              : 'polling',
-          domeWebsocket: domeWs?.connected ?? false,
-          legacyWebsocket: domeWs?.connected ?? false,
+            : 'polling',
           polling: status.running
         },
         wallets: {

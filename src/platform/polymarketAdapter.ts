@@ -1,17 +1,18 @@
 import { PlatformAdapter, NormalizedPosition, NormalizedOrderResult, PlaceOrderRequest } from './types.js';
-import { domeGetMarketPrice, domeGetPositions, isDomeConfigured } from '../domeClient.js';
 import { config } from '../config.js';
+import { PolymarketApi } from '../polymarketApi.js';
 
 // ============================================================================
 // Polymarket Platform Adapter
-// Wraps existing Dome client (data) + TradeExecutor (execution)
+// Uses Polymarket APIs directly for data + TradeExecutor for execution.
 // ============================================================================
 
 export class PolymarketAdapter implements PlatformAdapter {
   readonly platform = 'polymarket' as const;
+  private readonly api = new PolymarketApi();
 
   isConfigured(): boolean {
-    return isDomeConfigured() || !!config.privateKey;
+    return !!config.privateKey;
   }
 
   canExecute(): boolean {
@@ -19,24 +20,28 @@ export class PolymarketAdapter implements PlatformAdapter {
   }
 
   async getMarketPrice(tokenId: string): Promise<{ yesPrice: number; noPrice: number } | null> {
-    const result = await domeGetMarketPrice(tokenId);
-    if (!result) return null;
-    const yesPrice = result.price;
+    const bookData = await this.api.getOrderBook(tokenId);
+    const token = bookData?.market?.tokens?.find((entry: any) => entry.token_id === tokenId);
+    if (!token) return null;
+
+    const yesPrice = Number.parseFloat(token.price);
+    if (!Number.isFinite(yesPrice)) return null;
+
     return { yesPrice, noPrice: 1 - yesPrice };
   }
 
   async getPositions(walletAddress: string): Promise<NormalizedPosition[]> {
-    const positions = await domeGetPositions(walletAddress);
+    const positions = await this.api.getUserPositions(walletAddress);
     return positions.map((p: any) => ({
       platform: 'polymarket' as const,
-      marketId: p.token_id || p.asset || '',
+      marketId: p.asset || p.token_id || '',
       marketTitle: p.title || p.market_title || 'Unknown',
       outcome: p.outcome || (p.label === 'No' ? 'NO' : 'YES'),
       side: ((p.outcome || p.label || '').toUpperCase().includes('NO') ? 'NO' : 'YES') as 'YES' | 'NO',
-      size: parseFloat(p.shares_normalized || p.size || '0'),
-      avgPrice: parseFloat(p.avg_price || p.avgPrice || '0'),
-      currentPrice: parseFloat(p.cur_price || p.curPrice || '0'),
-      conditionId: p.condition_id || p.conditionId || '',
+      size: parseFloat(p.size || p.shares_normalized || '0'),
+      avgPrice: parseFloat(p.avgPrice || p.avg_price || '0'),
+      currentPrice: parseFloat(p.curPrice || p.cur_price || '0'),
+      conditionId: p.conditionId || p.condition_id || '',
     }));
   }
 

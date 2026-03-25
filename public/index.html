@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CopyTrade95 - Polymarket Bot</title>
+  <title>Jungle Agents - Polymarket Bot</title>
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/tour.css">
 </head>
@@ -14,7 +14,7 @@
       <!-- Title Bar -->
       <div class="win-titlebar">
         <div class="win-titlebar-icon">&#128200;</div>
-        <div class="win-titlebar-text">CopyTrade95 - Polymarket Copy Trading Bot</div>
+        <div class="win-titlebar-text">Jungle Agents - Autonomous Prediction Engine</div>
         <div class="win-titlebar-buttons">
           <button class="win-titlebar-btn" title="Minimize">_</button>
           <button class="win-titlebar-btn" title="Maximize">&#9633;</button>
@@ -1346,15 +1346,15 @@
     <div class="win-modal" style="max-width:380px;">
       <div class="win-titlebar">
         <div class="win-titlebar-icon">&#128200;</div>
-        <div class="win-titlebar-text" id="aboutModalTitle">About CopyTrade95</div>
+        <div class="win-titlebar-text" id="aboutModalTitle">About Jungle Agents</div>
         <div class="win-titlebar-buttons">
           <button class="win-titlebar-btn" onclick="closeAboutModal()" aria-label="Close" tabindex="0">X</button>
         </div>
       </div>
       <div class="win-modal-body" style="padding:20px;text-align:center;">
         <div style="font-size:36px;margin-bottom:4px;">&#128200;</div>
-        <div style="font-size:22px;font-weight:bold;">CopyTrade95</div>
-        <div class="text-sm text-muted" style="margin-bottom:12px;">Copy trading, like it's 1995</div>
+        <div style="font-size:22px;font-weight:bold;">Jungle Agents</div>
+        <div class="text-sm text-muted" style="margin-bottom:12px;">Pure silicon competition for prediction markets</div>
         <div style="border:2px inset var(--win-surface);background:var(--win-field-bg);padding:12px;text-align:left;font-size:13px;line-height:1.5;">
           <div>Polymarket Copy Trading Bot</div>
           <div class="text-muted">Monitors tracked wallets and automatically copies their trades to your wallets with configurable filters and risk controls.</div>
@@ -1465,7 +1465,7 @@
     </button>
     <div class="taskbar-divider"></div>
     <div class="taskbar-items">
-      <div class="taskbar-item active" id="taskbarCopyTrade" onclick="window.open('https://github.com/0xAidan/polymarket-bot-test', '_blank')" style="cursor:pointer;" title="Visit GitHub repository" tabindex="0" role="link" aria-label="CopyTrade95 - click to visit GitHub">CopyTrade95</div>
+      <div class="taskbar-item active" id="taskbarCopyTrade" onclick="window.open('https://github.com/0xAidan/polymarket-bot-test', '_blank')" style="cursor:pointer;" title="Visit GitHub repository" tabindex="0" role="link" aria-label="Jungle Agents - click to visit GitHub">Jungle Agents</div>
     </div>
     <div class="taskbar-status">
       <div class="status-indicator stopped" id="taskbarIndicator"></div>
@@ -1490,9 +1490,8 @@
 
   <script src="/js/api.js"></script>
   <script>
-    // ── Auth bootstrap ──
-    // This runs BEFORE app.js loads. It checks if the server requires auth,
-    // and if so, shows the login modal before the app tries to make API calls.
+    // Auth bootstrap runs before app.js so app initialization is gated by session state.
+    window.__authRequired = true;
 
     function showAuthModal() {
       document.getElementById('authModal').classList.remove('hidden');
@@ -1503,6 +1502,19 @@
 
     function hideAuthModal() {
       document.getElementById('authModal').classList.add('hidden');
+    }
+
+    function redirectToMagicLinkLogin() {
+      const returnTo = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
+      window.location.href = `/auth/login?returnTo=${returnTo}`;
+    }
+
+    function maybeStartApp() {
+      if (typeof initApp === 'function') {
+        initApp();
+        return;
+      }
+      window.__startAppOnReady = true;
     }
 
     async function submitAuthToken() {
@@ -1521,50 +1533,68 @@
         if (res.ok) {
           API.setToken(token);
           hideAuthModal();
-          // Now that we're authed, kick off the app
-          if (typeof initApp === 'function') initApp();
+          window.__authRequired = false;
+          maybeStartApp();
         } else {
           document.getElementById('authError').classList.remove('hidden');
           input.value = '';
           input.focus();
         }
-      } catch (e) {
+      } catch (_error) {
         document.getElementById('authError').classList.remove('hidden');
       }
     }
 
-    // Allow Enter key to submit
     document.getElementById('authTokenInput').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') submitAuthToken();
     });
 
-    // On page load: check if auth is required
     (async function checkAuth() {
       try {
-        const res = await fetch('/api/auth/required');
+        const res = await fetch('/api/auth/required', { credentials: 'same-origin' });
         const data = await res.json();
-        if (data.required) {
-          // Auth is required — check if we already have a valid token
-          const existingToken = API.getToken();
-          if (existingToken) {
-            const check = await fetch('/api/auth/check', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${existingToken}`
-              }
-            });
-            if (check.ok) {
-              // Token is still valid, proceed
-              return;
-            }
-          }
-          // No valid token — show modal, block app init
-          showAuthModal();
-          window.__authRequired = true;
+
+        if (!data.required) {
+          window.__authRequired = false;
+          maybeStartApp();
+          return;
         }
-      } catch (e) {
-        console.warn('Could not check auth status:', e);
+
+        if (data.mode === 'oidc') {
+          const meResponse = await fetch('/api/auth/me', { credentials: 'same-origin' });
+          if (meResponse.ok) {
+            const meData = await meResponse.json();
+            window.__authRequired = false;
+            window.__currentUser = meData.user;
+            window.__currentTenant = meData.activeTenant;
+            maybeStartApp();
+            return;
+          }
+          redirectToMagicLinkLogin();
+          return;
+        }
+
+        // Legacy auth mode fallback
+        const existingToken = API.getToken();
+        if (existingToken) {
+          const check = await fetch('/api/auth/check', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${existingToken}`
+            }
+          });
+          if (check.ok) {
+            window.__authRequired = false;
+            maybeStartApp();
+            return;
+          }
+        }
+
+        showAuthModal();
+      } catch (error) {
+        console.warn('Could not check auth status:', error);
+        redirectToMagicLinkLogin();
       }
     })();
   </script>

@@ -108,7 +108,7 @@ export class PolymarketApi {
    * Get the proxy wallet address from Polymarket
    * Polymarket uses proxy wallets for trading, which is where funds are actually held
    * 
-   * FIXED: Extract proxy wallet from positions API response instead of unreliable Dome API
+   * FIXED: Extract proxy wallet from positions API response instead of an unreliable third-party fallback
    * The positions API returns proxyWallet field in each position object.
    */
   async getProxyWalletAddress(eoaAddress?: string): Promise<string | null> {
@@ -149,26 +149,6 @@ export class PolymarketApi {
       log.warn({ err: positionsError.message }, `[API] Failed to get positions for proxy wallet lookup`);
     }
 
-    // FALLBACK: Try Dome API (but it often fails with 403)
-    try {
-      log.info(`[API] Fallback: Attempting Dome API for ${address.substring(0, 8)}...`);
-      const domeResponse = await this.retryRequest(async () => {
-        return await axios.get('https://api.domeapi.io/v1/polymarket/wallet', {
-          params: { eoa: address.toLowerCase() },
-          timeout: 10000
-        });
-      }, `getProxyWalletAddress-Dome(${address.substring(0, 8)}...)`);
-      
-      if (domeResponse.data?.proxyWallet || domeResponse.data?.proxy) {
-        const proxyWallet = domeResponse.data.proxyWallet || domeResponse.data.proxy;
-        log.info(`[API] ✓ Found proxy wallet via Dome API: ${proxyWallet} for EOA: ${address.substring(0, 8)}...`);
-        return proxyWallet;
-      }
-    } catch (domeError: any) {
-      // Dome API often fails with 403, this is expected
-      log.info(`[API] Dome API unavailable for ${address.substring(0, 8)}... (this is normal)`);
-    }
-    
     // FALLBACK: Check POLYMARKET_FUNDER_ADDRESS env variable
     // This is the most reliable method if the user has set it
     const funderAddress = getValidEvmAddress(process.env.POLYMARKET_FUNDER_ADDRESS);

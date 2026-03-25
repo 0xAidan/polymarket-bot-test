@@ -159,7 +159,7 @@ export class CrossPlatformPnlTracker {
   }
 
   /**
-   * Update matched markets list (from Dome matching API or manual mapping).
+   * Update matched markets list from a matching-market source or manual mapping.
    */
   async updateMatchedMarkets(markets: MatchedMarket[]): Promise<void> {
     this.matchedMarkets = markets;
