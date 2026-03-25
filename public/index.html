@@ -1490,9 +1490,8 @@
 
   <script src="/js/api.js"></script>
   <script>
-    // ── Auth bootstrap ──
-    // This runs BEFORE app.js loads. It checks if the server requires auth,
-    // and if so, shows the login modal before the app tries to make API calls.
+    // Auth bootstrap runs before app.js so app initialization is gated by session state.
+    window.__authRequired = true;
 
     function showAuthModal() {
       document.getElementById('authModal').classList.remove('hidden');
@@ -1503,6 +1502,19 @@
 
     function hideAuthModal() {
       document.getElementById('authModal').classList.add('hidden');
+    }
+
+    function redirectToMagicLinkLogin() {
+      const returnTo = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
+      window.location.href = `/auth/login?returnTo=${returnTo}`;
+    }
+
+    function maybeStartApp() {
+      if (typeof initApp === 'function') {
+        initApp();
+        return;
+      }
+      window.__startAppOnReady = true;
     }
 
     async function submitAuthToken() {
@@ -1521,50 +1533,68 @@
         if (res.ok) {
           API.setToken(token);
           hideAuthModal();
-          // Now that we're authed, kick off the app
-          if (typeof initApp === 'function') initApp();
+          window.__authRequired = false;
+          maybeStartApp();
         } else {
           document.getElementById('authError').classList.remove('hidden');
           input.value = '';
           input.focus();
         }
-      } catch (e) {
+      } catch (_error) {
         document.getElementById('authError').classList.remove('hidden');
       }
     }
 
-    // Allow Enter key to submit
     document.getElementById('authTokenInput').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') submitAuthToken();
     });
 
-    // On page load: check if auth is required
     (async function checkAuth() {
       try {
-        const res = await fetch('/api/auth/required');
+        const res = await fetch('/api/auth/required', { credentials: 'same-origin' });
         const data = await res.json();
-        if (data.required) {
-          // Auth is required — check if we already have a valid token
-          const existingToken = API.getToken();
-          if (existingToken) {
-            const check = await fetch('/api/auth/check', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${existingToken}`
-              }
-            });
-            if (check.ok) {
-              // Token is still valid, proceed
-              return;
-            }
-          }
-          // No valid token — show modal, block app init
-          showAuthModal();
-          window.__authRequired = true;
+
+        if (!data.required) {
+          window.__authRequired = false;
+          maybeStartApp();
+          return;
         }
-      } catch (e) {
-        console.warn('Could not check auth status:', e);
+
+        if (data.mode === 'oidc') {
+          const meResponse = await fetch('/api/auth/me', { credentials: 'same-origin' });
+          if (meResponse.ok) {
+            const meData = await meResponse.json();
+            window.__authRequired = false;
+            window.__currentUser = meData.user;
+            window.__currentTenant = meData.activeTenant;
+            maybeStartApp();
+            return;
+          }
+          redirectToMagicLinkLogin();
+          return;
+        }
+
+        // Legacy auth mode fallback
+        const existingToken = API.getToken();
+        if (existingToken) {
+          const check = await fetch('/api/auth/check', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${existingToken}`
+            }
+          });
+          if (check.ok) {
+            window.__authRequired = false;
+            maybeStartApp();
+            return;
+          }
+        }
+
+        showAuthModal();
+      } catch (error) {
+        console.warn('Could not check auth status:', error);
+        redirectToMagicLinkLogin();
       }
     })();
   </script>

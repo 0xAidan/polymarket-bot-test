@@ -1,8 +1,33 @@
+# ============================================================
+# Authentication mode
+# ============================================================
+# AUTH_MODE=oidc enables real SaaS login (recommended for hosted deployments).
+# AUTH_MODE=legacy keeps the old shared API_SECRET flow for backwards compatibility.
+AUTH_MODE=oidc
+
+# Session cookie secret (generate 64+ random chars)
+AUTH_SESSION_SECRET=replace_with_a_long_random_secret
+
+# Auth0 OIDC settings (required when AUTH_MODE=oidc)
+# AUTH0_BASE_URL must match your public app URL, e.g. https://ditto.jungle.win
+AUTH0_ISSUER_BASE_URL=https://your-tenant.us.auth0.com
+AUTH0_BASE_URL=https://ditto.jungle.win
+AUTH0_CLIENT_ID=your_auth0_client_id
+AUTH0_CLIENT_SECRET=your_auth0_client_secret
+
+# Session timing controls (hours)
+AUTH_SESSION_ABSOLUTE_DURATION_HOURS=168
+AUTH_SESSION_ROLLING_DURATION_HOURS=24
+
 # API Authentication (protects your bot's dashboard and API endpoints)
 # If set, all /api/* requests require "Authorization: Bearer <API_SECRET>" header.
 # The dashboard will prompt for this token on page load.
 # If left empty, the API is open (a warning will be printed on startup).
+# Legacy mode only. Prefer OIDC settings above for production SaaS usage.
 API_SECRET=your_api_secret_here
+# Production safety guard (recommended true on hosted deployments)
+# When true and API_SECRET is missing, server startup fails closed.
+REQUIRE_API_SECRET=true
 
 # Your wallet private key (NEVER commit this to git!)
 PRIVATE_KEY=your_private_key_here

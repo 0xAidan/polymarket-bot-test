@@ -151,6 +151,8 @@ const win95Dialog = (() => {
 
 // Expose initApp globally so the auth bootstrap can call it after login
 function initApp() {
+  if (window.__appInitialized) return;
+  window.__appInitialized = true;
   console.log('Jungle Agents initialized');
   updateClock();
   setInterval(updateClock, 1000);
@@ -164,6 +166,10 @@ document.addEventListener('DOMContentLoaded', () => {
   if (window.__authRequired) return;
   initApp();
 });
+
+if (window.__startAppOnReady && !window.__authRequired) {
+  initApp();
+}
 
 function updateClock() {
   const now = new Date();

@@ -430,6 +430,54 @@ function createSchema(database: Database.Database): void {
       ON discovery_signals (address);
     CREATE INDEX IF NOT EXISTS idx_disc_signals_detected
       ON discovery_signals (detected_at);
+
+    -- =======================================================================
+    -- ACCOUNT AUTH + MULTI-TENANT MEMBERSHIP TABLES
+    -- =======================================================================
+
+    CREATE TABLE IF NOT EXISTS app_tenants (
+      id            TEXT PRIMARY KEY,
+      slug          TEXT NOT NULL UNIQUE,
+      name          TEXT NOT NULL,
+      created_at_ms INTEGER NOT NULL,
+      updated_at_ms INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS app_users (
+      id                    TEXT PRIMARY KEY,
+      oidc_subject          TEXT NOT NULL UNIQUE,
+      email                 TEXT,
+      display_name          TEXT,
+      last_active_tenant_id TEXT,
+      created_at_ms         INTEGER NOT NULL,
+      updated_at_ms         INTEGER NOT NULL,
+      FOREIGN KEY (last_active_tenant_id) REFERENCES app_tenants(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS app_tenant_memberships (
+      user_id       TEXT NOT NULL,
+      tenant_id     TEXT NOT NULL,
+      role          TEXT NOT NULL CHECK(role IN ('owner', 'admin', 'user')),
+      created_at_ms INTEGER NOT NULL,
+      PRIMARY KEY (user_id, tenant_id),
+      FOREIGN KEY (user_id) REFERENCES app_users(id) ON DELETE CASCADE,
+      FOREIGN KEY (tenant_id) REFERENCES app_tenants(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_app_tenant_memberships_tenant
+      ON app_tenant_memberships (tenant_id, role);
+
+    CREATE TABLE IF NOT EXISTS app_auth_audit_log (
+      id            TEXT PRIMARY KEY,
+      user_id       TEXT,
+      event_type    TEXT NOT NULL,
+      metadata_json TEXT NOT NULL,
+      created_at_ms INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES app_users(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_app_auth_audit_log_user_time
+      ON app_auth_audit_log (user_id, created_at_ms DESC);
   `);
 
   // Set schema version if not set

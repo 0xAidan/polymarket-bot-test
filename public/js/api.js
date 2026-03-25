@@ -21,9 +21,10 @@ const API = {
   async fetch(endpoint, options = {}) {
     try {
       const token = this.getToken();
+      const usingLegacyToken = Boolean(token);
       const headers = {
         'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        ...(usingLegacyToken ? { 'Authorization': `Bearer ${token}` } : {}),
         ...options.headers
       };
 
@@ -35,7 +36,13 @@ const API = {
       // If 401, show login modal and bail
       if (response.status === 401) {
         this.clearToken();
-        showAuthModal();
+        const legacyModal = typeof showAuthModal === 'function';
+        if (legacyModal && usingLegacyToken) {
+          showAuthModal();
+        } else {
+          const returnTo = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
+          window.location.href = `/auth/login?returnTo=${returnTo}`;
+        }
         throw new Error('Authentication required');
       }
 
