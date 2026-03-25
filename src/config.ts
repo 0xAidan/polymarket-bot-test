@@ -59,9 +59,6 @@ export const config = {
   // Storage backend: 'json' (file-based, default) or 'sqlite'
   storageBackend: (process.env.STORAGE_BACKEND || 'json').toLowerCase() as 'json' | 'sqlite',
 
-  // Dome API (prediction market aggregator)
-  domeApiKey: process.env.DOME_API_KEY || '',
-
   // Kalshi API credentials (RSA-PSS authentication)
   kalshiApiKeyId: process.env.KALSHI_API_KEY_ID || '',
   kalshiPrivateKeyPath: process.env.KALSHI_PRIVATE_KEY_PATH || '',

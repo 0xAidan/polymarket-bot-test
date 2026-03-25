@@ -133,6 +133,33 @@ describe('Database module', () => {
     assert.deepEqual(loaded, []);
   });
 
+  it('scopes tracked wallets by tenant id', () => {
+    dbSaveTrackedWallets([
+      {
+        address: '0xaaa',
+        addedAt: new Date('2025-01-01T00:00:00Z'),
+        active: true,
+      },
+    ], 'tenant-a');
+
+    dbSaveTrackedWallets([
+      {
+        address: '0xbbb',
+        addedAt: new Date('2025-01-02T00:00:00Z'),
+        active: false,
+      },
+    ], 'tenant-b');
+
+    assert.deepEqual(
+      dbLoadTrackedWallets('tenant-a').map(wallet => wallet.address),
+      ['0xaaa'],
+    );
+    assert.deepEqual(
+      dbLoadTrackedWallets('tenant-b').map(wallet => wallet.address),
+      ['0xbbb'],
+    );
+  });
+
   // ── Bot Config ──
 
   it('CRUD bot config: save and load roundtrip', () => {
@@ -159,6 +186,14 @@ describe('Database module', () => {
     assert.deepEqual(loaded, {});
   });
 
+  it('scopes bot config by tenant id', () => {
+    dbSaveConfig({ tradeSize: '10' }, 'tenant-a');
+    dbSaveConfig({ tradeSize: '20' }, 'tenant-b');
+
+    assert.equal(dbLoadConfig('tenant-a').tradeSize, '10');
+    assert.equal(dbLoadConfig('tenant-b').tradeSize, '20');
+  });
+
   // ── Executed Positions ──
 
   it('CRUD executed positions: save and load roundtrip', () => {
@@ -182,6 +217,24 @@ describe('Database module', () => {
   it('empty positions returns empty array', () => {
     const loaded = dbLoadExecutedPositions();
     assert.deepEqual(loaded, []);
+  });
+
+  it('scopes executed positions by tenant id', () => {
+    dbSaveExecutedPositions([
+      { marketId: 'mkt-a', side: 'YES', timestamp: 1700000000, walletAddress: '0xaaa' },
+    ], 'tenant-a');
+    dbSaveExecutedPositions([
+      { marketId: 'mkt-b', side: 'NO', timestamp: 1700001000, walletAddress: '0xbbb' },
+    ], 'tenant-b');
+
+    assert.deepEqual(
+      dbLoadExecutedPositions('tenant-a').map(position => position.marketId),
+      ['mkt-a'],
+    );
+    assert.deepEqual(
+      dbLoadExecutedPositions('tenant-b').map(position => position.marketId),
+      ['mkt-b'],
+    );
   });
 
   // ── Migration ──

@@ -68,9 +68,6 @@ MONITORING_INTERVAL_MS=15000
 # Optional: Database for tracking (using JSON file for simplicity)
 DATA_DIR=./data
 
-# Optional: Dome API key for real-time WebSocket trade detection (faster than polling)
-DOME_API_KEY=
-
 # Optional: Storage backend (json | sqlite). Default: json
 STORAGE_BACKEND=json
 

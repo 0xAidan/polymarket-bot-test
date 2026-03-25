@@ -4,6 +4,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { config } from './config.js';
 import { createComponentLogger } from './logger.js';
+import { getTenantId, getTenantIdOrDefault } from './tenantContext.js';
 
 const log = createComponentLogger('SecureKeyManager');
 
@@ -18,13 +19,25 @@ export interface BuilderCredentials {
 }
 const decryptedBuilderCreds = new Map<string, BuilderCredentials>();
 
-let isUnlocked = false;
+const unlockedTenants = new Set<string>();
 
 /**
  * Get the keystores directory path (dynamic for tests).
  */
 function keystoresDir(): string {
-  return path.join(config.dataDir, 'keystores');
+  return path.join(config.dataDir, 'keystores', getScopedTenantId());
+}
+
+function getScopedTenantId(): string {
+  const tenantId = getTenantIdOrDefault();
+  if (!/^[A-Za-z0-9_-]+$/.test(tenantId)) {
+    throw new Error(`Invalid tenant id: ${tenantId}`);
+  }
+  return tenantId;
+}
+
+function getScopedWalletKey(walletId: string): string {
+  return `${getScopedTenantId()}:${walletId}`;
 }
 
 /**
@@ -110,12 +123,12 @@ export async function addEncryptedWallet(
   await fs.writeFile(filePath, encrypted, 'utf-8');
 
   // Store decrypted wallet in memory
-  decryptedWallets.set(walletId, wallet);
+  decryptedWallets.set(getScopedWalletKey(walletId), wallet);
 
   // Store Builder API credentials if provided
   if (builderCreds && builderCreds.apiKey && builderCreds.apiSecret && builderCreds.apiPassphrase) {
     await saveBuilderCredentials(walletId, builderCreds, masterPassword);
-    decryptedBuilderCreds.set(walletId, builderCreds);
+    decryptedBuilderCreds.set(getScopedWalletKey(walletId), builderCreds);
   }
 
   return wallet.address;
@@ -145,14 +158,14 @@ export async function updateBuilderCredentials(
   masterPassword: string
 ): Promise<void> {
   await saveBuilderCredentials(walletId, creds, masterPassword);
-  decryptedBuilderCreds.set(walletId, creds);
+  decryptedBuilderCreds.set(getScopedWalletKey(walletId), creds);
 }
 
 /**
  * Get decrypted Builder API credentials for a wallet (must be unlocked).
  */
 export function getBuilderCredentials(walletId: string): BuilderCredentials | undefined {
-  return decryptedBuilderCreds.get(walletId);
+  return decryptedBuilderCreds.get(getScopedWalletKey(walletId));
 }
 
 /**
@@ -179,7 +192,7 @@ export async function removeEncryptedWallet(walletId: string): Promise<void> {
     if (err.code === 'ENOENT') throw new Error(`Wallet "${walletId}" not found`);
     throw err;
   }
-  decryptedWallets.delete(walletId);
+  decryptedWallets.delete(getScopedWalletKey(walletId));
 
   // Also remove Builder credentials file if it exists
   const builderPath = path.join(keystoresDir(), `${walletId}.builder.json`);
@@ -188,7 +201,7 @@ export async function removeEncryptedWallet(walletId: string): Promise<void> {
   } catch {
     // Ignore — file may not exist
   }
-  decryptedBuilderCreds.delete(walletId);
+  decryptedBuilderCreds.delete(getScopedWalletKey(walletId));
 }
 
 /**
@@ -211,7 +224,7 @@ export async function unlockAllWallets(masterPassword: string): Promise<string[]
     try {
       const privateKey = decryptPrivateKey(encryptedData, masterPassword);
       const wallet = new ethers.Wallet(privateKey);
-      decryptedWallets.set(walletId, wallet);
+      decryptedWallets.set(getScopedWalletKey(walletId), wallet);
       walletIds.push(walletId);
     } catch {
       log.error(`[SecureKeys] Failed to decrypt wallet "${walletId}" — wrong password or corrupted file`);
@@ -224,7 +237,7 @@ export async function unlockAllWallets(masterPassword: string): Promise<string[]
       const builderData = await fs.readFile(builderPath, 'utf-8');
       const credsJson = decryptPrivateKey(builderData, masterPassword);
       const creds: BuilderCredentials = JSON.parse(credsJson);
-      decryptedBuilderCreds.set(walletId, creds);
+      decryptedBuilderCreds.set(getScopedWalletKey(walletId), creds);
       log.info(`[SecureKeys] Loaded Builder credentials for wallet "${walletId}"`);
     } catch (err: any) {
       if (err.code !== 'ENOENT') {
@@ -234,7 +247,7 @@ export async function unlockAllWallets(masterPassword: string): Promise<string[]
     }
   }
 
-  isUnlocked = true;
+  unlockedTenants.add(getScopedTenantId());
   log.info(`[SecureKeys] Unlocked ${walletIds.length} wallet(s)`);
   return walletIds;
 }
@@ -244,7 +257,7 @@ export async function unlockAllWallets(masterPassword: string): Promise<string[]
  * Must call unlockAllWallets first.
  */
 export function getSigner(walletId: string): ethers.Wallet {
-  const wallet = decryptedWallets.get(walletId);
+  const wallet = decryptedWallets.get(getScopedWalletKey(walletId));
   if (!wallet) {
     throw new Error(`Wallet "${walletId}" not found or not unlocked`);
   }
@@ -262,14 +275,17 @@ export function getWalletAddress(walletId: string): string {
  * Check if wallets are unlocked.
  */
 export function isWalletUnlocked(): boolean {
-  return isUnlocked;
+  return unlockedTenants.has(getScopedTenantId());
 }
 
 /**
  * Get all unlocked wallet IDs.
  */
 export function getUnlockedWalletIds(): string[] {
-  return Array.from(decryptedWallets.keys());
+  const prefix = `${getScopedTenantId()}:`;
+  return Array.from(decryptedWallets.keys())
+    .filter((key) => key.startsWith(prefix))
+    .map((key) => key.slice(prefix.length));
 }
 
 /**
@@ -287,9 +303,27 @@ export async function listStoredWalletIds(): Promise<string[]> {
  * Lock all wallets (clear all decrypted data from memory).
  */
 export function lockAllWallets(): void {
-  decryptedWallets.clear();
-  decryptedBuilderCreds.clear();
-  isUnlocked = false;
+  const explicitTenantId = getTenantId();
+  if (!explicitTenantId) {
+    decryptedWallets.clear();
+    decryptedBuilderCreds.clear();
+    unlockedTenants.clear();
+    return;
+  }
+
+  const tenantId = explicitTenantId;
+  const prefix = `${tenantId}:`;
+  for (const key of decryptedWallets.keys()) {
+    if (key.startsWith(prefix)) {
+      decryptedWallets.delete(key);
+    }
+  }
+  for (const key of decryptedBuilderCreds.keys()) {
+    if (key.startsWith(prefix)) {
+      decryptedBuilderCreds.delete(key);
+    }
+  }
+  unlockedTenants.delete(tenantId);
 }
 
 /**

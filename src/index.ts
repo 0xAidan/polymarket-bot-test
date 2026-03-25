@@ -338,13 +338,11 @@ async function startAppRuntime() {
       await startMonitoringServices(copyTrader, null);
 
       const status = copyTrader.getStatus();
-      const domeWs = status.domeWs;
 
       log.info(`\n${'='.repeat(60)}`);
       log.info(`✅ BOT STARTED SUCCESSFULLY`);
       log.info(`${'='.repeat(60)}`);
       log.info(`   Server: http://localhost:${config.port}`);
-      log.info(`   Dome WebSocket: ${domeWs?.connected ? '✅ CONNECTED' : '⏳ Not connected'} — ${domeWs?.trackedWallets ?? 0} wallets`);
       log.info(`   Polling: ${status.running ? '✅ ACTIVE' : '⏸️  INACTIVE'}`);
       log.info(`\n💡 Trading auto-starts on boot; Discovery remains a separate worker process.`);
       log.info(`${'='.repeat(60)}\n`);

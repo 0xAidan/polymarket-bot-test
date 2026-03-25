@@ -1,6 +1,6 @@
 /**
- * CopyTrade95 - Main Application Logic
- * Win95-themed Polymarket Copy Trading Bot Dashboard
+ * Jungle Agents - Main Application Logic
+ * Jungle-styled Polymarket prediction agent dashboard
  */
 
 // Global state
@@ -96,7 +96,7 @@ const win95Dialog = (() => {
   };
 
   return {
-    alert: (message, title = 'CopyTrade95') => {
+    alert: (message, title = 'Jungle Agents') => {
       const escaped = String(message).replace(/</g, '&lt;').replace(/\n/g, '<br>');
       return createDialog(title, `<p style="margin:0;line-height:1.5">${escaped}</p>`, [
         { label: 'OK', value: true, primary: true },
@@ -151,7 +151,7 @@ const win95Dialog = (() => {
 
 // Expose initApp globally so the auth bootstrap can call it after login
 function initApp() {
-  console.log('CopyTrade95 initialized');
+  console.log('Jungle Agents initialized');
   updateClock();
   setInterval(updateClock, 1000);
   loadAllData();
@@ -2580,7 +2580,7 @@ const toggleViewMenu = () => {
 
 const toggleHelpMenu = () => {
   showMenu('menuHelp', [
-    { label: 'About CopyTrade95...', action: openAboutModal },
+    { label: 'About Jungle Agents...', action: openAboutModal },
     { label: 'What is Paper Mode?', action: openPaperModeModal },
     { separator: true },
     { label: 'Start walkthrough...', action: () => { if (typeof startTour === 'function') startTour(); } },

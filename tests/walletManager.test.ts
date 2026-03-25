@@ -5,6 +5,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { config } from '../src/config.js';
 import { lockAllWallets } from '../src/secureKeyManager.js';
+import { runWithTenant } from '../src/tenantContext.js';
 import {
   initWalletManager,
   addTradingWallet,
@@ -150,5 +151,33 @@ describe('WalletManager', () => {
       assert.equal(forA.length, 1);
       assert.equal(forA[0].tradingWalletAddress || forA[0].trackedWalletAddress, '0xa');
     });
+  });
+
+  it('isolates wallet config by tenant context', async () => {
+    (config as any).storageBackend = 'sqlite';
+
+    await runWithTenant('tenant-a', async () => {
+      await initWalletManager();
+      await addTradingWallet('main', 'Tenant A Wallet', TEST_KEY, 'pass');
+    });
+
+    await runWithTenant('tenant-b', async () => {
+      await initWalletManager();
+      await addTradingWallet('main', 'Tenant B Wallet', TEST_KEY, 'pass');
+    });
+
+    const tenantAWallets = await runWithTenant('tenant-a', async () => {
+      await initWalletManager();
+      return getTradingWallets();
+    });
+    const tenantBWallets = await runWithTenant('tenant-b', async () => {
+      await initWalletManager();
+      return getTradingWallets();
+    });
+
+    assert.equal(tenantAWallets.length, 1);
+    assert.equal(tenantBWallets.length, 1);
+    assert.equal(tenantAWallets[0].label, 'Tenant A Wallet');
+    assert.equal(tenantBWallets[0].label, 'Tenant B Wallet');
   });
 });

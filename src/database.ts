@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { config } from './config.js';
+import { DEFAULT_TENANT_ID } from './tenantContext.js';
 
 let db: Database.Database | null = null;
 let currentDbPath: string | null = null;
@@ -29,8 +30,22 @@ export async function initDatabase(): Promise<Database.Database> {
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');
   db.pragma('foreign_keys = ON');
+  db.pragma('busy_timeout = 5000');
 
   createSchema(db);
+  migrateTrackedWalletsToTenantScoped(db);
+  migrateBotConfigToTenantScoped(db);
+  safeAddColumn(db, 'executed_positions', 'tenant_id', `TEXT NOT NULL DEFAULT '${DEFAULT_TENANT_ID}'`);
+  safeCreateIndex(
+    db,
+    'idx_tracked_wallets_tenant',
+    'CREATE INDEX IF NOT EXISTS idx_tracked_wallets_tenant ON tracked_wallets (tenant_id, active)'
+  );
+  safeCreateIndex(
+    db,
+    'idx_executed_positions_tenant',
+    'CREATE INDEX IF NOT EXISTS idx_executed_positions_tenant ON executed_positions (tenant_id, timestamp)'
+  );
 
   safeAddColumn(db, 'discovery_wallets', 'whale_score', 'REAL DEFAULT 0');
   safeAddColumn(db, 'discovery_wallets', 'heat_indicator', "TEXT DEFAULT 'NEW'");
@@ -113,7 +128,8 @@ function createSchema(database: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS tracked_wallets (
-      address           TEXT PRIMARY KEY,
+      tenant_id         TEXT NOT NULL DEFAULT '${DEFAULT_TENANT_ID}',
+      address           TEXT NOT NULL,
       added_at          TEXT NOT NULL,
       active            INTEGER NOT NULL DEFAULT 0,
       last_seen         TEXT,
@@ -139,16 +155,20 @@ function createSchema(database: Database.Database): void {
       value_filter_enabled    INTEGER,
       value_filter_min        REAL,
       value_filter_max        REAL,
-      slippage_percent        REAL
+      slippage_percent        REAL,
+      PRIMARY KEY (tenant_id, address)
     );
 
     CREATE TABLE IF NOT EXISTS bot_config (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL
+      tenant_id TEXT NOT NULL DEFAULT '${DEFAULT_TENANT_ID}',
+      key   TEXT NOT NULL,
+      value TEXT NOT NULL,
+      PRIMARY KEY (tenant_id, key)
     );
 
     CREATE TABLE IF NOT EXISTS executed_positions (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id       TEXT NOT NULL DEFAULT '${DEFAULT_TENANT_ID}',
       market_id       TEXT NOT NULL,
       side            TEXT NOT NULL,
       timestamp       INTEGER NOT NULL,
@@ -419,6 +439,108 @@ function createSchema(database: Database.Database): void {
   }
 }
 
+function migrateTrackedWalletsToTenantScoped(database: Database.Database): void {
+  const columns = database.prepare('PRAGMA table_info(tracked_wallets)').all() as Array<{ name: string; pk: number }>;
+  const tenantColumn = columns.find((column) => column.name === 'tenant_id');
+  const addressColumn = columns.find((column) => column.name === 'address');
+
+  if (tenantColumn?.pk === 1 && addressColumn?.pk === 2) {
+    return;
+  }
+
+  const tx = database.transaction(() => {
+    database.exec(`
+      CREATE TABLE tracked_wallets_new (
+        tenant_id         TEXT NOT NULL,
+        address           TEXT NOT NULL,
+        added_at          TEXT NOT NULL,
+        active            INTEGER NOT NULL DEFAULT 0,
+        last_seen         TEXT,
+        label             TEXT,
+        trade_sizing_mode TEXT,
+        fixed_trade_size  REAL,
+        threshold_enabled INTEGER,
+        threshold_percent REAL,
+        trade_side_filter TEXT,
+        no_repeat_enabled INTEGER,
+        no_repeat_period_hours REAL,
+        price_limits_min  REAL,
+        price_limits_max  REAL,
+        rate_limit_enabled INTEGER,
+        rate_limit_per_hour INTEGER,
+        rate_limit_per_day INTEGER,
+        value_filter_enabled INTEGER,
+        value_filter_min  REAL,
+        value_filter_max  REAL,
+        slippage_percent  REAL,
+        PRIMARY KEY (tenant_id, address)
+      );
+    `);
+
+    const hasTenantId = Boolean(tenantColumn);
+    database.exec(`
+      INSERT INTO tracked_wallets_new (
+        tenant_id, address, added_at, active, last_seen, label,
+        trade_sizing_mode, fixed_trade_size, threshold_enabled, threshold_percent,
+        trade_side_filter, no_repeat_enabled, no_repeat_period_hours,
+        price_limits_min, price_limits_max,
+        rate_limit_enabled, rate_limit_per_hour, rate_limit_per_day,
+        value_filter_enabled, value_filter_min, value_filter_max,
+        slippage_percent
+      )
+      SELECT
+        ${hasTenantId ? 'COALESCE(tenant_id, \'' + DEFAULT_TENANT_ID + '\')' : '\'' + DEFAULT_TENANT_ID + '\''},
+        address, added_at, active, last_seen, label,
+        trade_sizing_mode, fixed_trade_size, threshold_enabled, threshold_percent,
+        trade_side_filter, no_repeat_enabled, no_repeat_period_hours,
+        price_limits_min, price_limits_max,
+        rate_limit_enabled, rate_limit_per_hour, rate_limit_per_day,
+        value_filter_enabled, value_filter_min, value_filter_max,
+        slippage_percent
+      FROM tracked_wallets;
+    `);
+    database.exec('DROP TABLE tracked_wallets;');
+    database.exec('ALTER TABLE tracked_wallets_new RENAME TO tracked_wallets;');
+  });
+
+  tx();
+}
+
+function migrateBotConfigToTenantScoped(database: Database.Database): void {
+  const columns = database.prepare('PRAGMA table_info(bot_config)').all() as Array<{ name: string; pk: number }>;
+  const tenantColumn = columns.find((column) => column.name === 'tenant_id');
+  const keyColumn = columns.find((column) => column.name === 'key');
+
+  if (tenantColumn && tenantColumn.pk === 1 && keyColumn?.pk === 2) {
+    return;
+  }
+
+  const tx = database.transaction(() => {
+    database.exec(`
+      CREATE TABLE bot_config_new (
+        tenant_id TEXT NOT NULL,
+        key       TEXT NOT NULL,
+        value     TEXT NOT NULL,
+        PRIMARY KEY (tenant_id, key)
+      );
+    `);
+
+    const hasTenantId = Boolean(tenantColumn);
+    database.exec(`
+      INSERT INTO bot_config_new (tenant_id, key, value)
+      SELECT
+        ${hasTenantId ? 'COALESCE(tenant_id, \'' + DEFAULT_TENANT_ID + '\')' : '\'' + DEFAULT_TENANT_ID + '\''},
+        key,
+        value
+      FROM bot_config;
+    `);
+    database.exec('DROP TABLE bot_config;');
+    database.exec('ALTER TABLE bot_config_new RENAME TO bot_config;');
+  });
+
+  tx();
+}
+
 function safeAddColumn(database: Database.Database, table: string, column: string, definition: string): void {
   try {
     database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
@@ -523,6 +645,7 @@ import {
 /** Convert a DB row to a TrackedWallet object */
 function rowToWallet(row: any): TrackedWallet {
   return {
+    tenantId: row.tenant_id ?? undefined,
     address: row.address,
     addedAt: new Date(row.added_at),
     active: row.active === 1,
@@ -550,19 +673,21 @@ function rowToWallet(row: any): TrackedWallet {
   };
 }
 
-export function dbLoadTrackedWallets(): TrackedWallet[] {
+export function dbLoadTrackedWallets(tenantId?: string): TrackedWallet[] {
   const database = getDatabase();
-  const rows = database.prepare('SELECT * FROM tracked_wallets').all();
+  const rows = tenantId
+    ? database.prepare('SELECT * FROM tracked_wallets WHERE tenant_id = ? ORDER BY added_at').all(tenantId)
+    : database.prepare('SELECT * FROM tracked_wallets ORDER BY tenant_id, added_at').all();
   return rows.map(rowToWallet);
 }
 
-export function dbSaveTrackedWallets(wallets: TrackedWallet[]): void {
+export function dbSaveTrackedWallets(wallets: TrackedWallet[], tenantId = DEFAULT_TENANT_ID): void {
   const database = getDatabase();
   const tx = database.transaction(() => {
-    database.prepare('DELETE FROM tracked_wallets').run();
+    database.prepare('DELETE FROM tracked_wallets WHERE tenant_id = ?').run(tenantId);
     const insert = database.prepare(`
       INSERT INTO tracked_wallets (
-        address, added_at, active, last_seen, label,
+        tenant_id, address, added_at, active, last_seen, label,
         trade_sizing_mode, fixed_trade_size, threshold_enabled, threshold_percent,
         trade_side_filter,
         no_repeat_enabled, no_repeat_period_hours,
@@ -571,7 +696,7 @@ export function dbSaveTrackedWallets(wallets: TrackedWallet[]): void {
         value_filter_enabled, value_filter_min, value_filter_max,
         slippage_percent
       ) VALUES (
-        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?,
         ?, ?,
@@ -583,6 +708,7 @@ export function dbSaveTrackedWallets(wallets: TrackedWallet[]): void {
     `);
     for (const w of wallets) {
       insert.run(
+        tenantId,
         w.address,
         w.addedAt.toISOString(),
         w.active ? 1 : 0,
@@ -613,13 +739,19 @@ export function dbSaveTrackedWallets(wallets: TrackedWallet[]): void {
   tx();
 }
 
+export function dbLoadAllActiveTrackedWalletsForMonitoring(): TrackedWallet[] {
+  const database = getDatabase();
+  const rows = database.prepare('SELECT * FROM tracked_wallets WHERE active = 1 ORDER BY tenant_id, added_at').all();
+  return rows.map(rowToWallet);
+}
+
 // ============================================================================
 // BOT CONFIG (key-value store)
 // ============================================================================
 
-export function dbLoadConfig(): Record<string, any> {
+export function dbLoadConfig(tenantId = DEFAULT_TENANT_ID): Record<string, any> {
   const database = getDatabase();
-  const rows = database.prepare('SELECT key, value FROM bot_config').all() as { key: string; value: string }[];
+  const rows = database.prepare('SELECT key, value FROM bot_config WHERE tenant_id = ?').all(tenantId) as { key: string; value: string }[];
   const result: Record<string, any> = {};
   for (const row of rows) {
     try {
@@ -631,13 +763,13 @@ export function dbLoadConfig(): Record<string, any> {
   return result;
 }
 
-export function dbSaveConfig(configData: Record<string, any>): void {
+export function dbSaveConfig(configData: Record<string, any>, tenantId = DEFAULT_TENANT_ID): void {
   const database = getDatabase();
   const tx = database.transaction(() => {
-    database.prepare('DELETE FROM bot_config').run();
-    const insert = database.prepare('INSERT INTO bot_config (key, value) VALUES (?, ?)');
+    database.prepare('DELETE FROM bot_config WHERE tenant_id = ?').run(tenantId);
+    const insert = database.prepare('INSERT INTO bot_config (tenant_id, key, value) VALUES (?, ?, ?)');
     for (const [key, value] of Object.entries(configData)) {
-      insert.run(key, JSON.stringify(value));
+      insert.run(tenantId, key, JSON.stringify(value));
     }
   });
   tx();
@@ -647,9 +779,11 @@ export function dbSaveConfig(configData: Record<string, any>): void {
 // EXECUTED POSITIONS
 // ============================================================================
 
-export function dbLoadExecutedPositions(): ExecutedPosition[] {
+export function dbLoadExecutedPositions(tenantId?: string): ExecutedPosition[] {
   const database = getDatabase();
-  const rows = database.prepare('SELECT * FROM executed_positions').all() as any[];
+  const rows = tenantId
+    ? database.prepare('SELECT * FROM executed_positions WHERE tenant_id = ? ORDER BY timestamp').all(tenantId) as any[]
+    : database.prepare('SELECT * FROM executed_positions ORDER BY tenant_id, timestamp').all() as any[];
   return rows.map(r => ({
     marketId: r.market_id,
     side: String(r.side || ''),
@@ -665,15 +799,16 @@ export function dbLoadExecutedPositions(): ExecutedPosition[] {
   }));
 }
 
-export function dbSaveExecutedPositions(positions: ExecutedPosition[]): void {
+export function dbSaveExecutedPositions(positions: ExecutedPosition[], tenantId = DEFAULT_TENANT_ID): void {
   const database = getDatabase();
   const tx = database.transaction(() => {
-    database.prepare('DELETE FROM executed_positions').run();
+    database.prepare('DELETE FROM executed_positions WHERE tenant_id = ?').run(tenantId);
     const insert = database.prepare(
-      'INSERT INTO executed_positions (market_id, side, timestamp, wallet_address, status, order_id, token_id, position_key, baseline_position_size, missing_order_checks, trade_side_action) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO executed_positions (tenant_id, market_id, side, timestamp, wallet_address, status, order_id, token_id, position_key, baseline_position_size, missing_order_checks, trade_side_action) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     for (const p of positions) {
       insert.run(
+        tenantId,
         p.marketId,
         p.side,
         p.timestamp,

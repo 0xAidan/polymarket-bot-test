@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly Polymarket Data Backup
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+Persistent=true
+Unit=polymarket-backup.service
+
+[Install]
+WantedBy=timers.target

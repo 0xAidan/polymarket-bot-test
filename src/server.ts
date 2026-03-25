@@ -9,6 +9,7 @@ import { createDiscoveryRoutes } from './api/discoveryRoutes.js';
 import { DiscoveryManager } from './discovery/discoveryManager.js';
 import { DiscoveryControlPlane } from './discovery/discoveryControlPlane.js';
 import { createComponentLogger } from './logger.js';
+import { DEFAULT_TENANT_ID, enterWithTenant } from './tenantContext.js';
 
 const log = createComponentLogger('Server');
 
@@ -61,12 +62,17 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
           error: 'Unauthorized — invalid or missing API token'
         });
       }
+      enterWithTenant(DEFAULT_TENANT_ID);
       next();
     });
     log.info('🔒 API authentication enabled (API_SECRET is set)');
   } else {
     log.warn('⚠️  WARNING: API_SECRET not set! Your bot API is open to anyone who can reach this server.');
     log.warn('   Add API_SECRET=your-secret-here to your .env file to secure it.');
+    app.use('/api', (_req, _res, next) => {
+      enterWithTenant(DEFAULT_TENANT_ID);
+      next();
+    });
   }
 
   // API routes

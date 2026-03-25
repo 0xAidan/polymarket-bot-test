@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { config } from '../src/config.js';
+import { runWithTenant } from '../src/tenantContext.js';
 import {
   addEncryptedWallet,
   removeEncryptedWallet,
@@ -133,5 +134,16 @@ describe('SecureKeyManager', () => {
     const ids = await listStoredWalletIds();
     assert.ok(ids.includes('a'));
     assert.equal(isWalletUnlocked(), false);
+  });
+
+  it('isolates keystore files by tenant context', async () => {
+    await runWithTenant('tenant-a', () => addEncryptedWallet('main', TEST_PRIVATE_KEY, 'pw'));
+    await runWithTenant('tenant-b', () => addEncryptedWallet('main', TEST_PRIVATE_KEY, 'pw'));
+
+    const tenantAIds = await runWithTenant('tenant-a', () => listStoredWalletIds());
+    const tenantBIds = await runWithTenant('tenant-b', () => listStoredWalletIds());
+
+    assert.deepEqual(tenantAIds, ['main']);
+    assert.deepEqual(tenantBIds, ['main']);
   });
 });

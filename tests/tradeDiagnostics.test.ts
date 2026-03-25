@@ -6,7 +6,6 @@ import {
   buildTradeExecutionDiagnosticContext,
   summarizeActivityTradeForDebug,
   summarizeDetectedTradeForDebug,
-  summarizeDomeTradeForDebug,
 } from '../src/tradeDiagnostics.js';
 
 test('summarizeActivityTradeForDebug keeps the critical raw activity fields', () => {
@@ -37,41 +36,6 @@ test('summarizeActivityTradeForDebug keeps the critical raw activity fields', ()
     timestamp: 1710000000,
     title: 'Who wins?',
     transactionHash: '0xtxhash',
-  });
-});
-
-test('summarizeDomeTradeForDebug keeps the critical websocket fields', () => {
-  const summary = summarizeDomeTradeForDebug({
-    user: '0xwallet',
-    condition_id: '0xcondition',
-    token_id: 'token-456',
-    token_label: 'TRUMP',
-    market_slug: 'who-wins',
-    title: 'Who wins?',
-    shares: 1000000,
-    shares_normalized: 1,
-    price: 0.62,
-    side: 'SELL',
-    timestamp: 1710000000,
-    tx_hash: '0xtx',
-    order_hash: '0xorder',
-  });
-
-  assert.deepEqual(summary, {
-    source: 'dome',
-    user: '0xwallet',
-    conditionId: '0xcondition',
-    tokenId: 'token-456',
-    tokenLabel: 'TRUMP',
-    marketSlug: 'who-wins',
-    title: 'Who wins?',
-    shares: 1000000,
-    sharesNormalized: 1,
-    price: 0.62,
-    side: 'SELL',
-    timestamp: 1710000000,
-    txHash: '0xtx',
-    orderHash: '0xorder',
   });
 });
 

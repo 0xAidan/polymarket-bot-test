@@ -16,6 +16,8 @@
     "start": "node start.cjs",
     "start:app": "tsx src/index.ts",
     "start:discovery": "tsx src/discovery/discoveryWorker.ts",
+    "start:prod:app": "node dist/index.js",
+    "start:prod:discovery": "node dist/discovery/discoveryWorker.js",
     "lint": "eslint src --ext .ts",
     "validate:egress": "node scripts/validate-polymarket-egress.mjs"
   },
@@ -28,7 +30,6 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@dome-api/sdk": "^1.0.2",
     "@ethersproject/signing-key": "^5.8.0",
     "@polymarket/builder-relayer-client": "^0.0.8",
     "@polymarket/builder-signing-sdk": "^0.0.8",

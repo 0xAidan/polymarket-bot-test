@@ -8,8 +8,9 @@ import {
   summarizeActivityTradeForDebug,
   summarizeDetectedTradeForDebug,
 } from './tradeDiagnostics.js';
-import { DetectedTrade } from './types.js';
+import { DetectedTrade, TrackedWallet } from './types.js';
 import { createComponentLogger } from './logger.js';
+import { DEFAULT_TENANT_ID, runWithTenant } from './tenantContext.js';
 
 const log = createComponentLogger('WalletMonitor');
 
@@ -49,7 +50,7 @@ export class WalletMonitor {
    * Polls Polymarket Data API for position changes
    */
   async startMonitoring(
-    onTradeDetected: (trade: DetectedTrade) => void
+    onTradeDetected: (trade: DetectedTrade) => Promise<void> | void
   ): Promise<void> {
     if (!this.provider) {
       await this.initialize();
@@ -67,7 +68,7 @@ export class WalletMonitor {
 
     this.startPolling();
 
-    const wallets = await Storage.getActiveWallets();
+    const wallets = await Storage.loadAllActiveTrackedWalletsForMonitoring();
     log.info({
       intervalMs: this.currentIntervalMs,
       intervalSec: this.currentIntervalMs / 1000,
@@ -143,9 +144,9 @@ export class WalletMonitor {
    * Check tracked wallets for new trades via trade history API only
    */
   private async checkWalletsForTrades(
-    onTradeDetected: (trade: DetectedTrade) => void
+    onTradeDetected: (trade: DetectedTrade) => Promise<void> | void
   ): Promise<void> {
-    const wallets = await Storage.getActiveWallets();
+    const wallets = await Storage.loadAllActiveTrackedWalletsForMonitoring();
 
     if (wallets.length === 0) {
       // No wallets to monitor, skip this check
@@ -208,7 +209,7 @@ export class WalletMonitor {
               processedTradeCount++;
               log.info({ tradeTime: new Date(tradeTime).toISOString(), preview: JSON.stringify(trade).substring(0, 500) }, '[Monitor] Processing recent trade');
               logTradeRegressionDebug('wallet-monitor.raw-activity-trade', summarizeActivityTradeForDebug(trade as Record<string, unknown>));
-              const detectedTrade = await this.parseTradeData(eoaAddress, trade);
+              const detectedTrade = await this.parseTradeData(wallet, trade);
               if (detectedTrade) {
                 logTradeRegressionDebug('wallet-monitor.detected-trade', summarizeDetectedTradeForDebug(detectedTrade));
                 // Validate the detected trade before triggering
@@ -226,7 +227,7 @@ export class WalletMonitor {
                     tradeTime: new Date(tradeTime).toISOString(),
                   }, 'Trade detected from history');
                   try {
-                    await onTradeDetected(detectedTrade);
+                    await runWithTenant(detectedTrade.tenantId || DEFAULT_TENANT_ID, () => onTradeDetected(detectedTrade));
                     log.info('Trade callback completed successfully');
                   } catch (callbackError: any) {
                     log.error({ err: callbackError }, 'Trade callback failed');
@@ -245,7 +246,9 @@ export class WalletMonitor {
           }
           log.info(`[Monitor] Processed ${processedTradeCount} trade(s) from history for ${eoaAddress.substring(0, 8)}...`);
           if (maxSeenTradeTime > cursorMs) {
-            await Storage.updateWalletLastSeen(eoaAddress, new Date(maxSeenTradeTime));
+            await runWithTenant(wallet.tenantId || DEFAULT_TENANT_ID, () => (
+              Storage.updateWalletLastSeen(eoaAddress, new Date(maxSeenTradeTime))
+            ));
           }
         } catch (error: any) {
           if (error.response?.status !== 404) {
@@ -282,10 +285,11 @@ export class WalletMonitor {
    * }
    */
   private async parseTradeData(
-    walletAddress: string,
+    wallet: TrackedWallet,
     trade: any
   ): Promise<DetectedTrade | null> {
     try {
+      const walletAddress = wallet.address.toLowerCase();
       // Only use the condition id as the market identity.
       // Falling back to the asset token id corrupts dedupe and no-repeat matching.
       const marketId = resolveTradeMarketId({
@@ -339,10 +343,6 @@ export class WalletMonitor {
         return null;
       }
 
-      // Look up wallet settings to get trade config
-      const wallets = await Storage.getActiveWallets();
-      const walletSettings = wallets.find(w => w.address.toLowerCase() === walletAddress.toLowerCase());
-
       // FIXED: Handle Unix seconds timestamp from API
       let tradeTimestamp: Date;
       if (trade.timestamp) {
@@ -357,6 +357,7 @@ export class WalletMonitor {
       }
 
       return {
+        tenantId: wallet.tenantId,
         walletAddress: walletAddress.toLowerCase(),
         marketId,
         marketTitle: trade.title || trade.slug || undefined,
@@ -370,22 +371,22 @@ export class WalletMonitor {
         negRisk: (trade as any).negativeRisk ?? undefined, // CLOB client looks up when undefined
         positionKey: buildPositionKey({ marketId, tokenId, outcome }),
         // Per-wallet trade config (ALL settings, not just sizing)
-        tradeSizingMode: walletSettings?.tradeSizingMode,
-        fixedTradeSize: walletSettings?.fixedTradeSize,
-        thresholdEnabled: walletSettings?.thresholdEnabled,
-        thresholdPercent: walletSettings?.thresholdPercent,
-        tradeSideFilter: walletSettings?.tradeSideFilter,
-        noRepeatEnabled: walletSettings?.noRepeatEnabled,
-        noRepeatPeriodHours: walletSettings?.noRepeatPeriodHours,
-        priceLimitsMin: walletSettings?.priceLimitsMin,
-        priceLimitsMax: walletSettings?.priceLimitsMax,
-        rateLimitEnabled: walletSettings?.rateLimitEnabled,
-        rateLimitPerHour: walletSettings?.rateLimitPerHour,
-        rateLimitPerDay: walletSettings?.rateLimitPerDay,
-        valueFilterEnabled: walletSettings?.valueFilterEnabled,
-        valueFilterMin: walletSettings?.valueFilterMin,
-        valueFilterMax: walletSettings?.valueFilterMax,
-        slippagePercent: walletSettings?.slippagePercent,
+        tradeSizingMode: wallet.tradeSizingMode,
+        fixedTradeSize: wallet.fixedTradeSize,
+        thresholdEnabled: wallet.thresholdEnabled,
+        thresholdPercent: wallet.thresholdPercent,
+        tradeSideFilter: wallet.tradeSideFilter,
+        noRepeatEnabled: wallet.noRepeatEnabled,
+        noRepeatPeriodHours: wallet.noRepeatPeriodHours,
+        priceLimitsMin: wallet.priceLimitsMin,
+        priceLimitsMax: wallet.priceLimitsMax,
+        rateLimitEnabled: wallet.rateLimitEnabled,
+        rateLimitPerHour: wallet.rateLimitPerHour,
+        rateLimitPerDay: wallet.rateLimitPerDay,
+        valueFilterEnabled: wallet.valueFilterEnabled,
+        valueFilterMin: wallet.valueFilterMin,
+        valueFilterMax: wallet.valueFilterMax,
+        slippagePercent: wallet.slippagePercent,
       };
     } catch (error: any) {
       log.error({ err: error }, 'Failed to parse trade data');
@@ -395,13 +396,13 @@ export class WalletMonitor {
 
   /**
    * Reload wallets (called when a wallet is added or removed).
-   * Trade history polling uses Storage.getActiveWallets() each cycle, so no state to sync.
+   * Trade history polling uses Storage.loadAllActiveTrackedWalletsForMonitoring() each cycle, so no state to sync.
    */
   async reloadWallets(): Promise<void> {
     if (!this.isMonitoring) {
       return;
     }
-    const wallets = await Storage.getActiveWallets();
+    const wallets = await Storage.loadAllActiveTrackedWalletsForMonitoring();
     log.info({ walletCount: wallets.length }, 'Wallets reloaded');
   }
 

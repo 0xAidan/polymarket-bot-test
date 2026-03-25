@@ -1,6 +1,4 @@
 import { WalletMonitor } from './walletMonitor.js';
-import { DomeWebSocketMonitor } from './domeWebSocket.js';
-import { isDomeConfigured } from './domeClient.js';
 import { TradeExecutor } from './tradeExecutor.js';
 import { PerformanceTracker } from './performanceTracker.js';
 import { BalanceTracker } from './balanceTracker.js';
@@ -17,6 +15,7 @@ import {
   summarizeDetectedTradeForDebug,
 } from './tradeDiagnostics.js';
 import { createComponentLogger } from './logger.js';
+import { getTenantIdOrDefault } from './tenantContext.js';
 
 const log = createComponentLogger('CopyTrader');
 
@@ -26,12 +25,11 @@ const log = createComponentLogger('CopyTrader');
  */
 export class CopyTrader {
   private monitor: WalletMonitor;
-  private domeWsMonitor: DomeWebSocketMonitor | null = null;
   private executor: TradeExecutor;
   private performanceTracker: PerformanceTracker;
   private balanceTracker: BalanceTracker;
   private isRunning = false;
-  private monitoringMode: 'polling' | 'websocket' | 'stopped' = 'stopped';
+  private monitoringMode: 'polling' | 'stopped' = 'stopped';
   private processedTrades = new Map<string, number>(); // Track processed trades by tx hash to prevent duplicates
   private executedTradesCount = 0; // Number of trades successfully executed this session
   private processedCompoundKeys = new Map<string, number>(); // Track by compound key (wallet-market-outcome-side-timeWindow) to catch same trade with different hashes
@@ -39,6 +37,10 @@ export class CopyTrader {
   
   // Per-wallet rate limiting state (in-memory, keyed by wallet address)
   private perWalletRateLimits: PerWalletRateLimitStates = new Map();
+
+  private getRateLimitKey(walletAddress: string, tenantId?: string): string {
+    return `${tenantId || 'default'}:${walletAddress.toLowerCase()}`;
+  }
 
   constructor() {
     this.monitor = new WalletMonitor();
@@ -59,12 +61,6 @@ export class CopyTrader {
       
       // Initialize multi-wallet manager
       await initWalletManager();
-      
-      // Initialize Dome WebSocket if API key is configured
-      if (isDomeConfigured()) {
-        this.domeWsMonitor = new DomeWebSocketMonitor();
-        log.info('[CopyTrader] Dome API key detected — WebSocket monitoring available');
-      }
       
       // Record initial balance for user wallet only (not tracked wallets to reduce RPC calls)
       const userWallet = this.getWalletAddress();
@@ -129,67 +125,16 @@ export class CopyTrader {
     });
     log.info('✅ Polling monitoring active');
 
-    // Start Dome WebSocket monitoring if available (primary for tracked wallets)
-    if (this.domeWsMonitor) {
-      log.info('📡 Starting Dome WebSocket monitoring (PRIMARY)...');
-      try {
-        // Wire up Dome WS events
-        // NOTE: Polling is NO LONGER paused when Dome WS connects.
-        // Both run in parallel because:
-        // 1. Dome WS identifies users by EOA, but some tracked wallets use proxy addresses
-        // 2. This caused wallets like 432 to silently stop being monitored
-        // 3. The dedup logic in handleDetectedTrade prevents double execution
-        // 4. Polling is reliable for ALL wallets; Dome WS adds speed for matching ones
-        this.domeWsMonitor.on('connected', () => {
-          this.monitoringMode = 'websocket';
-          log.info('[DomeWS] Connected — running alongside polling for maximum coverage');
-        });
-
-        this.domeWsMonitor.on('disconnected', () => {
-          this.monitoringMode = 'polling';
-          log.info('[DomeWS] Disconnected — polling continues as usual');
-        });
-
-        this.domeWsMonitor.on('reconnected', () => {
-          this.monitoringMode = 'websocket';
-          log.info('[DomeWS] Reconnected — running alongside polling');
-        });
-
-        this.domeWsMonitor.on('trade', async (trade: DetectedTrade) => {
-          log.info({
-            wallet: trade.walletAddress,
-            market: trade.marketId,
-            side: trade.side,
-            price: trade.price,
-          }, 'Dome WS trade detected');
-          await this.handleDetectedTrade(trade);
-        });
-
-        this.domeWsMonitor.on('error', (err: any) => {
-          log.error('[DomeWS] Error:', err?.message || err);
-        });
-
-        await this.domeWsMonitor.start();
-      } catch (error: any) {
-        log.error({ detail: error.message }, '[DomeWS] Failed to start Dome WebSocket')
-        log.info('⚠️ Continuing with polling-based monitoring');
-      }
-    }
-
     // Start balance tracking for user wallet only (reduces RPC calls significantly)
     const userWallet = this.getWalletAddress();
     if (userWallet) {
       await this.balanceTracker.startTracking([userWallet]);
     }
 
-    const domeWsStatus = this.domeWsMonitor?.getStatus();
     log.info('\n' + '='.repeat(60));
     log.info('✅ COPY TRADING BOT IS RUNNING');
     log.info('='.repeat(60));
     log.info(`📊 Monitoring Methods:`);
-    if (domeWsStatus) {
-      log.info(`   🌐 Dome WebSocket: ${domeWsStatus.connected ? '✅ CONNECTED (PRIMARY)' : '⏳ CONNECTING...'} — ${domeWsStatus.trackedWallets} wallets`);
-    }
     log.info(`   🔄 Polling: ✅ ACTIVE — every ${config.monitoringIntervalMs / 1000}s`);
     log.info(`\n💡 The bot will automatically detect and copy trades from tracked wallets.`);
     log.info(`   Check the logs above for trade detection and execution.`);
@@ -207,13 +152,6 @@ export class CopyTrader {
     log.info('Stopping copy trading bot...');
     this.isRunning = false;
     this.monitoringMode = 'stopped';
-    
-    // Stop Dome WebSocket if running
-    if (this.domeWsMonitor) {
-      this.domeWsMonitor.stop().catch(err => 
-        log.error({ err: err }, '[DomeWS] Error during stop')
-      );
-    }
     
     this.monitor.stopMonitoring();
     this.balanceTracker.stopTracking();
@@ -332,17 +270,18 @@ export class CopyTrader {
     // when the trade appears in multiple polling cycles from the trade history API.
     // The primary deduplication is by transaction hash - this is a backup.
     const tradeTimestamp = trade.timestamp instanceof Date ? trade.timestamp.getTime() : Date.now();
-    // 5-minute compound-key window for same-market dedup (trade history vs Dome can have different hashes)
+    // 5-minute compound-key window for same-market dedup across polling snapshots.
     const timeWindow = Math.floor(tradeTimestamp / (5 * 60 * 1000));
     const positionKey = trade.positionKey || buildPositionKey({
       marketId: trade.marketId,
       tokenId: trade.tokenId,
       outcome: trade.outcome,
     });
-    const compoundKey = `${trade.walletAddress.toLowerCase()}-${positionKey}-${trade.side}-${timeWindow}`;
+    const tenantKey = trade.tenantId || 'default';
+    const compoundKey = `${tenantKey}:${trade.walletAddress.toLowerCase()}-${positionKey}-${trade.side}-${timeWindow}`;
     
     // Also track by transaction hash for exact duplicates
-    const tradeKey = trade.transactionHash;
+    const tradeKey = `${tenantKey}:${trade.transactionHash}`;
     
     // Clean up old entries (older than 5 minutes for compound keys; 1 hour for tx hashes)
     const now = Date.now();
@@ -376,7 +315,7 @@ export class CopyTrader {
     }
 
     // CRITICAL: Mark as in-flight IMMEDIATELY after the check, BEFORE any async code.
-    // This closes the race window where concurrent Dome WS events could all pass the
+    // This closes the race window where concurrent detections could all pass the
     // check above before any of them reached the old add() location 300 lines below.
     this.inFlightTrades.add(tradeKey);
     this.inFlightTrades.add(compoundKey);
@@ -444,7 +383,7 @@ export class CopyTrader {
     
     // SANITY CHECK: Detect values that appear to be in USDC base units (6 decimals)
     // If amount * price > $10M, the amount is almost certainly in base units and needs conversion
-    // This guards against Dome WebSocket or API returning raw values instead of normalized ones
+    // This guards against upstream APIs returning raw values instead of normalized ones
     if (amountNum > 0 && priceNum > 0) {
       const rawUsdValue = amountNum * priceNum;
       if (rawUsdValue > 10_000_000) {
@@ -560,7 +499,7 @@ export class CopyTrader {
     // noRepeatEnabled setting. This provides two levels of protection:
     //  - noRepeatEnabled=true: Uses configured blockPeriod (forever, 24h, etc.)
     //  - noRepeatEnabled=false/undefined: Uses 5-minute safety minimum to catch
-    //    rapid-fire duplicates from bot restarts and concurrent Dome WS events.
+      //    rapid-fire duplicates from bot restarts and concurrent monitor events.
     // FAIL-SAFE: If the storage read fails, BLOCK the trade rather than allowing it.
     {
       const SAFETY_MINIMUM_HOURS = 5 / 60; // 5 minutes
@@ -683,11 +622,12 @@ export class CopyTrader {
     // Check if we've exceeded the wallet's configured rate limits
     if (trade.rateLimitEnabled) {
       const walletAddress = trade.walletAddress.toLowerCase();
+      const rateLimitKey = this.getRateLimitKey(walletAddress, trade.tenantId);
       const maxPerHour = trade.rateLimitPerHour ?? 10;   // Default: 10
       const maxPerDay = trade.rateLimitPerDay ?? 50;     // Default: 50
       
       // Get or create rate limit state for this wallet
-      let walletRateState = this.perWalletRateLimits.get(walletAddress);
+      let walletRateState = this.perWalletRateLimits.get(rateLimitKey);
       if (!walletRateState) {
         walletRateState = {
           tradesThisHour: 0,
@@ -695,7 +635,7 @@ export class CopyTrader {
           hourStartTime: Date.now(),
           dayStartTime: Date.now()
         };
-        this.perWalletRateLimits.set(walletAddress, walletRateState);
+        this.perWalletRateLimits.set(rateLimitKey, walletRateState);
       }
       
       // Update rate limit state (reset counters if window has passed)
@@ -1243,7 +1183,7 @@ export class CopyTrader {
 
         // Increment per-wallet rate limit counters (if rate limiting was enabled for this wallet)
         if (trade.rateLimitEnabled) {
-          const walletRateState = this.perWalletRateLimits.get(trade.walletAddress.toLowerCase());
+          const walletRateState = this.perWalletRateLimits.get(this.getRateLimitKey(trade.walletAddress, trade.tenantId));
           if (walletRateState) {
             walletRateState.tradesThisHour++;
             walletRateState.tradesThisDay++;
@@ -1361,22 +1301,13 @@ export class CopyTrader {
   getStatus(): {
     running: boolean;
     executedTradesCount: number;
-    monitoringMode: 'polling' | 'websocket' | 'stopped';
-    domeWs: { connected: boolean; subscriptionId: string | null; trackedWallets: number } | null;
+    monitoringMode: 'polling' | 'stopped';
   } {
     return {
       running: this.isRunning,
       executedTradesCount: this.executedTradesCount,
       monitoringMode: this.monitoringMode,
-      domeWs: this.domeWsMonitor?.getStatus() ?? null,
     };
-  }
-
-  /**
-   * Get the Dome WebSocket monitor (for API routes).
-   */
-  getDomeWsMonitor(): DomeWebSocketMonitor | null {
-    return this.domeWsMonitor;
   }
 
   /**
@@ -1750,7 +1681,9 @@ export class CopyTrader {
     
     // If specific wallet requested
     if (walletAddress) {
-      const walletRateState = this.perWalletRateLimits.get(walletAddress.toLowerCase());
+      const walletRateState = this.perWalletRateLimits.get(
+        this.getRateLimitKey(walletAddress, getTenantIdOrDefault())
+      );
       if (!walletRateState) {
         // No rate limit state exists for this wallet (never had rate limiting enabled or no trades)
         return {

@@ -272,6 +272,19 @@ describe('Storage dual-backend', () => {
       const blocked = await Storage.isPositionBlocked('mkt-sql-pending', 'TRUMP', 24, 'token:token-sql');
       assert.equal(blocked, true);
     });
+
+    it('isolates tracked wallets by tenant context', async () => {
+      const { runWithTenant } = await import('../src/tenantContext.js');
+
+      await runWithTenant('tenant-a', () => Storage.addWallet('0xTENANTA'));
+      await runWithTenant('tenant-b', () => Storage.addWallet('0xTENANTB'));
+
+      const tenantAWallets = await runWithTenant('tenant-a', () => Storage.loadTrackedWallets());
+      const tenantBWallets = await runWithTenant('tenant-b', () => Storage.loadTrackedWallets());
+
+      assert.deepEqual(tenantAWallets.map(wallet => wallet.address), ['0xtenanta']);
+      assert.deepEqual(tenantBWallets.map(wallet => wallet.address), ['0xtenantb']);
+    });
   });
 
   // ── Fallback behavior ──

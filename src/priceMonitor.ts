@@ -1,4 +1,3 @@
-import { domeGetMarketPrice, isDomeConfigured } from './domeClient.js';
 import { PolymarketApi } from './polymarketApi.js';
 import { LadderExitManager } from './ladderExitManager.js';
 import { SmartStopLossManager } from './smartStopLoss.js';
@@ -87,21 +86,14 @@ export class PriceMonitor extends EventEmitter {
 
     // Fetch prices
     const priceMap = new Map<string, number>();
-    const useDome = isDomeConfigured();
 
     for (const tokenId of tokenIds) {
       try {
         let price: number | null = null;
-        if (useDome) {
-          const result = await domeGetMarketPrice(tokenId);
-          if (result) price = result.price;
-        }
-        if (price === null) {
-          const bookData = await this.api.getOrderBook(tokenId);
-          if (bookData?.market?.tokens) {
-            const token = bookData.market.tokens.find((t: any) => t.token_id === tokenId);
-            if (token) price = parseFloat(token.price);
-          }
+        const bookData = await this.api.getOrderBook(tokenId);
+        if (bookData?.market?.tokens) {
+          const token = bookData.market.tokens.find((t: any) => t.token_id === tokenId);
+          if (token) price = parseFloat(token.price);
         }
         if (price !== null) {
           priceMap.set(tokenId, price);

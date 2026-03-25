@@ -68,6 +68,108 @@ describe('Platform Abstraction Layer', () => {
     const kalshiStatus = reg.getAdapter('kalshi').getStatus();
     assert.equal(kalshiStatus.label, 'Kalshi');
   });
+
+  it('polymarket adapter derives prices from the order book directly', async () => {
+    const { PolymarketApi } = await import('../src/polymarketApi.js');
+    const originalGetOrderBook = PolymarketApi.prototype.getOrderBook;
+
+    PolymarketApi.prototype.getOrderBook = async () => ({
+      market: {
+        tokens: [
+          { token_id: 'token-yes', price: '0.63' },
+        ],
+      },
+    });
+
+    try {
+      const { PolymarketAdapter } = await import('../src/platform/polymarketAdapter.js');
+      const adapter = new PolymarketAdapter();
+      const price = await adapter.getMarketPrice('token-yes');
+
+      assert.deepEqual(price, {
+        yesPrice: 0.63,
+        noPrice: 0.37,
+      });
+    } finally {
+      PolymarketApi.prototype.getOrderBook = originalGetOrderBook;
+    }
+  });
+
+  it('polymarket adapter normalizes positions from the Polymarket API directly', async () => {
+    const { PolymarketApi } = await import('../src/polymarketApi.js');
+    const originalGetUserPositions = PolymarketApi.prototype.getUserPositions;
+
+    PolymarketApi.prototype.getUserPositions = async () => ([
+      {
+        asset: 'token-1',
+        title: 'Who wins?',
+        outcome: 'Yes',
+        size: '12',
+        avgPrice: '0.42',
+        curPrice: '0.55',
+        conditionId: 'condition-1',
+      },
+    ]);
+
+    try {
+      const { PolymarketAdapter } = await import('../src/platform/polymarketAdapter.js');
+      const adapter = new PolymarketAdapter();
+      const positions = await adapter.getPositions('0xwallet');
+
+      assert.deepEqual(positions, [
+        {
+          platform: 'polymarket',
+          marketId: 'token-1',
+          marketTitle: 'Who wins?',
+          outcome: 'Yes',
+          side: 'YES',
+          size: 12,
+          avgPrice: 0.42,
+          currentPrice: 0.55,
+          conditionId: 'condition-1',
+        },
+      ]);
+    } finally {
+      PolymarketApi.prototype.getUserPositions = originalGetUserPositions;
+    }
+  });
+
+  it('kalshi adapter derives prices from the native Kalshi market API directly', async () => {
+    const kalshiSdk = await import('kalshi-typescript');
+    const originalGetMarket = kalshiSdk.MarketApi.prototype.getMarket;
+    const { config } = await import('../src/config.js');
+    const savedKalshiApiKeyId = config.kalshiApiKeyId;
+    const savedKalshiPrivateKeyPem = config.kalshiPrivateKeyPem;
+
+    config.kalshiApiKeyId = 'test-kalshi-key';
+    config.kalshiPrivateKeyPem = '-----BEGIN PRIVATE KEY-----\nTEST\n-----END PRIVATE KEY-----';
+
+    kalshiSdk.MarketApi.prototype.getMarket = async () => ({
+      data: {
+        market: {
+          yes_bid: 58,
+          yes_ask: 62,
+          no_bid: 38,
+          no_ask: 42,
+        },
+      },
+    });
+
+    try {
+      const { KalshiAdapter } = await import('../src/platform/kalshiAdapter.js');
+      const adapter = new KalshiAdapter();
+      const price = await adapter.getMarketPrice('KXTEST-2026');
+
+      assert.deepEqual(price, {
+        yesPrice: 0.6,
+        noPrice: 0.4,
+      });
+    } finally {
+      kalshiSdk.MarketApi.prototype.getMarket = originalGetMarket;
+      config.kalshiApiKeyId = savedKalshiApiKeyId;
+      config.kalshiPrivateKeyPem = savedKalshiPrivateKeyPem;
+    }
+  });
 });
 
 describe('CrossPlatformExecutor', () => {

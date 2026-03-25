@@ -1,20 +1,19 @@
 import { PlatformAdapter, NormalizedPosition, NormalizedOrderResult, PlaceOrderRequest } from './types.js';
-import { isKalshiConfigured, kalshiPlaceOrder, kalshiGetBalance, kalshiGetPositions } from '../kalshiClient.js';
-import { domeGetKalshiMarkets, isDomeConfigured } from '../domeClient.js';
+import { isKalshiConfigured, kalshiPlaceOrder, kalshiGetBalance, kalshiGetPositions, kalshiGetMarket } from '../kalshiClient.js';
 import { createComponentLogger } from '../logger.js';
 
 const log = createComponentLogger('KalshiAdapter');
 
 // ============================================================================
 // Kalshi Platform Adapter
-// Data via Dome SDK, execution via kalshi-typescript
+// Uses the native Kalshi SDK for data and execution.
 // ============================================================================
 
 export class KalshiAdapter implements PlatformAdapter {
   readonly platform = 'kalshi' as const;
 
   isConfigured(): boolean {
-    return isDomeConfigured() || isKalshiConfigured();
+    return isKalshiConfigured();
   }
 
   canExecute(): boolean {
@@ -22,19 +21,29 @@ export class KalshiAdapter implements PlatformAdapter {
   }
 
   async getMarketPrice(ticker: string): Promise<{ yesPrice: number; noPrice: number } | null> {
-    // Use Dome SDK for Kalshi price data
     try {
-      const { getDomeClient } = await import('../domeClient.js');
-      const dome = getDomeClient();
-      if (!dome) return null;
+      if (!isKalshiConfigured()) return null;
 
-      const result = await dome.kalshi.markets.getMarketPrice({ market_ticker: ticker });
-      const data = result as any;
+      const data = await kalshiGetMarket(ticker);
       if (!data) return null;
 
-      // Kalshi returns prices in cents; normalize to 0-1
-      const yesPrice = (data.yes?.price ?? data.last_price ?? 0) / 100;
-      const noPrice = (data.no?.price ?? (100 - (data.yes?.price ?? 50))) / 100;
+      const midpoint = (bid: unknown, ask: unknown): number | null => {
+        const bidValue = typeof bid === 'number' ? bid : Number.NaN;
+        const askValue = typeof ask === 'number' ? ask : Number.NaN;
+        if (Number.isFinite(bidValue) && Number.isFinite(askValue)) {
+          return (bidValue + askValue) / 200;
+        }
+        return null;
+      };
+
+      const yesMidpoint = midpoint(data.yes_bid, data.yes_ask);
+      const noMidpoint = midpoint(data.no_bid, data.no_ask);
+      const lastPrice = typeof data.last_price === 'number' ? data.last_price / 100 : null;
+
+      const yesPrice = yesMidpoint ?? lastPrice;
+      const noPrice = noMidpoint ?? (yesPrice !== null ? 1 - yesPrice : null);
+      if (yesPrice === null || noPrice === null) return null;
+
       return { yesPrice, noPrice };
     } catch (err: any) {
       log.error({ detail: err.message }, `[KalshiAdapter] Failed to get price for ${ticker}`)
