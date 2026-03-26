@@ -8,7 +8,7 @@ alwaysApply: true
 
 > **Purpose**: This document gives a new AI agent instance everything it needs to execute tasks in this codebase without re-scanning files. It is the single source of truth for project context. Keep it updated after every significant change.
 >
-> **Last updated**: 2026-03-20
+> **Last updated**: 2026-03-26 (hosted multitenant: ladder/stop-loss per-tenant sync, price monitor hosted tick, UI workspace switcher)
 
 ---
 
@@ -69,6 +69,7 @@ polymarket-bot-test/
 │       └── tour.js          # Walkthrough tour
 ├── src/                     # Backend TypeScript source
 │   ├── index.ts             # ★ MAIN ENTRY POINT
+│   ├── hostedMode.ts        # Hosted multi-tenant detection (OIDC + SQLite)
 │   ├── config.ts            # Central configuration from .env
 │   ├── types.ts             # Shared TypeScript types
 │   ├── logger.ts            # Pino logger factory
@@ -193,7 +194,7 @@ All loaded from `.env` in project root via `dotenv`. See `ENV_EXAMPLE.txt` for t
 ### Required
 | Variable | Purpose |
 |----------|---------|
-| `PRIVATE_KEY` | Main wallet private key (hex, with or without 0x prefix) |
+| `PRIVATE_KEY` | Main wallet private key (hex, with or without 0x prefix). **Not required** in hosted multi-tenant mode (`AUTH_MODE=oidc` + `STORAGE_BACKEND=sqlite`); tenants use encrypted keystores. |
 | `POLYMARKET_BUILDER_API_KEY` | Builder API key (get from polymarket.com/settings?tab=builder) |
 | `POLYMARKET_BUILDER_SECRET` | Builder API secret |
 | `POLYMARKET_BUILDER_PASSPHRASE` | Builder API passphrase |
@@ -204,7 +205,8 @@ All loaded from `.env` in project root via `dotenv`. See `ENV_EXAMPLE.txt` for t
 | `POLYMARKET_SIGNATURE_TYPE` | `0` | 0=EOA, 1=Magic Link, **2=Browser wallet + Proxy (CORRECT FOR THIS PROJECT)** |
 | `POLYMARKET_FUNDER_ADDRESS` | — | Proxy wallet address (required when sig type=2) |
 | `API_SECRET` | — | Bearer token for dashboard/API auth (leave empty = open) |
-| `STORAGE_BACKEND` | `json` | `json` or `sqlite` |
+| `STORAGE_BACKEND` | `json` | `json` or `sqlite` (hosted production must use `sqlite`) |
+| `AUTH_MODE` | `legacy` | `legacy` (Bearer/API_SECRET) or `oidc` (cookie session). With `oidc` + SQLite, **hosted multi-tenant** rules apply (`src/hostedMode.ts`). |
 | `PORT` | `3001` | Server port |
 | `MONITORING_INTERVAL_MS` | `5000` | Wallet poll interval (ms) |
 
@@ -239,6 +241,7 @@ This project uses a **MetaMask/Rabby EOA** with a **Polymarket proxy wallet**:
 ## 6. ARCHITECTURE & DATA FLOW
 
 ### Core copy-trading flow
+- **Hosted multi-tenant**: trades resolve **copy assignments** → **trading wallet IDs**; CLOB clients come from `clobClientFactory` per `(tenant, tradingWalletId)`. No server `.env` signer. Legacy single-user may still use one global wallet when no assignments exist.
 ```
 [Tracked Wallets on Polymarket]
        │

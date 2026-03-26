@@ -1,5 +1,6 @@
 import { Storage } from './storage.js';
 import { createComponentLogger } from './logger.js';
+import { getTenantIdOrDefault } from './tenantContext.js';
 
 const log = createComponentLogger('SmartStopLoss');
 
@@ -65,6 +66,7 @@ const DEFAULT_SL_CONFIG: StopLossConfig = {
 export class SmartStopLossManager {
   private orders: StopLossOrder[] = [];
   private config: StopLossConfig;
+  private tenantSync: string | null = null;
 
   constructor() {
     this.config = { ...DEFAULT_SL_CONFIG };
@@ -72,7 +74,16 @@ export class SmartStopLossManager {
 
   async init(): Promise<void> {
     await this.loadState();
+    this.tenantSync = getTenantIdOrDefault();
     log.info(`[StopLoss] Loaded ${this.orders.filter(o => o.isActive).length} active stop-loss order(s)`);
+  }
+
+  /** Reload stop-loss state from Storage for the current tenant (HTTP request isolation). */
+  async syncFromCurrentTenant(): Promise<void> {
+    const tid = getTenantIdOrDefault();
+    if (this.tenantSync === tid) return;
+    await this.loadState();
+    this.tenantSync = tid;
   }
 
   /**
@@ -251,6 +262,7 @@ export class SmartStopLossManager {
       cfg.stopLossConfig = this.config;
       cfg.stopLossOrders = this.orders;
       await Storage.saveConfig(cfg);
+      this.tenantSync = getTenantIdOrDefault();
     } catch (err: any) {
       log.error({ detail: err.message }, '[StopLoss] Failed to save')
     }

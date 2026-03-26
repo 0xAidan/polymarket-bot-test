@@ -1,5 +1,7 @@
+import path from 'path';
 import dotenv from 'dotenv';
 import { createComponentLogger } from './logger.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
 
 dotenv.config();
 
@@ -93,7 +95,17 @@ export const config = {
       }
     }
 
-    if (!this.privateKey) {
+    if (isHostedMultiTenantMode()) {
+      if (this.storageBackend !== 'sqlite') {
+        throw new Error('Hosted multi-tenant mode requires STORAGE_BACKEND=sqlite');
+      }
+      if (process.env.NODE_ENV === 'production' && !path.isAbsolute(this.dataDir)) {
+        throw new Error(
+          'Hosted production requires an absolute DATA_DIR (e.g. /opt/polymarket-bot/data) so data survives deploys and restarts.'
+        );
+      }
+      log.info('Hosted multi-tenant mode: server .env PRIVATE_KEY is not required; tenants use encrypted keystores.');
+    } else if (!this.privateKey) {
       log.error('Wallet not configured — private key is missing or invalid. Restart the bot to configure.');
       throw new Error('PRIVATE_KEY is required. Restart the bot to configure.');
     }

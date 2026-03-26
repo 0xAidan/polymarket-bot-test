@@ -823,6 +823,22 @@ export function dbSaveConfig(configData: Record<string, any>, tenantId = DEFAULT
   tx();
 }
 
+/**
+ * Distinct tenants that have persisted ladder or stop-loss state (for multi-tenant price monitor ticks).
+ */
+export function listTenantIdsWithLadderOrStopLossActivity(): string[] {
+  const database = getDatabase();
+  const rows = database.prepare(`
+    SELECT DISTINCT tenant_id FROM bot_config
+    WHERE key IN ('ladderExits', 'stopLossOrders')
+      AND value IS NOT NULL
+      AND value != ''
+      AND value != '[]'
+      AND value != 'null'
+  `).all() as { tenant_id: string }[];
+  return [...new Set(rows.map(r => r.tenant_id))];
+}
+
 // ============================================================================
 // EXECUTED POSITIONS
 // ============================================================================

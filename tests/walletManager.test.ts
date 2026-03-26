@@ -4,10 +4,12 @@ import { mkdtempSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { config } from '../src/config.js';
+import { closeDatabase } from '../src/database.js';
 import { lockAllWallets } from '../src/secureKeyManager.js';
 import { runWithTenant } from '../src/tenantContext.js';
 import {
   initWalletManager,
+  unlockWallets,
   addTradingWallet,
   removeTradingWallet,
   toggleTradingWallet,
@@ -30,11 +32,13 @@ describe('WalletManager', () => {
     tempDir = mkdtempSync(join(tmpdir(), 'wm-test-'));
     (config as any).dataDir = tempDir;
     (config as any).storageBackend = 'json';
+    (config as any).authMode = 'legacy';
     lockAllWallets();
     await initWalletManager();
   });
 
   afterEach(() => {
+    closeDatabase();
     lockAllWallets();
     if (existsSync(tempDir)) {
       rmSync(tempDir, { recursive: true, force: true });
@@ -179,5 +183,18 @@ describe('WalletManager', () => {
     assert.equal(tenantBWallets.length, 1);
     assert.equal(tenantAWallets[0].label, 'Tenant A Wallet');
     assert.equal(tenantBWallets[0].label, 'Tenant B Wallet');
+  });
+
+  it('hosted multitenant unlock does not migrate .env private key into trading wallets', async () => {
+    (config as any).storageBackend = 'sqlite';
+    (config as any).authMode = 'oidc';
+    (config as any).privateKey =
+      '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+
+    await initWalletManager();
+    const result = await unlockWallets('any-password');
+
+    assert.equal(result.migrated, false);
+    assert.equal(getTradingWallets().length, 0);
   });
 });

@@ -126,6 +126,8 @@ export interface TradeOrder {
   negRisk?: boolean;  // Negative risk flag
   positionKey?: string; // Stable identity for matching/debugging
   slippagePercent?: number;  // Per-wallet slippage override (default from storage if not set)
+  /** When set, execute via this tenant trading wallet (hosted / multi-wallet). */
+  tradingWalletId?: string;
 }
 
 /**
@@ -334,6 +336,10 @@ export interface TradingWallet {
   label: string;                 // User-friendly name
   address: string;               // EOA address (derived from private key)
   proxyAddress?: string;         // Polymarket proxy wallet address
+  /** Per-wallet override; defaults from POLYMARKET_SIGNATURE_TYPE in legacy mode */
+  polymarketSignatureType?: number;
+  /** Explicit Polymarket funder (proxy) — prefer proxyAddress when set */
+  polymarketFunderAddress?: string;
   isActive: boolean;             // Whether this wallet is enabled for trading
   createdAt: string;             // ISO timestamp
 

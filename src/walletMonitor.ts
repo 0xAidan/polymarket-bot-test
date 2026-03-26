@@ -326,8 +326,8 @@ export class WalletMonitor {
       }
 
       // FIXED: Use 'price' and 'size' fields from Polymarket API
-      let price = trade.price;
-      let amount = trade.size;
+      const price = trade.price;
+      const amount = trade.size;
 
       // Validate price
       const priceNum = parseFloat(price || '0');

@@ -12,6 +12,7 @@ import { DiscoveryManager } from './discovery/discoveryManager.js';
 import { DiscoveryControlPlane } from './discovery/discoveryControlPlane.js';
 import { createComponentLogger } from './logger.js';
 import { DEFAULT_TENANT_ID, enterWithTenant } from './tenantContext.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
 import {
   canUserAccessTenant,
   getUserMemberships,
@@ -74,11 +75,12 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 
   // ─── Auth status endpoint (always open, tells frontend auth mode/requirements) ───
   app.get('/api/auth/required', (_req, res) => {
+    const hostedMultiTenant = isHostedMultiTenantMode();
     if (config.authMode === 'oidc') {
-      res.json({ required: true, mode: 'oidc' });
+      res.json({ required: true, mode: 'oidc', hostedMultiTenant });
       return;
     }
-    res.json({ required: !!config.apiSecret, mode: 'legacy' });
+    res.json({ required: !!config.apiSecret, mode: 'legacy', hostedMultiTenant });
   });
 
   if (config.authMode === 'oidc') {
@@ -142,6 +144,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 
         res.json({
           success: true,
+          hostedMultiTenant: isHostedMultiTenantMode(),
           user: {
             id: user.id,
             email: user.email,

@@ -1,5 +1,5 @@
 import { TradingWallet, CopyAssignment } from './types.js';
-import { config } from './config.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
 import {
   addEncryptedWallet,
   removeEncryptedWallet,
@@ -285,9 +285,11 @@ export function getAssignmentsForTrackedWallet(trackedWalletAddress: string): Co
  */
 export async function unlockWallets(masterPassword: string): Promise<{ unlocked: string[]; migrated: boolean }> {
   const state = await ensureWalletConfigLoaded();
-  // First, try to migrate the .env private key if applicable
+  // First, try to migrate the .env private key if applicable (never in hosted multi-tenant mode)
   let migrated = false;
-  const migratedAddr = await migrateEnvPrivateKey(masterPassword);
+  const migratedAddr = isHostedMultiTenantMode()
+    ? null
+    : await migrateEnvPrivateKey(masterPassword);
   if (migratedAddr) {
     migrated = true;
     // Reload wallet config in case migration added the main wallet

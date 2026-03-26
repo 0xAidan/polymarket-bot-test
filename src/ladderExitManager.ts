@@ -1,5 +1,6 @@
 import { Storage } from './storage.js';
 import { createComponentLogger } from './logger.js';
+import { getTenantIdOrDefault } from './tenantContext.js';
 
 const log = createComponentLogger('LadderExitManager');
 
@@ -59,6 +60,8 @@ const DEFAULT_LADDER_CONFIG: LadderExitConfig = {
 export class LadderExitManager {
   private ladders: LadderExit[] = [];
   private config: LadderExitConfig;
+  /** Last tenant whose in-memory state matches Storage (multi-tenant API isolation). */
+  private tenantSync: string | null = null;
 
   constructor() {
     this.config = { ...DEFAULT_LADDER_CONFIG };
@@ -66,7 +69,18 @@ export class LadderExitManager {
 
   async init(): Promise<void> {
     await this.loadState();
+    this.tenantSync = getTenantIdOrDefault();
     log.info(`[LadderExit] Loaded ${this.ladders.length} active ladder(s)`);
+  }
+
+  /**
+   * Reload ladder state from Storage for the current AsyncLocalStorage tenant (HTTP request).
+   */
+  async syncFromCurrentTenant(): Promise<void> {
+    const tid = getTenantIdOrDefault();
+    if (this.tenantSync === tid) return;
+    await this.loadState();
+    this.tenantSync = tid;
   }
 
   /**
@@ -240,6 +254,7 @@ export class LadderExitManager {
       cfg.ladderExitConfig = this.config;
       cfg.ladderExits = this.ladders;
       await Storage.saveConfig(cfg);
+      this.tenantSync = getTenantIdOrDefault();
     } catch (err: any) {
       log.error({ detail: err.message }, '[LadderExit] Failed to save')
     }

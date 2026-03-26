@@ -15,6 +15,7 @@ import {
   getUnlockedWalletIds,
   listStoredWalletIds,
   lockAllWallets,
+  migrateEnvPrivateKey,
 } from '../src/secureKeyManager.js';
 
 // Test private key (DO NOT use in production — this is a well-known test key)
@@ -24,14 +25,24 @@ const TEST_ADDRESS = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 let tempDir: string;
 
 describe('SecureKeyManager', () => {
+  let savedAuthMode: string;
+  let savedStorage: string;
+  let savedPrivateKey: string | undefined;
+
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'keys-test-'));
     (config as any).dataDir = tempDir;
+    savedAuthMode = config.authMode;
+    savedStorage = config.storageBackend;
+    savedPrivateKey = config.privateKey;
     lockAllWallets();
   });
 
   afterEach(() => {
     lockAllWallets();
+    (config as any).authMode = savedAuthMode;
+    (config as any).storageBackend = savedStorage;
+    (config as any).privateKey = savedPrivateKey;
     if (existsSync(tempDir)) {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -145,5 +156,29 @@ describe('SecureKeyManager', () => {
 
     assert.deepEqual(tenantAIds, ['main']);
     assert.deepEqual(tenantBIds, ['main']);
+  });
+
+  it('migrateEnvPrivateKey does nothing in hosted multi-tenant mode', async () => {
+    (config as any).authMode = 'oidc';
+    (config as any).storageBackend = 'sqlite';
+    (config as any).privateKey = TEST_PRIVATE_KEY;
+
+    const migrated = await migrateEnvPrivateKey('secret');
+    assert.equal(migrated, null);
+
+    const ids = await listStoredWalletIds();
+    assert.deepEqual(ids, []);
+  });
+
+  it('migrateEnvPrivateKey imports .env private key as main in legacy mode', async () => {
+    (config as any).authMode = 'legacy';
+    (config as any).storageBackend = 'json';
+    (config as any).privateKey = TEST_PRIVATE_KEY;
+
+    const addr = await migrateEnvPrivateKey('secret');
+    assert.equal(addr, TEST_ADDRESS);
+
+    const ids = await listStoredWalletIds();
+    assert.ok(ids.includes('main'));
   });
 });

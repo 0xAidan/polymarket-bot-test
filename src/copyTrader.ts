@@ -7,7 +7,14 @@ import { DetectedTrade, TradeOrder, TradeResult, RateLimitState, TradeSideFilter
 import { decidePendingOrderReconciliation } from './noRepeatReconciliation.js';
 import { Storage } from './storage.js';
 import { config } from './config.js';
-import { initWalletManager } from './walletManager.js';
+import {
+  initWalletManager,
+  getAssignmentsForTrackedWallet,
+  getTradingWallets,
+  getTradingWallet,
+  getActiveTradingWallets,
+} from './walletManager.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
 import { assertTradeCanExecuteForWallet } from './walletConfigSafety.js';
 import { buildPositionKey, normalizeOutcomeLabel } from './tradeIdentity.js';
 import {
@@ -62,13 +69,17 @@ export class CopyTrader {
       // Initialize multi-wallet manager
       await initWalletManager();
       
-      // Record initial balance for user wallet only (not tracked wallets to reduce RPC calls)
       const userWallet = this.getWalletAddress();
-      if (userWallet) {
+      const initialAddrs = userWallet
+        ? [userWallet]
+        : isHostedMultiTenantMode()
+          ? getActiveTradingWallets().map(w => w.address)
+          : [];
+      for (const addr of initialAddrs) {
         try {
-          await this.balanceTracker.recordBalance(userWallet);
+          await this.balanceTracker.recordBalance(addr);
         } catch (error: any) {
-          log.warn({ detail: error.message }, `Failed to record initial balance for ${userWallet}`)
+          log.warn({ detail: error.message }, `Failed to record initial balance for ${addr}`)
         }
       }
       
@@ -125,10 +136,14 @@ export class CopyTrader {
     });
     log.info('✅ Polling monitoring active');
 
-    // Start balance tracking for user wallet only (reduces RPC calls significantly)
+    // Start balance tracking for user wallet(s) (reduces RPC calls significantly)
     const userWallet = this.getWalletAddress();
-    if (userWallet) {
-      await this.balanceTracker.startTracking([userWallet]);
+    const hostedAddrs = isHostedMultiTenantMode()
+      ? getActiveTradingWallets().map(w => w.address)
+      : [];
+    const toTrack = userWallet ? [userWallet] : hostedAddrs;
+    if (toTrack.length > 0) {
+      await this.balanceTracker.startTracking(toTrack);
     }
 
     log.info('\n' + '='.repeat(60));
@@ -245,16 +260,20 @@ export class CopyTrader {
       return;
     }
     
-    // Also check if this is the user's own wallet (should not be tracked)
+    // Also check if this is one of our trading wallets (should not be tracked)
+    const ourTradingAddrs = getTradingWallets().map(w => w.address.toLowerCase());
     const userWallet = this.getWalletAddress();
-    if (userWallet && userWallet.toLowerCase() === tradeWalletLower) {
+    if (
+      ourTradingAddrs.includes(tradeWalletLower) ||
+      (userWallet && userWallet.toLowerCase() === tradeWalletLower)
+    ) {
       log.error(`\n❌ [CopyTrader] SECURITY: Trade detected from YOUR OWN wallet!`);
       log.error(`   Your wallet should not be in the tracked wallets list.`);
       log.error(`   This trade will NOT be executed.`);
       await this.performanceTracker.logIssue(
         'error',
         'other',
-        `Trade detected from user's own wallet (should not be tracked): ${userWallet.substring(0, 8)}...`,
+        `Trade detected from user's own wallet (should not be tracked): ${trade.walletAddress.substring(0, 8)}...`,
         { trade }
       );
       return;
@@ -278,7 +297,18 @@ export class CopyTrader {
       outcome: trade.outcome,
     });
     const tenantKey = trade.tenantId || 'default';
-    const compoundKey = `${tenantKey}:${trade.walletAddress.toLowerCase()}-${positionKey}-${trade.side}-${timeWindow}`;
+
+    const assignments = getAssignmentsForTrackedWallet(trade.walletAddress);
+    let executionTargets: { tradingWalletId?: string }[];
+    if (isHostedMultiTenantMode()) {
+      executionTargets = assignments.map(a => ({ tradingWalletId: a.tradingWalletId }));
+    } else if (assignments.length === 0) {
+      executionTargets = [{ tradingWalletId: undefined }];
+    } else {
+      executionTargets = assignments.map(a => ({ tradingWalletId: a.tradingWalletId }));
+    }
+    const execSuffix = executionTargets.map(t => t.tradingWalletId ?? 'env').sort().join('+');
+    const compoundKey = `${tenantKey}:${trade.walletAddress.toLowerCase()}-${positionKey}-${trade.side}-${timeWindow}-${execSuffix}`;
     
     // Also track by transaction hash for exact duplicates
     const tradeKey = `${tenantKey}:${trade.transactionHash}`;
@@ -362,6 +392,26 @@ export class CopyTrader {
         error.message,
         { trade }
       );
+      return;
+    }
+
+    if (isHostedMultiTenantMode() && executionTargets.length === 0) {
+      log.info('[CopyTrader] Hosted mode: no copy assignment for this tracked wallet — skipping');
+      await this.performanceTracker.recordTrade({
+        timestamp: new Date(),
+        walletAddress: trade.walletAddress,
+        marketId: trade.marketId,
+        marketTitle: trade.marketTitle,
+        outcome: trade.outcome,
+        amount: trade.amount,
+        price: trade.price,
+        success: false,
+        status: 'rejected',
+        executionTimeMs: 0,
+        error: 'No copy assignment: link a trading wallet to this tracked wallet in the dashboard',
+        detectedTxHash: trade.transactionHash,
+        tokenId: trade.tokenId,
+      });
       return;
     }
     
@@ -493,87 +543,41 @@ export class CopyTrader {
     }
 
     // ============================================================
-    // NO-REPEAT-TRADES FILTER (ALWAYS ACTIVE)
+    // PENDING NO-REPEAT RECONCILIATION (once per detection)
     // ============================================================
-    // ALWAYS check if we've already traded this market+outcome, regardless of per-wallet
-    // noRepeatEnabled setting. This provides two levels of protection:
-    //  - noRepeatEnabled=true: Uses configured blockPeriod (forever, 24h, etc.)
-    //  - noRepeatEnabled=false/undefined: Uses 5-minute safety minimum to catch
-      //    rapid-fire duplicates from bot restarts and concurrent monitor events.
-    // FAIL-SAFE: If the storage read fails, BLOCK the trade rather than allowing it.
-    {
-      const SAFETY_MINIMUM_HOURS = 5 / 60; // 5 minutes
-      const blockPeriod = trade.noRepeatEnabled
-        ? (trade.noRepeatPeriodHours ?? 24)
-        : SAFETY_MINIMUM_HOURS;
-      try {
-        await this.reconcilePendingNoRepeatBlock(trade);
-
-        const isBlocked = await Storage.isPositionBlocked(
-          trade.marketId,
-          trade.outcome,
-          blockPeriod,
-          positionKey,
-        );
-        
-        if (isBlocked) {
-          const periodLabel = blockPeriod === 0 ? 'forever' : blockPeriod < 1 ? `${Math.round(blockPeriod * 60)}min` : `${blockPeriod}h`;
-          log.info(`\n⏭️  [CopyTrader] FILTERED - No-repeat-trades (already have position)`);
-          log.info(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
-          log.info(`   Market: ${trade.marketId}`);
-          log.info(`   Side: ${trade.side} | Outcome: ${trade.outcome}`);
-          log.info(`   Block period: ${periodLabel}${!trade.noRepeatEnabled ? ' (global safety minimum)' : ''}`);
-          log.info(`   💡 You already have a ${trade.outcome} position in this market. Skipping repeat trade.\n`);
-          
-          await this.performanceTracker.recordTrade({
-            timestamp: new Date(),
-            walletAddress: trade.walletAddress,
-            marketId: trade.marketId,
-            marketTitle: trade.marketTitle,
-            outcome: trade.outcome,
-            amount: trade.amount,
-            price: trade.price,
-            success: false,
-            status: 'rejected',
-            executionTimeMs: 0,
-            error: `No-repeat-trades: Already have ${trade.outcome} position in this market (blocked ${periodLabel})`,
-            detectedTxHash: trade.transactionHash,
-            tokenId: trade.tokenId
-          });
-          
-          return;
-        }
-      } catch (noRepeatError: any) {
-        log.error(`[CopyTrader] No-repeat check FAILED — BLOCKING trade for safety: ${noRepeatError.message}`);
-        await this.performanceTracker.recordTrade({
-          timestamp: new Date(),
+    // Per-execution-wallet no-repeat checks run inside the execution loop below.
+    try {
+      await this.reconcilePendingNoRepeatBlock(trade);
+    } catch (noRepeatError: any) {
+      log.error(`[CopyTrader] No-repeat reconcile FAILED — BLOCKING trade for safety: ${noRepeatError.message}`);
+      await this.performanceTracker.recordTrade({
+        timestamp: new Date(),
+        walletAddress: trade.walletAddress,
+        marketId: trade.marketId,
+        marketTitle: trade.marketTitle,
+        outcome: trade.outcome,
+        amount: trade.amount,
+        price: trade.price,
+        success: false,
+        status: 'rejected',
+        executionTimeMs: 0,
+        error: `[NO_REPEAT_CHECK_FAILED] ${noRepeatError.message}`,
+        detectedTxHash: trade.transactionHash,
+        tokenId: trade.tokenId,
+      });
+      await this.performanceTracker.logIssue(
+        'warning',
+        'trade_execution',
+        `[NO_REPEAT_CHECK_FAILED] Trade blocked for safety`,
+        {
           walletAddress: trade.walletAddress,
           marketId: trade.marketId,
-          marketTitle: trade.marketTitle,
           outcome: trade.outcome,
-          amount: trade.amount,
-          price: trade.price,
-          success: false,
-          status: 'rejected',
-          executionTimeMs: 0,
-          error: `[NO_REPEAT_CHECK_FAILED] ${noRepeatError.message}`,
-          detectedTxHash: trade.transactionHash,
-          tokenId: trade.tokenId,
-        });
-        await this.performanceTracker.logIssue(
-          'warning',
-          'trade_execution',
-          `[NO_REPEAT_CHECK_FAILED] Trade blocked for safety`,
-          {
-            walletAddress: trade.walletAddress,
-            marketId: trade.marketId,
-            outcome: trade.outcome,
-            side: trade.side,
-            error: noRepeatError.message,
-          }
-        );
-        return;
-      }
+          side: trade.side,
+          error: noRepeatError.message,
+        }
+      );
+      return;
     }
 
     // ============================================================
@@ -752,6 +756,7 @@ export class CopyTrader {
     }
 
     const executionStart = Date.now();
+    const sizingTwId = executionTargets[0]?.tradingWalletId;
 
     try {
       // ============================================================
@@ -784,7 +789,7 @@ export class CopyTrader {
         // Get OUR USDC balance from Polymarket CLOB API (our tradable funds)
         let ourBalance = 0;
         try {
-          const clobClient = this.executor.getClobClient();
+          const clobClient = await this.getSizingClobClient(sizingTwId);
           ourBalance = await clobClient.getUsdcBalance();
           log.info(`[Trade] Our Polymarket USDC balance: $${ourBalance.toFixed(2)}`);
         } catch (balanceError: any) {
@@ -921,7 +926,7 @@ export class CopyTrader {
       // We cap order size to spendable collateral to avoid avoidable CLOB 400 failures.
       if (trade.side === 'BUY') {
         try {
-          const clobClient = this.executor.getClobClient();
+          const clobClient = await this.getSizingClobClient(sizingTwId);
           const collateral = await clobClient.getCollateralStatus();
           const reserveUsdc = 0.5; // Keep a tiny reserve to avoid edge-case precision rejections.
           const maxSpendableUsdc = Math.max(0, collateral.spendableUsdc - reserveUsdc);
@@ -981,7 +986,7 @@ export class CopyTrader {
       if (trade.tokenId) {
         try {
           // Use the CLOB client to get the market's actual minimum
-          const clobClient = this.executor.getClobClient();
+          const clobClient = await this.getSizingClobClient(sizingTwId);
           if (clobClient && typeof clobClient.getMinOrderSize === 'function') {
             marketMinShares = await clobClient.getMinOrderSize(trade.tokenId);
           }
@@ -1019,110 +1024,175 @@ export class CopyTrader {
         return;
       }
       
-      // ============================================================
-      // SELL ORDER - CHECK IF WE OWN SHARES
-      // ============================================================
-      let finalSharesAmount = finalCalculatedShares;
-      
-      if (trade.side === 'SELL') {
-        log.info(`\n🔍 [CopyTrader] SELL ORDER - Checking if we own shares...`);
-        
-        // Get user's positions to check if we own this token
-        const sellUserWallet = this.getWalletAddress();
-        if (!sellUserWallet) {
-          log.info(`⏭️  [CopyTrader] SKIPPING SELL - Cannot determine user wallet`);
-          return;
-        }
-        
-        // Get proxy wallet for positions lookup
-        const proxyWallet = await this.getProxyWalletAddress();
-        const walletToCheck = proxyWallet || sellUserWallet;
-        
+      const SAFETY_MINIMUM_HOURS_NR = 5 / 60;
+
+      for (const target of executionTargets) {
+        const nrKey = `${positionKey}::exec:${target.tradingWalletId ?? 'legacy'}`;
+        const blockPeriod = trade.noRepeatEnabled
+          ? (trade.noRepeatPeriodHours ?? 24)
+          : SAFETY_MINIMUM_HOURS_NR;
+
         try {
-          const userPositions = await this.monitor.getApi().getUserPositions(walletToCheck);
-          
-          // Find position matching this tokenId
-          const matchingPosition = userPositions.find((pos: any) => {
-            // Match by asset (tokenId) - this is the unique identifier
-            return pos.asset === trade.tokenId;
+          const isBlocked = await Storage.isPositionBlocked(
+            trade.marketId,
+            trade.outcome,
+            blockPeriod,
+            nrKey,
+          );
+          if (isBlocked) {
+            const periodLabel =
+              blockPeriod === 0
+                ? 'forever'
+                : blockPeriod < 1
+                  ? `${Math.round(blockPeriod * 60)}min`
+                  : `${blockPeriod}h`;
+            log.info(
+              `⏭️  [CopyTrader] No-repeat (${target.tradingWalletId ?? 'legacy'}): skip — ${trade.marketId} ${trade.outcome} (${periodLabel})`,
+            );
+            await this.performanceTracker.recordTrade({
+              timestamp: new Date(),
+              walletAddress: trade.walletAddress,
+              marketId: trade.marketId,
+              marketTitle: trade.marketTitle,
+              outcome: trade.outcome,
+              amount: trade.amount,
+              price: trade.price,
+              success: false,
+              status: 'rejected',
+              executionTimeMs: 0,
+              error: `No-repeat-trades: Already have ${trade.outcome} for this execution wallet (blocked ${periodLabel})`,
+              detectedTxHash: trade.transactionHash,
+              tokenId: trade.tokenId,
+            });
+            continue;
+          }
+        } catch (noRepeatError: any) {
+          log.error(`[CopyTrader] No-repeat check FAILED — skipping target: ${noRepeatError.message}`);
+          await this.performanceTracker.recordTrade({
+            timestamp: new Date(),
+            walletAddress: trade.walletAddress,
+            marketId: trade.marketId,
+            marketTitle: trade.marketTitle,
+            outcome: trade.outcome,
+            amount: trade.amount,
+            price: trade.price,
+            success: false,
+            status: 'rejected',
+            executionTimeMs: 0,
+            error: `[NO_REPEAT_CHECK_FAILED] ${noRepeatError.message}`,
+            detectedTxHash: trade.transactionHash,
+            tokenId: trade.tokenId,
           });
-          
-          if (!matchingPosition || parseFloat(matchingPosition.size || '0') <= 0) {
-            log.info(`\n⏭️  [CopyTrader] SKIPPING SELL ORDER - No shares owned`);
-            log.info(`   Token ID: ${trade.tokenId?.substring(0, 20)}...`);
-            log.info(`   Market: ${trade.marketId}`);
-            log.info(`   Outcome: ${trade.outcome}`);
-            log.info(`   You don't own any shares of this position to sell.\n`);
-            // Don't log as error - this is expected behavior
-            return;
+          continue;
+        }
+
+        // ============================================================
+        // SELL ORDER - CHECK IF WE OWN SHARES
+        // ============================================================
+        let finalSharesAmount = finalCalculatedShares;
+
+        if (trade.side === 'SELL') {
+          log.info(`\n🔍 [CopyTrader] SELL ORDER - Checking if we own shares...`);
+
+          let sellUserWallet: string | null = null;
+          let walletToCheck: string;
+
+          if (target.tradingWalletId) {
+            const tw = getTradingWallet(target.tradingWalletId);
+            if (!tw) {
+              log.info(`⏭️  [CopyTrader] SKIPPING SELL - Unknown trading wallet ${target.tradingWalletId}`);
+              continue;
+            }
+            sellUserWallet = tw.address;
+            const proxyWallet =
+              tw.proxyAddress || (await this.monitor.getApi().getProxyWalletAddress(tw.address));
+            walletToCheck = proxyWallet || tw.address;
+          } else {
+            sellUserWallet = this.getWalletAddress();
+            if (!sellUserWallet) {
+              log.info(`⏭️  [CopyTrader] SKIPPING SELL - Cannot determine user wallet`);
+              continue;
+            }
+            const proxyWallet = await this.getProxyWalletAddress();
+            walletToCheck = proxyWallet || sellUserWallet;
           }
-          
-          const ownedShares = parseFloat(matchingPosition.size);
-          log.info(`   ✓ Found position! You own ${ownedShares.toFixed(2)} shares`);
-          
-          // Limit sell to owned shares (can't sell more than we have)
-          if (finalSharesAmount > ownedShares) {
-            log.info(`   ⚠️  Adjusting sell amount: ${finalSharesAmount} → ${ownedShares.toFixed(2)} (can't sell more than owned)`);
-            finalSharesAmount = parseFloat(ownedShares.toFixed(2));
+
+          try {
+            const userPositions = await this.monitor.getApi().getUserPositions(walletToCheck);
+
+            const matchingPosition = userPositions.find((pos: any) => pos.asset === trade.tokenId);
+
+            if (!matchingPosition || parseFloat(matchingPosition.size || '0') <= 0) {
+              log.info(`\n⏭️  [CopyTrader] SKIPPING SELL ORDER - No shares owned (wallet ${target.tradingWalletId ?? 'env'})`);
+              continue;
+            }
+
+            const ownedShares = parseFloat(matchingPosition.size);
+            log.info(`   ✓ Found position! You own ${ownedShares.toFixed(2)} shares`);
+
+            if (finalSharesAmount > ownedShares) {
+              log.info(
+                `   ⚠️  Adjusting sell amount: ${finalSharesAmount} → ${ownedShares.toFixed(2)} (can't sell more than owned)`,
+              );
+              finalSharesAmount = parseFloat(ownedShares.toFixed(2));
+            }
+
+            log.info(`   ✓ Proceeding to sell ${finalSharesAmount} shares\n`);
+          } catch (positionError: any) {
+            log.error({ err: positionError.message }, `❌ [CopyTrader] Failed to check positions`);
+            log.info(`⏭️  [CopyTrader] SKIPPING SELL - Cannot verify share ownership\n`);
+            continue;
           }
-          
-          log.info(`   ✓ Proceeding to sell ${finalSharesAmount} shares\n`);
-          
-        } catch (positionError: any) {
-          log.error({ err: positionError.message }, `❌ [CopyTrader] Failed to check positions`);
-          log.info(`⏭️  [CopyTrader] SKIPPING SELL - Cannot verify share ownership\n`);
+        }
+
+        const sharesAmountStr = finalSharesAmount.toFixed(2);
+
+        const order: TradeOrder = {
+          marketId: trade.marketId,
+          outcome: trade.outcome,
+          amount: sharesAmountStr,
+          price: trade.price,
+          side: trade.side,
+          tokenId: trade.tokenId,
+          negRisk: trade.negRisk,
+          positionKey: nrKey,
+          slippagePercent: trade.slippagePercent,
+          tradingWalletId: target.tradingWalletId,
+        };
+
+        logTradeRegressionDebug('copy-trader.execution-input', {
+          source: 'copy-trader',
+          detectedTrade: summarizeDetectedTradeForDebug(trade),
+          order: {
+            marketId: order.marketId,
+            outcome: order.outcome,
+            amount: order.amount,
+            price: order.price,
+            side: order.side,
+            tokenId: order.tokenId,
+            negRisk: order.negRisk,
+            slippagePercent: order.slippagePercent,
+            tradingWalletId: order.tradingWalletId,
+          },
+        });
+
+        log.info(`\n🚀 [Execute] EXECUTING TRADE (${target.tradingWalletId ?? 'legacy env wallet'}):`);
+        log.info(`   Action: ${order.side}`);
+        log.info(`   Amount: $${tradeSizeUsdcNum.toFixed(2)} USDC (${order.amount} shares)`);
+        log.info(`   Market: ${order.marketId}`);
+        log.info(`   Outcome: ${order.outcome}`);
+        log.info(`   Price: ${order.price}`);
+        log.info(`   Time: ${new Date().toISOString()}`);
+
+        const baselinePositionSize = await this.getCurrentPositionSize(trade, target.tradingWalletId);
+
+        if (!this.isRunning) {
+          log.info('[CopyTrader] Trade execution aborted because the bot was stopped during pre-flight checks');
           return;
         }
-      }
-      
-      const sharesAmountStr = finalSharesAmount.toFixed(2);
-      
-      // Convert detected trade to trade order
-      const order: TradeOrder = {
-        marketId: trade.marketId,
-        outcome: trade.outcome,
-        amount: sharesAmountStr, // Calculated shares from USDC trade size
-        price: trade.price,
-        side: trade.side, // Use the side detected from the tracked wallet's trade
-        tokenId: trade.tokenId,    // Pass token ID for direct CLOB execution (bypasses Gamma API)
-        negRisk: trade.negRisk,    // Pass negative risk flag
-        positionKey,
-        slippagePercent: trade.slippagePercent,  // Per-wallet slippage (executor falls back to storage)
-      };
 
-      logTradeRegressionDebug('copy-trader.execution-input', {
-        source: 'copy-trader',
-        detectedTrade: summarizeDetectedTradeForDebug(trade),
-        order: {
-          marketId: order.marketId,
-          outcome: order.outcome,
-          amount: order.amount,
-          price: order.price,
-          side: order.side,
-          tokenId: order.tokenId,
-          negRisk: order.negRisk,
-          slippagePercent: order.slippagePercent,
-        },
-      });
-
-      log.info(`\n🚀 [Execute] EXECUTING TRADE:`);
-      log.info(`   Action: ${order.side}`);
-      log.info(`   Amount: $${tradeSizeUsdcNum.toFixed(2)} USDC (${order.amount} shares)`);
-      log.info(`   Market: ${order.marketId}`);
-      log.info(`   Outcome: ${order.outcome}`);
-      log.info(`   Price: ${order.price}`);
-      log.info(`   Time: ${new Date().toISOString()}`);
-
-      const baselinePositionSize = await this.getCurrentPositionSize(trade);
-
-      if (!this.isRunning) {
-        log.info('[CopyTrader] Trade execution aborted because the bot was stopped during pre-flight checks');
-        return;
-      }
-      
-      // Execute the trade
-      const result: TradeResult = await this.executor.executeTrade(order);
-      const executionTime = Date.now() - executionStart;
+        const result: TradeResult = await this.executor.executeTrade(order);
+        const executionTime = Date.now() - executionStart;
       
       // Record metrics
       // NOTE: result.success is now only true if order was actually executed (not just placed)
@@ -1166,7 +1236,7 @@ export class CopyTrader {
           await Storage.addExecutedPosition(trade.marketId, trade.outcome, trade.walletAddress, {
             orderId: result.orderId,
             tokenId: order.tokenId,
-            positionKey,
+            positionKey: nrKey,
           });
           console.log(`[CopyTrader] Recorded position for no-repeat-trades: ${trade.marketId} ${trade.outcome}`);
         } catch (recordError: any) {
@@ -1209,7 +1279,7 @@ export class CopyTrader {
             order.tokenId,
             baselinePositionSize,
             trade.side,
-            positionKey,
+            nrKey,
           );
           log.info(`[CopyTrader] Recorded pending no-repeat block: ${trade.marketId} ${trade.outcome} (order ${result.orderId})`);
         } catch (recordError: any) {
@@ -1259,6 +1329,7 @@ export class CopyTrader {
             { trade, executionTimeMs: executionTime }
           );
         }
+      }
       }
     } catch (error: any) {
       const executionTime = Date.now() - executionStart;
@@ -1348,14 +1419,28 @@ export class CopyTrader {
       return;
     }
 
-    const openOrders = await this.executor.getClobClient().getOpenOrders();
+    const activeTrading = getActiveTradingWallets();
+    const probeWalletId = activeTrading[0]?.id;
+    let clobForProbe: import('./clobClient.js').PolymarketClobClient;
+    if (isHostedMultiTenantMode() && !config.privateKey) {
+      if (!probeWalletId) {
+        log.warn('[CopyTrader] reconcile: no active trading wallet — skipping open-order probe');
+        return;
+      }
+      clobForProbe = await this.executor.getClobClientForTradingWalletId(probeWalletId);
+    } else {
+      clobForProbe = this.executor.getClobClient();
+      await clobForProbe.initialize();
+    }
+
+    const openOrders = await clobForProbe.getOpenOrders();
     const openOrderIds = new Set(
       openOrders
         .map(order => order?.orderID ?? order?.orderId ?? order?.id)
         .filter((orderId): orderId is string => typeof orderId === 'string' && orderId.length > 0)
     );
 
-    const currentPositionSize = await this.getCurrentPositionSize(trade);
+    const currentPositionSize = await this.getCurrentPositionSize(trade, probeWalletId);
 
     let promotedPendingBlock = false;
     let clearedPendingBlock = false;
@@ -1388,7 +1473,7 @@ export class CopyTrader {
         const missingChecks = await Storage.incrementPendingPositionMissingOrderChecks(pendingBlock.orderId);
         console.log(`[CopyTrader] Pending no-repeat block missing from open orders for ${trade.marketId} ${trade.outcome}; confirming with a fresh snapshot`);
 
-        const confirmedOpenOrders = await this.executor.getClobClient().getOpenOrders();
+        const confirmedOpenOrders = await clobForProbe.getOpenOrders();
         const confirmedOpenOrderIds = new Set(
           confirmedOpenOrders
             .map(order => order?.orderID ?? order?.orderId ?? order?.id)
@@ -1444,11 +1529,39 @@ export class CopyTrader {
     }
   }
 
-  private async getCurrentPositionSize(trade: DetectedTrade): Promise<number> {
-    const positionsWallet =
-      this.executor.getFunderAddress() ||
-      (await this.getProxyWalletAddress()) ||
-      this.getWalletAddress();
+  /**
+   * CLOB client for balance / min-size when sizing trades (first assigned trading wallet in hosted mode).
+   */
+  private async getSizingClobClient(primaryTradingWalletId?: string): Promise<import('./clobClient.js').PolymarketClobClient> {
+    if (primaryTradingWalletId) {
+      try {
+        return await this.executor.getClobClientForTradingWalletId(primaryTradingWalletId);
+      } catch (e: any) {
+        log.warn(`[CopyTrader] Could not open tenant CLOB for sizing (${primaryTradingWalletId}): ${e.message}`);
+      }
+    }
+    return this.executor.getClobClient();
+  }
+
+  private async getCurrentPositionSize(trade: DetectedTrade, tradingWalletId?: string): Promise<number> {
+    let positionsWallet: string | null = null;
+
+    if (tradingWalletId) {
+      const tw = getTradingWallet(tradingWalletId);
+      if (!tw) {
+        throw new Error(`Trading wallet "${tradingWalletId}" not found`);
+      }
+      const api = this.monitor.getApi();
+      positionsWallet =
+        tw.proxyAddress ||
+        (await api.getProxyWalletAddress(tw.address)) ||
+        tw.address;
+    } else {
+      positionsWallet =
+        this.executor.getFunderAddress() ||
+        (await this.getProxyWalletAddress()) ||
+        this.getWalletAddress();
+    }
 
     if (!positionsWallet) {
       throw new Error('Could not determine trading wallet for position reconciliation');
