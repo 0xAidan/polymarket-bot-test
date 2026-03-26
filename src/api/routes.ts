@@ -300,7 +300,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.post('/wallets/unlock', async (req: Request, res: Response) => {
     try {
       const { masterPassword } = req.body;
-      if (!masterPassword) {
+      if (!isHostedMultiTenantMode() && !masterPassword) {
         return res.status(400).json({ success: false, error: 'masterPassword is required' });
       }
       const result = await unlockWallets(masterPassword);
@@ -334,10 +334,16 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.post('/trading-wallets', async (req: Request, res: Response) => {
     try {
       const { id, label, privateKey, masterPassword, apiKey, apiSecret, apiPassphrase } = req.body;
-      if (!id || !label || !privateKey || !masterPassword) {
+      if (!id || !label || !privateKey) {
         return res.status(400).json({
           success: false,
-          error: 'id, label, privateKey, and masterPassword are required'
+          error: 'id, label, and privateKey are required'
+        });
+      }
+      if (!isHostedMultiTenantMode() && !masterPassword) {
+        return res.status(400).json({
+          success: false,
+          error: 'masterPassword is required'
         });
       }
 
@@ -358,10 +364,16 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.patch('/trading-wallets/:id/credentials', async (req: Request, res: Response) => {
     try {
       const { apiKey, apiSecret, apiPassphrase, masterPassword } = req.body;
-      if (!apiKey || !apiSecret || !apiPassphrase || !masterPassword) {
+      if (!apiKey || !apiSecret || !apiPassphrase) {
         return res.status(400).json({
           success: false,
-          error: 'apiKey, apiSecret, apiPassphrase, and masterPassword are required'
+          error: 'apiKey, apiSecret, and apiPassphrase are required'
+        });
+      }
+      if (!isHostedMultiTenantMode() && !masterPassword) {
+        return res.status(400).json({
+          success: false,
+          error: 'masterPassword is required'
         });
       }
       const wallet = await updateWalletBuilderCredentials(

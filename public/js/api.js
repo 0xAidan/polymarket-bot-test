@@ -380,11 +380,19 @@ const API = {
   },
 
   async addTradingWallet(id, label, privateKey, masterPassword, apiKey, apiSecret, apiPassphrase) {
-    return this.post('/trading-wallets', { id, label, privateKey, masterPassword, apiKey, apiSecret, apiPassphrase });
+    const payload = { id, label, privateKey, apiKey, apiSecret, apiPassphrase };
+    if (masterPassword) {
+      payload.masterPassword = masterPassword;
+    }
+    return this.post('/trading-wallets', payload);
   },
 
   async updateTradingWalletCredentials(id, apiKey, apiSecret, apiPassphrase, masterPassword) {
-    return this.patch(`/trading-wallets/${id}/credentials`, { apiKey, apiSecret, apiPassphrase, masterPassword });
+    const payload = { apiKey, apiSecret, apiPassphrase };
+    if (masterPassword) {
+      payload.masterPassword = masterPassword;
+    }
+    return this.patch(`/trading-wallets/${id}/credentials`, payload);
   },
 
   async removeTradingWallet(id) {

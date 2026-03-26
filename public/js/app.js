@@ -1152,9 +1152,14 @@ async function loadFailedTrades() {
 // ============================================================
 
 let masterPassword = '';
+const usesHostedWalletAccess = () => window.__hostedMultiTenant === true;
 
 // Enter key handlers for password fields
 document.addEventListener('DOMContentLoaded', () => {
+  if (usesHostedWalletAccess()) {
+    return;
+  }
+
   // Returning user: Enter on password field triggers unlock
   const existingPwInput = document.getElementById('masterPasswordInput');
   if (existingPwInput) {
@@ -1185,13 +1190,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function checkLockStatus() {
   try {
+    if (usesHostedWalletAccess()) {
+      document.getElementById('unlockSection').classList.add('hidden');
+      document.getElementById('tradingWalletsSection').classList.remove('hidden');
+      await loadTradingWallets();
+      return;
+    }
+
     const data = await API.getLockStatus();
     if (data.unlocked) {
       document.getElementById('unlockSection').classList.add('hidden');
       document.getElementById('tradingWalletsSection').classList.remove('hidden');
-      loadTradingWallets();
+      await loadTradingWallets();
     } else {
       // Show the right messaging based on whether wallets exist
+      document.getElementById('unlockSection').classList.remove('hidden');
+      document.getElementById('tradingWalletsSection').classList.add('hidden');
       const isFirstTime = (data.storedWalletCount || 0) === 0;
       document.getElementById('unlockFirstTime').classList.toggle('hidden', !isFirstTime);
       document.getElementById('unlockReturning').classList.toggle('hidden', isFirstTime);
@@ -1351,9 +1365,10 @@ async function addNewTradingWallet() {
   const apiKey = document.getElementById('newTradingWalletApiKey').value.trim();
   const apiSecret = document.getElementById('newTradingWalletApiSecret').value.trim();
   const apiPassphrase = document.getElementById('newTradingWalletApiPassphrase').value.trim();
+  const passwordForRequest = usesHostedWalletAccess() ? undefined : masterPassword;
 
   if (!id || !label || !pk) { await win95Dialog.alert('Wallet ID, Label, and Private Key are required'); return; }
-  if (!masterPassword) { await win95Dialog.alert('Wallets must be unlocked first'); return; }
+  if (!usesHostedWalletAccess() && !masterPassword) { await win95Dialog.alert('Wallets must be unlocked first'); return; }
 
   if (!apiKey || !apiSecret || !apiPassphrase) {
     const proceed = await win95Dialog.confirm(
@@ -1366,7 +1381,7 @@ async function addNewTradingWallet() {
   }
 
   try {
-    await API.addTradingWallet(id, label, pk, masterPassword, apiKey, apiSecret, apiPassphrase);
+    await API.addTradingWallet(id, label, pk, passwordForRequest, apiKey, apiSecret, apiPassphrase);
     document.getElementById('newTradingWalletId').value = '';
     document.getElementById('newTradingWalletLabel').value = '';
     document.getElementById('newTradingWalletKey').value = '';
@@ -1396,7 +1411,7 @@ async function toggleTradingWalletActive(id, active) {
 // ============================================================
 
 async function openBuilderCredsModal(walletId, walletLabel) {
-  if (!masterPassword) { await win95Dialog.alert('Wallets must be unlocked first'); return; }
+  if (!usesHostedWalletAccess() && !masterPassword) { await win95Dialog.alert('Wallets must be unlocked first'); return; }
 
   document.getElementById('builderCredsWalletId').value = walletId;
   document.getElementById('builderCredsWalletLabel').textContent = `${walletLabel} (${walletId})`;
@@ -1449,6 +1464,7 @@ async function submitBuilderCredentials() {
   const apiKey = document.getElementById('builderCredsApiKey').value.trim();
   const apiSecret = document.getElementById('builderCredsApiSecret').value.trim();
   const apiPassphrase = document.getElementById('builderCredsPassphrase').value.trim();
+  const passwordForRequest = usesHostedWalletAccess() ? undefined : masterPassword;
 
   const errorEl = document.getElementById('builderCredsError');
   const errorText = document.getElementById('builderCredsErrorText');
@@ -1460,7 +1476,7 @@ async function submitBuilderCredentials() {
     return;
   }
 
-  if (!masterPassword) {
+  if (!usesHostedWalletAccess() && !masterPassword) {
     errorEl.classList.remove('hidden');
     errorText.textContent = 'Wallets must be unlocked first.';
     return;
@@ -1470,7 +1486,7 @@ async function submitBuilderCredentials() {
   errorEl.classList.add('hidden');
 
   try {
-    await API.updateTradingWalletCredentials(walletId, apiKey, apiSecret, apiPassphrase, masterPassword);
+    await API.updateTradingWalletCredentials(walletId, apiKey, apiSecret, apiPassphrase, passwordForRequest);
     closeBuilderCredsModal();
     await loadTradingWallets();
   } catch (error) {
@@ -2582,20 +2598,27 @@ const showMenu = (menuId, items) => {
 };
 
 const toggleBotMenu = () => {
-  showMenu('menuBot', [
+  const items = [
     { label: botRunning ? 'Stop Bot' : 'Start Bot', action: toggleBot },
     { label: 'Paper Mode Info...', action: openPaperModeModal },
-    { separator: true },
-    {
-      label: 'Lock Vault', action: async () => {
-        if (await win95Dialog.confirm('Lock the wallet vault? You will need to re-enter your master password to trade.')) {
-          masterPassword = '';
-          document.getElementById('unlockSection').classList.remove('hidden');
-          document.getElementById('tradingWalletsSection').classList.add('hidden');
+  ];
+
+  if (!usesHostedWalletAccess()) {
+    items.push(
+      { separator: true },
+      {
+        label: 'Lock Vault', action: async () => {
+          if (await win95Dialog.confirm('Lock the wallet vault? You will need to re-enter your master password to trade.')) {
+            masterPassword = '';
+            document.getElementById('unlockSection').classList.remove('hidden');
+            document.getElementById('tradingWalletsSection').classList.add('hidden');
+          }
         }
-      }
-    },
-  ]);
+      },
+    );
+  }
+
+  showMenu('menuBot', items);
 };
 
 const toggleViewMenu = () => {

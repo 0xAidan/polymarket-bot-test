@@ -34,9 +34,9 @@
     },
     {
       tab: 'trading-wallets',
-      target: '#unlockSection',
+      target: '#tradingWalletsSection',
       title: 'Trading Wallets',
-      body: 'Your trading wallets hold USDC. Create password or unlock; add wallet + Builder API credentials.'
+      body: 'Your trading wallets hold USDC. Add each wallet and its Builder API credentials here. Signed-in hosted mode no longer asks for a second unlock password.'
     },
     {
       tab: 'trading-wallets',
