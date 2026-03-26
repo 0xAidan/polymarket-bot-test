@@ -27,6 +27,7 @@
         <button class="win-menu-item" id="menuBot" onclick="toggleBotMenu()" aria-label="Bot menu" tabindex="0">Bot</button>
         <button class="win-menu-item" id="menuView" onclick="toggleViewMenu()" aria-label="View menu" tabindex="0">View</button>
         <button class="win-menu-item" id="menuHelp" onclick="toggleHelpMenu()" aria-label="Help menu" tabindex="0">Help</button>
+        <button type="button" class="win-menu-item hidden" id="menuLogout" onclick="handleLogout()" aria-label="Log out" tabindex="0" style="margin-left:auto;">Log out</button>
       </div>
 
       <div id="tenantWorkspaceBar" class="hidden" style="padding:6px 12px;border-bottom:1px solid var(--win-border,#808080);background:var(--win-face);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -1630,6 +1631,9 @@
               sessionStorage.setItem('active_tenant_id', meData.activeTenant.tenantId);
             }
             setupTenantSwitcher(meData);
+            window.__oidcSession = true;
+            const logoutBtn = document.getElementById('menuLogout');
+            if (logoutBtn) logoutBtn.classList.remove('hidden');
             maybeStartApp();
             return;
           }
