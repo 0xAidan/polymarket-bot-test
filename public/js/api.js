@@ -17,19 +17,34 @@ const API = {
     sessionStorage.removeItem('api_token');
   },
 
+  getTenantId() {
+    return sessionStorage.getItem('active_tenant_id') || '';
+  },
+
+  setTenantId(tenantId) {
+    if (tenantId) {
+      sessionStorage.setItem('active_tenant_id', tenantId);
+    } else {
+      sessionStorage.removeItem('active_tenant_id');
+    }
+  },
+
   // Base fetch with error handling + auth
   async fetch(endpoint, options = {}) {
     try {
       const token = this.getToken();
       const usingLegacyToken = Boolean(token);
+      const tenantId = this.getTenantId();
       const headers = {
         'Content-Type': 'application/json',
         ...(usingLegacyToken ? { 'Authorization': `Bearer ${token}` } : {}),
+        ...(tenantId ? { 'x-tenant-id': tenantId } : {}),
         ...options.headers
       };
 
       const response = await fetch(`/api${endpoint}`, {
         headers,
+        credentials: 'same-origin',
         ...options
       });
 

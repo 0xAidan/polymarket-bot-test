@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { config } from './config.js';
 import { createComponentLogger } from './logger.js';
 import { getTenantId, getTenantIdOrDefault } from './tenantContext.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
 
 const log = createComponentLogger('SecureKeyManager');
 
@@ -331,6 +332,11 @@ export function lockAllWallets(): void {
  * This is a one-time migration for users upgrading from single-wallet.
  */
 export async function migrateEnvPrivateKey(masterPassword: string): Promise<string | null> {
+  if (isHostedMultiTenantMode()) {
+    log.info('[SecureKeys] Skipping .env PRIVATE_KEY migration in hosted multi-tenant mode');
+    return null;
+  }
+
   const envKey = config.privateKey;
   if (!envKey) return null;
 

@@ -2,6 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import * as ethers from 'ethers';
 import crypto from 'crypto';
 import { config } from './config.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
 import { DetectedTrade } from './types.js';
 import { getValidEvmAddress } from './addressUtils.js';
 import { createComponentLogger } from './logger.js';
@@ -80,6 +81,11 @@ export class PolymarketApi {
    * Initialize wallet signer for authentication
    */
   async initialize(): Promise<void> {
+    if (isHostedMultiTenantMode() && !config.privateKey) {
+      log.info('[API] Hosted multi-tenant: no global PRIVATE_KEY; Data API uses public endpoints where possible');
+      return;
+    }
+
     if (!config.privateKey) {
       throw new Error('Private key not configured');
     }
@@ -172,11 +178,16 @@ export class PolymarketApi {
       await this.initialize();
     }
 
+    if (!this.signer) {
+      if (isHostedMultiTenantMode()) {
+        log.info('[API] No global signer — skipping Data API wallet auth (tenant wallets sign per trade)');
+        return;
+      }
+      throw new Error('Signer not initialized');
+    }
+
     try {
       // Polymarket typically uses wallet signature authentication
-      if (!this.signer) {
-        throw new Error('Signer not initialized');
-      }
 
       // Create a message to sign
       const message = `Sign in to Polymarket\nTimestamp: ${Date.now()}`;

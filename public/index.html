@@ -29,6 +29,11 @@
         <button class="win-menu-item" id="menuHelp" onclick="toggleHelpMenu()" aria-label="Help menu" tabindex="0">Help</button>
       </div>
 
+      <div id="tenantWorkspaceBar" class="hidden" style="padding:6px 12px;border-bottom:1px solid var(--win-border,#808080);background:var(--win-face);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span class="text-sm text-muted">Workspace:</span>
+        <select id="tenantSwitcher" class="win-input" style="max-width:320px;" aria-label="Active workspace" onchange="handleTenantWorkspaceChange(this.value)"></select>
+      </div>
+
       <!-- Tab Navigation -->
       <div style="padding: 8px 8px 0;">
         <div class="win-tabs">
@@ -259,7 +264,7 @@
                 </div>
               </div>
 
-              <div class="text-sm text-muted mt-8" style="max-width:400px;margin-left:auto;margin-right:auto;">
+              <div id="envMigrationHint" class="text-sm text-muted mt-8" style="max-width:400px;margin-left:auto;margin-right:auto;">
                 If you have a private key in your <code>.env</code> file, it will be automatically migrated to encrypted storage.
               </div>
             </div>
@@ -1509,6 +1514,56 @@
       window.location.href = `/auth/login?returnTo=${returnTo}`;
     }
 
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function escapeHtmlAttr(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    }
+
+    function setupTenantSwitcher(meData) {
+      const bar = document.getElementById('tenantWorkspaceBar');
+      const sel = document.getElementById('tenantSwitcher');
+      if (!bar || !sel) return;
+      if (!meData.tenants || meData.tenants.length <= 1) {
+        bar.classList.add('hidden');
+        return;
+      }
+      bar.classList.remove('hidden');
+      sel.innerHTML = meData.tenants.map((m) => {
+        const id = escapeHtmlAttr(m.tenantId);
+        const name = escapeHtml(m.tenantName || m.tenantSlug || m.tenantId);
+        const selected = m.tenantId === meData.activeTenant.tenantId ? ' selected' : '';
+        return `<option value="${id}"${selected}>${name}</option>`;
+      }).join('');
+    }
+
+    async function handleTenantWorkspaceChange(tenantId) {
+      if (!tenantId) return;
+      try {
+        const r = await fetch('/api/auth/switch-tenant', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId })
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'Could not switch workspace');
+        sessionStorage.setItem('active_tenant_id', tenantId);
+        window.location.reload();
+      } catch (err) {
+        console.error(err);
+        if (typeof win95Dialog !== 'undefined' && win95Dialog.error) {
+          await win95Dialog.error(String(err.message || err));
+        }
+      }
+    }
+
     function maybeStartApp() {
       if (typeof initApp === 'function') {
         initApp();
@@ -1553,6 +1608,7 @@
       try {
         const res = await fetch('/api/auth/required', { credentials: 'same-origin' });
         const data = await res.json();
+        window.__hostedMultiTenant = !!data.hostedMultiTenant;
 
         if (!data.required) {
           window.__authRequired = false;
@@ -1565,8 +1621,15 @@
           if (meResponse.ok) {
             const meData = await meResponse.json();
             window.__authRequired = false;
+            window.__hostedMultiTenant = meData.hostedMultiTenant !== undefined
+              ? !!meData.hostedMultiTenant
+              : !!data.hostedMultiTenant;
             window.__currentUser = meData.user;
             window.__currentTenant = meData.activeTenant;
+            if (meData.activeTenant && meData.activeTenant.tenantId) {
+              sessionStorage.setItem('active_tenant_id', meData.activeTenant.tenantId);
+            }
+            setupTenantSwitcher(meData);
             maybeStartApp();
             return;
           }

@@ -8,6 +8,18 @@ import { createComponentLogger } from './logger.js';
 
 const log = createComponentLogger('ClobClient');
 
+/** Explicit wallet + Builder options (hosted multi-tenant or tests). */
+export interface ClobWalletInitOptions {
+  privateKey: string;
+  signatureType: number;
+  funderAddress: string;
+  builder?: {
+    key: string;
+    secret: string;
+    passphrase: string;
+  };
+}
+
 /**
  * Wrapper for Polymarket CLOB client with proper L2 authentication
  * Uses User API credentials (derived from private key) for authentication
@@ -17,7 +29,74 @@ export class PolymarketClobClient {
   private client: ClobClient | null = null;
   private signer: ethers.Wallet | null = null;
   private isInitialized = false;
+  /** Set after init — used for getFunderAddress when not using env */
+  private resolvedFunderAddress: string | null = null;
   private readonly USDC_DECIMALS = 1_000_000; // 10^6
+
+  /**
+   * Initialize from an explicit wallet identity (tenant trading wallet).
+   */
+  async initializeFromOptions(opts: ClobWalletInitOptions): Promise<void> {
+    if (this.isInitialized && this.client) {
+      return;
+    }
+
+    const HOST = config.polymarketClobApiUrl || 'https://clob.polymarket.com';
+    const CHAIN_ID = 137;
+
+    const provider = new (ethers as any).providers.JsonRpcProvider(config.polygonRpcUrl);
+    this.signer = new ethers.Wallet(opts.privateKey, provider);
+    this.resolvedFunderAddress = opts.funderAddress;
+
+    const tempClient = new ClobClient(HOST, CHAIN_ID, this.signer);
+    let apiCreds;
+    try {
+      apiCreds = await tempClient.createOrDeriveApiKey();
+      log.info('✓ Derived User API credentials for L2 authentication');
+    } catch (apiKeyError: any) {
+      log.error(`❌ CRITICAL: Failed to create/derive API key: ${apiKeyError.message}`);
+      throw new Error(`Cannot trade without L2 API credentials. Error: ${apiKeyError.message}. Make sure your wallet has been used on Polymarket before.`);
+    }
+
+    const creds = apiCreds as any;
+    if (!creds || !creds.key || !creds.secret || !creds.passphrase) {
+      log.error(`❌ CRITICAL: API credentials are invalid or missing!`);
+      throw new Error('Failed to obtain valid L2 API credentials. The wallet may not be registered on Polymarket.');
+    }
+
+    let builderConfig: BuilderConfig | undefined;
+    const b = opts.builder;
+    if (b?.key && b?.secret && b?.passphrase) {
+      builderConfig = new BuilderConfig({
+        localBuilderCreds: {
+          key: b.key,
+          secret: b.secret,
+          passphrase: b.passphrase,
+        },
+      });
+      log.info('✓ Builder API credentials configured for this wallet');
+    } else {
+      log.error('❌ Builder API credentials missing for this wallet — orders may be blocked by Cloudflare');
+    }
+
+    this.client = new ClobClient(
+      HOST,
+      CHAIN_ID,
+      this.signer,
+      apiCreds,
+      opts.signatureType,
+      opts.funderAddress,
+      undefined,
+      false,
+      builderConfig
+    );
+
+    this.isInitialized = true;
+    log.info('✓ CLOB client initialized (explicit wallet)');
+    log.info(`   Wallet (EOA): ${this.signer.address}`);
+    log.info(`   Funder: ${opts.funderAddress}`);
+    log.info(`   Signature Type: ${opts.signatureType}`);
+  }
 
   /**
    * Initialize the CLOB client with User API credentials and Builder credentials
@@ -32,116 +111,47 @@ export class PolymarketClobClient {
     }
 
     try {
-      // Use configured CLOB URL - can be set to a Cloudflare Worker proxy if needed
-      // Set POLYMARKET_CLOB_API_URL env var to your worker URL to bypass IP blocking
-      const HOST = config.polymarketClobApiUrl || 'https://clob.polymarket.com';
-      const CHAIN_ID = 137; // Polygon mainnet
-      
-      
-      // Create wallet signer using ethers v5 (required by @polymarket/clob-client)
-      const provider = new (ethers as any).providers.JsonRpcProvider(config.polygonRpcUrl);
-      this.signer = new ethers.Wallet(config.privateKey, provider);
-      
-
-      // STEP 1: Create temporary client with ONLY the signer to derive API credentials
-      // Per Polymarket docs: https://docs.polymarket.com/developers/CLOB/authentication
-      // L1 auth (createOrDeriveApiKey) only needs the signer, NOT signatureType/funder
-      const tempClient = new ClobClient(HOST, CHAIN_ID, this.signer);
-      let apiCreds;
-      try {
-        apiCreds = await tempClient.createOrDeriveApiKey();
-        log.info('✓ Derived User API credentials for L2 authentication');
-        // The CLOB client returns credentials with properties: key, secret, passphrase
-      } catch (apiKeyError: any) {
-        log.error(`❌ CRITICAL: Failed to create/derive API key: ${apiKeyError.message}`);
-        throw new Error(`Cannot trade without L2 API credentials. Error: ${apiKeyError.message}. Make sure your wallet has been used on Polymarket before.`);
-      }
-      
-      // CRITICAL: Validate that we actually got credentials
-      // Note: CLOB client returns {key, secret, passphrase} not {apiKey, apiSecret, apiPassphrase}
-      const creds = apiCreds as any;
-      if (!creds || !creds.key || !creds.secret || !creds.passphrase) {
-        log.error(`❌ CRITICAL: API credentials are invalid or missing!`);
-        log.error(`   apiCreds: ${JSON.stringify(apiCreds)}`);
-        throw new Error('Failed to obtain valid L2 API credentials. The wallet may not be registered on Polymarket.');
-      }
-      
-      log.info(`✓ API credentials validated successfully`);
-
-      // STEP 2: Now read signature type and funder address for the full client
-      // Per Polymarket docs: https://docs.polymarket.com/developers/CLOB/authentication
-      // 
-      // Signature Types:
-      //   0 = EOA: Pure externally-owned account, signer IS the funder (no proxy)
-      //   1 = POLY_PROXY: Magic Link / email signup (Polymarket created internal key)
-      //   2 = POLY_GNOSIS_SAFE: Browser wallet (MetaMask/Rabby) connected with proxy wallet
-      //
-      // If you connected MetaMask and Polymarket shows a different "Proxy Wallet" address,
-      // you need signatureType=2 and funderAddress=your proxy wallet address
       const signatureType = parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '0', 10);
-      
-      // Funder address - the wallet that holds the funds
-      // For EOA (type 0): same as signer address
-      // For proxy (type 1 or 2): the proxy wallet address shown in Polymarket settings
-      const funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS || this.signer.address;
-      
+      const provider = new (ethers as any).providers.JsonRpcProvider(config.polygonRpcUrl);
+      const signer = new ethers.Wallet(config.privateKey, provider);
+      const funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS || signer.address;
 
-      // Create BuilderConfig with Builder API credentials (REQUIRED for authenticated trading)
-      // Without this, requests get blocked by Cloudflare as unauthorized bot traffic
-      let builderConfig: BuilderConfig | undefined;
-      
-      
-      if (config.polymarketBuilderApiKey && 
-          config.polymarketBuilderSecret && 
-          config.polymarketBuilderPassphrase) {
-        
-        builderConfig = new BuilderConfig({
-          localBuilderCreds: {
-            key: config.polymarketBuilderApiKey,
-            secret: config.polymarketBuilderSecret,
-            passphrase: config.polymarketBuilderPassphrase,
-          }
-        });
-        log.info('✓ Builder API credentials configured for authenticated trading');
-        // Log partial credentials for debugging (first 8 chars only for security)
+      let builder: ClobWalletInitOptions['builder'];
+      if (
+        config.polymarketBuilderApiKey &&
+        config.polymarketBuilderSecret &&
+        config.polymarketBuilderPassphrase
+      ) {
+        builder = {
+          key: config.polymarketBuilderApiKey,
+          secret: config.polymarketBuilderSecret,
+          passphrase: config.polymarketBuilderPassphrase,
+        };
       } else {
         log.error('❌ Builder API credentials NOT configured!');
         log.error('   Orders WILL BE BLOCKED by Cloudflare without Builder authentication.');
-        log.error('   This is the #1 cause of trade execution failures on cloud servers.');
         log.error('   Set POLYMARKET_BUILDER_API_KEY, POLYMARKET_BUILDER_SECRET, POLYMARKET_BUILDER_PASSPHRASE');
-        log.error('   Get these from: https://polymarket.com/settings?tab=builder');
       }
 
-      // Initialize the trading client with ALL 9 parameters including BuilderConfig
-      // Parameters: host, chainId, signer, apiCreds, signatureType, funderAddress, relayer, useRelayer, builderConfig
-      this.client = new ClobClient(
-        HOST,
-        CHAIN_ID,
-        this.signer,
-        apiCreds,
+      await this.initializeFromOptions({
+        privateKey: config.privateKey,
         signatureType,
         funderAddress,
-        undefined,      // relayer (not used)
-        false,          // useRelayer
-        builderConfig   // BuilderConfig for authenticated trading
-      );
+        builder,
+      });
 
-      this.isInitialized = true;
+      const HOST = config.polymarketClobApiUrl || 'https://clob.polymarket.com';
       log.info('✓ CLOB client initialized successfully');
       log.info(`   Host: ${HOST}`);
-      log.info(`   Wallet (EOA): ${this.signer.address}`);
-      log.info(`   Funder: ${funderAddress}`);
-      log.info(`   Signature Type: ${signatureType} (${signatureType === 0 ? 'EOA' : signatureType === 1 ? 'POLY_PROXY' : signatureType === 2 ? 'POLY_GNOSIS_SAFE' : 'UNKNOWN'})`);
-      log.info(`   Builder Auth: ${builderConfig ? 'ENABLED' : 'DISABLED'}`);
       log.info(`   Builder API Key: ${config.polymarketBuilderApiKey ? config.polymarketBuilderApiKey.substring(0, 8) + '...' : 'NOT SET'}`);
-      if (signatureType === 2 && funderAddress === this.signer.address) {
+      if (signatureType === 2 && funderAddress === signer.address) {
         log.warn(`   ⚠️ WARNING: Signature type is 2 (POLY_GNOSIS_SAFE) but funder address = signer address!`);
         log.warn(`      You probably need to set POLYMARKET_FUNDER_ADDRESS to your Polymarket proxy wallet address.`);
       }
     } catch (error: any) {
-      log.error({ detail: error.message }, '❌ Failed to initialize CLOB client')
+      log.error({ detail: error.message }, '❌ Failed to initialize CLOB client');
       if (error.stack) {
-        log.error({ err: error.stack }, 'Stack trace')
+        log.error({ err: error.stack }, 'Stack trace');
       }
       throw error;
     }
@@ -428,6 +438,12 @@ export class PolymarketClobClient {
    * This is the address where Polymarket holds your funds
    */
   getFunderAddress(): string | null {
+    if (this.resolvedFunderAddress) {
+      const normalized = getValidEvmAddress(this.resolvedFunderAddress);
+      if (normalized) {
+        return normalized;
+      }
+    }
     const funderAddress = getValidEvmAddress(process.env.POLYMARKET_FUNDER_ADDRESS);
     const signerAddress = this.signer?.address?.toLowerCase();
     if (funderAddress && funderAddress !== signerAddress) {

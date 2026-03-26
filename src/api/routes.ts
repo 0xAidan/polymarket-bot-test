@@ -36,6 +36,9 @@ import {
   summarizeClobConnectivityDiagnosis,
 } from '../tradeExecutionDiagnostics.js';
 import { createComponentLogger } from '../logger.js';
+import { isHostedMultiTenantMode } from '../hostedMode.js';
+import { DEFAULT_TENANT_ID, runWithTenant } from '../tenantContext.js';
+import { listTenantIdsWithLadderOrStopLossActivity } from '../database.js';
 
 const log = createComponentLogger('Routes');
 
@@ -44,6 +47,7 @@ const log = createComponentLogger('Routes');
  */
 export function createRoutes(copyTrader: CopyTrader): Router {
   const router = Router();
+
   const performanceTracker = copyTrader.getPerformanceTracker();
   const lifecycleManager = new PositionLifecycleManager();
   lifecycleManager.start().catch(err => log.error('[Lifecycle] Failed to start:', err.message));
@@ -63,88 +67,136 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   stopLossManager.init().catch(err => log.error('[Routes] StopLoss init failed:', err.message));
   const priceMonitor = new PriceMonitor(ladderManager, stopLossManager);
 
-  // Auto-start price monitor if there are active ladders or stop-loss orders
-  const autoStartPriceMonitor = () => {
-    const hasActiveLadders = ladderManager.getLadders(true).length > 0;
-    const hasActiveStopLosses = stopLossManager.getOrders(true).length > 0;
-    if ((hasActiveLadders || hasActiveStopLosses) && !priceMonitor.getStatus().isRunning) {
-      log.info(`[Routes] Auto-starting PriceMonitor (${ladderManager.getLadders(true).length} ladders, ${stopLossManager.getOrders(true).length} stop-losses)`);
-      priceMonitor.start();
+  router.use(async (_req, _res, next) => {
+    try {
+      await ladderManager.syncFromCurrentTenant();
+      await stopLossManager.syncFromCurrentTenant();
+      next();
+    } catch (err: any) {
+      next(err);
     }
+  });
+
+  // Auto-start price monitor if there are active ladders or stop-loss orders (any tenant when hosted)
+  const autoStartPriceMonitor = () => {
+    void (async () => {
+      try {
+        if (isHostedMultiTenantMode()) {
+          const tids = listTenantIdsWithLadderOrStopLossActivity();
+          let anyActive = false;
+          for (const tid of tids) {
+            await runWithTenant(tid, async () => {
+              await ladderManager.syncFromCurrentTenant();
+              await stopLossManager.syncFromCurrentTenant();
+              if (ladderManager.getLadders(true).length > 0 || stopLossManager.getOrders(true).length > 0) {
+                anyActive = true;
+              }
+            });
+          }
+          if (anyActive && !priceMonitor.getStatus().isRunning) {
+            log.info('[Routes] Auto-starting PriceMonitor (hosted: ladder/stop-loss activity)');
+            priceMonitor.start();
+          }
+          return;
+        }
+
+        await ladderManager.syncFromCurrentTenant();
+        await stopLossManager.syncFromCurrentTenant();
+        const ladderCount = ladderManager.getLadders(true).length;
+        const slCount = stopLossManager.getOrders(true).length;
+        if ((ladderCount > 0 || slCount > 0) && !priceMonitor.getStatus().isRunning) {
+          log.info(`[Routes] Auto-starting PriceMonitor (${ladderCount} ladders, ${slCount} stop-losses)`);
+          priceMonitor.start();
+        }
+      } catch (err: any) {
+        log.error({ err }, '[Routes] autoStartPriceMonitor failed');
+      }
+    })();
   };
 
   // Delay auto-start slightly to let init() complete
   setTimeout(autoStartPriceMonitor, 2000);
 
-  // Wire up ladder trigger events — execute real trades when in live mode
+  // Wire up ladder trigger events — execute real trades when in live mode (tenant-scoped)
   priceMonitor.on('ladder-trigger', async (data: any) => {
-    const ladderConfig = ladderManager.getConfig();
-    log.info(`[LadderExit] Step triggered: ${data.ladder.marketTitle} step ${data.stepIndex + 1}, ${data.sharesToSell.toFixed(2)} shares @ $${data.currentPrice?.toFixed(4)}`);
+    const tenantId = data.tenantId ?? DEFAULT_TENANT_ID;
+    await runWithTenant(tenantId, async () => {
+      await ladderManager.syncFromCurrentTenant();
+      await stopLossManager.syncFromCurrentTenant();
 
-    if (!ladderConfig.liveMode) {
-      log.info(`[LadderExit] PAPER MODE — logging only, no real trade executed`);
-      ladderManager.markStepExecuted(data.ladder.id, data.stepIndex, data.currentPrice, data.sharesToSell);
-      return;
-    }
+      const ladderConfig = ladderManager.getConfig();
+      log.info(`[LadderExit] Step triggered: ${data.ladder.marketTitle} step ${data.stepIndex + 1}, ${data.sharesToSell.toFixed(2)} shares @ $${data.currentPrice?.toFixed(4)}`);
 
-    // Live mode: execute real SELL order
-    try {
-      const tradeExecutor = copyTrader.getTradeExecutor();
-      const order = {
-        marketId: data.ladder.conditionId || data.ladder.tokenId,
-        outcome: (data.ladder.outcome || 'YES') as 'YES' | 'NO',
-        amount: data.sharesToSell.toFixed(2),
-        price: data.currentPrice.toFixed(4),
-        side: 'SELL' as const,
-        tokenId: data.ladder.tokenId,
-        negRisk: false,
-      };
-
-      log.info(`[LadderExit] LIVE MODE — executing SELL: ${order.amount} shares of ${data.ladder.marketTitle} @ $${order.price}`);
-      const result = await tradeExecutor.executeTrade(order);
-
-      if (result.success) {
-        log.info(`[LadderExit] SELL executed successfully (order: ${result.orderId})`);
+      if (!ladderConfig.liveMode) {
+        log.info(`[LadderExit] PAPER MODE — logging only, no real trade executed`);
         ladderManager.markStepExecuted(data.ladder.id, data.stepIndex, data.currentPrice, data.sharesToSell);
-      } else {
-        log.error(`[LadderExit] SELL failed: ${result.error} — step NOT marked executed, will retry next tick`);
+        return;
       }
-    } catch (err: any) {
-      log.error(`[LadderExit] SELL execution error: ${err.message} — step NOT marked executed, will retry next tick`);
-    }
+
+      try {
+        const tradeExecutor = copyTrader.getTradeExecutor();
+        const order = {
+          marketId: data.ladder.conditionId || data.ladder.tokenId,
+          outcome: (data.ladder.outcome || 'YES') as 'YES' | 'NO',
+          amount: data.sharesToSell.toFixed(2),
+          price: data.currentPrice.toFixed(4),
+          side: 'SELL' as const,
+          tokenId: data.ladder.tokenId,
+          negRisk: false,
+        };
+
+        log.info(`[LadderExit] LIVE MODE — executing SELL: ${order.amount} shares of ${data.ladder.marketTitle} @ $${order.price}`);
+        const result = await tradeExecutor.executeTrade(order);
+
+        if (result.success) {
+          log.info(`[LadderExit] SELL executed successfully (order: ${result.orderId})`);
+          ladderManager.markStepExecuted(data.ladder.id, data.stepIndex, data.currentPrice, data.sharesToSell);
+        } else {
+          log.error(`[LadderExit] SELL failed: ${result.error} — step NOT marked executed, will retry next tick`);
+        }
+      } catch (err: any) {
+        log.error(`[LadderExit] SELL execution error: ${err.message} — step NOT marked executed, will retry next tick`);
+      }
+    });
   });
   priceMonitor.on('stoploss-trigger', async (data: any) => {
-    log.info(
-      `[StopLoss] TRIGGERED: ${data.order.marketTitle} ${data.order.outcome}, ` +
-      `${data.order.shares} shares @ $${data.currentPrice?.toFixed(4)}`
-    );
-
-    try {
-      const tradeExecutor = copyTrader.getTradeExecutor();
-      const order = {
-        marketId: data.order.conditionId || data.order.tokenId,
-        outcome: (data.order.outcome || 'YES') as 'YES' | 'NO',
-        amount: data.order.shares.toFixed(2),
-        price: data.currentPrice.toFixed(4),
-        side: 'SELL' as const,
-        tokenId: data.order.tokenId,
-        negRisk: false,
-      };
+    const tenantId = data.tenantId ?? DEFAULT_TENANT_ID;
+    await runWithTenant(tenantId, async () => {
+      await ladderManager.syncFromCurrentTenant();
+      await stopLossManager.syncFromCurrentTenant();
 
       log.info(
-        `[StopLoss] Executing SELL: ${order.amount} shares of ` +
-        `${data.order.marketTitle} @ $${order.price}`
+        `[StopLoss] TRIGGERED: ${data.order.marketTitle} ${data.order.outcome}, ` +
+        `${data.order.shares} shares @ $${data.currentPrice?.toFixed(4)}`
       );
-      const result = await tradeExecutor.executeTrade(order);
 
-      if (result.success) {
-        log.info(`[StopLoss] ✅ SELL executed successfully (order: ${result.orderId})`);
-      } else {
-        log.error(`[StopLoss] ❌ SELL failed: ${result.error}`);
+      try {
+        const tradeExecutor = copyTrader.getTradeExecutor();
+        const order = {
+          marketId: data.order.conditionId || data.order.tokenId,
+          outcome: (data.order.outcome || 'YES') as 'YES' | 'NO',
+          amount: data.order.shares.toFixed(2),
+          price: data.currentPrice.toFixed(4),
+          side: 'SELL' as const,
+          tokenId: data.order.tokenId,
+          negRisk: false,
+        };
+
+        log.info(
+          `[StopLoss] Executing SELL: ${order.amount} shares of ` +
+          `${data.order.marketTitle} @ $${order.price}`
+        );
+        const result = await tradeExecutor.executeTrade(order);
+
+        if (result.success) {
+          log.info(`[StopLoss] ✅ SELL executed successfully (order: ${result.orderId})`);
+        } else {
+          log.error(`[StopLoss] ❌ SELL failed: ${result.error}`);
+        }
+      } catch (err: any) {
+        log.error(`[StopLoss] SELL execution error: ${err.message}`);
       }
-    } catch (err: any) {
-      log.error(`[StopLoss] SELL execution error: ${err.message}`);
-    }
+    });
   });
 
   // ============================================================================
@@ -967,6 +1019,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
       res.json({
         success: true,
+        hostedMultiTenant: isHostedMultiTenantMode(),
         running: status.running,
         executedTradesCount: status.executedTradesCount,
         websocket: {
@@ -1222,6 +1275,31 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // Get wallet configuration (address used for executing trades)
   router.get('/wallet', async (req: Request, res: Response) => {
     try {
+      if (isHostedMultiTenantMode()) {
+        const active = getActiveTradingWallets();
+        const primary = active[0];
+        if (!primary) {
+          return res.json({
+            success: true,
+            walletAddress: null,
+            proxyWalletAddress: null,
+            configured: false,
+            hosted: true,
+          });
+        }
+        const api = copyTrader.getPolymarketApi();
+        const proxyWalletAddress =
+          primary.proxyAddress || (await api.getProxyWalletAddress(primary.address));
+        return res.json({
+          success: true,
+          walletAddress: primary.address,
+          proxyWalletAddress: proxyWalletAddress || null,
+          configured: true,
+          hosted: true,
+          tradingWalletId: primary.id,
+        });
+      }
+
       const eoaAddress = copyTrader.getWalletAddress();
       const proxyWalletAddress = eoaAddress ? await copyTrader.getProxyWalletAddress() : null;
 
@@ -1240,8 +1318,22 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // Uses CLOB API directly - this is what the builder credentials are for
   router.get('/wallet/balance', async (req: Request, res: Response) => {
     try {
-      const eoaAddress = copyTrader.getWalletAddress();
+      const activeTrading = getActiveTradingWallets();
+      let eoaAddress: string | null = copyTrader.getWalletAddress();
       log.info(`[API] /wallet/balance requested. EOA address: ${eoaAddress || 'NOT SET'}`);
+
+      if (isHostedMultiTenantMode()) {
+        if (activeTrading.length === 0) {
+          return res.json({
+            success: true,
+            currentBalance: 0,
+            change24h: 0,
+            balance24hAgo: null,
+            walletAddress: null,
+          });
+        }
+        eoaAddress = activeTrading[0].address;
+      }
 
       if (!eoaAddress) {
         log.info('[API] No wallet address configured, returning 0 balance');
@@ -1258,7 +1350,10 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       let currentBalance = 0;
 
       try {
-        const clobClient = copyTrader.getClobClient();
+        const clobClient =
+          isHostedMultiTenantMode() && activeTrading[0]
+            ? await copyTrader.getTradeExecutor().getClobClientForTradingWalletId(activeTrading[0].id)
+            : copyTrader.getClobClient();
         currentBalance = await clobClient.getUsdcBalance();
         log.info(`[API] ✓ CLOB API balance: $${currentBalance.toFixed(2)} USDC`);
       } catch (clobError: any) {
@@ -1990,6 +2085,13 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // Update private key (WARNING: This writes to .env file)
   router.post('/config/private-key', async (req: Request, res: Response) => {
     try {
+      if (isHostedMultiTenantMode()) {
+        return res.status(403).json({
+          success: false,
+          error: 'Server private key cannot be changed in hosted mode. Add trading wallets in the dashboard.',
+        });
+      }
+
       const { privateKey } = req.body;
 
       if (!privateKey || typeof privateKey !== 'string') {
@@ -2061,6 +2163,13 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // Update builder API credentials (WARNING: This writes to .env file)
   router.post('/config/builder-credentials', async (req: Request, res: Response) => {
     try {
+      if (isHostedMultiTenantMode()) {
+        return res.status(403).json({
+          success: false,
+          error: 'Server Builder credentials cannot be changed in hosted mode. Configure per trading wallet after unlocking.',
+        });
+      }
+
       const { apiKey, secret, passphrase } = req.body;
 
       if (!apiKey || typeof apiKey !== 'string') {
@@ -2146,6 +2255,12 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // Save Kalshi API credentials (WARNING: This writes to .env file)
   router.post('/config/kalshi', async (req: Request, res: Response) => {
     try {
+      if (isHostedMultiTenantMode()) {
+        return res.status(403).json({
+          success: false,
+          error: 'Kalshi credentials cannot be saved to server .env in hosted mode. Use tenant-scoped platform settings when available.',
+        });
+      }
       const { apiKeyId, privateKeyPem } = req.body;
 
       if (!apiKeyId || typeof apiKeyId !== 'string') {
@@ -2229,6 +2344,13 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // The proxy wallet is where Polymarket holds your USDC
   router.post('/config/proxy-wallet', async (req: Request, res: Response) => {
     try {
+      if (isHostedMultiTenantMode()) {
+        return res.status(403).json({
+          success: false,
+          error:
+            'Server proxy wallet cannot be changed in hosted mode. Set proxy/funder per trading wallet in the dashboard.',
+        });
+      }
       const { proxyWalletAddress } = req.body;
 
       if (!proxyWalletAddress || typeof proxyWalletAddress !== 'string') {

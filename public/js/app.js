@@ -154,6 +154,10 @@ function initApp() {
   if (window.__appInitialized) return;
   window.__appInitialized = true;
   console.log('Jungle Agents initialized');
+  const hint = document.getElementById('envMigrationHint');
+  if (hint && window.__hostedMultiTenant === true) {
+    hint.classList.add('hidden');
+  }
   updateClock();
   setInterval(updateClock, 1000);
   loadAllData();
@@ -1206,7 +1210,7 @@ async function createMasterPassword() {
     document.getElementById('masterPasswordNew').value = '';
     document.getElementById('masterPasswordConfirm').value = '';
 
-    if (result.migrated) {
+    if (result.migrated && window.__hostedMultiTenant !== true) {
       await win95Dialog.alert('Existing .env private key was migrated to encrypted storage as your "main" wallet.');
     }
 
@@ -1231,7 +1235,7 @@ async function unlockVault() {
     // Clear the field
     document.getElementById('masterPasswordInput').value = '';
 
-    if (result.migrated) {
+    if (result.migrated && window.__hostedMultiTenant !== true) {
       await win95Dialog.alert('Existing .env private key was migrated to encrypted storage as "main" wallet.');
     }
     document.getElementById('unlockSection').classList.add('hidden');
