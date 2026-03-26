@@ -146,6 +146,31 @@ const win95Dialog = (() => {
 })();
 
 // ============================================================
+// OIDC LOGOUT (menu button; only visible when __oidcSession is set in index.html)
+// ============================================================
+
+window.handleLogout = function handleLogout() {
+  void (async () => {
+    if (!window.__oidcSession) {
+      return;
+    }
+    if (typeof win95Dialog !== 'undefined' && win95Dialog.confirm) {
+      const ok = await win95Dialog.confirm('Log out and end your session?', 'Sign out');
+      if (!ok) return;
+    }
+    try {
+      sessionStorage.removeItem('active_tenant_id');
+    } catch (_e) {
+      /* ignore */
+    }
+    if (typeof API !== 'undefined' && API.clearToken) {
+      API.clearToken();
+    }
+    window.location.href = '/auth/logout';
+  })();
+};
+
+// ============================================================
 // INITIALIZATION
 // ============================================================
 
