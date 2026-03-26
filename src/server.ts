@@ -102,7 +102,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
         cookie: {
           httpOnly: true,
           secure: config.auth0BaseUrl.startsWith('https://'),
-          sameSite: 'lax'
+          sameSite: 'Lax'
         }
       },
       routes: {
