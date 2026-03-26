@@ -11,6 +11,7 @@ import {
   unlockAllWallets,
   getSigner,
   getWalletAddress,
+  getBuilderCredentials,
   isWalletUnlocked,
   getUnlockedWalletIds,
   listStoredWalletIds,
@@ -28,6 +29,7 @@ describe('SecureKeyManager', () => {
   let savedAuthMode: string;
   let savedStorage: string;
   let savedPrivateKey: string | undefined;
+  let savedAuthSessionSecret: string;
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'keys-test-'));
@@ -35,6 +37,9 @@ describe('SecureKeyManager', () => {
     savedAuthMode = config.authMode;
     savedStorage = config.storageBackend;
     savedPrivateKey = config.privateKey;
+    savedAuthSessionSecret = config.authSessionSecret;
+    (config as any).authMode = 'legacy';
+    (config as any).storageBackend = 'json';
     lockAllWallets();
   });
 
@@ -43,6 +48,7 @@ describe('SecureKeyManager', () => {
     (config as any).authMode = savedAuthMode;
     (config as any).storageBackend = savedStorage;
     (config as any).privateKey = savedPrivateKey;
+    (config as any).authSessionSecret = savedAuthSessionSecret;
     if (existsSync(tempDir)) {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -180,5 +186,32 @@ describe('SecureKeyManager', () => {
 
     const ids = await listStoredWalletIds();
     assert.ok(ids.includes('main'));
+  });
+
+  it('hosted multitenant wallets auto-load from disk without a master password', async () => {
+    (config as any).authMode = 'oidc';
+    (config as any).storageBackend = 'sqlite';
+    (config as any).authSessionSecret = 'hosted-session-secret';
+
+    await runWithTenant('tenant-a', async () => {
+      await addEncryptedWallet('main', TEST_PRIVATE_KEY, undefined, {
+        apiKey: 'builder-key',
+        apiSecret: 'builder-secret',
+        apiPassphrase: 'builder-passphrase',
+      });
+
+      lockAllWallets();
+
+      const signer = getSigner('main');
+      const builderCreds = getBuilderCredentials('main');
+
+      assert.equal(signer.address, TEST_ADDRESS);
+      assert.deepEqual(builderCreds, {
+        apiKey: 'builder-key',
+        apiSecret: 'builder-secret',
+        apiPassphrase: 'builder-passphrase',
+      });
+      assert.equal(isWalletUnlocked(), true);
+    });
   });
 });

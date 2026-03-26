@@ -80,7 +80,7 @@ export async function getClobClientForTradingWallet(
   const builder = getBuilderCredentials(tw.id);
   if (!builder?.apiKey || !builder.apiSecret || !builder.apiPassphrase) {
     throw new Error(
-      `Builder API credentials not loaded for trading wallet "${tw.id}". Add Builder credentials in the dashboard (unlock vault).`,
+      `Builder API credentials not loaded for trading wallet "${tw.id}". Add Builder credentials in the dashboard.`,
     );
   }
 

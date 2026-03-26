@@ -11,6 +11,7 @@ import {
   initWalletManager,
   unlockWallets,
   addTradingWallet,
+  updateWalletBuilderCredentials,
   removeTradingWallet,
   toggleTradingWallet,
   updateTradingWalletLabel,
@@ -28,11 +29,14 @@ const TEST_ADDR = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 let tempDir: string;
 
 describe('WalletManager', () => {
+  let savedAuthSessionSecret: string;
+
   beforeEach(async () => {
     tempDir = mkdtempSync(join(tmpdir(), 'wm-test-'));
     (config as any).dataDir = tempDir;
     (config as any).storageBackend = 'json';
     (config as any).authMode = 'legacy';
+    savedAuthSessionSecret = config.authSessionSecret;
     lockAllWallets();
     await initWalletManager();
   });
@@ -40,6 +44,7 @@ describe('WalletManager', () => {
   afterEach(() => {
     closeDatabase();
     lockAllWallets();
+    (config as any).authSessionSecret = savedAuthSessionSecret;
     if (existsSync(tempDir)) {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -196,5 +201,26 @@ describe('WalletManager', () => {
 
     assert.equal(result.migrated, false);
     assert.equal(getTradingWallets().length, 0);
+  });
+
+  it('hosted multitenant wallet management does not require a master password', async () => {
+    (config as any).storageBackend = 'sqlite';
+    (config as any).authMode = 'oidc';
+    (config as any).authSessionSecret = 'hosted-session-secret';
+
+    await initWalletManager();
+
+    const wallet = await addTradingWallet('hosted', 'Hosted Wallet', TEST_KEY);
+    assert.equal(wallet.address, TEST_ADDR);
+
+    lockAllWallets();
+
+    const updatedWallet = await updateWalletBuilderCredentials('hosted', {
+      apiKey: 'builder-key',
+      apiSecret: 'builder-secret',
+      apiPassphrase: 'builder-passphrase',
+    });
+
+    assert.equal(updatedWallet.hasCredentials, true);
   });
 });
