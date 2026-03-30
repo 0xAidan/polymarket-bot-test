@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Jungle Agents - Polymarket Bot</title>
+  <title>Ditto - Jungle Copy Trading</title>
   <link rel="stylesheet" href="/shared/jungle-brand.css">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/tour.css">
@@ -30,6 +30,11 @@
         <div class="auth-gate-chip">Encrypted wallet storage</div>
       </div>
       <div class="auth-gate-footer" id="authGateHint">If sign-in is required, you will be prompted automatically.</div>
+      <div class="auth-gate-actions hidden" id="authGateActions">
+        <button class="win-btn" type="button" onclick="window.location.reload()">Retry check</button>
+        <button class="win-btn" type="button" onclick="redirectToMagicLinkLogin()">Open sign in</button>
+        <button class="win-btn win-btn-primary" type="button" onclick="showAuthModal()">Use API secret</button>
+      </div>
     </div>
   </div>
 
@@ -1427,14 +1432,14 @@
     <div class="win-modal" style="max-width:380px;">
       <div class="win-titlebar">
         <div class="win-titlebar-icon">&#128200;</div>
-        <div class="win-titlebar-text" id="aboutModalTitle">About Jungle Agents</div>
+        <div class="win-titlebar-text" id="aboutModalTitle">About Ditto</div>
         <div class="win-titlebar-buttons">
           <button class="win-titlebar-btn" onclick="closeAboutModal()" aria-label="Close" tabindex="0">X</button>
         </div>
       </div>
       <div class="win-modal-body" style="padding:20px;text-align:center;">
         <div style="font-size:36px;margin-bottom:4px;">&#128200;</div>
-        <div style="font-size:22px;font-weight:bold;">Jungle Agents</div>
+        <div style="font-size:22px;font-weight:bold;">Ditto</div>
         <div class="text-sm text-muted" style="margin-bottom:12px;">Pure silicon competition for prediction markets</div>
         <div style="border:2px inset var(--win-surface);background:var(--win-field-bg);padding:12px;text-align:left;font-size:13px;line-height:1.5;">
           <div>Polymarket Copy Trading Bot</div>
@@ -1612,6 +1617,7 @@
     }
 
     function showAuthModal() {
+      document.getElementById('authGateActions')?.classList.add('hidden');
       setAuthGateState(
         'Protected Ditto workspace',
         'Enter your API secret to continue into the dashboard.',
@@ -1779,10 +1785,10 @@
         console.warn('Could not check auth status:', error);
         setAuthGateState(
           'Sign-in check failed',
-          'Ditto could not confirm your session, so you are being redirected to the sign-in flow.',
-          'This usually means your session expired or the auth service needs to be refreshed.'
+          'Ditto could not confirm your session automatically. Retry the check, open the normal sign-in flow, or use an API secret if this workspace is configured for legacy access.',
+          'This usually means your session expired, the auth service is unavailable, or the current environment is using a different auth mode.'
         );
-        redirectToMagicLinkLogin();
+        document.getElementById('authGateActions')?.classList.remove('hidden');
       }
     })();
   </script>

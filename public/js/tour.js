@@ -1,5 +1,5 @@
 /**
- * Jungle Agents walkthrough tour — overlay-only, no data replacement.
+ * Ditto walkthrough tour — overlay-only, no data replacement.
  * Entry: Help → Start walkthrough. Requires switchTab from app.js.
  */
 (function () {
@@ -11,14 +11,26 @@
     {
       tab: 'dashboard',
       target: '.win-tabs',
-      title: 'Welcome to Jungle Agents',
-      body: "Intro; we'll walk through each tab and point out key and easy-to-miss features."
+      title: 'Welcome to Ditto',
+      body: "This walkthrough shows the core areas that matter for day-to-day use: setup, wallet management, discovery, and system controls."
+    },
+    {
+      tab: 'dashboard',
+      target: '.app-hero',
+      title: 'Home',
+      body: 'The home screen is your command center. Use the setup guide, quick actions, and recent activity here first.'
+    },
+    {
+      tab: 'dashboard',
+      target: '#setupProgressChecklist',
+      title: 'Setup Progress',
+      body: 'This checklist tells new users exactly what is still missing before Ditto is fully ready.'
     },
     {
       tab: 'dashboard',
       target: '.wallet-info-bar',
-      title: 'Dashboard — overview',
-      body: 'Wallet and balance at top; metrics; trade history — click a row for full details.'
+      title: 'Live Status',
+      body: 'Your wallet summary, key metrics, and recent copied trades all live in this top section.'
     },
     {
       tab: 'dashboard',
@@ -34,9 +46,9 @@
     },
     {
       tab: 'trading-wallets',
-      target: '#tradingWalletsSection',
+      target: '#tab-trading-wallets',
       title: 'Trading Wallets',
-      body: 'Your trading wallets hold USDC. Add each wallet and its Builder API credentials here. Signed-in hosted mode no longer asks for a second unlock password.'
+      body: 'Your trading wallets are the wallets Ditto uses to place copied trades. For first-time users, this is the most important setup page.'
     },
     {
       tab: 'trading-wallets',
@@ -45,16 +57,10 @@
       body: 'Map tracked to trading wallet (dropdowns + Assign). Per-wallet Settings (gear): auto-redeem, auto-merge.'
     },
     {
-      tab: 'platforms',
-      target: '#platformStatusGrid',
-      title: 'Platforms',
-      body: 'Poly and Kalshi status/balances. Kalshi API optional. Entity Wallet Mapping for cross-platform.'
-    },
-    {
-      tab: 'cross-platform',
-      target: '#executorMetrics',
-      title: 'Cross-Platform',
-      body: 'Arb and hedges across platforms. Paper Mode ?. Executor Configuration at bottom.'
+      tab: 'discovery',
+      target: '#tab-discovery',
+      title: 'Discovery',
+      body: 'Discovery helps you find promising wallets to track next. It is useful, but it should not get in the way of basic setup.'
     },
     {
       tab: 'settings',
@@ -72,7 +78,7 @@
       tab: 'dashboard',
       target: '.win-statusbar',
       title: "You're all set",
-      body: "Taskbar: Start/Stop bot. Status bar: POLY/KALSHI, mode. Re-open from Help → Start walkthrough."
+      body: "Use the Start button when your setup is complete. Re-open the setup guide or this walkthrough any time from the Guide menu."
     }
   ];
 
