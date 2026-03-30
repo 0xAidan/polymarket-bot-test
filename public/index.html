@@ -4,17 +4,52 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Jungle Agents - Polymarket Bot</title>
+  <link rel="stylesheet" href="/shared/jungle-brand.css">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/tour.css">
 </head>
-<body>
+<body class="grid-pattern app-loading">
+  <div id="authGateScreen" class="auth-gate-screen" aria-live="polite">
+    <div class="auth-gate-backdrop"></div>
+    <div class="auth-gate-panel noise-overlay">
+      <div class="auth-gate-eyebrow">JUNGLE DAO</div>
+      <div class="auth-gate-brand-row">
+        <div class="auth-gate-mark">D</div>
+        <div>
+          <div class="auth-gate-product">Ditto</div>
+          <div class="auth-gate-tagline">Autonomous copy trading for prediction markets</div>
+        </div>
+      </div>
+      <div class="auth-gate-copy">
+        <h1 id="authGateTitle">Preparing your Ditto workspace</h1>
+        <p id="authGateMessage">Checking your session and loading the product shell.</p>
+      </div>
+      <div class="auth-gate-trust">
+        <div class="auth-gate-chip">Jungle functional product</div>
+        <div class="auth-gate-chip">Guided first-run setup</div>
+        <div class="auth-gate-chip">Encrypted wallet storage</div>
+      </div>
+      <div class="auth-gate-footer" id="authGateHint">If sign-in is required, you will be prompted automatically.</div>
+    </div>
+  </div>
+
+  <div id="appShell" class="app-shell">
   <div class="desktop">
     <!-- Main Window -->
     <div class="win-window" id="mainWindow">
       <!-- Title Bar -->
-      <div class="win-titlebar">
-        <div class="win-titlebar-icon">&#128200;</div>
-        <div class="win-titlebar-text">Jungle Agents - Autonomous Prediction Engine</div>
+      <div class="win-titlebar app-titlebar">
+        <div class="win-titlebar-icon app-mark">D</div>
+        <div class="app-title-lockup">
+          <div class="app-title-eyebrow">JUNGLE AGENTS</div>
+          <div class="win-titlebar-text">Ditto</div>
+        </div>
+        <div class="app-title-meta">
+          <div class="app-title-subtitle">Autonomous copy trading for prediction markets</div>
+          <div class="app-title-actions">
+            <span class="app-status-pill stopped" id="appHeaderStatus">Bot offline</span>
+          </div>
+        </div>
         <div class="win-titlebar-buttons">
           <button class="win-titlebar-btn" title="Minimize">_</button>
           <button class="win-titlebar-btn" title="Maximize">&#9633;</button>
@@ -24,26 +59,26 @@
 
       <!-- Menu Bar -->
       <div class="win-menubar">
-        <button class="win-menu-item" id="menuBot" onclick="toggleBotMenu()" aria-label="Bot menu" tabindex="0">Bot</button>
-        <button class="win-menu-item" id="menuView" onclick="toggleViewMenu()" aria-label="View menu" tabindex="0">View</button>
-        <button class="win-menu-item" id="menuHelp" onclick="toggleHelpMenu()" aria-label="Help menu" tabindex="0">Help</button>
-        <button type="button" class="win-menu-item hidden" id="menuLogout" onclick="handleLogout()" aria-label="Log out" tabindex="0" style="margin-left:auto;">Log out</button>
+        <button class="win-menu-item" id="menuBot" onclick="toggleBotMenu()" aria-label="Actions menu" tabindex="0">Actions</button>
+        <button class="win-menu-item" id="menuView" onclick="toggleViewMenu()" aria-label="Navigate menu" tabindex="0">Navigate</button>
+        <button class="win-menu-item" id="menuHelp" onclick="toggleHelpMenu()" aria-label="Guide menu" tabindex="0">Guide</button>
+        <button type="button" class="win-menu-item menu-logout hidden" id="menuLogout" onclick="handleLogout()" aria-label="Log out" tabindex="0">Log out</button>
       </div>
 
-      <div id="tenantWorkspaceBar" class="hidden" style="padding:6px 12px;border-bottom:1px solid var(--win-border,#808080);background:var(--win-face);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <div id="tenantWorkspaceBar" class="hidden">
         <span class="text-sm text-muted">Workspace:</span>
-        <select id="tenantSwitcher" class="win-input" style="max-width:320px;" aria-label="Active workspace" onchange="handleTenantWorkspaceChange(this.value)"></select>
+        <select id="tenantSwitcher" class="win-input" aria-label="Active workspace" onchange="handleTenantWorkspaceChange(this.value)"></select>
       </div>
 
       <!-- Tab Navigation -->
-      <div style="padding: 8px 8px 0;">
+      <div class="app-nav-wrap">
         <div class="win-tabs">
-          <button class="win-tab active" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
+          <button class="win-tab active" data-tab="dashboard" onclick="switchTab('dashboard')">Home</button>
           <button class="win-tab" data-tab="discovery" onclick="switchTab('discovery')">Discovery</button>
           <button class="win-tab" data-tab="wallets" onclick="switchTab('wallets')">Tracked Wallets</button>
           <button class="win-tab" data-tab="trading-wallets" onclick="switchTab('trading-wallets')">Trading Wallets</button>
-          <button class="win-tab" data-tab="platforms" onclick="switchTab('platforms')">Platforms</button>
-          <button class="win-tab" data-tab="cross-platform" onclick="switchTab('cross-platform')">Cross-Platform</button>
+          <button class="win-tab nav-hidden" data-tab="platforms" onclick="switchTab('platforms')">Platforms</button>
+          <button class="win-tab nav-hidden" data-tab="cross-platform" onclick="switchTab('cross-platform')">Cross-Platform</button>
           <button class="win-tab" data-tab="settings" onclick="switchTab('settings')">Settings</button>
           <button class="win-tab" data-tab="diagnostics" onclick="switchTab('diagnostics')">Diagnostics</button>
         </div>
@@ -55,6 +90,26 @@
              DASHBOARD TAB
              ============================================================ -->
         <div id="tab-dashboard" class="win-tab-panel active">
+          <div class="app-hero">
+            <div class="app-hero-copy">
+              <div class="app-section-kicker">Functional Site</div>
+              <h1 class="app-hero-title">A cleaner command center for following great traders.</h1>
+              <p class="app-hero-body">Ditto keeps the trading logic you already trust, but makes setup, wallet management, and daily use much easier to understand.</p>
+              <div class="app-hero-actions">
+                <button class="win-btn win-btn-primary" type="button" onclick="startSetupWizard(true)">Open Setup Guide</button>
+                <button class="win-btn" type="button" onclick="switchTab('wallets')">Add Tracked Wallet</button>
+                <button class="win-btn" type="button" onclick="switchTab('trading-wallets')">Add Trading Wallet</button>
+              </div>
+            </div>
+            <div class="app-hero-side">
+              <div class="app-hero-aside-card">
+                <div class="app-section-kicker">At A Glance</div>
+                <div id="setupProgressSummary" class="app-hero-aside-title">Checking your setup status...</div>
+                <div id="setupProgressChecklist" class="setup-progress-list"></div>
+              </div>
+            </div>
+          </div>
+
           <!-- Wallet Info Bar -->
           <div class="wallet-info-bar">
             <div>
@@ -201,6 +256,10 @@
              TRACKED WALLETS TAB
              ============================================================ -->
         <div id="tab-wallets" class="win-tab-panel">
+          <div class="section-intro">
+            <div class="app-section-kicker">Roster</div>
+            <p class="section-intro-text">Choose the wallets Ditto should watch and copy. Keep this list tight and high conviction.</p>
+          </div>
           <!-- Add Wallet -->
           <div class="win-group">
             <div class="win-group-title">Add Tracked Wallet</div>
@@ -223,6 +282,10 @@
              TRADING WALLETS TAB (Multi-Wallet)
              ============================================================ -->
         <div id="tab-trading-wallets" class="win-tab-panel">
+          <div class="section-intro">
+            <div class="app-section-kicker">Execution Team</div>
+            <p class="section-intro-text">These are the wallets Ditto uses to place your copied trades. The setup guide will walk first-time users through this section.</p>
+          </div>
           <!-- Unlock Prompt -->
           <div id="unlockSection" class="unlock-prompt hidden">
             <div class="lock-icon">&#128274;</div>
@@ -373,6 +436,10 @@
              DISCOVERY TAB
              ============================================================ -->
         <div id="tab-discovery" class="win-tab-panel">
+          <div class="section-intro">
+            <div class="app-section-kicker">Qualifiers</div>
+            <p class="section-intro-text">Discovery is where you evaluate promising wallets to track next. It stays available, but it should not get in the way of basic copy trading setup.</p>
+          </div>
           <!-- Discovery Settings -->
           <div class="win-group">
             <div class="win-group-title">Discovery Settings</div>
@@ -588,6 +655,10 @@
              SETTINGS TAB
              ============================================================ -->
         <div id="tab-settings" class="win-tab-panel">
+          <div class="section-intro">
+            <div class="app-section-kicker">Rules</div>
+            <p class="section-intro-text">Risk controls and operating rules for how Ditto behaves once it is live.</p>
+          </div>
           <!-- Stop-Loss -->
           <div class="win-group">
             <div class="win-group-title">Stop-Loss Protection</div>
@@ -629,6 +700,10 @@
              DIAGNOSTICS TAB
              ============================================================ -->
         <div id="tab-diagnostics" class="win-tab-panel">
+          <div class="section-intro">
+            <div class="app-section-kicker">Review</div>
+            <p class="section-intro-text">Use diagnostics when something feels off. This page should read like support tooling, not part of the normal first-run journey.</p>
+          </div>
           <!-- CLOB Connectivity Test -->
           <div class="win-group">
             <div class="win-group-title">CLOB API Connectivity</div>
@@ -1441,23 +1516,25 @@
     </div>
   </div>
 
+  </div>
+
   <!-- ============================================================
        API AUTH LOGIN MODAL
        ============================================================ -->
   <div id="authModal" class="win-modal-overlay hidden">
-    <div class="win-modal" style="max-width:420px;">
+    <div class="win-modal auth-modal-card" style="max-width:460px;">
       <div class="win-titlebar">
-        <div class="win-titlebar-icon">&#128274;</div>
-        <div class="win-titlebar-text">Authentication Required</div>
+        <div class="win-titlebar-icon app-mark">&#128274;</div>
+        <div class="win-titlebar-text">Enter Ditto</div>
       </div>
-      <div class="win-modal-body" style="text-align:center;padding:20px 24px;">
-        <div style="font-size:32px;margin-bottom:8px;">&#128274;</div>
-        <div class="mb-8" style="font-size:16px;"><strong>Bot API is Protected</strong></div>
-        <div class="text-sm text-muted mb-12">Enter your API secret to access the dashboard.<br>This is the <code>API_SECRET</code> value from your <code>.env</code> file.</div>
+      <div class="win-modal-body auth-modal-body" style="text-align:left;padding:24px 24px 20px;">
+        <div class="app-section-kicker">Protected Workspace</div>
+        <div class="auth-modal-title"><strong>Sign in to your trading dashboard</strong></div>
+        <div class="text-sm text-muted mb-12">This workspace is protected. Enter the shared API secret from your <code>.env</code> file to continue into Ditto.</div>
         <div style="max-width:300px;margin:0 auto;">
           <input type="password" id="authTokenInput" placeholder="Enter API secret..." class="win-input" style="width:100%;margin-bottom:8px;" autocomplete="off" aria-label="API secret token">
           <div id="authError" class="hidden" style="color:var(--danger);font-size:13px;margin-bottom:8px;">Invalid token. Please try again.</div>
-          <button class="win-btn win-btn-primary" onclick="submitAuthToken()" style="width:100%;">Connect</button>
+          <button class="win-btn win-btn-primary" onclick="submitAuthToken()" style="width:100%;">Continue</button>
         </div>
       </div>
     </div>
@@ -1471,7 +1548,7 @@
     </button>
     <div class="taskbar-divider"></div>
     <div class="taskbar-items">
-      <div class="taskbar-item active" id="taskbarCopyTrade" onclick="window.open('https://github.com/0xAidan/polymarket-bot-test', '_blank')" style="cursor:pointer;" title="Visit GitHub repository" tabindex="0" role="link" aria-label="Jungle Agents - click to visit GitHub">Jungle Agents</div>
+      <div class="taskbar-item active" id="taskbarCopyTrade" onclick="window.open('https://github.com/0xAidan/polymarket-bot-test', '_blank')" style="cursor:pointer;" title="Visit GitHub repository" tabindex="0" role="link" aria-label="Ditto - click to visit GitHub">Ditto // Jungle</div>
     </div>
     <div class="taskbar-status">
       <div class="status-indicator stopped" id="taskbarIndicator"></div>
@@ -1494,12 +1571,52 @@
     </div>
   </div>
 
+  <div id="setupWizardOverlay" class="setup-wizard-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="setupWizardTitle">
+    <div class="setup-wizard-card">
+      <div class="setup-wizard-sidebar">
+        <div class="app-section-kicker">First Run Guide</div>
+        <h2 class="setup-wizard-heading">Get Ditto ready without guessing.</h2>
+        <p class="setup-wizard-copy" id="setupWizardSummary">We’ll point you to the next thing you need, one step at a time.</p>
+        <div id="setupWizardSteps" class="setup-wizard-steps"></div>
+      </div>
+      <div class="setup-wizard-main">
+        <div class="app-section-kicker" id="setupWizardKicker">Next Step</div>
+        <h3 class="setup-wizard-step-title" id="setupWizardTitle">Checking your setup status...</h3>
+        <p class="setup-wizard-step-body" id="setupWizardBody">One moment while Ditto checks which parts of your workspace are already configured.</p>
+        <div id="setupWizardFacts" class="setup-wizard-facts"></div>
+        <div class="setup-wizard-actions">
+          <button class="win-btn" type="button" onclick="dismissSetupWizard()">Maybe later</button>
+          <button class="win-btn win-btn-primary" id="setupWizardPrimaryBtn" type="button" onclick="handleSetupWizardPrimaryAction()">Open setup</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="/js/api.js"></script>
   <script>
     // Auth bootstrap runs before app.js so app initialization is gated by session state.
     window.__authRequired = true;
 
+    function setAuthGateState(title, message, hint) {
+      const titleEl = document.getElementById('authGateTitle');
+      const messageEl = document.getElementById('authGateMessage');
+      const hintEl = document.getElementById('authGateHint');
+      if (titleEl && title) titleEl.textContent = title;
+      if (messageEl && message) messageEl.textContent = message;
+      if (hintEl && hint) hintEl.textContent = hint;
+    }
+
+    function markAppShellReady() {
+      document.body.classList.remove('app-loading');
+      document.body.classList.add('app-ready');
+    }
+
     function showAuthModal() {
+      setAuthGateState(
+        'Protected Ditto workspace',
+        'Enter your API secret to continue into the dashboard.',
+        'This is the API_SECRET value from your .env file.'
+      );
       document.getElementById('authModal').classList.remove('hidden');
       document.getElementById('authError').classList.add('hidden');
       document.getElementById('authTokenInput').value = '';
@@ -1523,10 +1640,6 @@
         .replace(/"/g, '&quot;');
     }
 
-    function escapeHtmlAttr(s) {
-      return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-    }
-
     function setupTenantSwitcher(meData) {
       const bar = document.getElementById('tenantWorkspaceBar');
       const sel = document.getElementById('tenantSwitcher');
@@ -1537,7 +1650,7 @@
       }
       bar.classList.remove('hidden');
       sel.innerHTML = meData.tenants.map((m) => {
-        const id = escapeHtmlAttr(m.tenantId);
+        const id = escapeHtml(m.tenantId);
         const name = escapeHtml(m.tenantName || m.tenantSlug || m.tenantId);
         const selected = m.tenantId === meData.activeTenant.tenantId ? ' selected' : '';
         return `<option value="${id}"${selected}>${name}</option>`;
@@ -1590,6 +1703,7 @@
           API.setToken(token);
           hideAuthModal();
           window.__authRequired = false;
+          markAppShellReady();
           maybeStartApp();
         } else {
           document.getElementById('authError').classList.remove('hidden');
@@ -1613,6 +1727,7 @@
 
         if (!data.required) {
           window.__authRequired = false;
+          markAppShellReady();
           maybeStartApp();
           return;
         }
@@ -1634,6 +1749,7 @@
             window.__oidcSession = true;
             const logoutBtn = document.getElementById('menuLogout');
             if (logoutBtn) logoutBtn.classList.remove('hidden');
+            markAppShellReady();
             maybeStartApp();
             return;
           }
@@ -1661,6 +1777,11 @@
         showAuthModal();
       } catch (error) {
         console.warn('Could not check auth status:', error);
+        setAuthGateState(
+          'Sign-in check failed',
+          'Ditto could not confirm your session, so you are being redirected to the sign-in flow.',
+          'This usually means your session expired or the auth service needs to be refreshed.'
+        );
         redirectToMagicLinkLogin();
       }
     })();

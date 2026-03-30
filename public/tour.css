@@ -1,5 +1,5 @@
 /* ============================================================
-   COPYTRADE95 WALKTHROUGH TOUR — overlay, backdrop, spotlight, card
+   Jungle Agents — walkthrough tour (overlay, backdrop, spotlight, card)
    Single prefix: tour-
    ============================================================ */
 
@@ -18,7 +18,7 @@
 .tour-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(8, 9, 14, 0.72);
   /* clip-path set by JS to cut out spotlight region */
 }
 
@@ -26,76 +26,87 @@
   position: fixed;
   /* top, left, width, height set by JS via getBoundingClientRect() */
   background: transparent;
-  border: 3px solid var(--win-highlight);
-  outline: 2px solid var(--win-white);
-  outline-offset: 1px;
-  box-shadow: 0 0 0 1px var(--win-dark);
+  border: 2px solid rgba(229, 184, 11, 0.65);
+  outline: 1px solid rgba(229, 184, 11, 0.35);
+  outline-offset: 2px;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.5),
+    0 0 24px rgba(229, 184, 11, 0.2);
   pointer-events: none;
-  /* do not cover the target — user sees real UI through transparent center */
 }
 
 .tour-card {
   position: fixed;
-  bottom: 48px;
+  bottom: 58px;
   right: 16px;
   max-width: 320px;
-  background: var(--win-surface);
-  border: 2px solid;
-  border-color: var(--win-light) var(--win-dark) var(--win-dark) var(--win-light);
-  box-shadow: 2px 2px 0 var(--win-black);
-  padding: 10px 12px;
-  font-family: var(--font-system);
+  background: var(--jungle-bg-card);
+  border: 1px solid var(--jungle-border-strong);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(229, 184, 11, 0.08);
+  padding: 12px 14px;
+  font-family: var(--font-mono);
   z-index: 10001;
 }
 
 .tour-card-title {
-  font-size: 15px;
-  font-weight: bold;
-  color: var(--win-black);
-  margin-bottom: 6px;
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 400;
+  color: var(--jungle-gold);
+  margin-bottom: 8px;
+  letter-spacing: 0.04em;
 }
 
 .tour-card-description {
   font-size: 14px;
-  color: var(--win-black);
-  line-height: 1.35;
-  margin-bottom: 10px;
+  color: var(--jungle-text);
+  line-height: 1.4;
+  margin-bottom: 12px;
 }
 
 .tour-card-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
 .tour-card .tour-btn {
-  font-family: var(--font-system);
-  font-size: 15px;
-  padding: 4px 16px;
-  background: var(--win-surface);
-  border: 2px outset var(--win-surface);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--jungle-border-strong);
+  border-radius: 6px;
   cursor: pointer;
-  color: var(--win-black);
+  color: var(--jungle-text);
   min-width: 75px;
   text-align: center;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.tour-card .tour-btn:hover {
+  border-color: rgba(229, 184, 11, 0.45);
+  background: rgba(229, 184, 11, 0.1);
 }
 
 .tour-card .tour-btn:active {
-  border-style: inset;
+  border-color: rgba(229, 184, 11, 0.55);
 }
 
 .tour-card .tour-btn:disabled {
-  color: var(--win-dark);
-  text-shadow: 1px 1px 0 var(--win-white);
+  color: var(--jungle-text-dim);
   cursor: default;
+  opacity: 0.6;
 }
 
 .tour-card .tour-btn:disabled:active {
-  border-style: outset;
+  border-style: solid;
 }
 
 .tour-card .tour-btn:focus {
-  outline: 1px dotted var(--win-black);
-  outline-offset: -4px;
+  outline: 2px solid rgba(229, 184, 11, 0.35);
+  outline-offset: 1px;
 }

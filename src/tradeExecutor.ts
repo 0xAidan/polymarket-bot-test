@@ -223,7 +223,7 @@ export class TradeExecutor {
         order,
         clobOrderParams,
         execution: {
-          signatureType: order.tradingWalletId ? diagSig : diagSig,
+          signatureType: diagSig,
           funderAddress: diagFunder,
           clobHost: process.env.POLYMARKET_CLOB_API_URL || 'https://clob.polymarket.com',
           builderAuthConfigured: order.tradingWalletId

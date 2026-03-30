@@ -335,32 +335,7 @@ const API = {
   },
 
   async executeMirrorTrades(address, trades, slippagePercent = 2) {
-    try {
-      const token = this.getToken();
-      const response = await fetch(`/api/wallets/${address}/mirror-execute`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({ trades, slippagePercent })
-      });
-
-      if (response.status === 401) {
-        this.clearToken();
-        showAuthModal();
-        throw new Error('Authentication required');
-      }
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || `HTTP ${response.status}`);
-      }
-      return data;
-    } catch (error) {
-      console.error('Mirror execute error:', error);
-      throw error;
-    }
+    return this.post(`/wallets/${address}/mirror-execute`, { trades, slippagePercent });
   },
 
   // ============================================================
