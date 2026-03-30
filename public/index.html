@@ -29,11 +29,11 @@
         <div class="auth-gate-chip">Guided first-run setup</div>
         <div class="auth-gate-chip">Encrypted wallet storage</div>
       </div>
-      <div class="auth-gate-footer" id="authGateHint">If sign-in is required, you will be prompted automatically.</div>
+      <div class="auth-gate-footer" id="authGateHint">If sign-in is required, Ditto will send you to the secure hosted login automatically.</div>
       <div class="auth-gate-actions hidden" id="authGateActions">
-        <button class="win-btn" type="button" onclick="window.location.reload()">Retry check</button>
-        <button class="win-btn" type="button" onclick="redirectToMagicLinkLogin()">Open sign in</button>
-        <button class="win-btn win-btn-primary" type="button" onclick="showAuthModal()">Use API secret</button>
+        <button class="win-btn" id="authGateRetryBtn" type="button" onclick="window.location.reload()">Retry check</button>
+        <button class="win-btn win-btn-primary" id="authGateLoginBtn" type="button" onclick="redirectToMagicLinkLogin()">Open sign in</button>
+        <button class="win-btn hidden" id="authGateLegacyBtn" type="button" onclick="showAuthModal()">Use local fallback</button>
       </div>
     </div>
   </div>
@@ -1533,13 +1533,13 @@
         <div class="win-titlebar-text">Enter Ditto</div>
       </div>
       <div class="win-modal-body auth-modal-body" style="text-align:left;padding:24px 24px 20px;">
-        <div class="app-section-kicker">Protected Workspace</div>
-        <div class="auth-modal-title"><strong>Sign in to your trading dashboard</strong></div>
-        <div class="text-sm text-muted mb-12">This workspace is protected. Enter the shared API secret from your <code>.env</code> file to continue into Ditto.</div>
+        <div class="app-section-kicker">Technical Fallback</div>
+        <div class="auth-modal-title"><strong>Use local fallback access</strong></div>
+        <div class="text-sm text-muted mb-12">Hosted Ditto uses secure sign-in. This API-secret screen is only for local or internal environments that still use legacy access.</div>
         <div style="max-width:300px;margin:0 auto;">
-          <input type="password" id="authTokenInput" placeholder="Enter API secret..." class="win-input" style="width:100%;margin-bottom:8px;" autocomplete="off" aria-label="API secret token">
+          <input type="password" id="authTokenInput" placeholder="Enter fallback API secret..." class="win-input" style="width:100%;margin-bottom:8px;" autocomplete="off" aria-label="Fallback API secret token">
           <div id="authError" class="hidden" style="color:var(--danger);font-size:13px;margin-bottom:8px;">Invalid token. Please try again.</div>
-          <button class="win-btn win-btn-primary" onclick="submitAuthToken()" style="width:100%;">Continue</button>
+          <button class="win-btn win-btn-primary" onclick="submitAuthToken()" style="width:100%;">Continue with fallback</button>
         </div>
       </div>
     </div>
@@ -1611,17 +1611,27 @@
       if (hintEl && hint) hintEl.textContent = hint;
     }
 
+    function setAuthGateActions({ show = false, allowLogin = true, allowLegacy = false } = {}) {
+      const actionsEl = document.getElementById('authGateActions');
+      const loginBtn = document.getElementById('authGateLoginBtn');
+      const legacyBtn = document.getElementById('authGateLegacyBtn');
+      if (!actionsEl) return;
+      actionsEl.classList.toggle('hidden', !show);
+      if (loginBtn) loginBtn.classList.toggle('hidden', !allowLogin);
+      if (legacyBtn) legacyBtn.classList.toggle('hidden', !allowLegacy);
+    }
+
     function markAppShellReady() {
       document.body.classList.remove('app-loading');
       document.body.classList.add('app-ready');
     }
 
     function showAuthModal() {
-      document.getElementById('authGateActions')?.classList.add('hidden');
+      setAuthGateActions({ show: false });
       setAuthGateState(
-        'Protected Ditto workspace',
-        'Enter your API secret to continue into the dashboard.',
-        'This is the API_SECRET value from your .env file.'
+        'Hosted sign-in is unavailable here',
+        'This environment is using the local fallback access path instead of the normal hosted Ditto login.',
+        'Use the API secret only if you intentionally configured this environment for legacy access.'
       );
       document.getElementById('authModal').classList.remove('hidden');
       document.getElementById('authError').classList.add('hidden');
@@ -1729,6 +1739,7 @@
       try {
         const res = await fetch('/api/auth/required', { credentials: 'same-origin' });
         const data = await res.json();
+        window.__authMode = data.mode || 'legacy';
         window.__hostedMultiTenant = !!data.hostedMultiTenant;
 
         if (!data.required) {
@@ -1739,6 +1750,11 @@
         }
 
         if (data.mode === 'oidc') {
+          setAuthGateState(
+            'Checking your secure Ditto session',
+            'Ditto uses the hosted Jungle sign-in flow. If you are not already signed in, you will be redirected automatically.',
+            'This is the normal production login path for the product.'
+          );
           const meResponse = await fetch('/api/auth/me', { credentials: 'same-origin' });
           if (meResponse.ok) {
             const meData = await meResponse.json();
@@ -1764,6 +1780,11 @@
         }
 
         // Legacy auth mode fallback
+        setAuthGateState(
+          'Legacy fallback access',
+          'This environment is not using hosted sign-in. If you need to open it locally, use the fallback API secret path.',
+          'This is only for internal or technical environments, not the normal Ditto product login.'
+        );
         const existingToken = API.getToken();
         if (existingToken) {
           const check = await fetch('/api/auth/check', {
@@ -1785,10 +1806,10 @@
         console.warn('Could not check auth status:', error);
         setAuthGateState(
           'Sign-in check failed',
-          'Ditto could not confirm your session automatically. Retry the check, open the normal sign-in flow, or use an API secret if this workspace is configured for legacy access.',
-          'This usually means your session expired, the auth service is unavailable, or the current environment is using a different auth mode.'
+          'Ditto could not confirm your hosted sign-in automatically. Retry the check or open the secure sign-in flow.',
+          'This usually means your session expired, the auth service is unavailable, or the environment is not fully configured yet.'
         );
-        document.getElementById('authGateActions')?.classList.remove('hidden');
+        setAuthGateActions({ show: true, allowLogin: true, allowLegacy: false });
       }
     })();
   </script>

@@ -46,11 +46,17 @@ Recommended staging-specific values:
 PORT=3005
 HOST=127.0.0.1
 DISCOVERY_ENABLED=false
-AUTH_MODE=legacy
-API_SECRET=<choose-a-staging-secret>
+AUTH_MODE=oidc
+AUTH0_ISSUER_BASE_URL=<your-auth0-issuer>
+AUTH0_BASE_URL=https://staging.ditto.jungle.win
+AUTH0_CLIENT_ID=<your-staging-or-shared-client-id>
+AUTH0_CLIENT_SECRET=<your-staging-or-shared-client-secret>
+AUTH_SESSION_SECRET=<generate-a-strong-random-secret>
 ```
 
-If you need hosted auth review instead of legacy auth review, use the normal OIDC values but make sure the staging URL is allow-listed in the auth provider first.
+Before using OIDC on staging, add `https://staging.ditto.jungle.win` to the allowed callback and logout URLs in the auth provider.
+
+Only use `AUTH_MODE=legacy` and `API_SECRET=<...>` as a temporary internal fallback if you are doing low-level debugging. That is not the intended Ditto product review path.
 
 Install the example systemd unit:
 
