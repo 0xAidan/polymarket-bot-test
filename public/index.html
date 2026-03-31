@@ -588,6 +588,19 @@
              SETTINGS TAB
              ============================================================ -->
         <div id="tab-settings" class="win-tab-panel">
+          <!-- Trade Size -->
+          <div class="win-group">
+            <div class="win-group-title">Trade Size</div>
+            <div class="text-sm text-muted mb-8">How much to copy per trade (fixed $ amount in USDC)</div>
+            <div class="flex-row gap-8">
+              <div class="form-row">
+                <label>Amount (USDC):</label>
+                <input type="number" id="settingsTradeSize" value="2" min="0.1" step="0.1" class="win-input" style="width:100px;">
+              </div>
+              <button class="win-btn win-btn-sm" onclick="updateTradeSize()">Save</button>
+            </div>
+          </div>
+
           <!-- Stop-Loss -->
           <div class="win-group">
             <div class="win-group-title">Stop-Loss Protection</div>
@@ -607,6 +620,127 @@
             </div>
           </div>
 
+          <!-- No-Repeat Trades -->
+          <div class="win-group">
+            <div class="win-group-title">No-Repeat Trades</div>
+            <div class="text-sm text-muted mb-8">Block re-copying the same position within a time window</div>
+            <div class="flex-row gap-8 mb-8">
+              <label class="win-checkbox">
+                <input type="checkbox" id="settingsNoRepeatEnabled" onchange="updateNoRepeatTrades()">
+                <span>Enable No-Repeat</span>
+              </label>
+            </div>
+            <div id="noRepeatInputs" class="hidden">
+              <div class="form-row">
+                <label>Block Period:</label>
+                <select id="settingsNoRepeatPeriod" class="win-input" style="width:140px;" onchange="updateNoRepeatTrades()">
+                  <option value="1">1 hour</option>
+                  <option value="6">6 hours</option>
+                  <option value="12">12 hours</option>
+                  <option value="24" selected>24 hours</option>
+                  <option value="48">48 hours</option>
+                  <option value="168">7 days</option>
+                </select>
+              </div>
+              <div class="form-hint">How long to block repeat trades in the same market + side</div>
+            </div>
+          </div>
+
+          <!-- Price Limits -->
+          <div class="win-group">
+            <div class="win-group-title">Price Limits</div>
+            <div class="text-sm text-muted mb-8">Only copy trades within a market price range</div>
+            <div class="flex-row gap-8 flex-wrap">
+              <div class="form-row">
+                <label>Min Price ($):</label>
+                <input type="number" id="settingsMinPrice" value="0.05" min="0.01" max="0.98" step="0.01" class="win-input" style="width:80px;">
+              </div>
+              <div class="form-row">
+                <label>Max Price ($):</label>
+                <input type="number" id="settingsMaxPrice" value="0.95" min="0.02" max="0.99" step="0.01" class="win-input" style="width:80px;">
+              </div>
+              <button class="win-btn win-btn-sm" onclick="updatePriceLimits()">Save</button>
+            </div>
+          </div>
+
+          <!-- Slippage -->
+          <div class="win-group">
+            <div class="win-group-title">Slippage Tolerance</div>
+            <div class="text-sm text-muted mb-8">How much price drift to allow on execution</div>
+            <div class="flex-row gap-8">
+              <div class="form-row">
+                <label>Slippage %:</label>
+                <input type="number" id="settingsSlippage" value="2" min="0.5" max="10" step="0.5" class="win-input" style="width:80px;">
+              </div>
+              <button class="win-btn win-btn-sm" onclick="updateSlippage()">Save</button>
+            </div>
+          </div>
+
+          <!-- Side Filter -->
+          <div class="win-group">
+            <div class="win-group-title">Trade Side Filter</div>
+            <div class="text-sm text-muted mb-8">Restrict which trade sides to copy</div>
+            <div class="flex-row gap-8">
+              <div class="form-row">
+                <label>Side:</label>
+                <select id="settingsSideFilter" class="win-input" style="width:160px;" onchange="updateTradeSideFilter()">
+                  <option value="all">All (Buy &amp; Sell)</option>
+                  <option value="buy_only">Buy Only</option>
+                  <option value="sell_only">Sell Only</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Rate Limits -->
+          <div class="win-group">
+            <div class="win-group-title">Rate Limits</div>
+            <div class="text-sm text-muted mb-8">Cap the maximum number of trades per hour and per day</div>
+            <div class="flex-row gap-8 mb-8">
+              <label class="win-checkbox">
+                <input type="checkbox" id="settingsRateLimitEnabled" onchange="updateRateLimiting()">
+                <span>Enable Rate Limiting</span>
+              </label>
+            </div>
+            <div id="rateLimitInputs" class="hidden">
+              <div class="flex-row gap-16 flex-wrap">
+                <div class="form-row">
+                  <label>Max / Hour:</label>
+                  <input type="number" id="settingsRateLimitHour" value="10" min="1" max="100" class="win-input" style="width:80px;" onchange="updateRateLimiting()">
+                </div>
+                <div class="form-row">
+                  <label>Max / Day:</label>
+                  <input type="number" id="settingsRateLimitDay" value="50" min="1" max="500" class="win-input" style="width:80px;" onchange="updateRateLimiting()">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Value Filters -->
+          <div class="win-group">
+            <div class="win-group-title">Trade Value Filters</div>
+            <div class="text-sm text-muted mb-8">Only copy trades within a USD value range</div>
+            <div class="flex-row gap-8 mb-8">
+              <label class="win-checkbox">
+                <input type="checkbox" id="settingsValueFilterEnabled" onchange="updateTradeValueFilters()">
+                <span>Enable Value Filter</span>
+              </label>
+            </div>
+            <div id="valueFilterInputs" class="hidden">
+              <div class="flex-row gap-16 flex-wrap">
+                <div class="form-row">
+                  <label>Min USD:</label>
+                  <input type="number" id="settingsMinValue" value="0" min="0" step="1" class="win-input" style="width:100px;" onchange="updateTradeValueFilters()">
+                </div>
+                <div class="form-row">
+                  <label>Max USD:</label>
+                  <input type="number" id="settingsMaxValue" value="" min="0" step="1" class="win-input" style="width:100px;" placeholder="No limit" onchange="updateTradeValueFilters()">
+                </div>
+              </div>
+              <div class="form-hint">Min/max USD value of the tracked wallet's trade to copy</div>
+            </div>
+          </div>
+
           <!-- Monitoring Interval -->
           <div class="win-group">
             <div class="win-group-title">Monitoring Settings</div>
@@ -622,6 +756,23 @@
               <button class="win-btn win-btn-sm" onclick="updateProxyWallet()">Update</button>
             </div>
             <div class="form-hint">Your Polymarket proxy wallet holds your USDC. Required for accurate balance display.</div>
+          </div>
+
+          <!-- Discovery Config -->
+          <div class="win-group">
+            <div class="win-group-title">Discovery Engine</div>
+            <div class="text-sm text-muted mb-8">Configure the discovery engine poll interval and market count</div>
+            <div class="flex-row gap-16 flex-wrap mb-8">
+              <div class="form-row">
+                <label>Poll Interval (sec):</label>
+                <input type="number" id="settingsDiscoveryPollInterval" value="30" min="15" max="120" class="win-input" style="width:80px;">
+              </div>
+              <div class="form-row">
+                <label>Markets to Monitor:</label>
+                <input type="number" id="settingsDiscoveryMarketCount" value="50" min="10" max="200" class="win-input" style="width:80px;">
+              </div>
+            </div>
+            <button class="win-btn win-btn-sm" onclick="saveDiscoveryConfigFromSettings()">Save Discovery Settings</button>
           </div>
         </div>
 
