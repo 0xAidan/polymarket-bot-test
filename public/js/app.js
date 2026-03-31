@@ -582,8 +582,9 @@ function updateStatusUI(data) {
 
   if (data.wallets) {
     document.getElementById('walletsTracked').textContent = data.wallets.active;
-    document.getElementById('statusBarMain').textContent =
-      `${data.wallets.active} wallet(s) tracked | ${data.monitoringMode || 'polling'} mode`;
+    const intervalSec = data.polling && data.polling.interval ? Math.round(data.polling.interval / 1000) : null;
+    const modeText = intervalSec ? `Data source: Polymarket API, polling every ${intervalSec}s` : `${data.monitoringMode || 'polling'} mode`;
+    document.getElementById('statusBarMain').textContent = `${data.wallets.active} wallet(s) tracked | ${modeText}`;
   }
 }
 

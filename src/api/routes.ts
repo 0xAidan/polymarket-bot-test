@@ -1034,23 +1034,11 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         hostedMultiTenant: isHostedMultiTenantMode(),
         running: status.running,
         executedTradesCount: status.executedTradesCount,
-        websocket: {
-          connected: false,
-          monitoring: false,
-          lastConnectionTime: null,
-          trackedWalletsCount: 0
-        },
         polling: {
           active: status.running,
           interval: config.monitoringIntervalMs
         },
         monitoringMode: status.monitoringMode,
-        monitoringMethods: {
-          primary: status.monitoringMode === 'stopped'
-            ? 'stopped'
-            : 'polling',
-          polling: status.running
-        },
         wallets: {
           active: wallets.filter(w => w.active).length,
           total: wallets.length,
