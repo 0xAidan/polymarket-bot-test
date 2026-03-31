@@ -283,6 +283,8 @@ function switchTab(tabName) {
 
   currentTab = tabName;
   refreshCurrentTab();
+  // Load settings once when opening the tab (not on periodic refresh)
+  if (tabName === 'settings') loadSettings();
 }
 
 // ============================================================
@@ -1060,21 +1062,76 @@ function collectModalConfig() {
 
 async function loadSettings() {
   try {
-    const [stopLoss, interval, proxyWallet] = await Promise.all([
-      API.getStopLoss(),
-      API.getMonitoringInterval(),
-      fetch('/api/config/proxy-wallet').then(r => r.json()).catch(() => ({ proxyWalletAddress: '' }))
+    const [allConfig, proxyWallet, discoveryConfig] = await Promise.all([
+      API.getAllConfig(),
+      API.get('/config/proxy-wallet').catch(() => ({ proxyWalletAddress: '' })),
+      API.get('/discovery/config').catch(() => ({ config: {} }))
     ]);
 
-    document.getElementById('stopLossEnabled').checked = stopLoss.enabled || false;
-    document.getElementById('stopLossPercent').value = stopLoss.maxCommitmentPercent || 80;
-    document.getElementById('stopLossInputs').className = stopLoss.enabled ? '' : 'hidden';
-    document.getElementById('monitoringInterval').value = interval.intervalSeconds || 15;
+    const cfg = allConfig.config || {};
 
+    // Trade Size
+    document.getElementById('settingsTradeSize').value = cfg.tradeSize || 2;
+
+    // Stop-Loss
+    const sl = cfg.usageStopLoss || {};
+    document.getElementById('stopLossEnabled').checked = sl.enabled || false;
+    document.getElementById('stopLossPercent').value = sl.maxCommitmentPercent || 80;
+    document.getElementById('stopLossInputs').className = sl.enabled ? '' : 'hidden';
+
+    // No-Repeat
+    const nr = cfg.noRepeatTrades || {};
+    document.getElementById('settingsNoRepeatEnabled').checked = nr.enabled || false;
+    document.getElementById('settingsNoRepeatPeriod').value = nr.blockPeriodHours || 24;
+    document.getElementById('noRepeatInputs').className = nr.enabled ? '' : 'hidden';
+
+    // Price Limits
+    const pl = cfg.priceLimits || {};
+    document.getElementById('settingsMinPrice').value = pl.minPrice ?? 0.05;
+    document.getElementById('settingsMaxPrice').value = pl.maxPrice ?? 0.95;
+
+    // Slippage
+    document.getElementById('settingsSlippage').value = cfg.slippagePercent ?? 2;
+
+    // Side Filter
+    document.getElementById('settingsSideFilter').value = cfg.tradeSideFilter || 'all';
+
+    // Rate Limiting
+    const rl = cfg.rateLimiting || {};
+    document.getElementById('settingsRateLimitEnabled').checked = rl.enabled || false;
+    document.getElementById('settingsRateLimitHour').value = rl.maxTradesPerHour || 10;
+    document.getElementById('settingsRateLimitDay').value = rl.maxTradesPerDay || 50;
+    document.getElementById('rateLimitInputs').className = rl.enabled ? '' : 'hidden';
+
+    // Value Filters
+    const vf = cfg.tradeValueFilters || {};
+    document.getElementById('settingsValueFilterEnabled').checked = vf.enabled || false;
+    document.getElementById('settingsMinValue').value = vf.minTradeValueUSD ?? 0;
+    document.getElementById('settingsMaxValue').value = vf.maxTradeValueUSD ?? '';
+    document.getElementById('valueFilterInputs').className = vf.enabled ? '' : 'hidden';
+
+    // Monitoring Interval
+    const intervalMs = cfg.monitoringIntervalMs || 15000;
+    document.getElementById('monitoringInterval').value = Math.round(intervalMs / 1000);
+
+    // Proxy Wallet
     if (proxyWallet.proxyWalletAddress) {
       document.getElementById('proxyWalletAddress').value = proxyWallet.proxyWalletAddress;
     }
+
+    // Discovery Config
+    const dc = discoveryConfig.config || {};
+    document.getElementById('settingsDiscoveryPollInterval').value = Math.round((dc.pollIntervalMs || 30000) / 1000);
+    document.getElementById('settingsDiscoveryMarketCount').value = dc.marketCount || 50;
   } catch (error) { console.error('Error loading settings:', error); }
+}
+
+async function updateTradeSize() {
+  const val = document.getElementById('settingsTradeSize').value;
+  try {
+    await API.setTradeSize(val);
+    await win95Dialog.success('Trade size saved!');
+  } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
 }
 
 async function updateStopLoss() {
@@ -1082,6 +1139,52 @@ async function updateStopLoss() {
   const percent = parseInt(document.getElementById('stopLossPercent').value);
   document.getElementById('stopLossInputs').className = enabled ? '' : 'hidden';
   try { await API.setStopLoss(enabled, percent); } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+}
+
+async function updateNoRepeatTrades() {
+  const enabled = document.getElementById('settingsNoRepeatEnabled').checked;
+  const period = parseInt(document.getElementById('settingsNoRepeatPeriod').value);
+  document.getElementById('noRepeatInputs').className = enabled ? '' : 'hidden';
+  try { await API.setNoRepeatTrades(enabled, period); } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+}
+
+async function updatePriceLimits() {
+  const min = parseFloat(document.getElementById('settingsMinPrice').value);
+  const max = parseFloat(document.getElementById('settingsMaxPrice').value);
+  try {
+    await API.setPriceLimits(min, max);
+    await win95Dialog.success('Price limits saved!');
+  } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+}
+
+async function updateSlippage() {
+  const pct = parseFloat(document.getElementById('settingsSlippage').value);
+  try {
+    await API.setSlippage(pct);
+    await win95Dialog.success('Slippage saved!');
+  } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+}
+
+async function updateTradeSideFilter() {
+  const filter = document.getElementById('settingsSideFilter').value;
+  try { await API.setTradeSideFilter(filter); } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+}
+
+async function updateRateLimiting() {
+  const enabled = document.getElementById('settingsRateLimitEnabled').checked;
+  const hour = parseInt(document.getElementById('settingsRateLimitHour').value);
+  const day = parseInt(document.getElementById('settingsRateLimitDay').value);
+  document.getElementById('rateLimitInputs').className = enabled ? '' : 'hidden';
+  try { await API.setRateLimiting(enabled, hour, day); } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+}
+
+async function updateTradeValueFilters() {
+  const enabled = document.getElementById('settingsValueFilterEnabled').checked;
+  const min = parseFloat(document.getElementById('settingsMinValue').value) || null;
+  const maxRaw = document.getElementById('settingsMaxValue').value;
+  const max = maxRaw ? parseFloat(maxRaw) : null;
+  document.getElementById('valueFilterInputs').className = enabled ? '' : 'hidden';
+  try { await API.setTradeValueFilters(enabled, min, max); } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
 }
 
 async function updateMonitoringInterval() {
@@ -1101,6 +1204,21 @@ async function updateProxyWallet() {
     const data = await response.json();
     if (data.success) { await win95Dialog.success('Proxy wallet saved!'); loadWalletBalance(); }
     else await win95Dialog.error(`Failed: ${data.error}`);
+  } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+}
+
+async function saveDiscoveryConfigFromSettings() {
+  const pollSec = parseInt(document.getElementById('settingsDiscoveryPollInterval').value);
+  const marketCount = parseInt(document.getElementById('settingsDiscoveryMarketCount').value);
+  try {
+    await API.fetch('/discovery/config', {
+      method: 'PUT',
+      body: JSON.stringify({
+        pollIntervalMs: pollSec * 1000,
+        marketCount: marketCount
+      })
+    });
+    await win95Dialog.success('Discovery settings saved!');
   } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
 }
 
