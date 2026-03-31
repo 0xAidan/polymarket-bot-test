@@ -96,7 +96,7 @@ export async function addTradingWallet(
   id: string,
   label: string,
   privateKey: string,
-  masterPassword: string,
+  masterPassword?: string,
   builderCreds?: BuilderCredentials
 ): Promise<TradingWallet> {
   const state = await ensureWalletConfigLoaded();
@@ -285,6 +285,25 @@ export function getAssignmentsForTrackedWallet(trackedWalletAddress: string): Co
  */
 export async function unlockWallets(masterPassword: string): Promise<{ unlocked: string[]; migrated: boolean }> {
   const state = await ensureWalletConfigLoaded();
+  if (isHostedMultiTenantMode()) {
+    let configChanged = false;
+    for (const wallet of state.tradingWallets) {
+      const hasCreds = await hasBuilderCredentials(wallet.id);
+      if (wallet.hasCredentials !== hasCreds) {
+        wallet.hasCredentials = hasCreds;
+        configChanged = true;
+      }
+    }
+    if (configChanged) {
+      await saveWalletConfig();
+    }
+
+    return {
+      unlocked: state.tradingWallets.map((wallet) => wallet.id),
+      migrated: false,
+    };
+  }
+
   // First, try to migrate the .env private key if applicable (never in hosted multi-tenant mode)
   let migrated = false;
   const migratedAddr = isHostedMultiTenantMode()
@@ -334,7 +353,7 @@ export async function unlockWallets(masterPassword: string): Promise<{ unlocked:
 export async function updateWalletBuilderCredentials(
   id: string,
   creds: BuilderCredentials,
-  masterPassword: string
+  masterPassword?: string
 ): Promise<TradingWallet> {
   const state = await ensureWalletConfigLoaded();
   const wallet = state.tradingWallets.find(w => w.id === id);

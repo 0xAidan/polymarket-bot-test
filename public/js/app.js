@@ -1,5 +1,5 @@
 /**
- * Jungle Agents - Main Application Logic
+ * Ditto - Main Application Logic
  * Jungle-styled Polymarket prediction agent dashboard
  */
 
@@ -7,6 +7,11 @@
 let currentTab = 'dashboard';
 let refreshInterval = null;
 let botRunning = false;
+let setupGuideState = null;
+let setupGuideAction = 'dashboard';
+
+const SETUP_GUIDE_COMPLETED_KEY = 'ditto_setup_completed_v1';
+const SETUP_GUIDE_SESSION_DISMISS_KEY = 'ditto_setup_dismissed_session_v1';
 
 // ============================================================
 // WIN95 DIALOG SYSTEM (replaces native alert/confirm/prompt)
@@ -96,7 +101,7 @@ const win95Dialog = (() => {
   };
 
   return {
-    alert: (message, title = 'Jungle Agents') => {
+    alert: (message, title = 'Ditto') => {
       const escaped = String(message).replace(/</g, '&lt;').replace(/\n/g, '<br>');
       return createDialog(title, `<p style="margin:0;line-height:1.5">${escaped}</p>`, [
         { label: 'OK', value: true, primary: true },
@@ -105,14 +110,14 @@ const win95Dialog = (() => {
 
     success: (message, title = 'Success') => {
       const escaped = String(message).replace(/</g, '&lt;').replace(/\n/g, '<br>');
-      return createDialog(title, `<p style="margin:0;line-height:1.5;color:var(--win-success,#008000)">${escaped}</p>`, [
+      return createDialog(title, `<p style="margin:0;line-height:1.5;color:var(--jungle-win)">${escaped}</p>`, [
         { label: 'OK', value: true, primary: true },
       ]);
     },
 
     error: (message, title = 'Error') => {
       const escaped = String(message).replace(/</g, '&lt;').replace(/\n/g, '<br>');
-      return createDialog(title, `<p style="margin:0;line-height:1.5;color:#cc0000">${escaped}</p>`, [
+      return createDialog(title, `<p style="margin:0;line-height:1.5;color:var(--jungle-loss)">${escaped}</p>`, [
         { label: 'OK', value: true, primary: true },
       ]);
     },
@@ -149,25 +154,19 @@ const win95Dialog = (() => {
 // OIDC LOGOUT (menu button; only visible when __oidcSession is set in index.html)
 // ============================================================
 
-window.handleLogout = function handleLogout() {
-  void (async () => {
-    if (!window.__oidcSession) {
-      return;
-    }
-    if (typeof win95Dialog !== 'undefined' && win95Dialog.confirm) {
-      const ok = await win95Dialog.confirm('Log out and end your session?', 'Sign out');
-      if (!ok) return;
-    }
-    try {
-      sessionStorage.removeItem('active_tenant_id');
-    } catch (_e) {
-      /* ignore */
-    }
-    if (typeof API !== 'undefined' && API.clearToken) {
-      API.clearToken();
-    }
-    window.location.href = '/auth/logout';
-  })();
+window.handleLogout = async function handleLogout() {
+  if (!window.__oidcSession) {
+    return;
+  }
+
+  const ok = await win95Dialog.confirm('Log out and end your session?', 'Sign out');
+  if (!ok) {
+    return;
+  }
+
+  sessionStorage.removeItem('active_tenant_id');
+  API.clearToken();
+  window.location.href = '/auth/logout';
 };
 
 // ============================================================
@@ -178,14 +177,17 @@ window.handleLogout = function handleLogout() {
 function initApp() {
   if (window.__appInitialized) return;
   window.__appInitialized = true;
-  console.log('Jungle Agents initialized');
+  console.log('Ditto initialized');
+  if (typeof window.markAppShellReady === 'function') {
+    window.markAppShellReady();
+  }
   const hint = document.getElementById('envMigrationHint');
   if (hint && window.__hostedMultiTenant === true) {
     hint.classList.add('hidden');
   }
   updateClock();
   setInterval(updateClock, 1000);
-  loadAllData();
+  void loadAllData();
   startAutoRefresh();
 }
 
@@ -247,6 +249,252 @@ function refreshCurrentTab() {
   }
 }
 
+const updateHeaderStatusChip = () => {
+  const chip = document.getElementById('appHeaderStatus');
+  if (!chip) return;
+  chip.textContent = botRunning ? 'Bot running' : 'Bot offline';
+  chip.classList.toggle('running', botRunning);
+  chip.classList.toggle('stopped', !botRunning);
+};
+
+const buildSetupGuideState = ({ status, walletsData, tradingData, lockData }) => {
+  const trackedCount = walletsData?.wallets?.length || 0;
+  const tradingCount = tradingData?.wallets?.length || 0;
+  const vaultUnlocked = usesHostedWalletAccess() ? true : !!lockData?.unlocked;
+  const hasTradingWallet = tradingCount > 0;
+  const isReadyToStart = hasTradingWallet && trackedCount > 0;
+  const isComplete = isReadyToStart && !!status?.running;
+
+  const steps = [
+    {
+      key: 'session',
+      title: 'Connected to your workspace',
+      detail: usesHostedWalletAccess()
+        ? 'Your hosted account session is active.'
+        : 'Your dashboard session is active.',
+      complete: true,
+      action: 'dashboard'
+    },
+    {
+      key: 'trading-wallet',
+      title: usesHostedWalletAccess() ? 'Add a trading wallet' : 'Unlock or create your vault',
+      detail: hasTradingWallet
+        ? `${tradingCount} trading wallet${tradingCount === 1 ? '' : 's'} ready`
+        : (vaultUnlocked
+          ? 'Add the wallet Ditto should use to place copied trades.'
+          : 'Open your vault first, then add the wallet Ditto should trade with.'),
+      complete: hasTradingWallet,
+      action: 'trading-wallets'
+    },
+    {
+      key: 'tracked-wallet',
+      title: 'Add a tracked wallet',
+      detail: trackedCount > 0
+        ? `${trackedCount} tracked wallet${trackedCount === 1 ? '' : 's'} added`
+        : 'Choose the wallet addresses Ditto should follow and copy.',
+      complete: trackedCount > 0,
+      action: 'wallets'
+    },
+    {
+      key: 'start-bot',
+      title: 'Review and start the bot',
+      detail: status?.running
+        ? 'Ditto is currently live.'
+        : (isReadyToStart
+          ? 'Your basics are ready. Start the bot when you are comfortable.'
+          : 'This unlocks once your trading wallet and tracked wallet are both ready.'),
+      complete: !!status?.running,
+      action: 'dashboard'
+    }
+  ];
+
+  const nextStep = steps.find((step) => !step.complete) || steps[steps.length - 1];
+
+  return {
+    trackedCount,
+    tradingCount,
+    vaultUnlocked,
+    isReadyToStart,
+    isComplete,
+    nextStep,
+    steps
+  };
+};
+
+const renderSetupProgress = (state) => {
+  const summaryEl = document.getElementById('setupProgressSummary');
+  const listEl = document.getElementById('setupProgressChecklist');
+  const stepsEl = document.getElementById('setupWizardSteps');
+
+  if (summaryEl) {
+    summaryEl.textContent = state.isComplete
+      ? 'Ditto is configured and live.'
+      : state.nextStep.title;
+  }
+
+  const progressHtml = state.steps.map((step) => {
+    const className = step.complete
+      ? 'is-complete'
+      : step.key === state.nextStep.key ? 'is-active' : '';
+
+    return `
+      <div class="setup-progress-item ${className}">
+        <span class="setup-progress-dot"></span>
+        <div>
+          <div class="setup-progress-title">${step.title}</div>
+          <div class="setup-progress-meta">${step.detail}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  if (listEl) listEl.innerHTML = progressHtml;
+
+  if (stepsEl) {
+    stepsEl.innerHTML = state.steps.map((step, index) => {
+      const className = step.complete
+        ? 'is-complete'
+        : step.key === state.nextStep.key ? 'is-active' : '';
+
+      return `
+        <div class="setup-wizard-step-item ${className}">
+          <span class="setup-wizard-step-dot"></span>
+          <div>
+            <div class="setup-wizard-step-titletext">${index + 1}. ${step.title}</div>
+            <div class="setup-wizard-step-meta">${step.detail}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+};
+
+const renderSetupWizard = (state) => {
+  setupGuideAction = state.nextStep.action || 'dashboard';
+
+  const summaryEl = document.getElementById('setupWizardSummary');
+  const titleEl = document.getElementById('setupWizardTitle');
+  const bodyEl = document.getElementById('setupWizardBody');
+  const factsEl = document.getElementById('setupWizardFacts');
+  const primaryBtn = document.getElementById('setupWizardPrimaryBtn');
+
+  if (summaryEl) {
+    summaryEl.textContent = state.isComplete
+      ? 'Everything essential is configured. You can close this guide and use Ditto normally.'
+      : 'Ditto checks the real app state and sends you to the next thing that matters.';
+  }
+
+  if (titleEl) {
+    titleEl.textContent = state.isComplete ? 'You are ready to review the dashboard.' : state.nextStep.title;
+  }
+
+  if (bodyEl) {
+    bodyEl.textContent = state.isComplete
+      ? 'Your workspace has a trading wallet, at least one tracked wallet, and the bot is running.'
+      : state.nextStep.detail;
+  }
+
+  if (factsEl) {
+    factsEl.innerHTML = `
+      <div class="setup-wizard-fact">Trading wallets configured: <strong>${state.tradingCount}</strong></div>
+      <div class="setup-wizard-fact">Tracked wallets configured: <strong>${state.trackedCount}</strong></div>
+      <div class="setup-wizard-fact">Bot status: <strong>${botRunning ? 'Running' : 'Stopped'}</strong></div>
+    `;
+  }
+
+  if (primaryBtn) {
+    primaryBtn.textContent = state.isComplete
+      ? 'Go to Home'
+      : (setupGuideAction === 'trading-wallets'
+        ? 'Open Trading Wallets'
+        : setupGuideAction === 'wallets'
+          ? 'Open Tracked Wallets'
+          : 'Go to Home');
+  }
+
+  renderSetupProgress(state);
+};
+
+async function refreshSetupExperience(autoOpen = false) {
+  try {
+    const lockPromise = usesHostedWalletAccess()
+      ? Promise.resolve({ unlocked: true })
+      : API.getLockStatus().catch(() => ({ unlocked: false }));
+
+    const [status, walletsData, tradingData, lockData] = await Promise.all([
+      API.getStatus().catch(() => ({ running: false })),
+      API.getWallets().catch(() => ({ wallets: [] })),
+      API.getTradingWallets().catch(() => ({ wallets: [] })),
+      lockPromise
+    ]);
+
+    setupGuideState = buildSetupGuideState({ status, walletsData, tradingData, lockData });
+    renderSetupWizard(setupGuideState);
+
+    if (setupGuideState.isComplete) {
+      localStorage.setItem(SETUP_GUIDE_COMPLETED_KEY, 'true');
+    }
+
+    if (autoOpen) {
+      maybeAutoOpenSetupWizard();
+    }
+  } catch (error) {
+    console.error('Error refreshing setup experience:', error);
+  }
+}
+
+function dismissSetupWizard() {
+  document.getElementById('setupWizardOverlay')?.classList.add('hidden');
+  sessionStorage.setItem(SETUP_GUIDE_SESSION_DISMISS_KEY, 'true');
+}
+
+function startSetupWizard(force = false) {
+  if (force) {
+    sessionStorage.removeItem(SETUP_GUIDE_SESSION_DISMISS_KEY);
+  }
+
+  document.getElementById('setupWizardOverlay')?.classList.remove('hidden');
+
+  if (!setupGuideState) {
+    void refreshSetupExperience(false);
+  }
+}
+
+function maybeAutoOpenSetupWizard() {
+  if (!setupGuideState || setupGuideState.isComplete) return;
+  if (localStorage.getItem(SETUP_GUIDE_COMPLETED_KEY) === 'true') return;
+  if (sessionStorage.getItem(SETUP_GUIDE_SESSION_DISMISS_KEY) === 'true') return;
+  startSetupWizard(false);
+}
+
+function handleSetupWizardPrimaryAction() {
+  dismissSetupWizard();
+  switchTab(setupGuideAction);
+
+  if (setupGuideAction === 'dashboard') {
+    document.getElementById('startStopBtn')?.focus();
+    return;
+  }
+
+  if (setupGuideAction === 'wallets') {
+    document.getElementById('newWalletAddress')?.focus();
+    return;
+  }
+
+  if (setupGuideAction === 'trading-wallets') {
+    if (document.getElementById('unlockSection')?.classList.contains('hidden')) {
+      document.getElementById('newTradingWalletId')?.focus();
+    } else {
+      const firstTimeVisible = !document.getElementById('unlockFirstTime')?.classList.contains('hidden');
+      if (firstTimeVisible) {
+        document.getElementById('masterPasswordNew')?.focus();
+      } else {
+        document.getElementById('masterPasswordInput')?.focus();
+      }
+    }
+  }
+}
+
 async function loadAllData() {
   try {
     await Promise.all([
@@ -260,6 +508,7 @@ async function loadAllData() {
       checkLockStatus(),
       loadLadderStatus().catch(() => { })
     ]);
+    await refreshSetupExperience(true);
   } catch (error) {
     console.error('Error loading data:', error);
   }
@@ -310,6 +559,7 @@ async function loadStatus() {
 
 function updateStatusUI(data) {
   botRunning = data.running;
+  updateHeaderStatusChip();
 
   // Taskbar
   const indicator = document.getElementById('taskbarIndicator');
@@ -529,6 +779,7 @@ async function toggleBot() {
       await API.startBot();
     }
     await loadStatus();
+    await refreshSetupExperience();
   } catch (error) {
     await win95Dialog.error(`Failed: ${error.message}`);
   }
@@ -752,6 +1003,7 @@ async function addWallet() {
     input.value = '';
     lastWalletHash = '';
     await loadWallets(true);
+    await refreshSetupExperience();
     if (await win95Dialog.confirm('Wallet added (inactive by default). Configure it now?')) {
       openWalletModal(address.toLowerCase());
     }
@@ -1152,9 +1404,14 @@ async function loadFailedTrades() {
 // ============================================================
 
 let masterPassword = '';
+const usesHostedWalletAccess = () => window.__hostedMultiTenant === true;
 
 // Enter key handlers for password fields
 document.addEventListener('DOMContentLoaded', () => {
+  if (usesHostedWalletAccess()) {
+    return;
+  }
+
   // Returning user: Enter on password field triggers unlock
   const existingPwInput = document.getElementById('masterPasswordInput');
   if (existingPwInput) {
@@ -1185,13 +1442,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function checkLockStatus() {
   try {
+    if (usesHostedWalletAccess()) {
+      document.getElementById('unlockSection').classList.add('hidden');
+      document.getElementById('tradingWalletsSection').classList.remove('hidden');
+      await loadTradingWallets();
+      return;
+    }
+
     const data = await API.getLockStatus();
     if (data.unlocked) {
       document.getElementById('unlockSection').classList.add('hidden');
       document.getElementById('tradingWalletsSection').classList.remove('hidden');
-      loadTradingWallets();
+      await loadTradingWallets();
     } else {
       // Show the right messaging based on whether wallets exist
+      document.getElementById('unlockSection').classList.remove('hidden');
+      document.getElementById('tradingWalletsSection').classList.add('hidden');
       const isFirstTime = (data.storedWalletCount || 0) === 0;
       document.getElementById('unlockFirstTime').classList.toggle('hidden', !isFirstTime);
       document.getElementById('unlockReturning').classList.toggle('hidden', isFirstTime);
@@ -1242,6 +1508,7 @@ async function createMasterPassword() {
     document.getElementById('unlockSection').classList.add('hidden');
     document.getElementById('tradingWalletsSection').classList.remove('hidden');
     await loadTradingWallets();
+    await refreshSetupExperience();
   } catch (error) {
     errorEl.textContent = `Failed: ${error.message}`;
     errorEl.classList.remove('hidden');
@@ -1266,6 +1533,7 @@ async function unlockVault() {
     document.getElementById('unlockSection').classList.add('hidden');
     document.getElementById('tradingWalletsSection').classList.remove('hidden');
     await loadTradingWallets();
+    await refreshSetupExperience();
   } catch (error) {
     await win95Dialog.error(`Unlock failed: ${error.message}`);
   }
@@ -1351,9 +1619,10 @@ async function addNewTradingWallet() {
   const apiKey = document.getElementById('newTradingWalletApiKey').value.trim();
   const apiSecret = document.getElementById('newTradingWalletApiSecret').value.trim();
   const apiPassphrase = document.getElementById('newTradingWalletApiPassphrase').value.trim();
+  const passwordForRequest = usesHostedWalletAccess() ? undefined : masterPassword;
 
   if (!id || !label || !pk) { await win95Dialog.alert('Wallet ID, Label, and Private Key are required'); return; }
-  if (!masterPassword) { await win95Dialog.alert('Wallets must be unlocked first'); return; }
+  if (!usesHostedWalletAccess() && !masterPassword) { await win95Dialog.alert('Wallets must be unlocked first'); return; }
 
   if (!apiKey || !apiSecret || !apiPassphrase) {
     const proceed = await win95Dialog.confirm(
@@ -1366,7 +1635,7 @@ async function addNewTradingWallet() {
   }
 
   try {
-    await API.addTradingWallet(id, label, pk, masterPassword, apiKey, apiSecret, apiPassphrase);
+    await API.addTradingWallet(id, label, pk, passwordForRequest, apiKey, apiSecret, apiPassphrase);
     document.getElementById('newTradingWalletId').value = '';
     document.getElementById('newTradingWalletLabel').value = '';
     document.getElementById('newTradingWalletKey').value = '';
@@ -1375,6 +1644,7 @@ async function addNewTradingWallet() {
     document.getElementById('newTradingWalletApiPassphrase').value = '';
     await win95Dialog.success('Trading wallet added!');
     await loadTradingWallets();
+    await refreshSetupExperience();
   } catch (error) {
     await win95Dialog.error(`Failed: ${error.message}`);
   }
@@ -1396,7 +1666,7 @@ async function toggleTradingWalletActive(id, active) {
 // ============================================================
 
 async function openBuilderCredsModal(walletId, walletLabel) {
-  if (!masterPassword) { await win95Dialog.alert('Wallets must be unlocked first'); return; }
+  if (!usesHostedWalletAccess() && !masterPassword) { await win95Dialog.alert('Wallets must be unlocked first'); return; }
 
   document.getElementById('builderCredsWalletId').value = walletId;
   document.getElementById('builderCredsWalletLabel').textContent = `${walletLabel} (${walletId})`;
@@ -1449,6 +1719,7 @@ async function submitBuilderCredentials() {
   const apiKey = document.getElementById('builderCredsApiKey').value.trim();
   const apiSecret = document.getElementById('builderCredsApiSecret').value.trim();
   const apiPassphrase = document.getElementById('builderCredsPassphrase').value.trim();
+  const passwordForRequest = usesHostedWalletAccess() ? undefined : masterPassword;
 
   const errorEl = document.getElementById('builderCredsError');
   const errorText = document.getElementById('builderCredsErrorText');
@@ -1460,7 +1731,7 @@ async function submitBuilderCredentials() {
     return;
   }
 
-  if (!masterPassword) {
+  if (!usesHostedWalletAccess() && !masterPassword) {
     errorEl.classList.remove('hidden');
     errorText.textContent = 'Wallets must be unlocked first.';
     return;
@@ -1470,7 +1741,7 @@ async function submitBuilderCredentials() {
   errorEl.classList.add('hidden');
 
   try {
-    await API.updateTradingWalletCredentials(walletId, apiKey, apiSecret, apiPassphrase, masterPassword);
+    await API.updateTradingWalletCredentials(walletId, apiKey, apiSecret, apiPassphrase, passwordForRequest);
     closeBuilderCredsModal();
     await loadTradingWallets();
   } catch (error) {
@@ -2582,30 +2853,35 @@ const showMenu = (menuId, items) => {
 };
 
 const toggleBotMenu = () => {
-  showMenu('menuBot', [
+  const items = [
     { label: botRunning ? 'Stop Bot' : 'Start Bot', action: toggleBot },
     { label: 'Paper Mode Info...', action: openPaperModeModal },
-    { separator: true },
-    {
-      label: 'Lock Vault', action: async () => {
-        if (await win95Dialog.confirm('Lock the wallet vault? You will need to re-enter your master password to trade.')) {
-          masterPassword = '';
-          document.getElementById('unlockSection').classList.remove('hidden');
-          document.getElementById('tradingWalletsSection').classList.add('hidden');
+  ];
+
+  if (!usesHostedWalletAccess()) {
+    items.push(
+      { separator: true },
+      {
+        label: 'Lock Vault', action: async () => {
+          if (await win95Dialog.confirm('Lock the wallet vault? You will need to re-enter your master password to trade.')) {
+            masterPassword = '';
+            document.getElementById('unlockSection').classList.remove('hidden');
+            document.getElementById('tradingWalletsSection').classList.add('hidden');
+          }
         }
-      }
-    },
-  ]);
+      },
+    );
+  }
+
+  showMenu('menuBot', items);
 };
 
 const toggleViewMenu = () => {
   showMenu('menuView', [
-    { label: 'Dashboard', action: () => switchTab('dashboard') },
+    { label: 'Home', action: () => switchTab('dashboard') },
     { label: 'Discovery', action: () => switchTab('discovery') },
     { label: 'Tracked Wallets', action: () => switchTab('wallets') },
     { label: 'Trading Wallets', action: () => switchTab('trading-wallets') },
-    { label: 'Platforms', action: () => switchTab('platforms') },
-    { label: 'Cross-Platform', action: () => switchTab('cross-platform') },
     { label: 'Settings', action: () => switchTab('settings') },
     { label: 'Diagnostics', action: () => switchTab('diagnostics') },
     { separator: true },
@@ -2615,10 +2891,11 @@ const toggleViewMenu = () => {
 
 const toggleHelpMenu = () => {
   showMenu('menuHelp', [
-    { label: 'About Jungle Agents...', action: openAboutModal },
+    { label: 'About Ditto...', action: openAboutModal },
     { label: 'What is Paper Mode?', action: openPaperModeModal },
     { separator: true },
-    { label: 'Start walkthrough...', action: () => { if (typeof startTour === 'function') startTour(); } },
+    { label: 'Open setup guide...', action: () => startSetupWizard(true) },
+    { label: 'Start interface walkthrough...', action: () => { if (typeof startTour === 'function') startTour(); } },
     { separator: true },
     { label: 'GitHub Repository', action: () => window.open('https://github.com/0xAidan/polymarket-bot-test', '_blank') },
   ]);

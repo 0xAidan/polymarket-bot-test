@@ -73,6 +73,18 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     });
   };
 
+  const resolveOidcUserContext = (req: express.Request) => {
+    const claims = req.oidc.user || {};
+    const user = syncUserFromOidc({
+      sub: claims.sub,
+      email: claims.email,
+      name: claims.name,
+      nickname: claims.nickname
+    });
+    const memberships = getUserMemberships(user.id);
+    return { user, memberships };
+  };
+
   // ─── Auth status endpoint (always open, tells frontend auth mode/requirements) ───
   app.get('/api/auth/required', (_req, res) => {
     const hostedMultiTenant = isHostedMultiTenantMode();
@@ -126,14 +138,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 
     app.get('/api/auth/me', requireOidcAuth, (req, res) => {
       try {
-        const claims = req.oidc.user || {};
-        const user = syncUserFromOidc({
-          sub: claims.sub,
-          email: claims.email,
-          name: claims.name,
-          nickname: claims.nickname
-        });
-        const memberships = getUserMemberships(user.id);
+        const { user, memberships } = resolveOidcUserContext(req);
         const activeMembership = resolveUserActiveTenant(user, memberships);
         setUserLastActiveTenant(user.id, activeMembership.tenantId);
         writeAuthAuditLog(user.id, 'session_check', {
@@ -161,9 +166,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 
     app.get('/api/auth/tenants', requireOidcAuth, (req, res) => {
       try {
-        const claims = req.oidc.user || {};
-        const user = syncUserFromOidc({ sub: claims.sub, email: claims.email, name: claims.name, nickname: claims.nickname });
-        const memberships = getUserMemberships(user.id);
+        const { user, memberships } = resolveOidcUserContext(req);
         const activeMembership = resolveUserActiveTenant(user, memberships);
         res.json({
           success: true,
@@ -182,8 +185,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
           return res.status(400).json({ success: false, error: 'tenantId is required' });
         }
 
-        const claims = req.oidc.user || {};
-        const user = syncUserFromOidc({ sub: claims.sub, email: claims.email, name: claims.name, nickname: claims.nickname });
+        const { user } = resolveOidcUserContext(req);
         if (!canUserAccessTenant(user.id, tenantId)) {
           writeAuthAuditLog(user.id, 'tenant_switch_denied', { tenantId, ip: req.ip });
           return res.status(403).json({ success: false, error: 'Access denied for tenant' });
@@ -199,14 +201,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 
     app.use('/api', apiLimiter, requireOidcAuth, (req, _res, next) => {
       try {
-        const claims = req.oidc.user || {};
-        const user = syncUserFromOidc({
-          sub: claims.sub,
-          email: claims.email,
-          name: claims.name,
-          nickname: claims.nickname
-        });
-        const memberships = getUserMemberships(user.id);
+        const { user, memberships } = resolveOidcUserContext(req);
         if (memberships.length === 0) {
           return next(new Error('Authenticated user has no tenant memberships'));
         }
@@ -231,11 +226,6 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     });
     log.info('🔐 OIDC authentication enabled (Auth0 session mode)');
   } else if (config.apiSecret) {
-    if (config.requireApiSecret && !config.apiSecret) {
-      const message = 'API_SECRET is required but missing. Refusing to start with an open API.';
-      log.error(message);
-      throw new Error(message);
-    }
     app.post('/api/auth/check', (req, res) => {
       const token = req.headers.authorization?.replace('Bearer ', '');
       if (token === config.apiSecret) {

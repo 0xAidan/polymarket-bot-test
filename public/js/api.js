@@ -52,7 +52,8 @@ const API = {
       if (response.status === 401) {
         this.clearToken();
         const legacyModal = typeof showAuthModal === 'function';
-        if (legacyModal && usingLegacyToken) {
+        const usingLegacyMode = window.__authMode === 'legacy';
+        if (legacyModal && (usingLegacyToken || usingLegacyMode)) {
           showAuthModal();
         } else {
           const returnTo = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
@@ -335,32 +336,7 @@ const API = {
   },
 
   async executeMirrorTrades(address, trades, slippagePercent = 2) {
-    try {
-      const token = this.getToken();
-      const response = await fetch(`/api/wallets/${address}/mirror-execute`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({ trades, slippagePercent })
-      });
-
-      if (response.status === 401) {
-        this.clearToken();
-        showAuthModal();
-        throw new Error('Authentication required');
-      }
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || `HTTP ${response.status}`);
-      }
-      return data;
-    } catch (error) {
-      console.error('Mirror execute error:', error);
-      throw error;
-    }
+    return this.post(`/wallets/${address}/mirror-execute`, { trades, slippagePercent });
   },
 
   // ============================================================
@@ -380,11 +356,19 @@ const API = {
   },
 
   async addTradingWallet(id, label, privateKey, masterPassword, apiKey, apiSecret, apiPassphrase) {
-    return this.post('/trading-wallets', { id, label, privateKey, masterPassword, apiKey, apiSecret, apiPassphrase });
+    const payload = { id, label, privateKey, apiKey, apiSecret, apiPassphrase };
+    if (masterPassword) {
+      payload.masterPassword = masterPassword;
+    }
+    return this.post('/trading-wallets', payload);
   },
 
   async updateTradingWalletCredentials(id, apiKey, apiSecret, apiPassphrase, masterPassword) {
-    return this.patch(`/trading-wallets/${id}/credentials`, { apiKey, apiSecret, apiPassphrase, masterPassword });
+    const payload = { apiKey, apiSecret, apiPassphrase };
+    if (masterPassword) {
+      payload.masterPassword = masterPassword;
+    }
+    return this.patch(`/trading-wallets/${id}/credentials`, payload);
   },
 
   async removeTradingWallet(id) {
