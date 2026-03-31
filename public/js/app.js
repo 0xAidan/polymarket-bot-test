@@ -1,5 +1,5 @@
 /**
- * Jungle Agents - Main Application Logic
+ * Ditto - Main Application Logic
  * Jungle-styled Polymarket prediction agent dashboard
  */
 
@@ -101,7 +101,7 @@ const win95Dialog = (() => {
   };
 
   return {
-    alert: (message, title = 'Jungle Agents') => {
+    alert: (message, title = 'Ditto') => {
       const escaped = String(message).replace(/</g, '&lt;').replace(/\n/g, '<br>');
       return createDialog(title, `<p style="margin:0;line-height:1.5">${escaped}</p>`, [
         { label: 'OK', value: true, primary: true },
@@ -177,7 +177,7 @@ window.handleLogout = async function handleLogout() {
 function initApp() {
   if (window.__appInitialized) return;
   window.__appInitialized = true;
-  console.log('Jungle Agents initialized');
+  console.log('Ditto initialized');
   if (typeof window.markAppShellReady === 'function') {
     window.markAppShellReady();
   }
@@ -485,8 +485,12 @@ function handleSetupWizardPrimaryAction() {
     if (document.getElementById('unlockSection')?.classList.contains('hidden')) {
       document.getElementById('newTradingWalletId')?.focus();
     } else {
-      document.getElementById('masterPasswordInput')?.focus();
-      document.getElementById('masterPasswordNew')?.focus();
+      const firstTimeVisible = !document.getElementById('unlockFirstTime')?.classList.contains('hidden');
+      if (firstTimeVisible) {
+        document.getElementById('masterPasswordNew')?.focus();
+      } else {
+        document.getElementById('masterPasswordInput')?.focus();
+      }
     }
   }
 }

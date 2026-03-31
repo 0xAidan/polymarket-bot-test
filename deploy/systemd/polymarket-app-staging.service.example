@@ -1,0 +1,26 @@
+[Unit]
+Description=Polymarket Bot App (Staging Preview)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polymarket
+Group=polymarket
+WorkingDirectory=/opt/polymarket-bot-staging
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3005
+EnvironmentFile=/opt/polymarket-bot-staging/.env
+ExecStart=/usr/bin/env npm run start:prod:app
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/polymarket-bot-staging/data
+
+[Install]
+WantedBy=multi-user.target

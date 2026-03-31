@@ -2361,6 +2361,13 @@ body.app-ready .auth-gate-screen {
   line-height: 1.6;
 }
 
+.auth-gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
 .auth-gate-trust {
   display: flex;
   flex-wrap: wrap;

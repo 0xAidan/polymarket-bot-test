@@ -52,7 +52,8 @@ const API = {
       if (response.status === 401) {
         this.clearToken();
         const legacyModal = typeof showAuthModal === 'function';
-        if (legacyModal && usingLegacyToken) {
+        const usingLegacyMode = window.__authMode === 'legacy';
+        if (legacyModal && (usingLegacyToken || usingLegacyMode)) {
           showAuthModal();
         } else {
           const returnTo = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
