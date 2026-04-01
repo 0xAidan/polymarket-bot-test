@@ -1284,12 +1284,18 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
+  const getHostedBalanceWalletCandidates = () => {
+    const active = getActiveTradingWallets();
+    const withCredentials = active.filter((wallet) => wallet.hasCredentials);
+    const withoutCredentials = active.filter((wallet) => !wallet.hasCredentials);
+    return [...withCredentials, ...withoutCredentials];
+  };
+
   // Get wallet configuration (address used for executing trades)
   router.get('/wallet', async (req: Request, res: Response) => {
     try {
       if (isHostedMultiTenantMode()) {
-        const active = getActiveTradingWallets();
-        const primary = active[0];
+        const primary = getHostedBalanceWalletCandidates()[0];
         if (!primary) {
           return res.json({
             success: true,
@@ -1330,12 +1336,13 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // Uses CLOB API directly - this is what the builder credentials are for
   router.get('/wallet/balance', async (req: Request, res: Response) => {
     try {
-      const activeTrading = getActiveTradingWallets();
+      const hostedCandidates = isHostedMultiTenantMode() ? getHostedBalanceWalletCandidates() : [];
       let eoaAddress: string | null = copyTrader.getWalletAddress();
+      let balanceWalletId: string | null = null;
       log.info(`[API] /wallet/balance requested. EOA address: ${eoaAddress || 'NOT SET'}`);
 
       if (isHostedMultiTenantMode()) {
-        if (activeTrading.length === 0) {
+        if (hostedCandidates.length === 0) {
           return res.json({
             success: true,
             currentBalance: 0,
@@ -1344,7 +1351,8 @@ export function createRoutes(copyTrader: CopyTrader): Router {
             walletAddress: null,
           });
         }
-        eoaAddress = activeTrading[0].address;
+        eoaAddress = hostedCandidates[0].address;
+        balanceWalletId = hostedCandidates[0].id;
       }
 
       if (!eoaAddress) {
@@ -1362,19 +1370,43 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       let currentBalance = 0;
 
       try {
-        const clobClient =
-          isHostedMultiTenantMode() && activeTrading[0]
-            ? await copyTrader.getTradeExecutor().getClobClientForTradingWalletId(activeTrading[0].id)
-            : copyTrader.getClobClient();
-        currentBalance = await clobClient.getUsdcBalance();
-        log.info(`[API] ✓ CLOB API balance: $${currentBalance.toFixed(2)} USDC`);
+        if (isHostedMultiTenantMode()) {
+          let lastError: string | null = null;
+          for (const wallet of hostedCandidates) {
+            try {
+              const clobClient = await copyTrader.getTradeExecutor().getClobClientForTradingWalletId(wallet.id);
+              currentBalance = await clobClient.getUsdcBalance();
+              eoaAddress = wallet.address;
+              balanceWalletId = wallet.id;
+              log.info(
+                `[API] ✓ CLOB API balance: $${currentBalance.toFixed(2)} USDC (walletId=${wallet.id}, hasCredentials=${wallet.hasCredentials})`
+              );
+              lastError = null;
+              break;
+            } catch (walletError: any) {
+              lastError = walletError?.message || 'Unknown hosted wallet balance error';
+              log.warn(
+                `[API] Hosted wallet balance failed for walletId=${wallet.id} hasCredentials=${wallet.hasCredentials}: ${lastError}`
+              );
+            }
+          }
+          if (lastError && currentBalance === 0) {
+            throw new Error(lastError);
+          }
+        } else {
+          const clobClient = copyTrader.getClobClient();
+          currentBalance = await clobClient.getUsdcBalance();
+          log.info(`[API] ✓ CLOB API balance: $${currentBalance.toFixed(2)} USDC`);
+        }
       } catch (clobError: any) {
         log.error({ err: clobError.message }, `[API] CLOB balance failed`);
         // Log full error for debugging
         log.error({ err: clobError }, `[API] Full error`);
       }
 
-      log.info(`[API] Final balance: $${currentBalance.toFixed(2)}`)
+      log.info(
+        `[API] Final balance: $${currentBalance.toFixed(2)}${balanceWalletId ? ` (walletId=${balanceWalletId})` : ''}`
+      )
 
       res.json({
         success: true,
