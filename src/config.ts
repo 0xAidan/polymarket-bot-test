@@ -99,6 +99,10 @@ export const config = {
       if (this.storageBackend !== 'sqlite') {
         throw new Error('Hosted multi-tenant mode requires STORAGE_BACKEND=sqlite');
       }
+      if (this.privateKey) {
+        log.error('Hosted mode misconfiguration detected: PRIVATE_KEY must be unset for tenant isolation');
+        throw new Error('Hosted multi-tenant mode forbids PRIVATE_KEY in server env. Use tenant keystores only.');
+      }
       if (process.env.NODE_ENV === 'production' && !path.isAbsolute(this.dataDir)) {
         throw new Error(
           'Hosted production requires an absolute DATA_DIR (e.g. /opt/polymarket-bot/data) so data survives deploys and restarts.'

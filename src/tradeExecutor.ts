@@ -10,7 +10,7 @@ import {
 import { classifyTradeExecutionFailure } from './tradeExecutionDiagnostics.js';
 import { createComponentLogger } from './logger.js';
 import { clobRateLimiter } from './clobRateLimiter.js';
-import { getTenantIdOrDefault } from './tenantContext.js';
+import { getTenantIdStrict } from './tenantContext.js';
 import { config } from './config.js';
 import { isHostedMultiTenantMode } from './hostedMode.js';
 import { getTradingWallet } from './walletManager.js';
@@ -70,7 +70,13 @@ export class TradeExecutor {
       if (!isWalletUnlocked()) {
         throw new Error('Wallet vault is locked. Unlock in the dashboard to execute trades.');
       }
-      return getClobClientForTradingWallet(getTenantIdOrDefault(), tw, this.api);
+      return getClobClientForTradingWallet(getTenantIdStrict(), tw, this.api);
+    }
+    if (isHostedMultiTenantMode()) {
+      log.error(
+        '[Execute] Hosted mode attempted CLOB access without tradingWalletId; blocking forbidden global fallback'
+      );
+      throw new Error('Hosted mode requires tradingWalletId for CLOB access; global client fallback is forbidden.');
     }
     await this.clobClient.initialize();
     return this.clobClient;
@@ -235,7 +241,7 @@ export class TradeExecutor {
       }));
       
       let orderResponse: any;
-      const releaseRateLimit = await clobRateLimiter.acquire(getTenantIdOrDefault());
+      const releaseRateLimit = await clobRateLimiter.acquire(getTenantIdStrict());
       try {
         try {
           orderResponse = await clobClient.createAndPostOrder(clobOrderParams);
@@ -254,7 +260,7 @@ export class TradeExecutor {
             try {
               let retryClient: PolymarketClobClient;
               if (order.tradingWalletId) {
-                evictClobClientCacheEntry(getTenantIdOrDefault(), order.tradingWalletId);
+                evictClobClientCacheEntry(getTenantIdStrict(), order.tradingWalletId);
                 retryClient = await this.resolveClobClientForOrder(order);
               } else {
                 this.clobClient = new PolymarketClobClient();
@@ -506,6 +512,10 @@ export class TradeExecutor {
    * Get the CLOB client instance for direct access
    */
   getClobClient(): PolymarketClobClient {
+    if (isHostedMultiTenantMode()) {
+      log.error('[Execute] Hosted mode attempted global CLOB client access; blocked');
+      throw new Error('Hosted mode forbids global CLOB client access; use tenant trading wallet clients.');
+    }
     return this.clobClient;
   }
 
@@ -520,6 +530,6 @@ export class TradeExecutor {
     if (!isWalletUnlocked()) {
       throw new Error('Wallet vault is locked');
     }
-    return getClobClientForTradingWallet(getTenantIdOrDefault(), tw, this.api);
+    return getClobClientForTradingWallet(getTenantIdStrict(), tw, this.api);
   }
 }

@@ -4,6 +4,7 @@ import { getBuilderCredentials, getSigner } from './secureKeyManager.js';
 import { createComponentLogger } from './logger.js';
 import { getValidEvmAddress } from './addressUtils.js';
 import { PolymarketApi } from './polymarketApi.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
 
 const log = createComponentLogger('ClobClientFactory');
 
@@ -55,9 +56,15 @@ export const resolveFunderAddress = async (
   } catch {
     // fall through
   }
-  const envFunder = getValidEvmAddress(process.env.POLYMARKET_FUNDER_ADDRESS);
-  if (envFunder) {
-    return envFunder;
+  if (!isHostedMultiTenantMode()) {
+    const envFunder = getValidEvmAddress(process.env.POLYMARKET_FUNDER_ADDRESS);
+    if (envFunder) {
+      return envFunder;
+    }
+  } else {
+    log.warn(
+      `Hosted mode: no explicit/proxy/API funder for wallet ${tw.id}; refusing env funder fallback and using wallet address`
+    );
   }
   return tw.address;
 };
