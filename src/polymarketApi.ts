@@ -155,8 +155,17 @@ export class PolymarketApi {
       log.warn({ err: positionsError.message }, `[API] Failed to get positions for proxy wallet lookup`);
     }
 
-    // FALLBACK: Check POLYMARKET_FUNDER_ADDRESS env variable
-    // This is the most reliable method if the user has set it
+    // Hosted multi-tenant must never use process-wide env identity fallback.
+    // Returning null here forces callers to keep the request scoped to the requested wallet.
+    if (isHostedMultiTenantMode()) {
+      log.warn(
+        `[API] Hosted mode: no proxy mapping found for ${address.substring(0, 8)}..., refusing env fallback`
+      );
+      return null;
+    }
+
+    // Legacy single-user fallback only.
+    // This is intentionally disabled in hosted mode to prevent cross-profile leakage.
     const funderAddress = getValidEvmAddress(process.env.POLYMARKET_FUNDER_ADDRESS);
     if (funderAddress && funderAddress !== normalizedEoa) {
       log.info(`[API] ✓ Using POLYMARKET_FUNDER_ADDRESS: ${funderAddress} for EOA: ${address.substring(0, 8)}...`);

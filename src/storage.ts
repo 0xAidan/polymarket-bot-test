@@ -23,6 +23,7 @@ import {
 import { assertWalletCanBeEnabled } from './walletConfigSafety.js';
 import { createComponentLogger } from './logger.js';
 import { DEFAULT_TENANT_ID, getTenantIdOrDefault } from './tenantContext.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
 
 const log = createComponentLogger('Storage');
 
@@ -86,6 +87,12 @@ async function ensureSqlite(): Promise<boolean> {
     await initDatabase();
     return true;
   } catch (err) {
+    if (isHostedMultiTenantMode()) {
+      log.error({ err }, '[Storage] Hosted mode cannot continue: SQLite init failed and JSON fallback is disabled');
+      throw new Error(
+        `SQLite initialization failed in hosted mode: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
     log.error({ err: err }, '[Storage] SQLite init failed, falling back to JSON')
     return false;
   }
