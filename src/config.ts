@@ -53,6 +53,10 @@ export const config = {
   // In production, fail closed by default if API_SECRET is missing.
   // Override with REQUIRE_API_SECRET=false only for controlled environments.
   requireApiSecret: (process.env.REQUIRE_API_SECRET || (process.env.NODE_ENV === 'production' ? 'true' : 'false')) === 'true',
+  corsAllowedOrigins: (process.env.CORS_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
 
   // Server configuration
   port: parseInt(process.env.PORT || '3001', 10),

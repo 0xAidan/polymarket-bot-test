@@ -4,7 +4,8 @@ import path from 'path';
 import { config } from './config.js';
 import { Storage } from './storage.js';
 import { createComponentLogger } from './logger.js';
-import { getTenantIdOrDefault } from './tenantContext.js';
+import { getTenantId, getTenantIdStrict } from './tenantContext.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
 
 const log = createComponentLogger('BalanceTracker');
 
@@ -33,7 +34,7 @@ interface WalletBalanceHistory {
 }
 
 function scopedTenantId(): string {
-  return getTenantIdOrDefault().replace(/[^A-Za-z0-9_-]/g, '_');
+  return getTenantIdStrict().replace(/[^A-Za-z0-9_-]/g, '_');
 }
 
 function balanceHistoryFileForTenant(tenantId: string): string {
@@ -141,8 +142,12 @@ export class BalanceTracker {
         this.provider
       );
 
-      // Load existing history
-      await this.loadHistory();
+      // Hosted mode has no meaningful "default" tenant at startup.
+      if (isHostedMultiTenantMode() && !getTenantId()) {
+        log.info('[Balance] Hosted mode startup: deferring tenant history load until request or monitor context exists');
+      } else {
+        await this.loadHistory();
+      }
       log.info('[Balance] Balance tracker initialized with both USDC variants');
     } catch (error: any) {
       log.error({ err: error }, '[Balance] Failed to initialize balance tracker')

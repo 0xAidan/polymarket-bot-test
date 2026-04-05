@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import type { Server } from 'node:http';
 import path from 'path';
 import rateLimit from 'express-rate-limit';
 import { auth, type ConfigParams } from 'express-openid-connect';
@@ -35,9 +36,23 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   await initDatabase();
   const app = express();
   app.set('trust proxy', 1);
+  const corsAllowedOrigins = new Set(config.corsAllowedOrigins);
+  if (config.auth0BaseUrl) {
+    corsAllowedOrigins.add(config.auth0BaseUrl);
+  }
 
   // Middleware
-  app.use(cors());
+  app.use(cors({
+    origin(origin, callback) {
+      if (!origin || corsAllowedOrigins.size === 0 || corsAllowedOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+      log.warn({ origin }, '[API] Blocked CORS origin');
+      callback(new Error('CORS origin not allowed'));
+    },
+    credentials: true,
+  }));
   app.use(express.json({ limit: '5mb' }));  // Increased from default 100kb for large trade lists
 
   // Serve static files from public directory
@@ -282,9 +297,42 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     });
   });
 
+  const buildHealthPayload = () => {
+    let configValid = true;
+    let configError: string | null = null;
+    try {
+      config.validate();
+    } catch (error: any) {
+      configValid = false;
+      configError = error?.message || 'Configuration validation failed';
+    }
+    const copyTraderStatus = copyTrader.getStatus();
+    return {
+      status: configValid && copyTraderStatus.running ? 'ready' : 'degraded',
+      timestamp: new Date().toISOString(),
+      checks: {
+        databaseReady: true,
+        configValid,
+        copyTraderRunning: copyTraderStatus.running,
+        hostedMultiTenant: isHostedMultiTenantMode(),
+      },
+      mode: {
+        authMode: config.authMode,
+        storageBackend: config.storageBackend,
+      },
+      error: configError,
+    };
+  };
+
   // Health check
   app.get('/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    res.json(buildHealthPayload());
+  });
+
+  app.get('/health/ready', (_req, res) => {
+    const payload = buildHealthPayload();
+    const ready = payload.checks.configValid && payload.checks.copyTraderRunning;
+    res.status(ready ? 200 : 503).json(payload);
   });
 
   // Serve dashboard UI (fallback for SPA-style routing)
@@ -298,13 +346,13 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 /**
  * Start the server
  */
-export async function startServer(app: express.Application): Promise<void> {
+export async function startServer(app: express.Application): Promise<Server> {
   return new Promise((resolve, reject) => {
     const host = process.env.HOST || '0.0.0.0'; // Listen on all interfaces for cloud/docker
     const server = app.listen(config.port, host, () => {
       log.info(`\n🚀 Server running on http://${host}:${config.port}`);
       log.info(`📊 Open your browser to manage wallets and control the bot\n`);
-      resolve();
+      resolve(server);
     });
 
     server.on('error', (error: any) => {

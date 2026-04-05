@@ -4,7 +4,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { config } from './config.js';
 import { createComponentLogger } from './logger.js';
-import { getTenantId, getTenantIdOrDefault } from './tenantContext.js';
+import { getTenantId, getTenantIdStrict } from './tenantContext.js';
 import { isHostedMultiTenantMode } from './hostedMode.js';
 
 const log = createComponentLogger('SecureKeyManager');
@@ -31,7 +31,7 @@ function keystoresDir(): string {
 }
 
 function getScopedTenantId(): string {
-  const tenantId = getTenantIdOrDefault();
+  const tenantId = getTenantIdStrict();
   if (!/^[A-Za-z0-9_-]+$/.test(tenantId)) {
     throw new Error(`Invalid tenant id: ${tenantId}`);
   }

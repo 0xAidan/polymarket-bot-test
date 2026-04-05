@@ -8,7 +8,7 @@ This guide walks you through setup and running the bot. No prior experience need
 
 ## Quick start (already have Node.js and the repo)
 
-If you've already cloned the repo and have Node.js 18+ installed:
+If you've already cloned the repo and have Node.js 20+ installed:
 
 ```bash
 cd polymarket-bot-test
@@ -38,7 +38,7 @@ Then open **http://localhost:3001** in your browser. The dashboard lets you add 
 
 ## What you need
 
-- **Node.js** 18 or higher (and npm, which comes with it)
+- **Node.js** 20 or higher (and npm, which comes with it)
 - **Git** (to clone the repo)
 - **Crypto wallet** with a private key (e.g. MetaMask)
 - **Polymarket Builder API** credentials from [polymarket.com/settings → Builder](https://polymarket.com/settings?tab=builder)

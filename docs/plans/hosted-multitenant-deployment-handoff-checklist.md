@@ -102,9 +102,9 @@ Use this as the single execution sheet for launching the hosted multi-tenant sys
 
 ### 4.1 Server Environment Configured
 - **Owner:** Deploy Operator + Engineering
-- **Action:** Create production `.env` with server-level vars (PORT, DATA_DIR, OIDC vars, API URLs, and required runtime config).
+- **Action:** Create production `.env` with server-level vars (PORT, `DATA_DIR`, OIDC vars, CORS allowlist, API URLs, and required runtime config).
 - **Acceptance Criteria:** App starts with env loaded and no missing required vars.
-- **Evidence Required:** Startup logs showing successful config validation (without exposing secrets).
+- **Evidence Required:** Startup logs showing successful config validation (without exposing secrets) plus a redacted `.env` excerpt proving `DATA_DIR` points to the hosted path instead of repo-relative storage.
 - **Status:** [ ] Not started [ ] In progress [ ] Done
 
 ### 4.2 Secret Ownership and Rotation Defined
@@ -164,6 +164,20 @@ Use this as the single execution sheet for launching the hosted multi-tenant sys
 - **Evidence Required:** Failure output + new environment pass output.
 - **Status:** [ ] Not started [ ] In progress [ ] Done
 
+### 6.3 Tenant Isolation Verification Gate
+- **Owner:** Engineering + Deploy Operator
+- **Action:** Run the full checklist in `docs/plans/tenant-isolation-verification-checklist.md` against the exact release candidate build and hosted environment.
+- **Acceptance Criteria:** Every API, UI, and runtime guardrail check passes for two different tenants with different wallet data.
+- **Evidence Required:** Saved request/response proof, screenshots for both tenants, and log excerpts showing blocked fallback attempts only.
+- **Status:** [ ] Not started [ ] In progress [ ] Done
+
+### 6.4 Staging Preview Gate
+- **Owner:** Engineering + Deploy Operator
+- **Action:** Update `staging.ditto.jungle.win` using `docs/plans/staging-update-handoff.md`, then run a browser review on the staged release candidate before promoting anything to production.
+- **Acceptance Criteria:** Staging serves the release candidate branch, `/health` and `/health/ready` return successfully, Auth0 login works, and production services remain untouched.
+- **Evidence Required:** `git rev-parse HEAD`, service status output for `polymarket-app-staging.service`, `curl https://staging.ditto.jungle.win/health`, `curl https://staging.ditto.jungle.win/health/ready`, and review screenshots.
+- **Status:** [ ] Not started [ ] In progress [ ] Done
+
 ---
 
 ## Phase 7 - Application Completion (Repo Side)
@@ -202,6 +216,9 @@ Use this as the single execution sheet for launching the hosted multi-tenant sys
 - [ ] Discovery worker healthy and persistent across reboot
 - [ ] Egress validation passes on production VPS
 - [ ] Multi-tenant isolation tests pass in current release
+- [ ] `docs/plans/tenant-isolation-verification-checklist.md` passed on the release candidate build
+- [ ] Staging preview gate passed on the exact release candidate before production promotion
+- [ ] Hosted `DATA_DIR` points at a server-owned path, not a repo-relative folder
 - [ ] Auth login works and maps to tenant context correctly
 - [ ] Admin panel can view/manage required controls
 - [ ] Trade detection/execution visibility is available in monitoring UI
@@ -212,6 +229,7 @@ Use this as the single execution sheet for launching the hosted multi-tenant sys
 - Link to deployed commit/PR
 - Test/build outputs
 - Egress validation output
+- Tenant isolation checklist evidence pack
 - Service status outputs
 - TLS proof
 - Backup + restore proof

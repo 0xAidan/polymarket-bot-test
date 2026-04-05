@@ -9,6 +9,10 @@ import { runWithTenant } from '../src/tenantContext.js';
 import { Storage } from '../src/storage.js';
 import { closeDatabase } from '../src/database.js';
 import { TradeExecutor } from '../src/tradeExecutor.js';
+import { initWalletManager } from '../src/walletManager.js';
+import { LadderExitManager } from '../src/ladderExitManager.js';
+import { SmartStopLossManager } from '../src/smartStopLoss.js';
+import { PositionLifecycleManager } from '../src/positionLifecycle.js';
 
 describe('tenant isolation hardening', () => {
   let savedAuthMode: string;
@@ -99,6 +103,26 @@ describe('tenant isolation hardening', () => {
     (config as any).storageBackend = 'sqlite';
     (config as any).dataDir = '/dev/null';
     await assert.rejects(() => Storage.loadTrackedWallets(), /SQLite initialization failed in hosted mode/);
+  });
+
+  it('hosted mode startup skips wallet preload without tenant context', async () => {
+    (config as any).authMode = 'oidc';
+    (config as any).storageBackend = 'sqlite';
+    await assert.doesNotReject(() => initWalletManager());
+  });
+
+  it('hosted ladder and stop-loss managers defer preload until tenant context exists', async () => {
+    (config as any).authMode = 'oidc';
+    (config as any).storageBackend = 'sqlite';
+    await assert.doesNotReject(() => new LadderExitManager().init());
+    await assert.doesNotReject(() => new SmartStopLossManager().init());
+  });
+
+  it('hosted mode disables position lifecycle automation until tenant scoping exists', async () => {
+    (config as any).authMode = 'oidc';
+    (config as any).storageBackend = 'sqlite';
+    const lifecycle = new PositionLifecycleManager();
+    await assert.rejects(() => lifecycle.start(), /disabled in hosted multi-tenant mode/);
   });
 
   it('config validation rejects hosted mode with PRIVATE_KEY set', () => {

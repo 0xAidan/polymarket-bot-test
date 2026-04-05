@@ -1,6 +1,7 @@
 import { Storage } from './storage.js';
 import { createComponentLogger } from './logger.js';
-import { getTenantIdOrDefault } from './tenantContext.js';
+import { getTenantId, getTenantIdStrict } from './tenantContext.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
 
 const log = createComponentLogger('LadderExitManager');
 
@@ -68,8 +69,12 @@ export class LadderExitManager {
   }
 
   async init(): Promise<void> {
+    if (isHostedMultiTenantMode() && !getTenantId()) {
+      log.info('[LadderExit] Hosted mode startup: deferring ladder preload until tenant context exists');
+      return;
+    }
     await this.loadState();
-    this.tenantSync = getTenantIdOrDefault();
+    this.tenantSync = getTenantIdStrict();
     log.info(`[LadderExit] Loaded ${this.ladders.length} active ladder(s)`);
   }
 
@@ -77,7 +82,7 @@ export class LadderExitManager {
    * Reload ladder state from Storage for the current AsyncLocalStorage tenant (HTTP request).
    */
   async syncFromCurrentTenant(): Promise<void> {
-    const tid = getTenantIdOrDefault();
+    const tid = getTenantIdStrict();
     if (this.tenantSync === tid) return;
     await this.loadState();
     this.tenantSync = tid;
@@ -254,7 +259,7 @@ export class LadderExitManager {
       cfg.ladderExitConfig = this.config;
       cfg.ladderExits = this.ladders;
       await Storage.saveConfig(cfg);
-      this.tenantSync = getTenantIdOrDefault();
+      this.tenantSync = getTenantIdStrict();
     } catch (err: any) {
       log.error({ detail: err.message }, '[LadderExit] Failed to save')
     }

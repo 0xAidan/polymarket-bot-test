@@ -4,6 +4,9 @@
   "type": "module",
   "description": "Bot to copy trades from tracked wallets on Polymarket",
   "main": "dist/index.js",
+  "engines": {
+    "node": ">=20 <25"
+  },
   "scripts": {
     "setup": "node setup.cjs",
     "dev": "node start.cjs",
@@ -34,7 +37,6 @@
     "@polymarket/builder-relayer-client": "^0.0.8",
     "@polymarket/builder-signing-sdk": "^0.0.8",
     "@polymarket/clob-client": "^5.2.3",
-    "@privy-io/server-auth": "^1.32.5",
     "axios": "^1.6.2",
     "better-sqlite3": "^12.6.2",
     "cors": "^2.8.5",

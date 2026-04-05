@@ -3,12 +3,13 @@ import path from 'path';
 import { config } from './config.js';
 import { TradeMetrics, SystemIssue, PerformanceStats, WalletStats, PerformanceDataPoint } from './types.js';
 import { createComponentLogger } from './logger.js';
-import { getTenantIdOrDefault } from './tenantContext.js';
+import { getTenantId, getTenantIdStrict } from './tenantContext.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
 
 const log = createComponentLogger('PerformanceTracker');
 
 function scopedTenantId(): string {
-  const tenantId = getTenantIdOrDefault();
+  const tenantId = getTenantIdStrict();
   return tenantId.replace(/[^A-Za-z0-9_-]/g, '_');
 }
 
@@ -462,6 +463,10 @@ export class PerformanceTracker {
    * Initialize - load existing data
    */
   async initialize(): Promise<void> {
+    if (isHostedMultiTenantMode() && !getTenantId()) {
+      log.info('[PerformanceTracker] Hosted mode startup: deferring tenant metric load until tenant context exists');
+      return;
+    }
     await this.loadMetrics();
     await this.loadIssues();
   }

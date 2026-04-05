@@ -16,7 +16,7 @@ import {
 } from './secureKeyManager.js';
 import { createComponentLogger } from './logger.js';
 import { Storage } from './storage.js';
-import { getTenantIdOrDefault } from './tenantContext.js';
+import { getTenantId, getTenantIdStrict } from './tenantContext.js';
 
 const log = createComponentLogger('WalletManager');
 
@@ -36,7 +36,7 @@ const ASSIGNMENTS_CONFIG_KEY = 'copyAssignments';
 // ============================================================================
 
 function scopedTenantId(): string {
-  return getTenantIdOrDefault();
+  return getTenantIdStrict();
 }
 
 function getOrCreateTenantState(): TenantWalletState {
@@ -81,6 +81,10 @@ async function ensureWalletConfigLoaded(): Promise<TenantWalletState> {
  * Initialize the wallet manager. Loads config from storage.
  */
 export async function initWalletManager(): Promise<void> {
+  if (isHostedMultiTenantMode() && !getTenantId()) {
+    log.info('[WalletManager] Hosted mode startup: skipping global wallet preload until tenant context exists');
+    return;
+  }
   await loadWalletConfig();
   const state = getOrCreateTenantState();
   log.info(`[WalletManager] Loaded ${state.tradingWallets.length} trading wallet(s) for tenant ${scopedTenantId()}`);

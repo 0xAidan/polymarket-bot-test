@@ -1,6 +1,7 @@
 import { Storage } from './storage.js';
 import { createComponentLogger } from './logger.js';
-import { getTenantIdOrDefault } from './tenantContext.js';
+import { getTenantId, getTenantIdStrict } from './tenantContext.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
 
 const log = createComponentLogger('SmartStopLoss');
 
@@ -73,14 +74,18 @@ export class SmartStopLossManager {
   }
 
   async init(): Promise<void> {
+    if (isHostedMultiTenantMode() && !getTenantId()) {
+      log.info('[StopLoss] Hosted mode startup: deferring stop-loss preload until tenant context exists');
+      return;
+    }
     await this.loadState();
-    this.tenantSync = getTenantIdOrDefault();
+    this.tenantSync = getTenantIdStrict();
     log.info(`[StopLoss] Loaded ${this.orders.filter(o => o.isActive).length} active stop-loss order(s)`);
   }
 
   /** Reload stop-loss state from Storage for the current tenant (HTTP request isolation). */
   async syncFromCurrentTenant(): Promise<void> {
-    const tid = getTenantIdOrDefault();
+    const tid = getTenantIdStrict();
     if (this.tenantSync === tid) return;
     await this.loadState();
     this.tenantSync = tid;
@@ -262,7 +267,7 @@ export class SmartStopLossManager {
       cfg.stopLossConfig = this.config;
       cfg.stopLossOrders = this.orders;
       await Storage.saveConfig(cfg);
-      this.tenantSync = getTenantIdOrDefault();
+      this.tenantSync = getTenantIdStrict();
     } catch (err: any) {
       log.error({ detail: err.message }, '[StopLoss] Failed to save')
     }

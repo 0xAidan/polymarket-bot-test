@@ -20,6 +20,24 @@ export const logger = pino({
     level: LOG_LEVEL,
     // Human-readable timestamps in ISO-8601
     timestamp: pino.stdTimeFunctions.isoTime,
+    redact: {
+        paths: [
+            'authorization',
+            'headers.authorization',
+            'req.headers.authorization',
+            'apiSecret',
+            'privateKey',
+            'builder.apiKey',
+            'builder.secret',
+            'builder.passphrase',
+            'polymarketBuilderApiKey',
+            'polymarketBuilderSecret',
+            'polymarketBuilderPassphrase',
+            'auth0ClientSecret',
+            'authSessionSecret'
+        ],
+        censor: '[REDACTED]'
+    },
     formatters: {
         level(label: string) {
             return { level: label };

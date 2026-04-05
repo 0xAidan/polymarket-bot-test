@@ -22,7 +22,7 @@ import {
   summarizeDetectedTradeForDebug,
 } from './tradeDiagnostics.js';
 import { createComponentLogger } from './logger.js';
-import { getTenantIdOrDefault } from './tenantContext.js';
+import { getTenantIdOrDefault, getTenantIdStrict } from './tenantContext.js';
 
 const log = createComponentLogger('CopyTrader');
 
@@ -66,15 +66,15 @@ export class CopyTrader {
       await this.executor.authenticate();
       await this.balanceTracker.initialize();
       
-      // Initialize multi-wallet manager
-      await initWalletManager();
+      // Hosted runtime is process-global; tenant wallet state loads on demand per request/trade context.
+      if (isHostedMultiTenantMode()) {
+        log.info('[CopyTrader] Hosted mode startup: skipping global wallet-manager preload');
+      } else {
+        await initWalletManager();
+      }
       
       const userWallet = this.getWalletAddress();
-      const initialAddrs = userWallet
-        ? [userWallet]
-        : isHostedMultiTenantMode()
-          ? getActiveTradingWallets().map(w => w.address)
-          : [];
+      const initialAddrs = userWallet ? [userWallet] : [];
       for (const addr of initialAddrs) {
         try {
           await this.balanceTracker.recordBalance(addr);
@@ -138,10 +138,7 @@ export class CopyTrader {
 
     // Start balance tracking for user wallet(s) (reduces RPC calls significantly)
     const userWallet = this.getWalletAddress();
-    const hostedAddrs = isHostedMultiTenantMode()
-      ? getActiveTradingWallets().map(w => w.address)
-      : [];
-    const toTrack = userWallet ? [userWallet] : hostedAddrs;
+    const toTrack = userWallet ? [userWallet] : [];
     if (toTrack.length > 0) {
       await this.balanceTracker.startTracking(toTrack);
     }
@@ -1791,11 +1788,12 @@ export class CopyTrader {
     const now = Date.now();
     const hourMs = 60 * 60 * 1000;
     const dayMs = 24 * 60 * 60 * 1000;
+    const tenantId = isHostedMultiTenantMode() ? getTenantIdStrict() : getTenantIdOrDefault();
     
     // If specific wallet requested
     if (walletAddress) {
       const walletRateState = this.perWalletRateLimits.get(
-        this.getRateLimitKey(walletAddress, getTenantIdOrDefault())
+        this.getRateLimitKey(walletAddress, tenantId)
       );
       if (!walletRateState) {
         // No rate limit state exists for this wallet (never had rate limiting enabled or no trades)

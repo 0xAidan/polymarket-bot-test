@@ -11,8 +11,19 @@ import {
 import { DetectedTrade, TrackedWallet } from './types.js';
 import { createComponentLogger } from './logger.js';
 import { DEFAULT_TENANT_ID, runWithTenant } from './tenantContext.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
 
 const log = createComponentLogger('WalletMonitor');
+
+const resolveHostedTenantId = (tenantId: string | undefined, context: string): string => {
+  if (tenantId) {
+    return tenantId;
+  }
+  if (isHostedMultiTenantMode()) {
+    throw new Error(`${context} is missing tenantId in hosted multi-tenant mode`);
+  }
+  return DEFAULT_TENANT_ID;
+};
 
 /**
  * Monitors wallet addresses for Polymarket trades
@@ -227,7 +238,10 @@ export class WalletMonitor {
                     tradeTime: new Date(tradeTime).toISOString(),
                   }, 'Trade detected from history');
                   try {
-                    await runWithTenant(detectedTrade.tenantId || DEFAULT_TENANT_ID, () => onTradeDetected(detectedTrade));
+                    await runWithTenant(
+                      resolveHostedTenantId(detectedTrade.tenantId, 'Detected trade'),
+                      () => onTradeDetected(detectedTrade)
+                    );
                     log.info('Trade callback completed successfully');
                   } catch (callbackError: any) {
                     log.error({ err: callbackError }, 'Trade callback failed');
@@ -246,7 +260,7 @@ export class WalletMonitor {
           }
           log.info(`[Monitor] Processed ${processedTradeCount} trade(s) from history for ${eoaAddress.substring(0, 8)}...`);
           if (maxSeenTradeTime > cursorMs) {
-            await runWithTenant(wallet.tenantId || DEFAULT_TENANT_ID, () => (
+            await runWithTenant(resolveHostedTenantId(wallet.tenantId, 'Tracked wallet'), () => (
               Storage.updateWalletLastSeen(eoaAddress, new Date(maxSeenTradeTime))
             ));
           }
@@ -356,8 +370,10 @@ export class WalletMonitor {
         tradeTimestamp = new Date();
       }
 
+      const tenantId = resolveHostedTenantId(wallet.tenantId, 'Tracked wallet');
+
       return {
-        tenantId: wallet.tenantId,
+        tenantId,
         walletAddress: walletAddress.toLowerCase(),
         marketId,
         marketTitle: trade.title || trade.slug || undefined,
