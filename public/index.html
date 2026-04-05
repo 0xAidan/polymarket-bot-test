@@ -85,6 +85,7 @@
           <button class="win-tab nav-hidden" data-tab="platforms" onclick="switchTab('platforms')">Platforms</button>
           <button class="win-tab nav-hidden" data-tab="cross-platform" onclick="switchTab('cross-platform')">Cross-Platform</button>
           <button class="win-tab" data-tab="settings" onclick="switchTab('settings')">Settings</button>
+          <button class="win-tab" data-tab="performance" onclick="switchTab('performance')">Performance</button>
           <button class="win-tab" data-tab="diagnostics" onclick="switchTab('diagnostics')">Diagnostics</button>
         </div>
       </div>
@@ -698,6 +699,51 @@
               <button class="win-btn win-btn-sm" onclick="updateProxyWallet()">Update</button>
             </div>
             <div class="form-hint">Your Polymarket proxy wallet holds your USDC. Required for accurate balance display.</div>
+          </div>
+        </div>
+
+        <!-- ============================================================
+             PERFORMANCE TAB
+             ============================================================ -->
+        <div id="tab-performance" class="win-tab-panel">
+          <div class="section-intro">
+            <div class="app-section-kicker">Analytics</div>
+            <p class="section-intro-text">Your portfolio performance on Polymarket — positions, P&L, and trade history.</p>
+          </div>
+
+          <!-- Wallet Selector -->
+          <div class="win-group">
+            <div class="win-group-title">Trading Wallet</div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <select id="perfWalletSelect" onchange="loadPerformanceTab()" style="flex:1;padding:4px;font-family:var(--font-system);font-size:13px;">
+                <option value="">Loading wallets...</option>
+              </select>
+              <button class="win-btn" onclick="loadPerformanceTab()">Refresh</button>
+            </div>
+          </div>
+
+          <!-- Portfolio Summary -->
+          <div class="win-group">
+            <div class="win-group-title">Portfolio Summary</div>
+            <div id="perfPortfolioSummary">
+              <div class="text-center text-muted" style="padding:12px;">Select a wallet above</div>
+            </div>
+          </div>
+
+          <!-- Open Positions with P&L -->
+          <div class="win-group">
+            <div class="win-group-title">Open Positions</div>
+            <div id="perfPositions">
+              <div class="text-center text-muted" style="padding:12px;">Select a wallet above</div>
+            </div>
+          </div>
+
+          <!-- Wallet Leaderboard -->
+          <div class="win-group">
+            <div class="win-group-title">Wallet Leaderboard</div>
+            <div id="perfWalletLeaderboard">
+              <div class="text-center text-muted" style="padding:12px;">Loading tracked wallet stats...</div>
+            </div>
           </div>
         </div>
 

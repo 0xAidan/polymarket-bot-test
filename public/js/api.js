@@ -195,6 +195,14 @@ const API = {
     return this.get('/performance');
   },
 
+  async getTradingWalletPortfolio(walletId) {
+    return this.get(`/trading-wallets/${walletId}/portfolio`);
+  },
+
+  async getDiscoveryWallets(limit = 200) {
+    return this.get(`/discovery/wallets?limit=${limit}&includeAll=true`);
+  },
+
   // ============================================================
   // ISSUES
   // ============================================================

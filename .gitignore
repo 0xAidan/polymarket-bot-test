@@ -19,4 +19,5 @@ data/keystores/
 .cursor/*
 !.cursor/rules/
 
-
+CLAUDE.md
+1

@@ -246,6 +246,9 @@ function refreshCurrentTab() {
         loadUnusualMarkets();
       }
       break;
+    case 'performance':
+      loadPerformanceTab();
+      break;
   }
 }
 
@@ -1355,6 +1358,213 @@ async function updateProxyWallet() {
     if (data.success) { await win95Dialog.success('Proxy wallet saved!'); loadWalletBalance(); }
     else await win95Dialog.error(`Failed: ${data.error}`);
   } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+}
+
+// ============================================================
+// PERFORMANCE TAB
+// ============================================================
+
+let perfWalletsLoaded = false;
+
+async function loadPerformanceTab() {
+  if (!perfWalletsLoaded) {
+    await loadPerfWalletSelector();
+    perfWalletsLoaded = true;
+  }
+
+  const select = document.getElementById('perfWalletSelect');
+  const walletId = select.value;
+  if (!walletId) return;
+
+  loadPerfPortfolioSummary(walletId);
+  loadPerfPositions(walletId);
+  loadPerfWalletLeaderboard();
+}
+
+async function loadPerfWalletSelector() {
+  const select = document.getElementById('perfWalletSelect');
+  try {
+    const data = await API.getTradingWallets();
+    const wallets = data.wallets || data || [];
+    if (wallets.length === 0) {
+      select.innerHTML = '<option value="">No trading wallets configured</option>';
+      return;
+    }
+    select.innerHTML = wallets.map(w => {
+      const label = w.label || w.id || 'Wallet';
+      const addr = w.address ? ' (' + w.address.slice(0, 6) + '...' + w.address.slice(-4) + ')' : '';
+      return `<option value="${w.id}">${label}${addr}</option>`;
+    }).join('');
+  } catch (error) {
+    select.innerHTML = '<option value="">Failed to load wallets</option>';
+  }
+}
+
+async function loadPerfPortfolioSummary(walletId) {
+  const container = document.getElementById('perfPortfolioSummary');
+  container.innerHTML = '<div class="text-center text-muted" style="padding:12px;">Loading portfolio...</div>';
+  try {
+    const data = await API.getTradingWalletPortfolio(walletId);
+
+    const pnl = data.positionsValue - (data.totalValue - data.usdcBalance - data.positionsValue || 0);
+    container.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;">
+        <div class="win-group" style="padding:8px;margin:0;text-align:center;">
+          <div class="text-sm text-muted">Total Portfolio</div>
+          <div style="font-size:20px;font-weight:bold;">$${(data.totalValue || 0).toFixed(2)}</div>
+        </div>
+        <div class="win-group" style="padding:8px;margin:0;text-align:center;">
+          <div class="text-sm text-muted">USDC Balance</div>
+          <div style="font-size:20px;font-weight:bold;">$${(data.usdcBalance || 0).toFixed(2)}</div>
+        </div>
+        <div class="win-group" style="padding:8px;margin:0;text-align:center;">
+          <div class="text-sm text-muted">Positions Value</div>
+          <div style="font-size:20px;font-weight:bold;">$${(data.positionsValue || 0).toFixed(2)}</div>
+        </div>
+        <div class="win-group" style="padding:8px;margin:0;text-align:center;">
+          <div class="text-sm text-muted">Open Positions</div>
+          <div style="font-size:20px;font-weight:bold;">${data.positionCount || 0}</div>
+        </div>
+      </div>`;
+  } catch (error) {
+    container.innerHTML = `<div class="text-danger">Failed to load portfolio: ${error.message}</div>`;
+  }
+}
+
+async function loadPerfPositions(walletId) {
+  const container = document.getElementById('perfPositions');
+  container.innerHTML = '<div class="text-center text-muted" style="padding:12px;">Loading positions...</div>';
+  try {
+    const data = await API.getTradingWalletPositions(walletId);
+    const positions = (data.positions || []).filter(p => parseFloat(p.size) > 0);
+
+    if (positions.length === 0) {
+      container.innerHTML = '<div class="text-center text-muted" style="padding:12px;">No open positions</div>';
+      return;
+    }
+
+    // Sort by absolute P&L descending
+    const sorted = positions.map(pos => {
+      const size = parseFloat(pos.size || 0);
+      const avgPrice = parseFloat(pos.avgPrice || 0);
+      const curPrice = parseFloat(pos.curPrice || 0);
+      const pnl = (curPrice - avgPrice) * size;
+      const pnlPct = avgPrice > 0 ? ((curPrice - avgPrice) / avgPrice * 100) : 0;
+      const cost = avgPrice * size;
+      return { ...pos, size, avgPrice, curPrice, pnl, pnlPct, cost };
+    }).sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl));
+
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+    html += '<tr style="border-bottom:2px solid var(--win-dark);text-align:left;">' +
+      '<th style="padding:4px 6px;">Market</th>' +
+      '<th style="padding:4px 6px;">Side</th>' +
+      '<th style="padding:4px 6px;">Shares</th>' +
+      '<th style="padding:4px 6px;">Entry</th>' +
+      '<th style="padding:4px 6px;">Current</th>' +
+      '<th style="padding:4px 6px;">Cost</th>' +
+      '<th style="padding:4px 6px;">P&L</th>' +
+      '<th style="padding:4px 6px;">ROI</th></tr>';
+
+    sorted.forEach(p => {
+      const title = p.title || p.conditionId?.slice(0, 16) || 'Unknown';
+      const shortTitle = title.length > 35 ? title.slice(0, 33) + '...' : title;
+      const outcome = p.outcome || 'Yes';
+      const pnlColor = p.pnl >= 0 ? '#00aa00' : '#cc0000';
+      const badgeClass = outcome.toUpperCase() === 'YES' ? 'badge-success' : 'badge-danger';
+
+      html += `<tr style="border-bottom:1px solid var(--win-dark);">
+        <td style="padding:4px 6px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${title}">${shortTitle}</td>
+        <td style="padding:4px 6px;"><span class="win-badge ${badgeClass}">${outcome}</span></td>
+        <td style="padding:4px 6px;">${p.size.toFixed(1)}</td>
+        <td style="padding:4px 6px;">$${p.avgPrice.toFixed(3)}</td>
+        <td style="padding:4px 6px;">$${p.curPrice.toFixed(3)}</td>
+        <td style="padding:4px 6px;">$${p.cost.toFixed(2)}</td>
+        <td style="padding:4px 6px;color:${pnlColor};font-weight:bold;">${p.pnl >= 0 ? '+' : ''}$${p.pnl.toFixed(2)}</td>
+        <td style="padding:4px 6px;color:${pnlColor};font-weight:bold;">${p.pnlPct >= 0 ? '+' : ''}${p.pnlPct.toFixed(1)}%</td>
+      </tr>`;
+    });
+    html += '</table>';
+    container.innerHTML = html;
+  } catch (error) {
+    container.innerHTML = `<div class="text-danger">Failed to load positions: ${error.message}</div>`;
+  }
+}
+
+async function loadPerfWalletLeaderboard() {
+  const container = document.getElementById('perfWalletLeaderboard');
+  container.innerHTML = '<div class="text-center text-muted" style="padding:12px;">Loading wallet stats...</div>';
+  try {
+    const walletsResp = await API.getWallets();
+    const wallets = walletsResp.wallets || walletsResp || [];
+    if (!wallets.length) {
+      container.innerHTML = '<div class="text-center text-muted" style="padding:12px;">No tracked wallets</div>';
+      return;
+    }
+
+    // Fetch copy stats for each tracked wallet
+    const statsPromises = wallets.map(w => {
+      const addr = w.address || w;
+      const label = w.label || null;
+      return API.getWalletStats(addr).then(s => ({ ...s, address: addr, label })).catch(() => ({
+        address: addr, label, tradesCopied: 0, successfulCopies: 0, failedCopies: 0,
+        successRate: 0, averageLatencyMs: 0, lastActivity: null
+      }));
+    });
+
+    // Fetch discovery scores in one call
+    let discoveryMap = {};
+    try {
+      const disc = await API.getDiscoveryWallets(200);
+      const discWallets = disc.wallets || disc || [];
+      discWallets.forEach(dw => {
+        const addr = (dw.address || '').toLowerCase();
+        if (addr) discoveryMap[addr] = dw;
+      });
+    } catch (e) { /* discovery may not be running */ }
+
+    const stats = await Promise.all(statsPromises);
+
+    // Sort by trades copied descending
+    stats.sort((a, b) => (b.tradesCopied || 0) - (a.tradesCopied || 0));
+
+    const heatColors = { HOT: '#00aa00', WARMING: '#88aa00', STEADY: '#888', COOLING: '#cc8800', COLD: '#cc0000', NEW: '#0066cc' };
+
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+    html += '<tr style="border-bottom:2px solid var(--win-dark);text-align:left;">' +
+      '<th style="padding:4px 6px;">Wallet</th>' +
+      '<th style="padding:4px 6px;">Copied</th>' +
+      '<th style="padding:4px 6px;">Success Rate</th>' +
+      '<th style="padding:4px 6px;">Avg Latency</th>' +
+      '<th style="padding:4px 6px;">Whale Score</th>' +
+      '<th style="padding:4px 6px;">Heat</th>' +
+      '<th style="padding:4px 6px;">Last Active</th></tr>';
+
+    stats.forEach(s => {
+      const shortAddr = s.address.slice(0, 6) + '...' + s.address.slice(-4);
+      const displayName = s.label || shortAddr;
+      const rateClass = s.successRate >= 80 ? 'text-success' : s.successRate >= 50 ? '' : 'text-danger';
+      const lastActive = s.lastActivity ? new Date(s.lastActivity).toLocaleString() : 'Never';
+
+      const disc = discoveryMap[s.address.toLowerCase()];
+      const score = disc ? Math.round(disc.whaleScore || 0) : '-';
+      const heat = disc?.heatIndicator || '-';
+      const heatColor = heatColors[heat] || '#888';
+
+      html += `<tr style="border-bottom:1px solid var(--win-dark);">
+        <td style="padding:4px 6px;font-family:monospace;" title="${s.address}">${displayName}</td>
+        <td style="padding:4px 6px;">${s.tradesCopied || 0}</td>
+        <td style="padding:4px 6px;" class="${rateClass}">${(s.successRate || 0).toFixed(1)}%</td>
+        <td style="padding:4px 6px;">${Math.round(s.averageLatencyMs || 0)}ms</td>
+        <td style="padding:4px 6px;font-weight:bold;">${score}</td>
+        <td style="padding:4px 6px;font-weight:bold;color:${heatColor};">${heat}</td>
+        <td style="padding:4px 6px;" class="text-muted">${lastActive}</td>
+      </tr>`;
+    });
+    html += '</table>';
+    container.innerHTML = html;
+  } catch (error) {
+    container.innerHTML = `<div class="text-danger">Failed to load leaderboard: ${error.message}</div>`;
+  }
 }
 
 // ============================================================

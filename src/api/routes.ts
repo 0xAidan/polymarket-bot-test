@@ -480,6 +480,33 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
+  // Get trading wallet portfolio value (USDC + positions) from Polymarket
+  router.get('/trading-wallets/:id/portfolio', async (req: Request, res: Response) => {
+    try {
+      await initWalletManager();
+      const wallet = getTradingWallet(req.params.id);
+      if (!wallet) {
+        return res.status(404).json({ success: false, error: `Trading wallet "${req.params.id}" not found` });
+      }
+      const api = copyTrader.getPolymarketApi();
+      const balanceTracker = copyTrader.getBalanceTracker();
+      const portfolio = await api.getPortfolioValue(wallet.address, balanceTracker);
+      res.json({
+        success: true,
+        walletId: wallet.id,
+        walletLabel: wallet.label,
+        totalValue: portfolio.totalValue,
+        usdcBalance: portfolio.usdcBalance,
+        positionsValue: portfolio.positionsValue,
+        positionCount: portfolio.positionCount,
+        proxyWallet: portfolio.proxyWallet
+      });
+    } catch (error: any) {
+      log.error({ detail: error.message }, `Failed to load portfolio for trading wallet ${req.params.id}`);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   // Get copy assignments
   router.get('/copy-assignments', async (req: Request, res: Response) => {
     await initWalletManager();

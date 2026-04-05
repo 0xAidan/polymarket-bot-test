@@ -140,7 +140,7 @@ export class TradeExecutor {
       if (isNaN(size) || size <= 0) {
         throw new Error(`Invalid amount: ${order.amount}`);
       }
-      
+
       // ============================================================
       // AGGRESSIVE PRICING FOR IMMEDIATE FILLS (Order or storage slippage)
       // ============================================================
@@ -155,23 +155,23 @@ export class TradeExecutor {
       }
       const PRICE_SLIPPAGE = slippagePercent / 100;
       const originalPrice = price;
-      
+
       if (order.side === 'BUY') {
         price = Math.min(price * (1 + PRICE_SLIPPAGE), 0.99);
       } else {
         price = Math.max(price * (1 - PRICE_SLIPPAGE), 0.01);
       }
-      
+
       log.info(`[Execute] ⚡ AGGRESSIVE PRICING for immediate fill:`);
       log.info(`   Original price: $${originalPrice.toFixed(4)}`);
       log.info(`   Adjusted price: $${price.toFixed(4)} (${order.side === 'BUY' ? '+' : '-'}${slippagePercent.toFixed(1)}% slippage)`);
-      
+
       // Tick alignment is done in CLOB client; we only enforce Polymarket price bounds here.
-      
+
       // POLYMARKET PRICE LIMITS: Must be between 0.01 and 0.99
       const MIN_PRICE = 0.01;
       const MAX_PRICE = 0.99;
-      
+
       if (price < MIN_PRICE) {
         log.info(`[Execute] ⚠️ Price ${price} below minimum ${MIN_PRICE}`);
         return {
@@ -180,7 +180,7 @@ export class TradeExecutor {
           executionTimeMs: Date.now() - executionStart
         };
       }
-      
+
       if (price > MAX_PRICE) {
         log.info(`[Execute] ⚠️ Price ${price} above maximum ${MAX_PRICE}`);
         return {
@@ -189,17 +189,17 @@ export class TradeExecutor {
           executionTimeMs: Date.now() - executionStart
         };
       }
-      
+
       // Round size to 2 decimal places to avoid floating-point issues; CLOB client handles price tick alignment
       const rawSize = size;
       size = parseFloat(size.toFixed(2));
-      
+
       if (size < 0.01) {
         throw new Error(`Order size too small after rounding: ${size}. Minimum is 0.01`);
       }
-      
+
       log.info(`[Execute] Size rounded: ${rawSize} -> ${size} (price ${price} sent to CLOB for tick alignment)`);
-      
+
       // Ensure price is still valid after rounding
       if (price <= 0 || price > 1) {
         throw new Error(`Price rounding resulted in invalid value: ${price} (original: ${order.price})`);
@@ -239,7 +239,7 @@ export class TradeExecutor {
         },
         errorMessage: '',
       }));
-      
+
       let orderResponse: any;
       const releaseRateLimit = await clobRateLimiter.acquire(getTenantIdStrict());
       try {
@@ -247,7 +247,7 @@ export class TradeExecutor {
           orderResponse = await clobClient.createAndPostOrder(clobOrderParams);
         } catch (clobError: any) {
           log.error({ err: clobError.message }, `[Execute] CLOB client threw error`);
-          
+
           // AUTO-RETRY: If "invalid signature", try re-deriving API credentials once
           const isInvalidSig = clobError.message?.toLowerCase().includes('invalid signature');
           if (isInvalidSig) {
@@ -256,7 +256,7 @@ export class TradeExecutor {
             log.warn(`[Execute]    Also check that POLYMARKET_SIGNATURE_TYPE and POLYMARKET_FUNDER_ADDRESS are correct.`);
             log.warn(`[Execute]    Current signature type: ${process.env.POLYMARKET_SIGNATURE_TYPE || '0'}`);
             log.warn(`[Execute]    Current funder address: ${process.env.POLYMARKET_FUNDER_ADDRESS || '(not set, using signer address)'}`);
-            
+
             try {
               let retryClient: PolymarketClobClient;
               if (order.tradingWalletId) {
@@ -268,7 +268,7 @@ export class TradeExecutor {
                 retryClient = this.clobClient;
               }
               log.info(`[Execute] ✓ Re-derived API credentials, retrying order...`);
-              
+
               // Retry the order once with fresh credentials
               orderResponse = await retryClient.createAndPostOrder(clobOrderParams);
             } catch (retryError: any) {
@@ -332,14 +332,14 @@ export class TradeExecutor {
 
       // CRITICAL: Validate the response before declaring success
       const orderId = orderResponse?.orderID || orderResponse?.orderId || orderResponse?.id;
-      
+
       // Strict validation - orderId must be a non-empty, non-"undefined" string
-      const isValidOrderId = orderId !== undefined && 
-                              orderId !== null && 
-                              orderId !== '' && 
-                              String(orderId) !== 'undefined' && 
-                              String(orderId) !== 'null' &&
-                              String(orderId).trim().length > 0;
+      const isValidOrderId = orderId !== undefined &&
+        orderId !== null &&
+        orderId !== '' &&
+        String(orderId) !== 'undefined' &&
+        String(orderId) !== 'null' &&
+        String(orderId).trim().length > 0;
 
       if (!isValidOrderId) {
         const errorDetails = JSON.stringify(orderResponse || 'empty response');
@@ -350,23 +350,23 @@ export class TradeExecutor {
       // Check if order actually has a transaction hash (indicates it was executed on-chain)
       const txHash = orderResponse.txHash || orderResponse.transactionHash || orderResponse.hash || null;
       const hasTransactionHash = txHash && txHash !== '' && txHash !== 'null' && txHash !== 'undefined';
-      
+
       // Check order status and execution amounts to determine if order was actually filled
       const orderStatus = orderResponse.status || responseStatus || '';
       const takingAmount = orderResponse.takingAmount || '';
       const makingAmount = orderResponse.makingAmount || '';
-      const hasExecutionAmounts = (takingAmount && takingAmount !== '' && takingAmount !== '0') || 
-                                   (makingAmount && makingAmount !== '' && makingAmount !== '0');
-      
+      const hasExecutionAmounts = (takingAmount && takingAmount !== '' && takingAmount !== '0') ||
+        (makingAmount && makingAmount !== '' && makingAmount !== '0');
+
       // Orders with status "live" are placed on the order book but not filled yet
       // Only mark as successfully executed if:
       // 1. Has transaction hash (on-chain execution), OR
       // 2. Has execution amounts (takingAmount/makingAmount filled), OR  
       // 3. Status indicates filled/completed (not "live")
-      const isActuallyExecuted = hasTransactionHash || 
-                                 hasExecutionAmounts || 
-                                 (orderStatus && orderStatus.toLowerCase() !== 'live' && orderStatus.toLowerCase() !== 'pending');
-      
+      const isActuallyExecuted = hasTransactionHash ||
+        hasExecutionAmounts ||
+        (orderStatus && orderStatus.toLowerCase() !== 'live' && orderStatus.toLowerCase() !== 'pending');
+
       if (!isActuallyExecuted) {
         // Order was accepted but not executed - it's a pending limit order
         log.warn(`\n⚠️  [Execute] ORDER PLACED BUT NOT EXECUTED YET`);
@@ -377,7 +377,7 @@ export class TradeExecutor {
         log.warn(`   Transaction Hash: ${txHash || 'None (order not executed yet)'}`);
         log.warn(`   Taking Amount: ${takingAmount || 'None'}`);
         log.warn(`   Making Amount: ${makingAmount || 'None'}\n`);
-        
+
         // Return pending status - order was placed but not executed yet
         return {
           success: false, // Keep false for backward compatibility, but use status field
@@ -419,7 +419,7 @@ export class TradeExecutor {
       log.error(`Error message: ${error.message}`);
       log.error(`Failure class: ${failure.code} (${failure.detail})`);
       log.error({ err: error.stack }, 'Error stack');
-      
+
       // Log additional error details if available
       if (error.response) {
         log.error(`HTTP Status: ${error.response.status}`);
@@ -434,25 +434,25 @@ export class TradeExecutor {
       if (error.requestParams) {
         log.error({ detail: JSON.stringify(error.requestParams, null, 2) }, `Request params that failed`)
       }
-      
+
       // Build comprehensive error message
       let errorMessage = `[${failure.code}] ${error.message || 'Unknown error'}`;
-      
+
       // Add request params to error message for diagnostics
       if (error.requestParams) {
         errorMessage += ` | Request: tokenID=${error.requestParams.tokenID}, price=${error.requestParams.price}, size=${error.requestParams.size}, side=${error.requestParams.side}`;
       }
-      
+
       // Add response details if available
       if (error.responseData) {
-        const responseStr = typeof error.responseData === 'string' 
-          ? error.responseData 
+        const responseStr = typeof error.responseData === 'string'
+          ? error.responseData
           : JSON.stringify(error.responseData);
         if (responseStr.length < 200) {
           errorMessage += ` | Response: ${responseStr}`;
         }
       }
-      
+
       return {
         success: false,
         status: 'failed',
