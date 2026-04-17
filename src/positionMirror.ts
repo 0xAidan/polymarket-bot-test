@@ -4,6 +4,7 @@ import { Storage } from './storage.js';
 import { Side } from '@polymarket/clob-client';
 import { getValidEvmAddress } from './addressUtils.js';
 import { createComponentLogger } from './logger.js';
+import { getAllocationTargetWeight } from './allocation/policyEngine.js';
 
 const log = createComponentLogger('PositionMirror');
 
@@ -136,6 +137,7 @@ export class PositionMirror {
     // Get wallet label if available
     const wallets = await Storage.loadTrackedWallets();
     const trackedWallet = wallets.find(w => w.address.toLowerCase() === trackedWalletAddress.toLowerCase());
+    const allocationWeight = getAllocationTargetWeight(trackedWalletAddress);
     
     // Step 1: Get tracked wallet's positions and portfolio value
     const theirPositions = await this.polymarketApi.getUserPositions(trackedWalletAddress);
@@ -200,7 +202,8 @@ export class PositionMirror {
         yourPositionMap.get(theirPos.asset),
         theirPortfolio.totalValue,
         yourPortfolioValue,
-        slippageTolerancePercent
+        slippageTolerancePercent,
+        allocationWeight,
       );
       
       if (trade) {
@@ -271,7 +274,8 @@ export class PositionMirror {
     yourPos: any | undefined,
     theirTotalValue: number,
     yourTotalValue: number,
-    slippageTolerance: number
+    slippageTolerance: number,
+    allocationWeight: number
   ): Promise<MirrorTrade | null> {
     const theirShares = parseFloat(theirPos.size || '0');
     const theirAvgPrice = parseFloat(theirPos.avgPrice || '0');
@@ -281,6 +285,28 @@ export class PositionMirror {
     const marketTitle = theirPos.title || marketId?.substring(0, 20) || 'Unknown';
     const outcome = theirPos.outcome || 'Unknown';
     const negRisk = theirPos.negativeRisk || false;
+
+    if (allocationWeight <= 0) {
+      return {
+        marketId,
+        marketTitle,
+        tokenId,
+        outcome,
+        theirShares,
+        theirAvgPrice,
+        theirAllocationPercent: 0,
+        yourShares: yourPos ? parseFloat(yourPos.size || '0') : 0,
+        yourAllocationPercent: 0,
+        action: 'SKIP',
+        sharesToTrade: 0,
+        estimatedCost: 0,
+        currentPrice,
+        status: 'skipped',
+        warning: 'Allocation policy is in monitor-only/paused mode for this wallet',
+        selected: false,
+        negRisk
+      };
+    }
     
     // Check if market is resolved (redeemable = true means winner position)
     if (theirPos.redeemable === true) {
@@ -315,7 +341,7 @@ export class PositionMirror {
     const yourAllocationPercent = yourTotalValue > 0 ? (yourPositionValue / yourTotalValue) * 100 : 0;
     
     // Calculate target shares to match their allocation %
-    const targetValue = (theirAllocationPercent / 100) * yourTotalValue;
+    const targetValue = (theirAllocationPercent / 100) * yourTotalValue * allocationWeight;
     const targetShares = currentPrice > 0 ? targetValue / currentPrice : 0;
     
     // Calculate shares to trade
