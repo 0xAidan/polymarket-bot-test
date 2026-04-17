@@ -8,7 +8,7 @@ alwaysApply: true
 
 > **Purpose**: This document gives a new AI agent instance everything it needs to execute tasks in this codebase without re-scanning files. It is the single source of truth for project context. Keep it updated after every significant change.
 >
-> **Last updated**: 2026-03-20
+> **Last updated**: 2026-03-26 (hosted multitenant: ladder/stop-loss per-tenant sync, price monitor hosted tick, UI workspace switcher)
 
 ---
 
@@ -37,7 +37,7 @@ alwaysApply: true
 | SQLite lib | better-sqlite3 | 12.6 |
 | Blockchain | Polygon chain via ethers 5 + viem 2 | |
 | Polymarket SDK | @polymarket/clob-client 5.2, builder-signing-sdk/relayer-client 0.0.8 | |
-| Real-time data | WebSocket (ws 8.14) + Dome API SDK | |
+| Real-time data | Polling + WebSocket utilities (ws 8.14) | |
 | HTTP client | axios 1.6 | |
 | Logging | pino 10.3 | structured JSON logs |
 | Testing | Node built-in `node:test` + tsx | `npm test` |
@@ -69,6 +69,7 @@ polymarket-bot-test/
 │       └── tour.js          # Walkthrough tour
 ├── src/                     # Backend TypeScript source
 │   ├── index.ts             # ★ MAIN ENTRY POINT
+│   ├── hostedMode.ts        # Hosted multi-tenant detection (OIDC + SQLite)
 │   ├── config.ts            # Central configuration from .env
 │   ├── types.ts             # Shared TypeScript types
 │   ├── logger.ts            # Pino logger factory
@@ -83,9 +84,6 @@ polymarket-bot-test/
 │   ├── tradeExecutor.ts     # Executes orders via CLOB
 │   ├── polymarketApi.ts     # Polymarket REST API client (Data/CLOB/Gamma)
 │   ├── clobClient.ts        # @polymarket/clob-client wrapper
-│   │
-│   ├── domeWebSocket.ts     # Dome WebSocket real-time trade feed
-│   ├── domeClient.ts        # Dome REST API client
 │   │
 │   ├── walletManager.ts     # Multi-wallet management
 │   ├── secureKeyManager.ts  # AES-256-GCM encrypted keystores
@@ -155,8 +153,7 @@ polymarket-bot-test/
 ├── setup.cjs                # Interactive setup wizard
 ├── ENV_EXAMPLE.txt          # .env template
 ├── README.md
-├── CODEBASE_GUIDE.md
-└── MULTI_PLATFORM_PLAN_v3.md
+└── CODEBASE_GUIDE.md
 ```
 
 ---
@@ -197,7 +194,7 @@ All loaded from `.env` in project root via `dotenv`. See `ENV_EXAMPLE.txt` for t
 ### Required
 | Variable | Purpose |
 |----------|---------|
-| `PRIVATE_KEY` | Main wallet private key (hex, with or without 0x prefix) |
+| `PRIVATE_KEY` | Main wallet private key (hex, with or without 0x prefix). **Not required** in hosted multi-tenant mode (`AUTH_MODE=oidc` + `STORAGE_BACKEND=sqlite`); tenants use encrypted keystores. |
 | `POLYMARKET_BUILDER_API_KEY` | Builder API key (get from polymarket.com/settings?tab=builder) |
 | `POLYMARKET_BUILDER_SECRET` | Builder API secret |
 | `POLYMARKET_BUILDER_PASSPHRASE` | Builder API passphrase |
@@ -208,7 +205,8 @@ All loaded from `.env` in project root via `dotenv`. See `ENV_EXAMPLE.txt` for t
 | `POLYMARKET_SIGNATURE_TYPE` | `0` | 0=EOA, 1=Magic Link, **2=Browser wallet + Proxy (CORRECT FOR THIS PROJECT)** |
 | `POLYMARKET_FUNDER_ADDRESS` | — | Proxy wallet address (required when sig type=2) |
 | `API_SECRET` | — | Bearer token for dashboard/API auth (leave empty = open) |
-| `STORAGE_BACKEND` | `json` | `json` or `sqlite` |
+| `STORAGE_BACKEND` | `json` | `json` or `sqlite` (hosted production must use `sqlite`) |
+| `AUTH_MODE` | `legacy` | `legacy` (Bearer/API_SECRET) or `oidc` (cookie session). With `oidc` + SQLite, **hosted multi-tenant** rules apply (`src/hostedMode.ts`). |
 | `PORT` | `3001` | Server port |
 | `MONITORING_INTERVAL_MS` | `5000` | Wallet poll interval (ms) |
 
@@ -221,7 +219,6 @@ All loaded from `.env` in project root via `dotenv`. See `ENV_EXAMPLE.txt` for t
 | `POLYGON_RPC_URL` | `https://polygon-rpc.com` | Polygon RPC endpoint |
 | `HOST` | `0.0.0.0` | Bind address |
 | `DATA_DIR` | `./data` | Data storage directory |
-| `DOME_API_KEY` | — | Dome API key for WebSocket feed |
 | `KALSHI_API_KEY_ID` | — | Kalshi API key ID |
 | `KALSHI_PRIVATE_KEY_PEM` | — | Kalshi RSA private key |
 | `DISCOVERY_ENABLED` | `false` | Enable discovery engine |
@@ -244,18 +241,14 @@ This project uses a **MetaMask/Rabby EOA** with a **Polymarket proxy wallet**:
 ## 6. ARCHITECTURE & DATA FLOW
 
 ### Core copy-trading flow
+- **Hosted multi-tenant**: trades resolve **copy assignments** → **trading wallet IDs**; CLOB clients come from `clobClientFactory` per `(tenant, tradingWalletId)`. No server `.env` signer. Legacy single-user may still use one global wallet when no assignments exist.
 ```
 [Tracked Wallets on Polymarket]
        │
-       ├──→ WalletMonitor (polls Data API every 5s)
-       │         │
-       │         ▼
-       │    parseTradeData() → DetectedTrade
-       │         │
-       └──→ DomeWebSocketMonitor (real-time via Dome SDK)
+       └──→ WalletMonitor (polls Data API every 5s)
                  │
                  ▼
-          handleOrderEvent() → DetectedTrade
+            parseTradeData() → DetectedTrade
                  │
                  ▼
          CopyTrader.handleDetectedTrade()
@@ -400,7 +393,6 @@ interface TradingWallet {
   proxyAddress?: string;
   isActive: boolean;
   createdAt: string;
-  domeUserId?: string;
   hasCredentials: boolean;
 }
 
@@ -532,8 +524,7 @@ These rules protect real money. Violating them has caused actual financial losse
 
 ### 4. Wallet Settings: ALL fields passed through
 - `parseTradeData` in `walletMonitor.ts` MUST pass ALL wallet settings to `DetectedTrade`
-- `enrichFromWallet` in `domeWebSocket.ts` MUST also pass ALL wallet settings
-- If a new wallet setting is added, it MUST be added to BOTH locations
+- If a new wallet setting is added, it MUST be added to every trade-detection entrypoint before it reaches `CopyTrader`
 
 ### 5. Order Size Safety Cap
 - Every trade MUST be checked against max order size (2× configured trade size)
@@ -582,12 +573,6 @@ These rules protect real money. Violating them has caused actual financial losse
 | CLOB API | `https://clob.polymarket.com` | Order placement, order book |
 | Gamma API | `https://gamma-api.polymarket.com` | Market metadata, conditions |
 | Builder API | (auth layer on CLOB) | Required for cloud server auth |
-
-### Dome
-| API | Purpose |
-|-----|---------|
-| REST | Market prices, positions, Kalshi markets |
-| WebSocket | Real-time trade feed |
 
 ### Blockchain
 | API | Purpose |
@@ -639,7 +624,6 @@ These rules protect real money. Violating them has caused actual financial losse
 
 ### Reconnect strategies
 - ChainListener: 3s initial → 60s max (exponential backoff)
-- DomeWebSocket: 3s delay, max 50 attempts
 
 ---
 
@@ -708,7 +692,7 @@ CMD ["node", "dist/index.js"]
 ### Development phases completed
 1. Phase 0A: Cleanup
 2. Phase 0B: SQLite storage
-3. Phase 1A: Dome WebSocket integration
+3. Phase 1A: Real-time trade detection improvements
 4. Phase 1B: Multi-wallet support
 5. Phase 2: Win95 UI
 6. Phase 3: Auto-redemption + Discovery Engine
@@ -725,7 +709,7 @@ Located in `.cursor/rules/`:
 
 | File | Scope | Purpose |
 |------|-------|---------|
-| `trade-safety-invariants.mdc` | `src/copyTrader.ts`, `walletMonitor.ts`, `tradeExecutor.ts`, `clobClient.ts`, `domeWebSocket.ts` | Critical safety rules for trade execution |
+| `trade-safety-invariants.mdc` | `src/copyTrader.ts`, `walletMonitor.ts`, `tradeExecutor.ts`, `clobClient.ts` | Critical safety rules for trade execution |
 | `polymarket-auth.mdc` | — | Polymarket CLOB authentication setup and common errors |
 | `no-native-dialogs.mdc` | `public/js/**/*.js`, `public/**/*.html` | Use win95Dialog, never native dialogs |
 | `notion-board-standards.mdc` | Always | Notion board creation standards |
@@ -835,7 +819,6 @@ maxSignalsPerDay: 50
 - Add to `TrackedWallet` interface in `types.ts`
 - Add to `DetectedTrade` interface in `types.ts`
 - Pass through in `walletMonitor.ts` `parseTradeData()`
-- Pass through in `domeWebSocket.ts` `enrichFromWallet()`
 - Add UI controls in `public/js/app.js`
 - Add API handling in `api/routes.ts`
 - Add storage handling in `storage.ts` and `database.ts` (if SQLite)

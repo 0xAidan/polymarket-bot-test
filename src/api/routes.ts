@@ -36,6 +36,9 @@ import {
   summarizeClobConnectivityDiagnosis,
 } from '../tradeExecutionDiagnostics.js';
 import { createComponentLogger } from '../logger.js';
+import { isHostedMultiTenantMode } from '../hostedMode.js';
+import { DEFAULT_TENANT_ID, getTenantId, runWithTenant } from '../tenantContext.js';
+import { listTenantIdsWithLadderOrStopLossActivity } from '../database.js';
 
 const log = createComponentLogger('Routes');
 
@@ -44,6 +47,7 @@ const log = createComponentLogger('Routes');
  */
 export function createRoutes(copyTrader: CopyTrader): Router {
   const router = Router();
+
   const performanceTracker = copyTrader.getPerformanceTracker();
   const lifecycleManager = new PositionLifecycleManager();
   lifecycleManager.start().catch(err => log.error('[Lifecycle] Failed to start:', err.message));
@@ -63,88 +67,158 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   stopLossManager.init().catch(err => log.error('[Routes] StopLoss init failed:', err.message));
   const priceMonitor = new PriceMonitor(ladderManager, stopLossManager);
 
-  // Auto-start price monitor if there are active ladders or stop-loss orders
-  const autoStartPriceMonitor = () => {
-    const hasActiveLadders = ladderManager.getLadders(true).length > 0;
-    const hasActiveStopLosses = stopLossManager.getOrders(true).length > 0;
-    if ((hasActiveLadders || hasActiveStopLosses) && !priceMonitor.getStatus().isRunning) {
-      log.info(`[Routes] Auto-starting PriceMonitor (${ladderManager.getLadders(true).length} ladders, ${stopLossManager.getOrders(true).length} stop-losses)`);
-      priceMonitor.start();
+  const normalizeWalletAddress = (address: string): string => address.trim().toLowerCase();
+
+  const isWalletTrackedByCurrentTenant = async (address: string): Promise<boolean> => {
+    const normalized = normalizeWalletAddress(address);
+    const trackedWallets = await Storage.loadTrackedWallets();
+    return trackedWallets.some(wallet => wallet.address.toLowerCase() === normalized);
+  };
+
+  const requireTrackedWalletAccess = async (address: string, res: Response): Promise<boolean> => {
+    if (await isWalletTrackedByCurrentTenant(address)) {
+      return true;
     }
+    log.warn(
+      `[API] Blocked cross-profile wallet access for ${normalizeWalletAddress(address)} (tenant=${getTenantId() || 'unknown'})`
+    );
+    res.status(404).json({
+      success: false,
+      error: 'Wallet not found in this profile'
+    });
+    return false;
+  };
+
+  router.use(async (_req, _res, next) => {
+    try {
+      await ladderManager.syncFromCurrentTenant();
+      await stopLossManager.syncFromCurrentTenant();
+      next();
+    } catch (err: any) {
+      next(err);
+    }
+  });
+
+  // Auto-start price monitor if there are active ladders or stop-loss orders (any tenant when hosted)
+  const autoStartPriceMonitor = () => {
+    void (async () => {
+      try {
+        if (isHostedMultiTenantMode()) {
+          const tids = listTenantIdsWithLadderOrStopLossActivity();
+          let anyActive = false;
+          for (const tid of tids) {
+            await runWithTenant(tid, async () => {
+              await ladderManager.syncFromCurrentTenant();
+              await stopLossManager.syncFromCurrentTenant();
+              if (ladderManager.getLadders(true).length > 0 || stopLossManager.getOrders(true).length > 0) {
+                anyActive = true;
+              }
+            });
+          }
+          if (anyActive && !priceMonitor.getStatus().isRunning) {
+            log.info('[Routes] Auto-starting PriceMonitor (hosted: ladder/stop-loss activity)');
+            priceMonitor.start();
+          }
+          return;
+        }
+
+        await ladderManager.syncFromCurrentTenant();
+        await stopLossManager.syncFromCurrentTenant();
+        const ladderCount = ladderManager.getLadders(true).length;
+        const slCount = stopLossManager.getOrders(true).length;
+        if ((ladderCount > 0 || slCount > 0) && !priceMonitor.getStatus().isRunning) {
+          log.info(`[Routes] Auto-starting PriceMonitor (${ladderCount} ladders, ${slCount} stop-losses)`);
+          priceMonitor.start();
+        }
+      } catch (err: any) {
+        log.error({ err }, '[Routes] autoStartPriceMonitor failed');
+      }
+    })();
   };
 
   // Delay auto-start slightly to let init() complete
   setTimeout(autoStartPriceMonitor, 2000);
 
-  // Wire up ladder trigger events — execute real trades when in live mode
+  // Wire up ladder trigger events — execute real trades when in live mode (tenant-scoped)
   priceMonitor.on('ladder-trigger', async (data: any) => {
-    const ladderConfig = ladderManager.getConfig();
-    log.info(`[LadderExit] Step triggered: ${data.ladder.marketTitle} step ${data.stepIndex + 1}, ${data.sharesToSell.toFixed(2)} shares @ $${data.currentPrice?.toFixed(4)}`);
+    const tenantId = data.tenantId ?? DEFAULT_TENANT_ID;
+    await runWithTenant(tenantId, async () => {
+      await ladderManager.syncFromCurrentTenant();
+      await stopLossManager.syncFromCurrentTenant();
 
-    if (!ladderConfig.liveMode) {
-      log.info(`[LadderExit] PAPER MODE — logging only, no real trade executed`);
-      ladderManager.markStepExecuted(data.ladder.id, data.stepIndex, data.currentPrice, data.sharesToSell);
-      return;
-    }
+      const ladderConfig = ladderManager.getConfig();
+      log.info(`[LadderExit] Step triggered: ${data.ladder.marketTitle} step ${data.stepIndex + 1}, ${data.sharesToSell.toFixed(2)} shares @ $${data.currentPrice?.toFixed(4)}`);
 
-    // Live mode: execute real SELL order
-    try {
-      const tradeExecutor = copyTrader.getTradeExecutor();
-      const order = {
-        marketId: data.ladder.conditionId || data.ladder.tokenId,
-        outcome: (data.ladder.outcome || 'YES') as 'YES' | 'NO',
-        amount: data.sharesToSell.toFixed(2),
-        price: data.currentPrice.toFixed(4),
-        side: 'SELL' as const,
-        tokenId: data.ladder.tokenId,
-        negRisk: false,
-      };
-
-      log.info(`[LadderExit] LIVE MODE — executing SELL: ${order.amount} shares of ${data.ladder.marketTitle} @ $${order.price}`);
-      const result = await tradeExecutor.executeTrade(order);
-
-      if (result.success) {
-        log.info(`[LadderExit] SELL executed successfully (order: ${result.orderId})`);
+      if (!ladderConfig.liveMode) {
+        log.info(`[LadderExit] PAPER MODE — logging only, no real trade executed`);
         ladderManager.markStepExecuted(data.ladder.id, data.stepIndex, data.currentPrice, data.sharesToSell);
-      } else {
-        log.error(`[LadderExit] SELL failed: ${result.error} — step NOT marked executed, will retry next tick`);
+        return;
       }
-    } catch (err: any) {
-      log.error(`[LadderExit] SELL execution error: ${err.message} — step NOT marked executed, will retry next tick`);
-    }
+
+      try {
+        const tradeExecutor = copyTrader.getTradeExecutor();
+        const order = {
+          marketId: data.ladder.conditionId || data.ladder.tokenId,
+          outcome: (data.ladder.outcome || 'YES') as 'YES' | 'NO',
+          amount: data.sharesToSell.toFixed(2),
+          price: data.currentPrice.toFixed(4),
+          side: 'SELL' as const,
+          tokenId: data.ladder.tokenId,
+          negRisk: false,
+        };
+
+        log.info(`[LadderExit] LIVE MODE — executing SELL: ${order.amount} shares of ${data.ladder.marketTitle} @ $${order.price}`);
+        const result = await tradeExecutor.executeTrade(order);
+
+        if (result.success) {
+          log.info(`[LadderExit] SELL executed successfully (order: ${result.orderId})`);
+          ladderManager.markStepExecuted(data.ladder.id, data.stepIndex, data.currentPrice, data.sharesToSell);
+        } else {
+          log.error(`[LadderExit] SELL failed: ${result.error} — step NOT marked executed, will retry next tick`);
+        }
+      } catch (err: any) {
+        log.error(`[LadderExit] SELL execution error: ${err.message} — step NOT marked executed, will retry next tick`);
+      }
+    });
   });
   priceMonitor.on('stoploss-trigger', async (data: any) => {
-    log.info(
-      `[StopLoss] TRIGGERED: ${data.order.marketTitle} ${data.order.outcome}, ` +
-      `${data.order.shares} shares @ $${data.currentPrice?.toFixed(4)}`
-    );
-
-    try {
-      const tradeExecutor = copyTrader.getTradeExecutor();
-      const order = {
-        marketId: data.order.conditionId || data.order.tokenId,
-        outcome: (data.order.outcome || 'YES') as 'YES' | 'NO',
-        amount: data.order.shares.toFixed(2),
-        price: data.currentPrice.toFixed(4),
-        side: 'SELL' as const,
-        tokenId: data.order.tokenId,
-        negRisk: false,
-      };
+    const tenantId = data.tenantId ?? DEFAULT_TENANT_ID;
+    await runWithTenant(tenantId, async () => {
+      await ladderManager.syncFromCurrentTenant();
+      await stopLossManager.syncFromCurrentTenant();
 
       log.info(
-        `[StopLoss] Executing SELL: ${order.amount} shares of ` +
-        `${data.order.marketTitle} @ $${order.price}`
+        `[StopLoss] TRIGGERED: ${data.order.marketTitle} ${data.order.outcome}, ` +
+        `${data.order.shares} shares @ $${data.currentPrice?.toFixed(4)}`
       );
-      const result = await tradeExecutor.executeTrade(order);
 
-      if (result.success) {
-        log.info(`[StopLoss] ✅ SELL executed successfully (order: ${result.orderId})`);
-      } else {
-        log.error(`[StopLoss] ❌ SELL failed: ${result.error}`);
+      try {
+        const tradeExecutor = copyTrader.getTradeExecutor();
+        const order = {
+          marketId: data.order.conditionId || data.order.tokenId,
+          outcome: (data.order.outcome || 'YES') as 'YES' | 'NO',
+          amount: data.order.shares.toFixed(2),
+          price: data.currentPrice.toFixed(4),
+          side: 'SELL' as const,
+          tokenId: data.order.tokenId,
+          negRisk: false,
+        };
+
+        log.info(
+          `[StopLoss] Executing SELL: ${order.amount} shares of ` +
+          `${data.order.marketTitle} @ $${order.price}`
+        );
+        const result = await tradeExecutor.executeTrade(order);
+
+        if (result.success) {
+          log.info(`[StopLoss] ✅ SELL executed successfully (order: ${result.orderId})`);
+        } else {
+          log.error(`[StopLoss] ❌ SELL failed: ${result.error}`);
+        }
+      } catch (err: any) {
+        log.error(`[StopLoss] SELL execution error: ${err.message}`);
       }
-    } catch (err: any) {
-      log.error(`[StopLoss] SELL execution error: ${err.message}`);
-    }
+    });
   });
 
   // ============================================================================
@@ -152,10 +226,22 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // ============================================================================
 
   router.get('/platforms', (req: Request, res: Response) => {
+    if (isHostedMultiTenantMode()) {
+      return res.status(403).json({
+        success: false,
+        error: 'Platform overview is disabled in hosted multi-tenant mode'
+      });
+    }
     res.json({ success: true, platforms: getAllPlatformStatuses() });
   });
 
   router.get('/platforms/:platform/balance', async (req: Request, res: Response) => {
+    if (isHostedMultiTenantMode()) {
+      return res.status(403).json({
+        success: false,
+        error: 'Platform balance endpoint is disabled in hosted multi-tenant mode'
+      });
+    }
     try {
       const adapter = getAdapter(req.params.platform as any);
       const balance = await adapter.getBalance();
@@ -166,6 +252,12 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
 
   router.get('/platforms/:platform/positions/:identifier', async (req: Request, res: Response) => {
+    if (isHostedMultiTenantMode()) {
+      return res.status(403).json({
+        success: false,
+        error: 'Platform positions endpoint is disabled in hosted multi-tenant mode'
+      });
+    }
     try {
       const adapter = getAdapter(req.params.platform as any);
       const positions = await adapter.getPositions(req.params.identifier);
@@ -210,12 +302,6 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       // Reload wallets in the monitor so the new wallet is tracked immediately
       await copyTrader.reloadWallets();
 
-      // Also add to Dome WebSocket subscription if available
-      const domeWs = copyTrader.getDomeWsMonitor();
-      if (domeWs) {
-        await domeWs.addWallet(address);
-      }
-
       // Return the updated wallet list so the UI can update immediately
       const wallets = await Storage.loadTrackedWallets();
       const addedWallet = wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
@@ -235,13 +321,10 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.delete('/wallets/:address', async (req: Request, res: Response) => {
     try {
       const { address } = req.params;
-      await Storage.removeWallet(address);
-
-      // Also remove from Dome WebSocket subscription if available
-      const domeWsRemove = copyTrader.getDomeWsMonitor();
-      if (domeWsRemove) {
-        await domeWsRemove.removeWallet(address);
+      if (!(await requireTrackedWalletAccess(address, res))) {
+        return;
       }
+      await Storage.removeWallet(address);
 
       // Reload wallets in the monitor to remove the wallet from monitoring
       await copyTrader.reloadWallets();
@@ -252,22 +335,6 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
-  // Dome API status
-  router.get('/dome/status', (req: Request, res: Response) => {
-    const status = copyTrader.getStatus();
-    const domeWs = status.domeWs;
-    res.json({
-      success: true,
-      configured: !!config.domeApiKey,
-      monitoringMode: status.monitoringMode,
-      websocket: domeWs ? {
-        connected: domeWs.connected,
-        subscriptionId: domeWs.subscriptionId,
-        trackedWallets: domeWs.trackedWallets,
-      } : null,
-    });
-  });
-
   // ============================================================================
   // MULTI-WALLET MANAGEMENT
   // ============================================================================
@@ -276,7 +343,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.post('/wallets/unlock', async (req: Request, res: Response) => {
     try {
       const { masterPassword } = req.body;
-      if (!masterPassword) {
+      if (!isHostedMultiTenantMode() && !masterPassword) {
         return res.status(400).json({ success: false, error: 'masterPassword is required' });
       }
       const result = await unlockWallets(masterPassword);
@@ -301,7 +368,8 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
 
   // Get all trading wallets
-  router.get('/trading-wallets', (req: Request, res: Response) => {
+  router.get('/trading-wallets', async (req: Request, res: Response) => {
+    await initWalletManager();
     res.json({ success: true, wallets: getTradingWallets() });
   });
 
@@ -309,10 +377,16 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.post('/trading-wallets', async (req: Request, res: Response) => {
     try {
       const { id, label, privateKey, masterPassword, apiKey, apiSecret, apiPassphrase } = req.body;
-      if (!id || !label || !privateKey || !masterPassword) {
+      if (!id || !label || !privateKey) {
         return res.status(400).json({
           success: false,
-          error: 'id, label, privateKey, and masterPassword are required'
+          error: 'id, label, and privateKey are required'
+        });
+      }
+      if (!isHostedMultiTenantMode() && !masterPassword) {
+        return res.status(400).json({
+          success: false,
+          error: 'masterPassword is required'
         });
       }
 
@@ -333,10 +407,16 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.patch('/trading-wallets/:id/credentials', async (req: Request, res: Response) => {
     try {
       const { apiKey, apiSecret, apiPassphrase, masterPassword } = req.body;
-      if (!apiKey || !apiSecret || !apiPassphrase || !masterPassword) {
+      if (!apiKey || !apiSecret || !apiPassphrase) {
         return res.status(400).json({
           success: false,
-          error: 'apiKey, apiSecret, apiPassphrase, and masterPassword are required'
+          error: 'apiKey, apiSecret, and apiPassphrase are required'
+        });
+      }
+      if (!isHostedMultiTenantMode() && !masterPassword) {
+        return res.status(400).json({
+          success: false,
+          error: 'masterPassword is required'
         });
       }
       const wallet = await updateWalletBuilderCredentials(
@@ -386,6 +466,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // Get positions for a trading wallet (by wallet ID)
   router.get('/trading-wallets/:id/positions', async (req: Request, res: Response) => {
     try {
+      await initWalletManager();
       const wallet = getTradingWallet(req.params.id);
       if (!wallet) {
         return res.status(404).json({ success: false, error: `Trading wallet "${req.params.id}" not found` });
@@ -400,7 +481,8 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
 
   // Get copy assignments
-  router.get('/copy-assignments', (req: Request, res: Response) => {
+  router.get('/copy-assignments', async (req: Request, res: Response) => {
+    await initWalletManager();
     res.json({ success: true, assignments: getCopyAssignments() });
   });
 
@@ -990,33 +1072,16 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const lastExecutedTrade = recentTrades.find(t => t.success) || null;
       const lastDetectedTrade = recentTrades.length > 0 ? recentTrades[0] : null;
 
-      const domeWs = status.domeWs;
       res.json({
         success: true,
+        hostedMultiTenant: isHostedMultiTenantMode(),
         running: status.running,
         executedTradesCount: status.executedTradesCount,
-        websocket: {
-          connected: domeWs?.connected ?? false,
-          monitoring: status.monitoringMode === 'websocket',
-          lastConnectionTime: null,
-          trackedWalletsCount: domeWs?.trackedWallets ?? 0
-        },
         polling: {
           active: status.running,
           interval: config.monitoringIntervalMs
         },
         monitoringMode: status.monitoringMode,
-        domeWs: status.domeWs,
-        monitoringMethods: {
-          primary: status.monitoringMode === 'stopped'
-            ? 'stopped'
-            : status.monitoringMode === 'websocket'
-              ? 'dome-websocket'
-              : 'polling',
-          domeWebsocket: domeWs?.connected ?? false,
-          legacyWebsocket: domeWs?.connected ?? false,
-          polling: status.running
-        },
         wallets: {
           active: wallets.filter(w => w.active).length,
           total: wallets.length,
@@ -1186,9 +1251,12 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
 
   // Get wallet-specific stats
-  router.get('/wallets/:address/stats', (req: Request, res: Response) => {
+  router.get('/wallets/:address/stats', async (req: Request, res: Response) => {
     try {
       const { address } = req.params;
+      if (!(await requireTrackedWalletAccess(address, res))) {
+        return;
+      }
       const stats = performanceTracker.getWalletStats(address);
       res.json({ success: true, ...stats });
     } catch (error: any) {
@@ -1250,9 +1318,40 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
+  const getHostedBalanceWalletCandidates = () => {
+    const active = getActiveTradingWallets();
+    const withCredentials = active.filter((wallet) => wallet.hasCredentials);
+    const withoutCredentials = active.filter((wallet) => !wallet.hasCredentials);
+    return [...withCredentials, ...withoutCredentials];
+  };
+
   // Get wallet configuration (address used for executing trades)
   router.get('/wallet', async (req: Request, res: Response) => {
     try {
+      if (isHostedMultiTenantMode()) {
+        const primary = getHostedBalanceWalletCandidates()[0];
+        if (!primary) {
+          return res.json({
+            success: true,
+            walletAddress: null,
+            proxyWalletAddress: null,
+            configured: false,
+            hosted: true,
+          });
+        }
+        const api = copyTrader.getPolymarketApi();
+        const proxyWalletAddress =
+          primary.proxyAddress || (await api.getProxyWalletAddress(primary.address));
+        return res.json({
+          success: true,
+          walletAddress: primary.address,
+          proxyWalletAddress: proxyWalletAddress || null,
+          configured: true,
+          hosted: true,
+          tradingWalletId: primary.id,
+        });
+      }
+
       const eoaAddress = copyTrader.getWalletAddress();
       const proxyWalletAddress = eoaAddress ? await copyTrader.getProxyWalletAddress() : null;
 
@@ -1271,8 +1370,24 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // Uses CLOB API directly - this is what the builder credentials are for
   router.get('/wallet/balance', async (req: Request, res: Response) => {
     try {
-      const eoaAddress = copyTrader.getWalletAddress();
+      const hostedCandidates = isHostedMultiTenantMode() ? getHostedBalanceWalletCandidates() : [];
+      let eoaAddress: string | null = copyTrader.getWalletAddress();
+      let balanceWalletId: string | null = null;
       log.info(`[API] /wallet/balance requested. EOA address: ${eoaAddress || 'NOT SET'}`);
+
+      if (isHostedMultiTenantMode()) {
+        if (hostedCandidates.length === 0) {
+          return res.json({
+            success: true,
+            currentBalance: 0,
+            change24h: 0,
+            balance24hAgo: null,
+            walletAddress: null,
+          });
+        }
+        eoaAddress = hostedCandidates[0].address;
+        balanceWalletId = hostedCandidates[0].id;
+      }
 
       if (!eoaAddress) {
         log.info('[API] No wallet address configured, returning 0 balance');
@@ -1289,16 +1404,43 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       let currentBalance = 0;
 
       try {
-        const clobClient = copyTrader.getClobClient();
-        currentBalance = await clobClient.getUsdcBalance();
-        log.info(`[API] ✓ CLOB API balance: $${currentBalance.toFixed(2)} USDC`);
+        if (isHostedMultiTenantMode()) {
+          let lastError: string | null = null;
+          for (const wallet of hostedCandidates) {
+            try {
+              const clobClient = await copyTrader.getTradeExecutor().getClobClientForTradingWalletId(wallet.id);
+              currentBalance = await clobClient.getUsdcBalance();
+              eoaAddress = wallet.address;
+              balanceWalletId = wallet.id;
+              log.info(
+                `[API] ✓ CLOB API balance: $${currentBalance.toFixed(2)} USDC (walletId=${wallet.id}, hasCredentials=${wallet.hasCredentials})`
+              );
+              lastError = null;
+              break;
+            } catch (walletError: any) {
+              lastError = walletError?.message || 'Unknown hosted wallet balance error';
+              log.warn(
+                `[API] Hosted wallet balance failed for walletId=${wallet.id} hasCredentials=${wallet.hasCredentials}: ${lastError}`
+              );
+            }
+          }
+          if (lastError && currentBalance === 0) {
+            throw new Error(lastError);
+          }
+        } else {
+          const clobClient = copyTrader.getClobClient();
+          currentBalance = await clobClient.getUsdcBalance();
+          log.info(`[API] ✓ CLOB API balance: $${currentBalance.toFixed(2)} USDC`);
+        }
       } catch (clobError: any) {
         log.error({ err: clobError.message }, `[API] CLOB balance failed`);
         // Log full error for debugging
         log.error({ err: clobError }, `[API] Full error`);
       }
 
-      log.info(`[API] Final balance: $${currentBalance.toFixed(2)}`)
+      log.info(
+        `[API] Final balance: $${currentBalance.toFixed(2)}${balanceWalletId ? ` (walletId=${balanceWalletId})` : ''}`
+      )
 
       res.json({
         success: true,
@@ -1388,6 +1530,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.get('/wallets/:address/balance', async (req: Request, res: Response) => {
     try {
       const { address } = req.params;
+      if (!(await requireTrackedWalletAccess(address, res))) {
+        return;
+      }
       const polymarketApi = copyTrader.getPolymarketApi();
       const balanceTracker = copyTrader.getBalanceTracker();
 
@@ -1425,6 +1570,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     try {
       const { address } = req.params;
       const { active } = req.body;
+      if (!(await requireTrackedWalletAccess(address, res))) {
+        return;
+      }
 
       const wallet = await Storage.toggleWalletActive(address, active);
       await copyTrader.reloadWallets();
@@ -1444,6 +1592,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     try {
       const { address } = req.params;
       const { label } = req.body;
+      if (!(await requireTrackedWalletAccess(address, res))) {
+        return;
+      }
 
       if (typeof label !== 'string') {
         return res.status(400).json({
@@ -1470,6 +1621,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     try {
       const { address } = req.params;
       const { tags } = req.body;
+      if (!(await requireTrackedWalletAccess(address, res))) {
+        return;
+      }
 
       if (!Array.isArray(tags)) {
         return res.status(400).json({
@@ -1495,6 +1649,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.patch('/wallets/:address/trade-config', async (req: Request, res: Response) => {
     try {
       const { address } = req.params;
+      if (!(await requireTrackedWalletAccess(address, res))) {
+        return;
+      }
       const {
         // Trade sizing
         tradeSizingMode, fixedTradeSize, thresholdEnabled, thresholdPercent,
@@ -1656,6 +1813,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.delete('/wallets/:address/trade-config', async (req: Request, res: Response) => {
     try {
       const { address } = req.params;
+      if (!(await requireTrackedWalletAccess(address, res))) {
+        return;
+      }
 
       const wallet = await Storage.clearWalletTradeConfig(address);
       await copyTrader.reloadWallets();
@@ -1674,6 +1834,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.get('/wallets/:address/positions', async (req: Request, res: Response) => {
     const { address } = req.params;
     try {
+      if (!(await requireTrackedWalletAccess(address, res))) {
+        return;
+      }
       const api = copyTrader.getPolymarketApi();
       const positions = await api.getUserPositions(address);
       res.json({ success: true, positions: positions || [] });
@@ -1684,9 +1847,12 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   });
 
   // Get wallet-specific trades
-  router.get('/wallets/:address/trades', (req: Request, res: Response) => {
+  router.get('/wallets/:address/trades', async (req: Request, res: Response) => {
     try {
       const { address } = req.params;
+      if (!(await requireTrackedWalletAccess(address, res))) {
+        return;
+      }
       const limit = parseInt(req.query.limit as string) || 100;
       const allTrades = performanceTracker.getRecentTrades(limit);
       const walletTrades = allTrades.filter(t =>
@@ -1708,16 +1874,8 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     try {
       const { address } = req.params;
       const { slippageTolerance } = req.body;
-
-      // Validate wallet is being tracked
-      const wallets = await Storage.loadTrackedWallets();
-      const wallet = wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
-
-      if (!wallet) {
-        return res.status(404).json({
-          success: false,
-          error: 'Wallet not found in tracked wallets'
-        });
+      if (!(await requireTrackedWalletAccess(address, res))) {
+        return;
       }
 
       // Get the position mirror and calculate preview
@@ -1754,6 +1912,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     try {
       const { address } = req.params;
       const { trades, slippagePercent } = req.body;
+      if (!(await requireTrackedWalletAccess(address, res))) {
+        return;
+      }
 
       log.info(`[API] trades is array: ${Array.isArray(trades)}, count: ${trades?.length || 0}`);
 
@@ -2021,6 +2182,13 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // Update private key (WARNING: This writes to .env file)
   router.post('/config/private-key', async (req: Request, res: Response) => {
     try {
+      if (isHostedMultiTenantMode()) {
+        return res.status(403).json({
+          success: false,
+          error: 'Server private key cannot be changed in hosted mode. Add trading wallets in the dashboard.',
+        });
+      }
+
       const { privateKey } = req.body;
 
       if (!privateKey || typeof privateKey !== 'string') {
@@ -2092,6 +2260,13 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // Update builder API credentials (WARNING: This writes to .env file)
   router.post('/config/builder-credentials', async (req: Request, res: Response) => {
     try {
+      if (isHostedMultiTenantMode()) {
+        return res.status(403).json({
+          success: false,
+          error: 'Server Builder credentials cannot be changed in hosted mode. Configure per trading wallet after unlocking.',
+        });
+      }
+
       const { apiKey, secret, passphrase } = req.body;
 
       if (!apiKey || typeof apiKey !== 'string') {
@@ -2177,6 +2352,12 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // Save Kalshi API credentials (WARNING: This writes to .env file)
   router.post('/config/kalshi', async (req: Request, res: Response) => {
     try {
+      if (isHostedMultiTenantMode()) {
+        return res.status(403).json({
+          success: false,
+          error: 'Kalshi credentials cannot be saved to server .env in hosted mode. Use tenant-scoped platform settings when available.',
+        });
+      }
       const { apiKeyId, privateKeyPem } = req.body;
 
       if (!apiKeyId || typeof apiKeyId !== 'string') {
@@ -2260,6 +2441,13 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // The proxy wallet is where Polymarket holds your USDC
   router.post('/config/proxy-wallet', async (req: Request, res: Response) => {
     try {
+      if (isHostedMultiTenantMode()) {
+        return res.status(403).json({
+          success: false,
+          error:
+            'Server proxy wallet cannot be changed in hosted mode. Set proxy/funder per trading wallet in the dashboard.',
+        });
+      }
       const { proxyWalletAddress } = req.body;
 
       if (!proxyWalletAddress || typeof proxyWalletAddress !== 'string') {
@@ -2918,6 +3106,12 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
   // Test endpoint to diagnose CLOB API connectivity and Cloudflare blocking
   router.get('/test/clob-connectivity', async (req: Request, res: Response) => {
+    if (isHostedMultiTenantMode()) {
+      return res.status(403).json({
+        success: false,
+        error: 'Diagnostic endpoint is disabled in hosted multi-tenant mode'
+      });
+    }
     try {
       const axios = (await import('axios')).default;
       const results: any = {
@@ -3019,6 +3213,12 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
   // Test endpoint to check balance for any address (for debugging)
   router.get('/test/balance/:address', async (req: Request, res: Response) => {
+    if (isHostedMultiTenantMode()) {
+      return res.status(403).json({
+        success: false,
+        error: 'Diagnostic endpoint is disabled in hosted multi-tenant mode'
+      });
+    }
     try {
       const { address } = req.params;
       log.info(`[API] Test balance check for: ${address}`);

@@ -17,25 +17,48 @@ const API = {
     sessionStorage.removeItem('api_token');
   },
 
+  getTenantId() {
+    return sessionStorage.getItem('active_tenant_id') || '';
+  },
+
+  setTenantId(tenantId) {
+    if (tenantId) {
+      sessionStorage.setItem('active_tenant_id', tenantId);
+    } else {
+      sessionStorage.removeItem('active_tenant_id');
+    }
+  },
+
   // Base fetch with error handling + auth
   async fetch(endpoint, options = {}) {
     try {
       const token = this.getToken();
+      const usingLegacyToken = Boolean(token);
+      const tenantId = this.getTenantId();
       const headers = {
         'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        ...(usingLegacyToken ? { 'Authorization': `Bearer ${token}` } : {}),
+        ...(tenantId ? { 'x-tenant-id': tenantId } : {}),
         ...options.headers
       };
 
       const response = await fetch(`/api${endpoint}`, {
         headers,
+        credentials: 'same-origin',
         ...options
       });
 
       // If 401, show login modal and bail
       if (response.status === 401) {
         this.clearToken();
-        showAuthModal();
+        const legacyModal = typeof showAuthModal === 'function';
+        const usingLegacyMode = window.__authMode === 'legacy';
+        if (legacyModal && (usingLegacyToken || usingLegacyMode)) {
+          showAuthModal();
+        } else {
+          const returnTo = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
+          window.location.href = `/auth/login?returnTo=${returnTo}`;
+        }
         throw new Error('Authentication required');
       }
 
@@ -313,32 +336,7 @@ const API = {
   },
 
   async executeMirrorTrades(address, trades, slippagePercent = 2) {
-    try {
-      const token = this.getToken();
-      const response = await fetch(`/api/wallets/${address}/mirror-execute`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({ trades, slippagePercent })
-      });
-
-      if (response.status === 401) {
-        this.clearToken();
-        showAuthModal();
-        throw new Error('Authentication required');
-      }
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || `HTTP ${response.status}`);
-      }
-      return data;
-    } catch (error) {
-      console.error('Mirror execute error:', error);
-      throw error;
-    }
+    return this.post(`/wallets/${address}/mirror-execute`, { trades, slippagePercent });
   },
 
   // ============================================================
@@ -358,11 +356,19 @@ const API = {
   },
 
   async addTradingWallet(id, label, privateKey, masterPassword, apiKey, apiSecret, apiPassphrase) {
-    return this.post('/trading-wallets', { id, label, privateKey, masterPassword, apiKey, apiSecret, apiPassphrase });
+    const payload = { id, label, privateKey, apiKey, apiSecret, apiPassphrase };
+    if (masterPassword) {
+      payload.masterPassword = masterPassword;
+    }
+    return this.post('/trading-wallets', payload);
   },
 
   async updateTradingWalletCredentials(id, apiKey, apiSecret, apiPassphrase, masterPassword) {
-    return this.patch(`/trading-wallets/${id}/credentials`, { apiKey, apiSecret, apiPassphrase, masterPassword });
+    const payload = { apiKey, apiSecret, apiPassphrase };
+    if (masterPassword) {
+      payload.masterPassword = masterPassword;
+    }
+    return this.patch(`/trading-wallets/${id}/credentials`, payload);
   },
 
   async removeTradingWallet(id) {

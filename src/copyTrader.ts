@@ -1,6 +1,4 @@
 import { WalletMonitor } from './walletMonitor.js';
-import { DomeWebSocketMonitor } from './domeWebSocket.js';
-import { isDomeConfigured } from './domeClient.js';
 import { TradeExecutor } from './tradeExecutor.js';
 import { PerformanceTracker } from './performanceTracker.js';
 import { BalanceTracker } from './balanceTracker.js';
@@ -9,7 +7,14 @@ import { DetectedTrade, TradeOrder, TradeResult, RateLimitState, TradeSideFilter
 import { decidePendingOrderReconciliation } from './noRepeatReconciliation.js';
 import { Storage } from './storage.js';
 import { config } from './config.js';
-import { initWalletManager } from './walletManager.js';
+import {
+  initWalletManager,
+  getAssignmentsForTrackedWallet,
+  getTradingWallets,
+  getTradingWallet,
+  getActiveTradingWallets,
+} from './walletManager.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
 import { assertTradeCanExecuteForWallet } from './walletConfigSafety.js';
 import { buildPositionKey, normalizeOutcomeLabel } from './tradeIdentity.js';
 import {
@@ -17,6 +22,7 @@ import {
   summarizeDetectedTradeForDebug,
 } from './tradeDiagnostics.js';
 import { createComponentLogger } from './logger.js';
+import { getTenantIdOrDefault } from './tenantContext.js';
 
 const log = createComponentLogger('CopyTrader');
 
@@ -26,12 +32,11 @@ const log = createComponentLogger('CopyTrader');
  */
 export class CopyTrader {
   private monitor: WalletMonitor;
-  private domeWsMonitor: DomeWebSocketMonitor | null = null;
   private executor: TradeExecutor;
   private performanceTracker: PerformanceTracker;
   private balanceTracker: BalanceTracker;
   private isRunning = false;
-  private monitoringMode: 'polling' | 'websocket' | 'stopped' = 'stopped';
+  private monitoringMode: 'polling' | 'stopped' = 'stopped';
   private processedTrades = new Map<string, number>(); // Track processed trades by tx hash to prevent duplicates
   private executedTradesCount = 0; // Number of trades successfully executed this session
   private processedCompoundKeys = new Map<string, number>(); // Track by compound key (wallet-market-outcome-side-timeWindow) to catch same trade with different hashes
@@ -39,6 +44,10 @@ export class CopyTrader {
   
   // Per-wallet rate limiting state (in-memory, keyed by wallet address)
   private perWalletRateLimits: PerWalletRateLimitStates = new Map();
+
+  private getRateLimitKey(walletAddress: string, tenantId?: string): string {
+    return `${tenantId || 'default'}:${walletAddress.toLowerCase()}`;
+  }
 
   constructor() {
     this.monitor = new WalletMonitor();
@@ -60,19 +69,17 @@ export class CopyTrader {
       // Initialize multi-wallet manager
       await initWalletManager();
       
-      // Initialize Dome WebSocket if API key is configured
-      if (isDomeConfigured()) {
-        this.domeWsMonitor = new DomeWebSocketMonitor();
-        log.info('[CopyTrader] Dome API key detected — WebSocket monitoring available');
-      }
-      
-      // Record initial balance for user wallet only (not tracked wallets to reduce RPC calls)
       const userWallet = this.getWalletAddress();
-      if (userWallet) {
+      const initialAddrs = userWallet
+        ? [userWallet]
+        : isHostedMultiTenantMode()
+          ? getActiveTradingWallets().map(w => w.address)
+          : [];
+      for (const addr of initialAddrs) {
         try {
-          await this.balanceTracker.recordBalance(userWallet);
+          await this.balanceTracker.recordBalance(addr);
         } catch (error: any) {
-          log.warn({ detail: error.message }, `Failed to record initial balance for ${userWallet}`)
+          log.warn({ detail: error.message }, `Failed to record initial balance for ${addr}`)
         }
       }
       
@@ -129,67 +136,20 @@ export class CopyTrader {
     });
     log.info('✅ Polling monitoring active');
 
-    // Start Dome WebSocket monitoring if available (primary for tracked wallets)
-    if (this.domeWsMonitor) {
-      log.info('📡 Starting Dome WebSocket monitoring (PRIMARY)...');
-      try {
-        // Wire up Dome WS events
-        // NOTE: Polling is NO LONGER paused when Dome WS connects.
-        // Both run in parallel because:
-        // 1. Dome WS identifies users by EOA, but some tracked wallets use proxy addresses
-        // 2. This caused wallets like 432 to silently stop being monitored
-        // 3. The dedup logic in handleDetectedTrade prevents double execution
-        // 4. Polling is reliable for ALL wallets; Dome WS adds speed for matching ones
-        this.domeWsMonitor.on('connected', () => {
-          this.monitoringMode = 'websocket';
-          log.info('[DomeWS] Connected — running alongside polling for maximum coverage');
-        });
-
-        this.domeWsMonitor.on('disconnected', () => {
-          this.monitoringMode = 'polling';
-          log.info('[DomeWS] Disconnected — polling continues as usual');
-        });
-
-        this.domeWsMonitor.on('reconnected', () => {
-          this.monitoringMode = 'websocket';
-          log.info('[DomeWS] Reconnected — running alongside polling');
-        });
-
-        this.domeWsMonitor.on('trade', async (trade: DetectedTrade) => {
-          log.info({
-            wallet: trade.walletAddress,
-            market: trade.marketId,
-            side: trade.side,
-            price: trade.price,
-          }, 'Dome WS trade detected');
-          await this.handleDetectedTrade(trade);
-        });
-
-        this.domeWsMonitor.on('error', (err: any) => {
-          log.error('[DomeWS] Error:', err?.message || err);
-        });
-
-        await this.domeWsMonitor.start();
-      } catch (error: any) {
-        log.error({ detail: error.message }, '[DomeWS] Failed to start Dome WebSocket')
-        log.info('⚠️ Continuing with polling-based monitoring');
-      }
-    }
-
-    // Start balance tracking for user wallet only (reduces RPC calls significantly)
+    // Start balance tracking for user wallet(s) (reduces RPC calls significantly)
     const userWallet = this.getWalletAddress();
-    if (userWallet) {
-      await this.balanceTracker.startTracking([userWallet]);
+    const hostedAddrs = isHostedMultiTenantMode()
+      ? getActiveTradingWallets().map(w => w.address)
+      : [];
+    const toTrack = userWallet ? [userWallet] : hostedAddrs;
+    if (toTrack.length > 0) {
+      await this.balanceTracker.startTracking(toTrack);
     }
 
-    const domeWsStatus = this.domeWsMonitor?.getStatus();
     log.info('\n' + '='.repeat(60));
     log.info('✅ COPY TRADING BOT IS RUNNING');
     log.info('='.repeat(60));
     log.info(`📊 Monitoring Methods:`);
-    if (domeWsStatus) {
-      log.info(`   🌐 Dome WebSocket: ${domeWsStatus.connected ? '✅ CONNECTED (PRIMARY)' : '⏳ CONNECTING...'} — ${domeWsStatus.trackedWallets} wallets`);
-    }
     log.info(`   🔄 Polling: ✅ ACTIVE — every ${config.monitoringIntervalMs / 1000}s`);
     log.info(`\n💡 The bot will automatically detect and copy trades from tracked wallets.`);
     log.info(`   Check the logs above for trade detection and execution.`);
@@ -207,13 +167,6 @@ export class CopyTrader {
     log.info('Stopping copy trading bot...');
     this.isRunning = false;
     this.monitoringMode = 'stopped';
-    
-    // Stop Dome WebSocket if running
-    if (this.domeWsMonitor) {
-      this.domeWsMonitor.stop().catch(err => 
-        log.error({ err: err }, '[DomeWS] Error during stop')
-      );
-    }
     
     this.monitor.stopMonitoring();
     this.balanceTracker.stopTracking();
@@ -307,16 +260,20 @@ export class CopyTrader {
       return;
     }
     
-    // Also check if this is the user's own wallet (should not be tracked)
+    // Also check if this is one of our trading wallets (should not be tracked)
+    const ourTradingAddrs = getTradingWallets().map(w => w.address.toLowerCase());
     const userWallet = this.getWalletAddress();
-    if (userWallet && userWallet.toLowerCase() === tradeWalletLower) {
+    if (
+      ourTradingAddrs.includes(tradeWalletLower) ||
+      (userWallet && userWallet.toLowerCase() === tradeWalletLower)
+    ) {
       log.error(`\n❌ [CopyTrader] SECURITY: Trade detected from YOUR OWN wallet!`);
       log.error(`   Your wallet should not be in the tracked wallets list.`);
       log.error(`   This trade will NOT be executed.`);
       await this.performanceTracker.logIssue(
         'error',
         'other',
-        `Trade detected from user's own wallet (should not be tracked): ${userWallet.substring(0, 8)}...`,
+        `Trade detected from user's own wallet (should not be tracked): ${trade.walletAddress.substring(0, 8)}...`,
         { trade }
       );
       return;
@@ -332,17 +289,29 @@ export class CopyTrader {
     // when the trade appears in multiple polling cycles from the trade history API.
     // The primary deduplication is by transaction hash - this is a backup.
     const tradeTimestamp = trade.timestamp instanceof Date ? trade.timestamp.getTime() : Date.now();
-    // 5-minute compound-key window for same-market dedup (trade history vs Dome can have different hashes)
+    // 5-minute compound-key window for same-market dedup across polling snapshots.
     const timeWindow = Math.floor(tradeTimestamp / (5 * 60 * 1000));
     const positionKey = trade.positionKey || buildPositionKey({
       marketId: trade.marketId,
       tokenId: trade.tokenId,
       outcome: trade.outcome,
     });
-    const compoundKey = `${trade.walletAddress.toLowerCase()}-${positionKey}-${trade.side}-${timeWindow}`;
+    const tenantKey = trade.tenantId || 'default';
+
+    const assignments = getAssignmentsForTrackedWallet(trade.walletAddress);
+    let executionTargets: { tradingWalletId?: string }[];
+    if (isHostedMultiTenantMode()) {
+      executionTargets = assignments.map(a => ({ tradingWalletId: a.tradingWalletId }));
+    } else if (assignments.length === 0) {
+      executionTargets = [{ tradingWalletId: undefined }];
+    } else {
+      executionTargets = assignments.map(a => ({ tradingWalletId: a.tradingWalletId }));
+    }
+    const execSuffix = executionTargets.map(t => t.tradingWalletId ?? 'env').sort().join('+');
+    const compoundKey = `${tenantKey}:${trade.walletAddress.toLowerCase()}-${positionKey}-${trade.side}-${timeWindow}-${execSuffix}`;
     
     // Also track by transaction hash for exact duplicates
-    const tradeKey = trade.transactionHash;
+    const tradeKey = `${tenantKey}:${trade.transactionHash}`;
     
     // Clean up old entries (older than 5 minutes for compound keys; 1 hour for tx hashes)
     const now = Date.now();
@@ -376,7 +345,7 @@ export class CopyTrader {
     }
 
     // CRITICAL: Mark as in-flight IMMEDIATELY after the check, BEFORE any async code.
-    // This closes the race window where concurrent Dome WS events could all pass the
+    // This closes the race window where concurrent detections could all pass the
     // check above before any of them reached the old add() location 300 lines below.
     this.inFlightTrades.add(tradeKey);
     this.inFlightTrades.add(compoundKey);
@@ -425,6 +394,26 @@ export class CopyTrader {
       );
       return;
     }
+
+    if (isHostedMultiTenantMode() && executionTargets.length === 0) {
+      log.info('[CopyTrader] Hosted mode: no copy assignment for this tracked wallet — skipping');
+      await this.performanceTracker.recordTrade({
+        timestamp: new Date(),
+        walletAddress: trade.walletAddress,
+        marketId: trade.marketId,
+        marketTitle: trade.marketTitle,
+        outcome: trade.outcome,
+        amount: trade.amount,
+        price: trade.price,
+        success: false,
+        status: 'rejected',
+        executionTimeMs: 0,
+        error: 'No copy assignment: link a trading wallet to this tracked wallet in the dashboard',
+        detectedTxHash: trade.transactionHash,
+        tokenId: trade.tokenId,
+      });
+      return;
+    }
     
     log.info(`\n${'='.repeat(60)}`);
     log.info(`🔔 TRADE DETECTED`);
@@ -444,7 +433,7 @@ export class CopyTrader {
     
     // SANITY CHECK: Detect values that appear to be in USDC base units (6 decimals)
     // If amount * price > $10M, the amount is almost certainly in base units and needs conversion
-    // This guards against Dome WebSocket or API returning raw values instead of normalized ones
+    // This guards against upstream APIs returning raw values instead of normalized ones
     if (amountNum > 0 && priceNum > 0) {
       const rawUsdValue = amountNum * priceNum;
       if (rawUsdValue > 10_000_000) {
@@ -554,87 +543,41 @@ export class CopyTrader {
     }
 
     // ============================================================
-    // NO-REPEAT-TRADES FILTER (ALWAYS ACTIVE)
+    // PENDING NO-REPEAT RECONCILIATION (once per detection)
     // ============================================================
-    // ALWAYS check if we've already traded this market+outcome, regardless of per-wallet
-    // noRepeatEnabled setting. This provides two levels of protection:
-    //  - noRepeatEnabled=true: Uses configured blockPeriod (forever, 24h, etc.)
-    //  - noRepeatEnabled=false/undefined: Uses 5-minute safety minimum to catch
-    //    rapid-fire duplicates from bot restarts and concurrent Dome WS events.
-    // FAIL-SAFE: If the storage read fails, BLOCK the trade rather than allowing it.
-    {
-      const SAFETY_MINIMUM_HOURS = 5 / 60; // 5 minutes
-      const blockPeriod = trade.noRepeatEnabled
-        ? (trade.noRepeatPeriodHours ?? 24)
-        : SAFETY_MINIMUM_HOURS;
-      try {
-        await this.reconcilePendingNoRepeatBlock(trade);
-
-        const isBlocked = await Storage.isPositionBlocked(
-          trade.marketId,
-          trade.outcome,
-          blockPeriod,
-          positionKey,
-        );
-        
-        if (isBlocked) {
-          const periodLabel = blockPeriod === 0 ? 'forever' : blockPeriod < 1 ? `${Math.round(blockPeriod * 60)}min` : `${blockPeriod}h`;
-          log.info(`\n⏭️  [CopyTrader] FILTERED - No-repeat-trades (already have position)`);
-          log.info(`   Wallet: ${trade.walletAddress.slice(0, 10)}...`);
-          log.info(`   Market: ${trade.marketId}`);
-          log.info(`   Side: ${trade.side} | Outcome: ${trade.outcome}`);
-          log.info(`   Block period: ${periodLabel}${!trade.noRepeatEnabled ? ' (global safety minimum)' : ''}`);
-          log.info(`   💡 You already have a ${trade.outcome} position in this market. Skipping repeat trade.\n`);
-          
-          await this.performanceTracker.recordTrade({
-            timestamp: new Date(),
-            walletAddress: trade.walletAddress,
-            marketId: trade.marketId,
-            marketTitle: trade.marketTitle,
-            outcome: trade.outcome,
-            amount: trade.amount,
-            price: trade.price,
-            success: false,
-            status: 'rejected',
-            executionTimeMs: 0,
-            error: `No-repeat-trades: Already have ${trade.outcome} position in this market (blocked ${periodLabel})`,
-            detectedTxHash: trade.transactionHash,
-            tokenId: trade.tokenId
-          });
-          
-          return;
-        }
-      } catch (noRepeatError: any) {
-        log.error(`[CopyTrader] No-repeat check FAILED — BLOCKING trade for safety: ${noRepeatError.message}`);
-        await this.performanceTracker.recordTrade({
-          timestamp: new Date(),
+    // Per-execution-wallet no-repeat checks run inside the execution loop below.
+    try {
+      await this.reconcilePendingNoRepeatBlock(trade);
+    } catch (noRepeatError: any) {
+      log.error(`[CopyTrader] No-repeat reconcile FAILED — BLOCKING trade for safety: ${noRepeatError.message}`);
+      await this.performanceTracker.recordTrade({
+        timestamp: new Date(),
+        walletAddress: trade.walletAddress,
+        marketId: trade.marketId,
+        marketTitle: trade.marketTitle,
+        outcome: trade.outcome,
+        amount: trade.amount,
+        price: trade.price,
+        success: false,
+        status: 'rejected',
+        executionTimeMs: 0,
+        error: `[NO_REPEAT_CHECK_FAILED] ${noRepeatError.message}`,
+        detectedTxHash: trade.transactionHash,
+        tokenId: trade.tokenId,
+      });
+      await this.performanceTracker.logIssue(
+        'warning',
+        'trade_execution',
+        `[NO_REPEAT_CHECK_FAILED] Trade blocked for safety`,
+        {
           walletAddress: trade.walletAddress,
           marketId: trade.marketId,
-          marketTitle: trade.marketTitle,
           outcome: trade.outcome,
-          amount: trade.amount,
-          price: trade.price,
-          success: false,
-          status: 'rejected',
-          executionTimeMs: 0,
-          error: `[NO_REPEAT_CHECK_FAILED] ${noRepeatError.message}`,
-          detectedTxHash: trade.transactionHash,
-          tokenId: trade.tokenId,
-        });
-        await this.performanceTracker.logIssue(
-          'warning',
-          'trade_execution',
-          `[NO_REPEAT_CHECK_FAILED] Trade blocked for safety`,
-          {
-            walletAddress: trade.walletAddress,
-            marketId: trade.marketId,
-            outcome: trade.outcome,
-            side: trade.side,
-            error: noRepeatError.message,
-          }
-        );
-        return;
-      }
+          side: trade.side,
+          error: noRepeatError.message,
+        }
+      );
+      return;
     }
 
     // ============================================================
@@ -683,11 +626,12 @@ export class CopyTrader {
     // Check if we've exceeded the wallet's configured rate limits
     if (trade.rateLimitEnabled) {
       const walletAddress = trade.walletAddress.toLowerCase();
+      const rateLimitKey = this.getRateLimitKey(walletAddress, trade.tenantId);
       const maxPerHour = trade.rateLimitPerHour ?? 10;   // Default: 10
       const maxPerDay = trade.rateLimitPerDay ?? 50;     // Default: 50
       
       // Get or create rate limit state for this wallet
-      let walletRateState = this.perWalletRateLimits.get(walletAddress);
+      let walletRateState = this.perWalletRateLimits.get(rateLimitKey);
       if (!walletRateState) {
         walletRateState = {
           tradesThisHour: 0,
@@ -695,7 +639,7 @@ export class CopyTrader {
           hourStartTime: Date.now(),
           dayStartTime: Date.now()
         };
-        this.perWalletRateLimits.set(walletAddress, walletRateState);
+        this.perWalletRateLimits.set(rateLimitKey, walletRateState);
       }
       
       // Update rate limit state (reset counters if window has passed)
@@ -812,6 +756,7 @@ export class CopyTrader {
     }
 
     const executionStart = Date.now();
+    const sizingTwId = executionTargets[0]?.tradingWalletId;
 
     try {
       // ============================================================
@@ -844,7 +789,7 @@ export class CopyTrader {
         // Get OUR USDC balance from Polymarket CLOB API (our tradable funds)
         let ourBalance = 0;
         try {
-          const clobClient = this.executor.getClobClient();
+          const clobClient = await this.getSizingClobClient(sizingTwId);
           ourBalance = await clobClient.getUsdcBalance();
           log.info(`[Trade] Our Polymarket USDC balance: $${ourBalance.toFixed(2)}`);
         } catch (balanceError: any) {
@@ -981,7 +926,7 @@ export class CopyTrader {
       // We cap order size to spendable collateral to avoid avoidable CLOB 400 failures.
       if (trade.side === 'BUY') {
         try {
-          const clobClient = this.executor.getClobClient();
+          const clobClient = await this.getSizingClobClient(sizingTwId);
           const collateral = await clobClient.getCollateralStatus();
           const reserveUsdc = 0.5; // Keep a tiny reserve to avoid edge-case precision rejections.
           const maxSpendableUsdc = Math.max(0, collateral.spendableUsdc - reserveUsdc);
@@ -1041,7 +986,7 @@ export class CopyTrader {
       if (trade.tokenId) {
         try {
           // Use the CLOB client to get the market's actual minimum
-          const clobClient = this.executor.getClobClient();
+          const clobClient = await this.getSizingClobClient(sizingTwId);
           if (clobClient && typeof clobClient.getMinOrderSize === 'function') {
             marketMinShares = await clobClient.getMinOrderSize(trade.tokenId);
           }
@@ -1079,110 +1024,175 @@ export class CopyTrader {
         return;
       }
       
-      // ============================================================
-      // SELL ORDER - CHECK IF WE OWN SHARES
-      // ============================================================
-      let finalSharesAmount = finalCalculatedShares;
-      
-      if (trade.side === 'SELL') {
-        log.info(`\n🔍 [CopyTrader] SELL ORDER - Checking if we own shares...`);
-        
-        // Get user's positions to check if we own this token
-        const sellUserWallet = this.getWalletAddress();
-        if (!sellUserWallet) {
-          log.info(`⏭️  [CopyTrader] SKIPPING SELL - Cannot determine user wallet`);
-          return;
-        }
-        
-        // Get proxy wallet for positions lookup
-        const proxyWallet = await this.getProxyWalletAddress();
-        const walletToCheck = proxyWallet || sellUserWallet;
-        
+      const SAFETY_MINIMUM_HOURS_NR = 5 / 60;
+
+      for (const target of executionTargets) {
+        const nrKey = `${positionKey}::exec:${target.tradingWalletId ?? 'legacy'}`;
+        const blockPeriod = trade.noRepeatEnabled
+          ? (trade.noRepeatPeriodHours ?? 24)
+          : SAFETY_MINIMUM_HOURS_NR;
+
         try {
-          const userPositions = await this.monitor.getApi().getUserPositions(walletToCheck);
-          
-          // Find position matching this tokenId
-          const matchingPosition = userPositions.find((pos: any) => {
-            // Match by asset (tokenId) - this is the unique identifier
-            return pos.asset === trade.tokenId;
+          const isBlocked = await Storage.isPositionBlocked(
+            trade.marketId,
+            trade.outcome,
+            blockPeriod,
+            nrKey,
+          );
+          if (isBlocked) {
+            const periodLabel =
+              blockPeriod === 0
+                ? 'forever'
+                : blockPeriod < 1
+                  ? `${Math.round(blockPeriod * 60)}min`
+                  : `${blockPeriod}h`;
+            log.info(
+              `⏭️  [CopyTrader] No-repeat (${target.tradingWalletId ?? 'legacy'}): skip — ${trade.marketId} ${trade.outcome} (${periodLabel})`,
+            );
+            await this.performanceTracker.recordTrade({
+              timestamp: new Date(),
+              walletAddress: trade.walletAddress,
+              marketId: trade.marketId,
+              marketTitle: trade.marketTitle,
+              outcome: trade.outcome,
+              amount: trade.amount,
+              price: trade.price,
+              success: false,
+              status: 'rejected',
+              executionTimeMs: 0,
+              error: `No-repeat-trades: Already have ${trade.outcome} for this execution wallet (blocked ${periodLabel})`,
+              detectedTxHash: trade.transactionHash,
+              tokenId: trade.tokenId,
+            });
+            continue;
+          }
+        } catch (noRepeatError: any) {
+          log.error(`[CopyTrader] No-repeat check FAILED — skipping target: ${noRepeatError.message}`);
+          await this.performanceTracker.recordTrade({
+            timestamp: new Date(),
+            walletAddress: trade.walletAddress,
+            marketId: trade.marketId,
+            marketTitle: trade.marketTitle,
+            outcome: trade.outcome,
+            amount: trade.amount,
+            price: trade.price,
+            success: false,
+            status: 'rejected',
+            executionTimeMs: 0,
+            error: `[NO_REPEAT_CHECK_FAILED] ${noRepeatError.message}`,
+            detectedTxHash: trade.transactionHash,
+            tokenId: trade.tokenId,
           });
-          
-          if (!matchingPosition || parseFloat(matchingPosition.size || '0') <= 0) {
-            log.info(`\n⏭️  [CopyTrader] SKIPPING SELL ORDER - No shares owned`);
-            log.info(`   Token ID: ${trade.tokenId?.substring(0, 20)}...`);
-            log.info(`   Market: ${trade.marketId}`);
-            log.info(`   Outcome: ${trade.outcome}`);
-            log.info(`   You don't own any shares of this position to sell.\n`);
-            // Don't log as error - this is expected behavior
-            return;
+          continue;
+        }
+
+        // ============================================================
+        // SELL ORDER - CHECK IF WE OWN SHARES
+        // ============================================================
+        let finalSharesAmount = finalCalculatedShares;
+
+        if (trade.side === 'SELL') {
+          log.info(`\n🔍 [CopyTrader] SELL ORDER - Checking if we own shares...`);
+
+          let sellUserWallet: string | null = null;
+          let walletToCheck: string;
+
+          if (target.tradingWalletId) {
+            const tw = getTradingWallet(target.tradingWalletId);
+            if (!tw) {
+              log.info(`⏭️  [CopyTrader] SKIPPING SELL - Unknown trading wallet ${target.tradingWalletId}`);
+              continue;
+            }
+            sellUserWallet = tw.address;
+            const proxyWallet =
+              tw.proxyAddress || (await this.monitor.getApi().getProxyWalletAddress(tw.address));
+            walletToCheck = proxyWallet || tw.address;
+          } else {
+            sellUserWallet = this.getWalletAddress();
+            if (!sellUserWallet) {
+              log.info(`⏭️  [CopyTrader] SKIPPING SELL - Cannot determine user wallet`);
+              continue;
+            }
+            const proxyWallet = await this.getProxyWalletAddress();
+            walletToCheck = proxyWallet || sellUserWallet;
           }
-          
-          const ownedShares = parseFloat(matchingPosition.size);
-          log.info(`   ✓ Found position! You own ${ownedShares.toFixed(2)} shares`);
-          
-          // Limit sell to owned shares (can't sell more than we have)
-          if (finalSharesAmount > ownedShares) {
-            log.info(`   ⚠️  Adjusting sell amount: ${finalSharesAmount} → ${ownedShares.toFixed(2)} (can't sell more than owned)`);
-            finalSharesAmount = parseFloat(ownedShares.toFixed(2));
+
+          try {
+            const userPositions = await this.monitor.getApi().getUserPositions(walletToCheck);
+
+            const matchingPosition = userPositions.find((pos: any) => pos.asset === trade.tokenId);
+
+            if (!matchingPosition || parseFloat(matchingPosition.size || '0') <= 0) {
+              log.info(`\n⏭️  [CopyTrader] SKIPPING SELL ORDER - No shares owned (wallet ${target.tradingWalletId ?? 'env'})`);
+              continue;
+            }
+
+            const ownedShares = parseFloat(matchingPosition.size);
+            log.info(`   ✓ Found position! You own ${ownedShares.toFixed(2)} shares`);
+
+            if (finalSharesAmount > ownedShares) {
+              log.info(
+                `   ⚠️  Adjusting sell amount: ${finalSharesAmount} → ${ownedShares.toFixed(2)} (can't sell more than owned)`,
+              );
+              finalSharesAmount = parseFloat(ownedShares.toFixed(2));
+            }
+
+            log.info(`   ✓ Proceeding to sell ${finalSharesAmount} shares\n`);
+          } catch (positionError: any) {
+            log.error({ err: positionError.message }, `❌ [CopyTrader] Failed to check positions`);
+            log.info(`⏭️  [CopyTrader] SKIPPING SELL - Cannot verify share ownership\n`);
+            continue;
           }
-          
-          log.info(`   ✓ Proceeding to sell ${finalSharesAmount} shares\n`);
-          
-        } catch (positionError: any) {
-          log.error({ err: positionError.message }, `❌ [CopyTrader] Failed to check positions`);
-          log.info(`⏭️  [CopyTrader] SKIPPING SELL - Cannot verify share ownership\n`);
+        }
+
+        const sharesAmountStr = finalSharesAmount.toFixed(2);
+
+        const order: TradeOrder = {
+          marketId: trade.marketId,
+          outcome: trade.outcome,
+          amount: sharesAmountStr,
+          price: trade.price,
+          side: trade.side,
+          tokenId: trade.tokenId,
+          negRisk: trade.negRisk,
+          positionKey: nrKey,
+          slippagePercent: trade.slippagePercent,
+          tradingWalletId: target.tradingWalletId,
+        };
+
+        logTradeRegressionDebug('copy-trader.execution-input', {
+          source: 'copy-trader',
+          detectedTrade: summarizeDetectedTradeForDebug(trade),
+          order: {
+            marketId: order.marketId,
+            outcome: order.outcome,
+            amount: order.amount,
+            price: order.price,
+            side: order.side,
+            tokenId: order.tokenId,
+            negRisk: order.negRisk,
+            slippagePercent: order.slippagePercent,
+            tradingWalletId: order.tradingWalletId,
+          },
+        });
+
+        log.info(`\n🚀 [Execute] EXECUTING TRADE (${target.tradingWalletId ?? 'legacy env wallet'}):`);
+        log.info(`   Action: ${order.side}`);
+        log.info(`   Amount: $${tradeSizeUsdcNum.toFixed(2)} USDC (${order.amount} shares)`);
+        log.info(`   Market: ${order.marketId}`);
+        log.info(`   Outcome: ${order.outcome}`);
+        log.info(`   Price: ${order.price}`);
+        log.info(`   Time: ${new Date().toISOString()}`);
+
+        const baselinePositionSize = await this.getCurrentPositionSize(trade, target.tradingWalletId);
+
+        if (!this.isRunning) {
+          log.info('[CopyTrader] Trade execution aborted because the bot was stopped during pre-flight checks');
           return;
         }
-      }
-      
-      const sharesAmountStr = finalSharesAmount.toFixed(2);
-      
-      // Convert detected trade to trade order
-      const order: TradeOrder = {
-        marketId: trade.marketId,
-        outcome: trade.outcome,
-        amount: sharesAmountStr, // Calculated shares from USDC trade size
-        price: trade.price,
-        side: trade.side, // Use the side detected from the tracked wallet's trade
-        tokenId: trade.tokenId,    // Pass token ID for direct CLOB execution (bypasses Gamma API)
-        negRisk: trade.negRisk,    // Pass negative risk flag
-        positionKey,
-        slippagePercent: trade.slippagePercent,  // Per-wallet slippage (executor falls back to storage)
-      };
 
-      logTradeRegressionDebug('copy-trader.execution-input', {
-        source: 'copy-trader',
-        detectedTrade: summarizeDetectedTradeForDebug(trade),
-        order: {
-          marketId: order.marketId,
-          outcome: order.outcome,
-          amount: order.amount,
-          price: order.price,
-          side: order.side,
-          tokenId: order.tokenId,
-          negRisk: order.negRisk,
-          slippagePercent: order.slippagePercent,
-        },
-      });
-
-      log.info(`\n🚀 [Execute] EXECUTING TRADE:`);
-      log.info(`   Action: ${order.side}`);
-      log.info(`   Amount: $${tradeSizeUsdcNum.toFixed(2)} USDC (${order.amount} shares)`);
-      log.info(`   Market: ${order.marketId}`);
-      log.info(`   Outcome: ${order.outcome}`);
-      log.info(`   Price: ${order.price}`);
-      log.info(`   Time: ${new Date().toISOString()}`);
-
-      const baselinePositionSize = await this.getCurrentPositionSize(trade);
-
-      if (!this.isRunning) {
-        log.info('[CopyTrader] Trade execution aborted because the bot was stopped during pre-flight checks');
-        return;
-      }
-      
-      // Execute the trade
-      const result: TradeResult = await this.executor.executeTrade(order);
-      const executionTime = Date.now() - executionStart;
+        const result: TradeResult = await this.executor.executeTrade(order);
+        const executionTime = Date.now() - executionStart;
       
       // Record metrics
       // NOTE: result.success is now only true if order was actually executed (not just placed)
@@ -1226,7 +1236,7 @@ export class CopyTrader {
           await Storage.addExecutedPosition(trade.marketId, trade.outcome, trade.walletAddress, {
             orderId: result.orderId,
             tokenId: order.tokenId,
-            positionKey,
+            positionKey: nrKey,
           });
           console.log(`[CopyTrader] Recorded position for no-repeat-trades: ${trade.marketId} ${trade.outcome}`);
         } catch (recordError: any) {
@@ -1243,7 +1253,7 @@ export class CopyTrader {
 
         // Increment per-wallet rate limit counters (if rate limiting was enabled for this wallet)
         if (trade.rateLimitEnabled) {
-          const walletRateState = this.perWalletRateLimits.get(trade.walletAddress.toLowerCase());
+          const walletRateState = this.perWalletRateLimits.get(this.getRateLimitKey(trade.walletAddress, trade.tenantId));
           if (walletRateState) {
             walletRateState.tradesThisHour++;
             walletRateState.tradesThisDay++;
@@ -1269,7 +1279,7 @@ export class CopyTrader {
             order.tokenId,
             baselinePositionSize,
             trade.side,
-            positionKey,
+            nrKey,
           );
           log.info(`[CopyTrader] Recorded pending no-repeat block: ${trade.marketId} ${trade.outcome} (order ${result.orderId})`);
         } catch (recordError: any) {
@@ -1320,6 +1330,7 @@ export class CopyTrader {
           );
         }
       }
+      }
     } catch (error: any) {
       const executionTime = Date.now() - executionStart;
       log.error(`Error handling trade: ${error.message}`);
@@ -1361,22 +1372,13 @@ export class CopyTrader {
   getStatus(): {
     running: boolean;
     executedTradesCount: number;
-    monitoringMode: 'polling' | 'websocket' | 'stopped';
-    domeWs: { connected: boolean; subscriptionId: string | null; trackedWallets: number } | null;
+    monitoringMode: 'polling' | 'stopped';
   } {
     return {
       running: this.isRunning,
       executedTradesCount: this.executedTradesCount,
       monitoringMode: this.monitoringMode,
-      domeWs: this.domeWsMonitor?.getStatus() ?? null,
     };
-  }
-
-  /**
-   * Get the Dome WebSocket monitor (for API routes).
-   */
-  getDomeWsMonitor(): DomeWebSocketMonitor | null {
-    return this.domeWsMonitor;
   }
 
   /**
@@ -1417,14 +1419,28 @@ export class CopyTrader {
       return;
     }
 
-    const openOrders = await this.executor.getClobClient().getOpenOrders();
+    const activeTrading = getActiveTradingWallets();
+    const probeWalletId = activeTrading[0]?.id;
+    let clobForProbe: import('./clobClient.js').PolymarketClobClient;
+    if (isHostedMultiTenantMode() && !config.privateKey) {
+      if (!probeWalletId) {
+        log.warn('[CopyTrader] reconcile: no active trading wallet — skipping open-order probe');
+        return;
+      }
+      clobForProbe = await this.executor.getClobClientForTradingWalletId(probeWalletId);
+    } else {
+      clobForProbe = this.executor.getClobClient();
+      await clobForProbe.initialize();
+    }
+
+    const openOrders = await clobForProbe.getOpenOrders();
     const openOrderIds = new Set(
       openOrders
         .map(order => order?.orderID ?? order?.orderId ?? order?.id)
         .filter((orderId): orderId is string => typeof orderId === 'string' && orderId.length > 0)
     );
 
-    const currentPositionSize = await this.getCurrentPositionSize(trade);
+    const currentPositionSize = await this.getCurrentPositionSize(trade, probeWalletId);
 
     let promotedPendingBlock = false;
     let clearedPendingBlock = false;
@@ -1457,7 +1473,7 @@ export class CopyTrader {
         const missingChecks = await Storage.incrementPendingPositionMissingOrderChecks(pendingBlock.orderId);
         console.log(`[CopyTrader] Pending no-repeat block missing from open orders for ${trade.marketId} ${trade.outcome}; confirming with a fresh snapshot`);
 
-        const confirmedOpenOrders = await this.executor.getClobClient().getOpenOrders();
+        const confirmedOpenOrders = await clobForProbe.getOpenOrders();
         const confirmedOpenOrderIds = new Set(
           confirmedOpenOrders
             .map(order => order?.orderID ?? order?.orderId ?? order?.id)
@@ -1513,11 +1529,39 @@ export class CopyTrader {
     }
   }
 
-  private async getCurrentPositionSize(trade: DetectedTrade): Promise<number> {
-    const positionsWallet =
-      this.executor.getFunderAddress() ||
-      (await this.getProxyWalletAddress()) ||
-      this.getWalletAddress();
+  /**
+   * CLOB client for balance / min-size when sizing trades (first assigned trading wallet in hosted mode).
+   */
+  private async getSizingClobClient(primaryTradingWalletId?: string): Promise<import('./clobClient.js').PolymarketClobClient> {
+    if (primaryTradingWalletId) {
+      try {
+        return await this.executor.getClobClientForTradingWalletId(primaryTradingWalletId);
+      } catch (e: any) {
+        log.warn(`[CopyTrader] Could not open tenant CLOB for sizing (${primaryTradingWalletId}): ${e.message}`);
+      }
+    }
+    return this.executor.getClobClient();
+  }
+
+  private async getCurrentPositionSize(trade: DetectedTrade, tradingWalletId?: string): Promise<number> {
+    let positionsWallet: string | null = null;
+
+    if (tradingWalletId) {
+      const tw = getTradingWallet(tradingWalletId);
+      if (!tw) {
+        throw new Error(`Trading wallet "${tradingWalletId}" not found`);
+      }
+      const api = this.monitor.getApi();
+      positionsWallet =
+        tw.proxyAddress ||
+        (await api.getProxyWalletAddress(tw.address)) ||
+        tw.address;
+    } else {
+      positionsWallet =
+        this.executor.getFunderAddress() ||
+        (await this.getProxyWalletAddress()) ||
+        this.getWalletAddress();
+    }
 
     if (!positionsWallet) {
       throw new Error('Could not determine trading wallet for position reconciliation');
@@ -1750,7 +1794,9 @@ export class CopyTrader {
     
     // If specific wallet requested
     if (walletAddress) {
-      const walletRateState = this.perWalletRateLimits.get(walletAddress.toLowerCase());
+      const walletRateState = this.perWalletRateLimits.get(
+        this.getRateLimitKey(walletAddress, getTenantIdOrDefault())
+      );
       if (!walletRateState) {
         // No rate limit state exists for this wallet (never had rate limiting enabled or no trades)
         return {

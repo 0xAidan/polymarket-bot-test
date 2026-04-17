@@ -19,6 +19,7 @@ export type TradeSideFilter = 'all' | 'buy_only' | 'sell_only';
  * ALL configuration is per-wallet - new wallets start with active=false and no settings
  */
 export interface TrackedWallet {
+  tenantId?: string;
   address: string;
   addedAt: Date;
   active: boolean;  // Default: false for new wallets
@@ -70,6 +71,7 @@ export interface TrackedWallet {
  * Carries ALL per-wallet settings for use during trade processing
  */
 export interface DetectedTrade {
+  tenantId?: string;
   walletAddress: string;
   marketId: string;
   marketTitle?: string; // Human-readable market name (from API title/slug)
@@ -124,6 +126,8 @@ export interface TradeOrder {
   negRisk?: boolean;  // Negative risk flag
   positionKey?: string; // Stable identity for matching/debugging
   slippagePercent?: number;  // Per-wallet slippage override (default from storage if not set)
+  /** When set, execute via this tenant trading wallet (hosted / multi-wallet). */
+  tradingWalletId?: string;
 }
 
 /**
@@ -332,11 +336,13 @@ export interface TradingWallet {
   label: string;                 // User-friendly name
   address: string;               // EOA address (derived from private key)
   proxyAddress?: string;         // Polymarket proxy wallet address
+  /** Per-wallet override; defaults from POLYMARKET_SIGNATURE_TYPE in legacy mode */
+  polymarketSignatureType?: number;
+  /** Explicit Polymarket funder (proxy) — prefer proxyAddress when set */
+  polymarketFunderAddress?: string;
   isActive: boolean;             // Whether this wallet is enabled for trading
   createdAt: string;             // ISO timestamp
 
-  // Dome Order Router credentials (stored encrypted in SQLite)
-  domeUserId?: string;           // Dome userId for this wallet
   hasCredentials: boolean;       // Whether CLOB API creds are stored
 }
 

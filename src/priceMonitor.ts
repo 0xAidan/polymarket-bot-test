@@ -1,9 +1,11 @@
-import { domeGetMarketPrice, isDomeConfigured } from './domeClient.js';
 import { PolymarketApi } from './polymarketApi.js';
 import { LadderExitManager } from './ladderExitManager.js';
 import { SmartStopLossManager } from './smartStopLoss.js';
 import { EventEmitter } from 'events';
 import { createComponentLogger } from './logger.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
+import { DEFAULT_TENANT_ID, runWithTenant } from './tenantContext.js';
+import { listTenantIdsWithLadderOrStopLossActivity } from './database.js';
 
 const log = createComponentLogger('PriceMonitor');
 
@@ -73,9 +75,19 @@ export class PriceMonitor extends EventEmitter {
   }
 
   private async tick(): Promise<void> {
-    // Collect all token IDs we need prices for
-    const tokenIds = new Set<string>();
+    if (isHostedMultiTenantMode()) {
+      await this.tickHostedMultiTenant();
+      return;
+    }
+    await runWithTenant(DEFAULT_TENANT_ID, () => this.tickSingleTenant());
+  }
 
+  /** Legacy / single-tenant: one AsyncLocalStorage tenant (default). */
+  private async tickSingleTenant(): Promise<void> {
+    await this.ladderManager.syncFromCurrentTenant();
+    await this.stopLossManager.syncFromCurrentTenant();
+
+    const tokenIds = new Set<string>();
     for (const ladder of this.ladderManager.getLadders(true)) {
       tokenIds.add(ladder.tokenId);
     }
@@ -85,35 +97,9 @@ export class PriceMonitor extends EventEmitter {
 
     if (tokenIds.size === 0) return;
 
-    // Fetch prices
-    const priceMap = new Map<string, number>();
-    const useDome = isDomeConfigured();
-
-    for (const tokenId of tokenIds) {
-      try {
-        let price: number | null = null;
-        if (useDome) {
-          const result = await domeGetMarketPrice(tokenId);
-          if (result) price = result.price;
-        }
-        if (price === null) {
-          const bookData = await this.api.getOrderBook(tokenId);
-          if (bookData?.market?.tokens) {
-            const token = bookData.market.tokens.find((t: any) => t.token_id === tokenId);
-            if (token) price = parseFloat(token.price);
-          }
-        }
-        if (price !== null) {
-          priceMap.set(tokenId, price);
-        }
-      } catch (err: any) {
-        log.error({ detail: err.message }, `[PriceMonitor] Failed to fetch price for ${tokenId}`)
-      }
-    }
-
+    const priceMap = await this.fetchPricesForTokens(tokenIds);
     this.lastCheck = Date.now();
 
-    // Process ladder exits
     const ladderTriggers = this.ladderManager.checkLadders(priceMap);
     for (const trigger of ladderTriggers) {
       const stepIndex = trigger.ladder.steps.indexOf(trigger.step);
@@ -122,6 +108,7 @@ export class PriceMonitor extends EventEmitter {
         `step ${stepIndex + 1} — sell ${trigger.sharesToSell.toFixed(2)} shares`
       );
       this.emit('ladder-trigger', {
+        tenantId: DEFAULT_TENANT_ID,
         ladder: trigger.ladder,
         step: trigger.step,
         stepIndex,
@@ -130,7 +117,6 @@ export class PriceMonitor extends EventEmitter {
       });
     }
 
-    // Process stop-losses
     const stopLossTriggers = this.stopLossManager.updatePrices(priceMap);
     for (const order of stopLossTriggers) {
       log.info(
@@ -138,10 +124,95 @@ export class PriceMonitor extends EventEmitter {
         `@ ${order.triggeredPrice?.toFixed(4)} — sell ${order.shares} shares`
       );
       this.emit('stoploss-trigger', {
+        tenantId: DEFAULT_TENANT_ID,
         order,
         currentPrice: order.triggeredPrice,
       });
     }
+  }
+
+  /**
+   * Hosted: each tenant has isolated ladder/stop-loss rows in SQLite; tick each tenant under runWithTenant.
+   */
+  private async tickHostedMultiTenant(): Promise<void> {
+    const tenantIds = listTenantIdsWithLadderOrStopLossActivity();
+    if (tenantIds.length === 0) return;
+
+    const allTokenIds = new Set<string>();
+    for (const tid of tenantIds) {
+      await runWithTenant(tid, async () => {
+        await this.ladderManager.syncFromCurrentTenant();
+        await this.stopLossManager.syncFromCurrentTenant();
+        for (const ladder of this.ladderManager.getLadders(true)) {
+          allTokenIds.add(ladder.tokenId);
+        }
+        for (const order of this.stopLossManager.getOrders(true)) {
+          allTokenIds.add(order.tokenId);
+        }
+      });
+    }
+
+    if (allTokenIds.size === 0) return;
+
+    const priceMap = await this.fetchPricesForTokens(allTokenIds);
+    this.lastCheck = Date.now();
+
+    for (const tid of tenantIds) {
+      await runWithTenant(tid, async () => {
+        await this.ladderManager.syncFromCurrentTenant();
+        await this.stopLossManager.syncFromCurrentTenant();
+
+        const ladderTriggers = this.ladderManager.checkLadders(priceMap);
+        for (const trigger of ladderTriggers) {
+          const stepIndex = trigger.ladder.steps.indexOf(trigger.step);
+          log.info(
+            `[PriceMonitor] Ladder step triggered: ${trigger.ladder.marketTitle} ` +
+            `step ${stepIndex + 1} — sell ${trigger.sharesToSell.toFixed(2)} shares`
+          );
+          this.emit('ladder-trigger', {
+            tenantId: tid,
+            ladder: trigger.ladder,
+            step: trigger.step,
+            stepIndex,
+            sharesToSell: trigger.sharesToSell,
+            currentPrice: priceMap.get(trigger.ladder.tokenId),
+          });
+        }
+
+        const stopLossTriggers = this.stopLossManager.updatePrices(priceMap);
+        for (const order of stopLossTriggers) {
+          log.info(
+            `[PriceMonitor] Stop-loss triggered: ${order.marketTitle} ${order.outcome} ` +
+            `@ ${order.triggeredPrice?.toFixed(4)} — sell ${order.shares} shares`
+          );
+          this.emit('stoploss-trigger', {
+            tenantId: tid,
+            order,
+            currentPrice: order.triggeredPrice,
+          });
+        }
+      });
+    }
+  }
+
+  private async fetchPricesForTokens(tokenIds: Set<string>): Promise<Map<string, number>> {
+    const priceMap = new Map<string, number>();
+    for (const tokenId of tokenIds) {
+      try {
+        let price: number | null = null;
+        const bookData = await this.api.getOrderBook(tokenId);
+        if (bookData?.market?.tokens) {
+          const token = bookData.market.tokens.find((t: any) => t.token_id === tokenId);
+          if (token) price = parseFloat(token.price);
+        }
+        if (price !== null) {
+          priceMap.set(tokenId, price);
+        }
+      } catch (err: any) {
+        log.error({ detail: err.message }, `[PriceMonitor] Failed to fetch price for ${tokenId}`)
+      }
+    }
+    return priceMap;
   }
 
   getStatus() {

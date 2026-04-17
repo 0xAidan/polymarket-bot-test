@@ -18,3 +18,5 @@ data/keystores/
 # Editor (keep .cursor/rules/ tracked for AI agent context)
 .cursor/*
 !.cursor/rules/
+
+

@@ -4,10 +4,14 @@ import { mkdtempSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { config } from '../src/config.js';
+import { closeDatabase } from '../src/database.js';
 import { lockAllWallets } from '../src/secureKeyManager.js';
+import { runWithTenant } from '../src/tenantContext.js';
 import {
   initWalletManager,
+  unlockWallets,
   addTradingWallet,
+  updateWalletBuilderCredentials,
   removeTradingWallet,
   toggleTradingWallet,
   updateTradingWalletLabel,
@@ -25,16 +29,22 @@ const TEST_ADDR = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 let tempDir: string;
 
 describe('WalletManager', () => {
+  let savedAuthSessionSecret: string;
+
   beforeEach(async () => {
     tempDir = mkdtempSync(join(tmpdir(), 'wm-test-'));
     (config as any).dataDir = tempDir;
     (config as any).storageBackend = 'json';
+    (config as any).authMode = 'legacy';
+    savedAuthSessionSecret = config.authSessionSecret;
     lockAllWallets();
     await initWalletManager();
   });
 
   afterEach(() => {
+    closeDatabase();
     lockAllWallets();
+    (config as any).authSessionSecret = savedAuthSessionSecret;
     if (existsSync(tempDir)) {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -150,5 +160,67 @@ describe('WalletManager', () => {
       assert.equal(forA.length, 1);
       assert.equal(forA[0].tradingWalletAddress || forA[0].trackedWalletAddress, '0xa');
     });
+  });
+
+  it('isolates wallet config by tenant context', async () => {
+    (config as any).storageBackend = 'sqlite';
+
+    await runWithTenant('tenant-a', async () => {
+      await initWalletManager();
+      await addTradingWallet('main', 'Tenant A Wallet', TEST_KEY, 'pass');
+    });
+
+    await runWithTenant('tenant-b', async () => {
+      await initWalletManager();
+      await addTradingWallet('main', 'Tenant B Wallet', TEST_KEY, 'pass');
+    });
+
+    const tenantAWallets = await runWithTenant('tenant-a', async () => {
+      await initWalletManager();
+      return getTradingWallets();
+    });
+    const tenantBWallets = await runWithTenant('tenant-b', async () => {
+      await initWalletManager();
+      return getTradingWallets();
+    });
+
+    assert.equal(tenantAWallets.length, 1);
+    assert.equal(tenantBWallets.length, 1);
+    assert.equal(tenantAWallets[0].label, 'Tenant A Wallet');
+    assert.equal(tenantBWallets[0].label, 'Tenant B Wallet');
+  });
+
+  it('hosted multitenant unlock does not migrate .env private key into trading wallets', async () => {
+    (config as any).storageBackend = 'sqlite';
+    (config as any).authMode = 'oidc';
+    (config as any).privateKey =
+      '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+
+    await initWalletManager();
+    const result = await unlockWallets('any-password');
+
+    assert.equal(result.migrated, false);
+    assert.equal(getTradingWallets().length, 0);
+  });
+
+  it('hosted multitenant wallet management does not require a master password', async () => {
+    (config as any).storageBackend = 'sqlite';
+    (config as any).authMode = 'oidc';
+    (config as any).authSessionSecret = 'hosted-session-secret';
+
+    await initWalletManager();
+
+    const wallet = await addTradingWallet('hosted', 'Hosted Wallet', TEST_KEY);
+    assert.equal(wallet.address, TEST_ADDR);
+
+    lockAllWallets();
+
+    const updatedWallet = await updateWalletBuilderCredentials('hosted', {
+      apiKey: 'builder-key',
+      apiSecret: 'builder-secret',
+      apiPassphrase: 'builder-passphrase',
+    });
+
+    assert.equal(updatedWallet.hasCredentials, true);
   });
 });

@@ -2,6 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import * as ethers from 'ethers';
 import crypto from 'crypto';
 import { config } from './config.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
 import { DetectedTrade } from './types.js';
 import { getValidEvmAddress } from './addressUtils.js';
 import { createComponentLogger } from './logger.js';
@@ -80,6 +81,11 @@ export class PolymarketApi {
    * Initialize wallet signer for authentication
    */
   async initialize(): Promise<void> {
+    if (isHostedMultiTenantMode() && !config.privateKey) {
+      log.info('[API] Hosted multi-tenant: no global PRIVATE_KEY; Data API uses public endpoints where possible');
+      return;
+    }
+
     if (!config.privateKey) {
       throw new Error('Private key not configured');
     }
@@ -108,7 +114,7 @@ export class PolymarketApi {
    * Get the proxy wallet address from Polymarket
    * Polymarket uses proxy wallets for trading, which is where funds are actually held
    * 
-   * FIXED: Extract proxy wallet from positions API response instead of unreliable Dome API
+   * FIXED: Extract proxy wallet from positions API response instead of an unreliable third-party fallback
    * The positions API returns proxyWallet field in each position object.
    */
   async getProxyWalletAddress(eoaAddress?: string): Promise<string | null> {
@@ -149,28 +155,17 @@ export class PolymarketApi {
       log.warn({ err: positionsError.message }, `[API] Failed to get positions for proxy wallet lookup`);
     }
 
-    // FALLBACK: Try Dome API (but it often fails with 403)
-    try {
-      log.info(`[API] Fallback: Attempting Dome API for ${address.substring(0, 8)}...`);
-      const domeResponse = await this.retryRequest(async () => {
-        return await axios.get('https://api.domeapi.io/v1/polymarket/wallet', {
-          params: { eoa: address.toLowerCase() },
-          timeout: 10000
-        });
-      }, `getProxyWalletAddress-Dome(${address.substring(0, 8)}...)`);
-      
-      if (domeResponse.data?.proxyWallet || domeResponse.data?.proxy) {
-        const proxyWallet = domeResponse.data.proxyWallet || domeResponse.data.proxy;
-        log.info(`[API] ✓ Found proxy wallet via Dome API: ${proxyWallet} for EOA: ${address.substring(0, 8)}...`);
-        return proxyWallet;
-      }
-    } catch (domeError: any) {
-      // Dome API often fails with 403, this is expected
-      log.info(`[API] Dome API unavailable for ${address.substring(0, 8)}... (this is normal)`);
+    // Hosted multi-tenant must never use process-wide env identity fallback.
+    // Returning null here forces callers to keep the request scoped to the requested wallet.
+    if (isHostedMultiTenantMode()) {
+      log.warn(
+        `[API] Hosted mode: no proxy mapping found for ${address.substring(0, 8)}..., refusing env fallback`
+      );
+      return null;
     }
-    
-    // FALLBACK: Check POLYMARKET_FUNDER_ADDRESS env variable
-    // This is the most reliable method if the user has set it
+
+    // Legacy single-user fallback only.
+    // This is intentionally disabled in hosted mode to prevent cross-profile leakage.
     const funderAddress = getValidEvmAddress(process.env.POLYMARKET_FUNDER_ADDRESS);
     if (funderAddress && funderAddress !== normalizedEoa) {
       log.info(`[API] ✓ Using POLYMARKET_FUNDER_ADDRESS: ${funderAddress} for EOA: ${address.substring(0, 8)}...`);
@@ -192,11 +187,16 @@ export class PolymarketApi {
       await this.initialize();
     }
 
+    if (!this.signer) {
+      if (isHostedMultiTenantMode()) {
+        log.info('[API] No global signer — skipping Data API wallet auth (tenant wallets sign per trade)');
+        return;
+      }
+      throw new Error('Signer not initialized');
+    }
+
     try {
       // Polymarket typically uses wallet signature authentication
-      if (!this.signer) {
-        throw new Error('Signer not initialized');
-      }
 
       // Create a message to sign
       const message = `Sign in to Polymarket\nTimestamp: ${Date.now()}`;

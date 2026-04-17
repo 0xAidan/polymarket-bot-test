@@ -1,5 +1,5 @@
 import { TradingWallet, CopyAssignment } from './types.js';
-import { config } from './config.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
 import {
   addEncryptedWallet,
   removeEncryptedWallet,
@@ -15,13 +15,18 @@ import {
   type BuilderCredentials,
 } from './secureKeyManager.js';
 import { createComponentLogger } from './logger.js';
+import { Storage } from './storage.js';
+import { getTenantIdOrDefault } from './tenantContext.js';
 
 const log = createComponentLogger('WalletManager');
-import { Storage } from './storage.js';
 
-// In-memory trading wallet registry
-let tradingWallets: TradingWallet[] = [];
-let copyAssignments: CopyAssignment[] = [];
+type TenantWalletState = {
+  loaded: boolean;
+  tradingWallets: TradingWallet[];
+  copyAssignments: CopyAssignment[];
+};
+
+const walletStateByTenant = new Map<string, TenantWalletState>();
 
 const WALLETS_CONFIG_KEY = 'tradingWallets';
 const ASSIGNMENTS_CONFIG_KEY = 'copyAssignments';
@@ -30,17 +35,42 @@ const ASSIGNMENTS_CONFIG_KEY = 'copyAssignments';
 // PERSISTENCE (via bot_config key-value store)
 // ============================================================================
 
+function scopedTenantId(): string {
+  return getTenantIdOrDefault();
+}
+
+function getOrCreateTenantState(): TenantWalletState {
+  const tenantId = scopedTenantId();
+  let state = walletStateByTenant.get(tenantId);
+  if (!state) {
+    state = { loaded: false, tradingWallets: [], copyAssignments: [] };
+    walletStateByTenant.set(tenantId, state);
+  }
+  return state;
+}
+
 async function loadWalletConfig(): Promise<void> {
   const cfg = await Storage.loadConfig();
-  tradingWallets = cfg[WALLETS_CONFIG_KEY] ?? [];
-  copyAssignments = cfg[ASSIGNMENTS_CONFIG_KEY] ?? [];
+  const state = getOrCreateTenantState();
+  state.tradingWallets = cfg[WALLETS_CONFIG_KEY] ?? [];
+  state.copyAssignments = cfg[ASSIGNMENTS_CONFIG_KEY] ?? [];
+  state.loaded = true;
 }
 
 async function saveWalletConfig(): Promise<void> {
+  const state = getOrCreateTenantState();
   const cfg = await Storage.loadConfig();
-  cfg[WALLETS_CONFIG_KEY] = tradingWallets;
-  cfg[ASSIGNMENTS_CONFIG_KEY] = copyAssignments;
+  cfg[WALLETS_CONFIG_KEY] = state.tradingWallets;
+  cfg[ASSIGNMENTS_CONFIG_KEY] = state.copyAssignments;
   await Storage.saveConfig(cfg);
+}
+
+async function ensureWalletConfigLoaded(): Promise<TenantWalletState> {
+  const state = getOrCreateTenantState();
+  if (!state.loaded) {
+    await loadWalletConfig();
+  }
+  return getOrCreateTenantState();
 }
 
 // ============================================================================
@@ -52,7 +82,8 @@ async function saveWalletConfig(): Promise<void> {
  */
 export async function initWalletManager(): Promise<void> {
   await loadWalletConfig();
-  log.info(`[WalletManager] Loaded ${tradingWallets.length} trading wallet(s)`);
+  const state = getOrCreateTenantState();
+  log.info(`[WalletManager] Loaded ${state.tradingWallets.length} trading wallet(s) for tenant ${scopedTenantId()}`);
 }
 
 /**
@@ -65,11 +96,12 @@ export async function addTradingWallet(
   id: string,
   label: string,
   privateKey: string,
-  masterPassword: string,
+  masterPassword?: string,
   builderCreds?: BuilderCredentials
 ): Promise<TradingWallet> {
+  const state = await ensureWalletConfigLoaded();
   // Check for duplicate ID
-  if (tradingWallets.find(w => w.id === id)) {
+  if (state.tradingWallets.find(w => w.id === id)) {
     throw new Error(`Trading wallet "${id}" already exists`);
   }
 
@@ -91,7 +123,7 @@ export async function addTradingWallet(
     log.warn(`[WalletManager] ⚠️  Wallet "${id}" added WITHOUT Builder API credentials — it will NOT be able to place orders.`);
   }
 
-  tradingWallets.push(wallet);
+  state.tradingWallets.push(wallet);
   await saveWalletConfig();
 
   log.info(`[WalletManager] Added trading wallet "${id}" (${address}) — Builder creds: ${hasBuilder ? 'YES' : 'NO'}`);
@@ -102,14 +134,15 @@ export async function addTradingWallet(
  * Remove a trading wallet.
  */
 export async function removeTradingWallet(id: string): Promise<void> {
-  const idx = tradingWallets.findIndex(w => w.id === id);
+  const state = await ensureWalletConfigLoaded();
+  const idx = state.tradingWallets.findIndex(w => w.id === id);
   if (idx === -1) throw new Error(`Trading wallet "${id}" not found`);
 
   await removeEncryptedWallet(id);
-  tradingWallets.splice(idx, 1);
+  state.tradingWallets.splice(idx, 1);
 
   // Also remove any copy assignments pointing to this wallet
-  copyAssignments = copyAssignments.filter(a => a.tradingWalletId !== id);
+  state.copyAssignments = state.copyAssignments.filter(a => a.tradingWalletId !== id);
 
   await saveWalletConfig();
   log.info(`[WalletManager] Removed trading wallet "${id}"`);
@@ -119,7 +152,8 @@ export async function removeTradingWallet(id: string): Promise<void> {
  * Toggle a trading wallet active/inactive.
  */
 export async function toggleTradingWallet(id: string, active?: boolean): Promise<TradingWallet> {
-  const wallet = tradingWallets.find(w => w.id === id);
+  const state = await ensureWalletConfigLoaded();
+  const wallet = state.tradingWallets.find(w => w.id === id);
   if (!wallet) throw new Error(`Trading wallet "${id}" not found`);
 
   wallet.isActive = active !== undefined ? active : !wallet.isActive;
@@ -131,7 +165,8 @@ export async function toggleTradingWallet(id: string, active?: boolean): Promise
  * Update a trading wallet's label.
  */
 export async function updateTradingWalletLabel(id: string, label: string): Promise<TradingWallet> {
-  const wallet = tradingWallets.find(w => w.id === id);
+  const state = await ensureWalletConfigLoaded();
+  const wallet = state.tradingWallets.find(w => w.id === id);
   if (!wallet) throw new Error(`Trading wallet "${id}" not found`);
 
   wallet.label = label;
@@ -143,21 +178,24 @@ export async function updateTradingWalletLabel(id: string, label: string): Promi
  * Get all trading wallets.
  */
 export function getTradingWallets(): TradingWallet[] {
-  return [...tradingWallets];
+  const state = getOrCreateTenantState();
+  return [...state.tradingWallets];
 }
 
 /**
  * Get a specific trading wallet by ID.
  */
 export function getTradingWallet(id: string): TradingWallet | undefined {
-  return tradingWallets.find(w => w.id === id);
+  const state = getOrCreateTenantState();
+  return state.tradingWallets.find(w => w.id === id);
 }
 
 /**
  * Get active trading wallets only.
  */
 export function getActiveTradingWallets(): TradingWallet[] {
-  return tradingWallets.filter(w => w.isActive);
+  const state = getOrCreateTenantState();
+  return state.tradingWallets.filter(w => w.isActive);
 }
 
 // ============================================================================
@@ -172,13 +210,14 @@ export async function addCopyAssignment(
   tradingWalletId: string,
   useOwnConfig = false
 ): Promise<CopyAssignment> {
+  const state = await ensureWalletConfigLoaded();
   // Validate trading wallet exists
-  if (!tradingWallets.find(w => w.id === tradingWalletId)) {
+  if (!state.tradingWallets.find(w => w.id === tradingWalletId)) {
     throw new Error(`Trading wallet "${tradingWalletId}" not found`);
   }
 
   // Check for duplicate assignment
-  const existing = copyAssignments.find(
+  const existing = state.copyAssignments.find(
     a => a.trackedWalletAddress.toLowerCase() === trackedWalletAddress.toLowerCase()
       && a.tradingWalletId === tradingWalletId
   );
@@ -192,7 +231,7 @@ export async function addCopyAssignment(
     useOwnConfig,
   };
 
-  copyAssignments.push(assignment);
+  state.copyAssignments.push(assignment);
   await saveWalletConfig();
   return assignment;
 }
@@ -204,13 +243,14 @@ export async function removeCopyAssignment(
   trackedWalletAddress: string,
   tradingWalletId: string
 ): Promise<void> {
-  const before = copyAssignments.length;
-  copyAssignments = copyAssignments.filter(
+  const state = await ensureWalletConfigLoaded();
+  const before = state.copyAssignments.length;
+  state.copyAssignments = state.copyAssignments.filter(
     a => !(a.trackedWalletAddress.toLowerCase() === trackedWalletAddress.toLowerCase()
       && a.tradingWalletId === tradingWalletId)
   );
 
-  if (copyAssignments.length === before) {
+  if (state.copyAssignments.length === before) {
     throw new Error(`Assignment not found: ${trackedWalletAddress} → ${tradingWalletId}`);
   }
 
@@ -221,15 +261,17 @@ export async function removeCopyAssignment(
  * Get all copy assignments.
  */
 export function getCopyAssignments(): CopyAssignment[] {
-  return [...copyAssignments];
+  const state = getOrCreateTenantState();
+  return [...state.copyAssignments];
 }
 
 /**
  * Get copy assignments for a specific tracked wallet.
  */
 export function getAssignmentsForTrackedWallet(trackedWalletAddress: string): CopyAssignment[] {
+  const state = getOrCreateTenantState();
   const lowerAddress = trackedWalletAddress.toLowerCase();
-  return copyAssignments.filter(a => a.trackedWalletAddress === lowerAddress);
+  return state.copyAssignments.filter(a => a.trackedWalletAddress === lowerAddress);
 }
 
 // ============================================================================
@@ -242,17 +284,39 @@ export function getAssignmentsForTrackedWallet(trackedWalletAddress: string): Co
  * Also refreshes hasCredentials flag on all wallets.
  */
 export async function unlockWallets(masterPassword: string): Promise<{ unlocked: string[]; migrated: boolean }> {
-  // First, try to migrate the .env private key if applicable
+  const state = await ensureWalletConfigLoaded();
+  if (isHostedMultiTenantMode()) {
+    let configChanged = false;
+    for (const wallet of state.tradingWallets) {
+      const hasCreds = await hasBuilderCredentials(wallet.id);
+      if (wallet.hasCredentials !== hasCreds) {
+        wallet.hasCredentials = hasCreds;
+        configChanged = true;
+      }
+    }
+    if (configChanged) {
+      await saveWalletConfig();
+    }
+
+    return {
+      unlocked: state.tradingWallets.map((wallet) => wallet.id),
+      migrated: false,
+    };
+  }
+
+  // First, try to migrate the .env private key if applicable (never in hosted multi-tenant mode)
   let migrated = false;
-  const migratedAddr = await migrateEnvPrivateKey(masterPassword);
+  const migratedAddr = isHostedMultiTenantMode()
+    ? null
+    : await migrateEnvPrivateKey(masterPassword);
   if (migratedAddr) {
     migrated = true;
     // Reload wallet config in case migration added the main wallet
     await loadWalletConfig();
 
     // If the main wallet isn't in config yet, add it
-    if (!tradingWallets.find(w => w.id === 'main')) {
-      tradingWallets.push({
+    if (!state.tradingWallets.find(w => w.id === 'main')) {
+      state.tradingWallets.push({
         id: 'main',
         label: 'Main Wallet',
         address: migratedAddr,
@@ -269,7 +333,7 @@ export async function unlockWallets(masterPassword: string): Promise<{ unlocked:
 
   // Refresh hasCredentials flag on all wallets based on actual stored files
   let configChanged = false;
-  for (const wallet of tradingWallets) {
+  for (const wallet of state.tradingWallets) {
     const hasCreds = await hasBuilderCredentials(wallet.id);
     if (wallet.hasCredentials !== hasCreds) {
       wallet.hasCredentials = hasCreds;
@@ -289,9 +353,10 @@ export async function unlockWallets(masterPassword: string): Promise<{ unlocked:
 export async function updateWalletBuilderCredentials(
   id: string,
   creds: BuilderCredentials,
-  masterPassword: string
+  masterPassword?: string
 ): Promise<TradingWallet> {
-  const wallet = tradingWallets.find(w => w.id === id);
+  const state = await ensureWalletConfigLoaded();
+  const wallet = state.tradingWallets.find(w => w.id === id);
   if (!wallet) throw new Error(`Trading wallet "${id}" not found`);
 
   await updateBuilderCredentials(id, creds, masterPassword);

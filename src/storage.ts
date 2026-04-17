@@ -13,6 +13,7 @@ import { config } from './config.js';
 import {
   initDatabase,
   dbLoadTrackedWallets,
+  dbLoadAllActiveTrackedWalletsForMonitoring,
   dbSaveTrackedWallets,
   dbLoadConfig,
   dbSaveConfig,
@@ -21,6 +22,8 @@ import {
 } from './database.js';
 import { assertWalletCanBeEnabled } from './walletConfigSafety.js';
 import { createComponentLogger } from './logger.js';
+import { DEFAULT_TENANT_ID, getTenantIdOrDefault } from './tenantContext.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
 
 const log = createComponentLogger('Storage');
 
@@ -68,12 +71,28 @@ function useSqlite(): boolean {
   return config.storageBackend === 'sqlite';
 }
 
+function getScopedTenantId(): string {
+  return getTenantIdOrDefault();
+}
+
+function assertJsonTenantSupport(tenantId: string): void {
+  if (!useSqlite() && tenantId !== DEFAULT_TENANT_ID) {
+    throw new Error('Multi-tenant mode requires STORAGE_BACKEND=sqlite');
+  }
+}
+
 /** Lazy-init SQLite. Returns true on success, false on failure (falls back to JSON). */
 async function ensureSqlite(): Promise<boolean> {
   try {
     await initDatabase();
     return true;
   } catch (err) {
+    if (isHostedMultiTenantMode()) {
+      log.error({ err }, '[Storage] Hosted mode cannot continue: SQLite init failed and JSON fallback is disabled');
+      throw new Error(
+        `SQLite initialization failed in hosted mode: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
     log.error({ err: err }, '[Storage] SQLite init failed, falling back to JSON')
     return false;
   }
@@ -118,13 +137,15 @@ export class Storage {
     }
   }
 
-  private static async _loadTrackedWalletsSqlite(): Promise<TrackedWallet[]> {
-    return dbLoadTrackedWallets();
+  private static async _loadTrackedWalletsSqlite(tenantId: string): Promise<TrackedWallet[]> {
+    return dbLoadTrackedWallets(tenantId);
   }
 
   static async loadTrackedWallets(): Promise<TrackedWallet[]> {
+    const tenantId = getScopedTenantId();
+    assertJsonTenantSupport(tenantId);
     if (useSqlite() && await ensureSqlite()) {
-      return this._loadTrackedWalletsSqlite();
+      return this._loadTrackedWalletsSqlite(tenantId);
     }
     return this._loadTrackedWalletsJson();
   }
@@ -134,14 +155,16 @@ export class Storage {
     await fs.writeFile(walletsFile(), JSON.stringify(wallets, null, 2));
   }
 
-  private static async _saveTrackedWalletsSqlite(wallets: TrackedWallet[]): Promise<void> {
-    dbSaveTrackedWallets(wallets);
+  private static async _saveTrackedWalletsSqlite(wallets: TrackedWallet[], tenantId: string): Promise<void> {
+    dbSaveTrackedWallets(wallets, tenantId);
   }
 
   static async saveTrackedWallets(wallets: TrackedWallet[]): Promise<void> {
     try {
+      const tenantId = getScopedTenantId();
+      assertJsonTenantSupport(tenantId);
       if (useSqlite() && await ensureSqlite()) {
-        return this._saveTrackedWalletsSqlite(wallets);
+        return this._saveTrackedWalletsSqlite(wallets, tenantId);
       }
       return this._saveTrackedWalletsJson(wallets);
     } catch (error) {
@@ -180,6 +203,13 @@ export class Storage {
   static async getActiveWallets(): Promise<TrackedWallet[]> {
     const wallets = await this.loadTrackedWallets();
     return wallets.filter(w => w.active);
+  }
+
+  static async loadAllActiveTrackedWalletsForMonitoring(): Promise<TrackedWallet[]> {
+    if (useSqlite() && await ensureSqlite()) {
+      return dbLoadAllActiveTrackedWalletsForMonitoring();
+    }
+    return this.getActiveWallets();
   }
 
   static async updateWalletLastSeen(address: string, lastSeen: Date): Promise<void> {
@@ -337,8 +367,8 @@ export class Storage {
     }
   }
 
-  private static async _loadConfigSqlite(): Promise<any> {
-    const data = dbLoadConfig();
+  private static async _loadConfigSqlite(tenantId: string): Promise<any> {
+    const data = dbLoadConfig(tenantId);
     if (Object.keys(data).length === 0) {
       return {
         tradeSize: '2',
@@ -349,8 +379,10 @@ export class Storage {
   }
 
   static async loadConfig(): Promise<any> {
+    const tenantId = getScopedTenantId();
+    assertJsonTenantSupport(tenantId);
     if (useSqlite() && await ensureSqlite()) {
-      return this._loadConfigSqlite();
+      return this._loadConfigSqlite(tenantId);
     }
     return this._loadConfigJson();
   }
@@ -360,14 +392,16 @@ export class Storage {
     await fs.writeFile(configFile(), JSON.stringify(configData, null, 2));
   }
 
-  private static async _saveConfigSqlite(configData: any): Promise<void> {
-    dbSaveConfig(configData);
+  private static async _saveConfigSqlite(configData: any, tenantId: string): Promise<void> {
+    dbSaveConfig(configData, tenantId);
   }
 
   static async saveConfig(configData: any): Promise<void> {
     try {
+      const tenantId = getScopedTenantId();
+      assertJsonTenantSupport(tenantId);
       if (useSqlite() && await ensureSqlite()) {
-        return this._saveConfigSqlite(configData);
+        return this._saveConfigSqlite(configData, tenantId);
       }
       return this._saveConfigJson(configData);
     } catch (error) {
@@ -523,13 +557,15 @@ export class Storage {
     }
   }
 
-  private static async _loadExecutedPositionsSqlite(): Promise<ExecutedPosition[]> {
-    return dbLoadExecutedPositions();
+  private static async _loadExecutedPositionsSqlite(tenantId: string): Promise<ExecutedPosition[]> {
+    return dbLoadExecutedPositions(tenantId);
   }
 
   static async loadExecutedPositions(): Promise<ExecutedPosition[]> {
+    const tenantId = getScopedTenantId();
+    assertJsonTenantSupport(tenantId);
     if (useSqlite() && await ensureSqlite()) {
-      return this._loadExecutedPositionsSqlite();
+      return this._loadExecutedPositionsSqlite(tenantId);
     }
     return this._loadExecutedPositionsJson();
   }
@@ -539,14 +575,16 @@ export class Storage {
     await fs.writeFile(executedPositionsFile(), JSON.stringify(positions, null, 2));
   }
 
-  private static async _saveExecutedPositionsSqlite(positions: ExecutedPosition[]): Promise<void> {
-    dbSaveExecutedPositions(positions);
+  private static async _saveExecutedPositionsSqlite(positions: ExecutedPosition[], tenantId: string): Promise<void> {
+    dbSaveExecutedPositions(positions, tenantId);
   }
 
   static async saveExecutedPositions(positions: ExecutedPosition[]): Promise<void> {
     try {
+      const tenantId = getScopedTenantId();
+      assertJsonTenantSupport(tenantId);
       if (useSqlite() && await ensureSqlite()) {
-        return this._saveExecutedPositionsSqlite(positions);
+        return this._saveExecutedPositionsSqlite(positions, tenantId);
       }
       return this._saveExecutedPositionsJson(positions);
     } catch (error) {

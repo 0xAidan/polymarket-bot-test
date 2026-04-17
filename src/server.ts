@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import rateLimit from 'express-rate-limit';
+import { auth, type ConfigParams } from 'express-openid-connect';
 import { config } from './config.js';
 import { createRoutes } from './api/routes.js';
 import { CopyTrader } from './copyTrader.js';
@@ -9,6 +11,16 @@ import { createDiscoveryRoutes } from './api/discoveryRoutes.js';
 import { DiscoveryManager } from './discovery/discoveryManager.js';
 import { DiscoveryControlPlane } from './discovery/discoveryControlPlane.js';
 import { createComponentLogger } from './logger.js';
+import { DEFAULT_TENANT_ID, enterWithTenant } from './tenantContext.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
+import {
+  canUserAccessTenant,
+  getUserMemberships,
+  resolveUserActiveTenant,
+  setUserLastActiveTenant,
+  syncUserFromOidc,
+  writeAuthAuditLog
+} from './authStore.js';
 
 const log = createComponentLogger('Server');
 
@@ -22,6 +34,7 @@ export const getDiscoveryManager = (): DiscoveryManager | null => discoveryManag
 export async function createServer(copyTrader: CopyTrader): Promise<express.Application> {
   await initDatabase();
   const app = express();
+  app.set('trust proxy', 1);
 
   // Middleware
   app.use(cors());
@@ -35,14 +48,184 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   discoveryManagerInstance = new DiscoveryManager('passive');
   const discoveryControlPlane = new DiscoveryControlPlane();
 
-  // ─── Auth status endpoint (always open, tells frontend if auth is needed) ───
-  app.get('/api/auth/required', (req, res) => {
-    res.json({ required: !!config.apiSecret });
+  const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 1200,
+    standardHeaders: true,
+    legacyHeaders: false
   });
 
-  // ─── API authentication middleware ───
-  if (config.apiSecret) {
-    // Token-check endpoint (validates the token the frontend sends)
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 80,
+    standardHeaders: true,
+    legacyHeaders: false
+  });
+
+  const requireOidcAuth: express.RequestHandler = (req, res, next) => {
+    if (req.oidc?.isAuthenticated()) {
+      next();
+      return;
+    }
+    res.status(401).json({
+      success: false,
+      error: 'Authentication required'
+    });
+  };
+
+  const resolveOidcUserContext = (req: express.Request) => {
+    const claims = req.oidc.user || {};
+    const user = syncUserFromOidc({
+      sub: claims.sub,
+      email: claims.email,
+      name: claims.name,
+      nickname: claims.nickname
+    });
+    const memberships = getUserMemberships(user.id);
+    return { user, memberships };
+  };
+
+  // ─── Auth status endpoint (always open, tells frontend auth mode/requirements) ───
+  app.get('/api/auth/required', (_req, res) => {
+    const hostedMultiTenant = isHostedMultiTenantMode();
+    if (config.authMode === 'oidc') {
+      res.json({ required: true, mode: 'oidc', hostedMultiTenant });
+      return;
+    }
+    res.json({ required: !!config.apiSecret, mode: 'legacy', hostedMultiTenant });
+  });
+
+  if (config.authMode === 'oidc') {
+    if (!config.authSessionSecret || !config.auth0IssuerBaseUrl || !config.auth0BaseUrl || !config.auth0ClientId || !config.auth0ClientSecret) {
+      throw new Error('OIDC mode is enabled but Auth0 configuration is incomplete. Check AUTH_* and AUTH0_* variables.');
+    }
+
+    const oidcConfig: ConfigParams = {
+      authRequired: false,
+      auth0Logout: true,
+      secret: config.authSessionSecret,
+      baseURL: config.auth0BaseUrl,
+      clientID: config.auth0ClientId,
+      issuerBaseURL: config.auth0IssuerBaseUrl,
+      clientSecret: config.auth0ClientSecret,
+      idpLogout: true,
+      session: {
+        rolling: true,
+        rollingDuration: config.authSessionRollingDurationHours * 60 * 60,
+        absoluteDuration: config.authSessionAbsoluteDurationHours * 60 * 60,
+        cookie: {
+          httpOnly: true,
+          secure: config.auth0BaseUrl.startsWith('https://'),
+          sameSite: 'Lax'
+        }
+      },
+      routes: {
+        login: '/auth/login',
+        logout: '/auth/logout',
+        callback: '/auth/callback'
+      }
+    };
+
+    app.use('/auth', authLimiter);
+    app.use(auth(oidcConfig));
+
+    app.get('/api/auth/check', (_req, res) => {
+      res.status(410).json({
+        success: false,
+        error: 'Legacy API token auth check is disabled. Use OIDC session auth.'
+      });
+    });
+
+    app.get('/api/auth/me', requireOidcAuth, (req, res) => {
+      try {
+        const { user, memberships } = resolveOidcUserContext(req);
+        const activeMembership = resolveUserActiveTenant(user, memberships);
+        setUserLastActiveTenant(user.id, activeMembership.tenantId);
+        writeAuthAuditLog(user.id, 'session_check', {
+          ip: req.ip,
+          userAgent: req.headers['user-agent'] || null,
+          tenantId: activeMembership.tenantId
+        });
+
+        res.json({
+          success: true,
+          hostedMultiTenant: isHostedMultiTenantMode(),
+          user: {
+            id: user.id,
+            email: user.email,
+            displayName: user.displayName,
+            role: activeMembership.role
+          },
+          activeTenant: activeMembership,
+          tenants: memberships
+        });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message || 'Failed to load session' });
+      }
+    });
+
+    app.get('/api/auth/tenants', requireOidcAuth, (req, res) => {
+      try {
+        const { user, memberships } = resolveOidcUserContext(req);
+        const activeMembership = resolveUserActiveTenant(user, memberships);
+        res.json({
+          success: true,
+          activeTenantId: activeMembership.tenantId,
+          tenants: memberships
+        });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message || 'Failed to load tenants' });
+      }
+    });
+
+    app.post('/api/auth/switch-tenant', requireOidcAuth, (req, res) => {
+      try {
+        const tenantId = String(req.body?.tenantId || '').trim();
+        if (!tenantId) {
+          return res.status(400).json({ success: false, error: 'tenantId is required' });
+        }
+
+        const { user } = resolveOidcUserContext(req);
+        if (!canUserAccessTenant(user.id, tenantId)) {
+          writeAuthAuditLog(user.id, 'tenant_switch_denied', { tenantId, ip: req.ip });
+          return res.status(403).json({ success: false, error: 'Access denied for tenant' });
+        }
+
+        setUserLastActiveTenant(user.id, tenantId);
+        writeAuthAuditLog(user.id, 'tenant_switched', { tenantId, ip: req.ip });
+        return res.json({ success: true, tenantId });
+      } catch (error: any) {
+        return res.status(500).json({ success: false, error: error.message || 'Failed to switch tenant' });
+      }
+    });
+
+    app.use('/api', apiLimiter, requireOidcAuth, (req, _res, next) => {
+      try {
+        const { user, memberships } = resolveOidcUserContext(req);
+        if (memberships.length === 0) {
+          return next(new Error('Authenticated user has no tenant memberships'));
+        }
+
+        const requestedTenantId = String(req.header('x-tenant-id') || '').trim();
+        const defaultMembership = resolveUserActiveTenant(user, memberships);
+        const activeTenant = requestedTenantId
+          ? memberships.find((membership) => membership.tenantId === requestedTenantId)
+          : defaultMembership;
+
+        if (!activeTenant) {
+          writeAuthAuditLog(user.id, 'tenant_request_denied', { requestedTenantId, ip: req.ip });
+          return next(new Error('Requested tenant is not accessible for this account'));
+        }
+
+        setUserLastActiveTenant(user.id, activeTenant.tenantId);
+        enterWithTenant(activeTenant.tenantId);
+        next();
+      } catch (error) {
+        next(error);
+      }
+    });
+    log.info('🔐 OIDC authentication enabled (Auth0 session mode)');
+  } else if (config.apiSecret) {
     app.post('/api/auth/check', (req, res) => {
       const token = req.headers.authorization?.replace('Bearer ', '');
       if (token === config.apiSecret) {
@@ -52,8 +235,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
       }
     });
 
-    // Gate every other /api/* route
-    app.use('/api', (req, res, next) => {
+    app.use('/api', apiLimiter, (req, res, next) => {
       const token = req.headers.authorization?.replace('Bearer ', '');
       if (token !== config.apiSecret) {
         return res.status(401).json({
@@ -61,12 +243,21 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
           error: 'Unauthorized — invalid or missing API token'
         });
       }
+      enterWithTenant(DEFAULT_TENANT_ID);
+      return next();
+    });
+    log.info('🔒 Legacy API authentication enabled (API_SECRET mode)');
+  } else {
+    if (config.requireApiSecret) {
+      const message = 'AUTH_MODE=legacy requires API_SECRET when REQUIRE_API_SECRET=true';
+      log.error(message);
+      throw new Error(message);
+    }
+    log.warn('⚠️  WARNING: API authentication is open in legacy mode.');
+    app.use('/api', apiLimiter, (_req, _res, next) => {
+      enterWithTenant(DEFAULT_TENANT_ID);
       next();
     });
-    log.info('🔒 API authentication enabled (API_SECRET is set)');
-  } else {
-    log.warn('⚠️  WARNING: API_SECRET not set! Your bot API is open to anyone who can reach this server.');
-    log.warn('   Add API_SECRET=your-secret-here to your .env file to secure it.');
   }
 
   // API routes

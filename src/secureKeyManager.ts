@@ -1,9 +1,11 @@
 import * as ethers from 'ethers';
-import { promises as fs } from 'fs';
+import { promises as fs, existsSync, readFileSync } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { config } from './config.js';
 import { createComponentLogger } from './logger.js';
+import { getTenantId, getTenantIdOrDefault } from './tenantContext.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
 
 const log = createComponentLogger('SecureKeyManager');
 
@@ -18,13 +20,86 @@ export interface BuilderCredentials {
 }
 const decryptedBuilderCreds = new Map<string, BuilderCredentials>();
 
-let isUnlocked = false;
+const unlockedTenants = new Set<string>();
+const HOSTED_WALLET_KEY_CONTEXT = 'hosted-wallet-keystore';
 
 /**
  * Get the keystores directory path (dynamic for tests).
  */
 function keystoresDir(): string {
-  return path.join(config.dataDir, 'keystores');
+  return path.join(config.dataDir, 'keystores', getScopedTenantId());
+}
+
+function getScopedTenantId(): string {
+  const tenantId = getTenantIdOrDefault();
+  if (!/^[A-Za-z0-9_-]+$/.test(tenantId)) {
+    throw new Error(`Invalid tenant id: ${tenantId}`);
+  }
+  return tenantId;
+}
+
+function getScopedWalletKey(walletId: string): string {
+  return `${getScopedTenantId()}:${walletId}`;
+}
+
+function getHostedWalletSecret(): string {
+  if (!config.authSessionSecret) {
+    throw new Error('AUTH_SESSION_SECRET is required to load hosted trading wallets');
+  }
+
+  return crypto
+    .createHmac('sha256', config.authSessionSecret)
+    .update(`${HOSTED_WALLET_KEY_CONTEXT}:${getScopedTenantId()}`)
+    .digest('hex');
+}
+
+function resolveWalletEncryptionPassword(masterPassword?: string): string {
+  if (isHostedMultiTenantMode()) {
+    return getHostedWalletSecret();
+  }
+
+  if (!masterPassword) {
+    throw new Error('Master password is required');
+  }
+
+  return masterPassword;
+}
+
+function loadHostedWalletIntoMemory(walletId: string): void {
+  if (!isHostedMultiTenantMode()) {
+    return;
+  }
+
+  const scopedWalletKey = getScopedWalletKey(walletId);
+  if (decryptedWallets.has(scopedWalletKey)) {
+    return;
+  }
+
+  const filePath = path.join(keystoresDir(), `${walletId}.keystore.json`);
+  if (!existsSync(filePath)) {
+    return;
+  }
+
+  try {
+    const encryptedData = readFileSync(filePath, 'utf-8');
+    const privateKey = decryptPrivateKey(encryptedData, resolveWalletEncryptionPassword());
+    const wallet = new ethers.Wallet(privateKey);
+    decryptedWallets.set(scopedWalletKey, wallet);
+
+    const builderPath = path.join(keystoresDir(), `${walletId}.builder.json`);
+    if (existsSync(builderPath)) {
+      const builderData = readFileSync(builderPath, 'utf-8');
+      const credsJson = decryptPrivateKey(builderData, resolveWalletEncryptionPassword());
+      const creds: BuilderCredentials = JSON.parse(credsJson);
+      decryptedBuilderCreds.set(scopedWalletKey, creds);
+    }
+
+    unlockedTenants.add(getScopedTenantId());
+  } catch (error: any) {
+    throw new Error(
+      `Failed to load trading wallet "${walletId}" from hosted storage. Re-add it in the dashboard. ${error?.message || ''}`.trim()
+    );
+  }
 }
 
 /**
@@ -83,7 +158,7 @@ function decryptPrivateKey(encryptedData: string, password: string): string {
 export async function addEncryptedWallet(
   walletId: string,
   privateKey: string,
-  masterPassword: string,
+  masterPassword?: string,
   builderCreds?: BuilderCredentials
 ): Promise<string> {
   await ensureKeystoresDir();
@@ -106,16 +181,16 @@ export async function addEncryptedWallet(
     if (err.code !== 'ENOENT') throw err;
   }
 
-  const encrypted = encryptPrivateKey(privateKey, masterPassword);
+  const encrypted = encryptPrivateKey(privateKey, resolveWalletEncryptionPassword(masterPassword));
   await fs.writeFile(filePath, encrypted, 'utf-8');
 
   // Store decrypted wallet in memory
-  decryptedWallets.set(walletId, wallet);
+  decryptedWallets.set(getScopedWalletKey(walletId), wallet);
 
   // Store Builder API credentials if provided
   if (builderCreds && builderCreds.apiKey && builderCreds.apiSecret && builderCreds.apiPassphrase) {
     await saveBuilderCredentials(walletId, builderCreds, masterPassword);
-    decryptedBuilderCreds.set(walletId, builderCreds);
+    decryptedBuilderCreds.set(getScopedWalletKey(walletId), builderCreds);
   }
 
   return wallet.address;
@@ -127,11 +202,11 @@ export async function addEncryptedWallet(
 async function saveBuilderCredentials(
   walletId: string,
   creds: BuilderCredentials,
-  masterPassword: string
+  masterPassword?: string
 ): Promise<void> {
   await ensureKeystoresDir();
   const credsJson = JSON.stringify(creds);
-  const encrypted = encryptPrivateKey(credsJson, masterPassword);
+  const encrypted = encryptPrivateKey(credsJson, resolveWalletEncryptionPassword(masterPassword));
   const filePath = path.join(keystoresDir(), `${walletId}.builder.json`);
   await fs.writeFile(filePath, encrypted, 'utf-8');
 }
@@ -142,17 +217,18 @@ async function saveBuilderCredentials(
 export async function updateBuilderCredentials(
   walletId: string,
   creds: BuilderCredentials,
-  masterPassword: string
+  masterPassword?: string
 ): Promise<void> {
   await saveBuilderCredentials(walletId, creds, masterPassword);
-  decryptedBuilderCreds.set(walletId, creds);
+  decryptedBuilderCreds.set(getScopedWalletKey(walletId), creds);
 }
 
 /**
  * Get decrypted Builder API credentials for a wallet (must be unlocked).
  */
 export function getBuilderCredentials(walletId: string): BuilderCredentials | undefined {
-  return decryptedBuilderCreds.get(walletId);
+  loadHostedWalletIntoMemory(walletId);
+  return decryptedBuilderCreds.get(getScopedWalletKey(walletId));
 }
 
 /**
@@ -179,7 +255,7 @@ export async function removeEncryptedWallet(walletId: string): Promise<void> {
     if (err.code === 'ENOENT') throw new Error(`Wallet "${walletId}" not found`);
     throw err;
   }
-  decryptedWallets.delete(walletId);
+  decryptedWallets.delete(getScopedWalletKey(walletId));
 
   // Also remove Builder credentials file if it exists
   const builderPath = path.join(keystoresDir(), `${walletId}.builder.json`);
@@ -188,14 +264,14 @@ export async function removeEncryptedWallet(walletId: string): Promise<void> {
   } catch {
     // Ignore — file may not exist
   }
-  decryptedBuilderCreds.delete(walletId);
+  decryptedBuilderCreds.delete(getScopedWalletKey(walletId));
 }
 
 /**
  * Unlock all stored wallets using the master password.
  * Decrypts all keystore files and Builder credential files, holds them in memory.
  */
-export async function unlockAllWallets(masterPassword: string): Promise<string[]> {
+export async function unlockAllWallets(masterPassword?: string): Promise<string[]> {
   await ensureKeystoresDir();
 
   const files = await fs.readdir(keystoresDir());
@@ -209,9 +285,9 @@ export async function unlockAllWallets(masterPassword: string): Promise<string[]
     const encryptedData = await fs.readFile(filePath, 'utf-8');
 
     try {
-      const privateKey = decryptPrivateKey(encryptedData, masterPassword);
+      const privateKey = decryptPrivateKey(encryptedData, resolveWalletEncryptionPassword(masterPassword));
       const wallet = new ethers.Wallet(privateKey);
-      decryptedWallets.set(walletId, wallet);
+      decryptedWallets.set(getScopedWalletKey(walletId), wallet);
       walletIds.push(walletId);
     } catch {
       log.error(`[SecureKeys] Failed to decrypt wallet "${walletId}" — wrong password or corrupted file`);
@@ -222,9 +298,9 @@ export async function unlockAllWallets(masterPassword: string): Promise<string[]
     const builderPath = path.join(keystoresDir(), `${walletId}.builder.json`);
     try {
       const builderData = await fs.readFile(builderPath, 'utf-8');
-      const credsJson = decryptPrivateKey(builderData, masterPassword);
+      const credsJson = decryptPrivateKey(builderData, resolveWalletEncryptionPassword(masterPassword));
       const creds: BuilderCredentials = JSON.parse(credsJson);
-      decryptedBuilderCreds.set(walletId, creds);
+      decryptedBuilderCreds.set(getScopedWalletKey(walletId), creds);
       log.info(`[SecureKeys] Loaded Builder credentials for wallet "${walletId}"`);
     } catch (err: any) {
       if (err.code !== 'ENOENT') {
@@ -234,7 +310,7 @@ export async function unlockAllWallets(masterPassword: string): Promise<string[]
     }
   }
 
-  isUnlocked = true;
+  unlockedTenants.add(getScopedTenantId());
   log.info(`[SecureKeys] Unlocked ${walletIds.length} wallet(s)`);
   return walletIds;
 }
@@ -244,7 +320,8 @@ export async function unlockAllWallets(masterPassword: string): Promise<string[]
  * Must call unlockAllWallets first.
  */
 export function getSigner(walletId: string): ethers.Wallet {
-  const wallet = decryptedWallets.get(walletId);
+  loadHostedWalletIntoMemory(walletId);
+  const wallet = decryptedWallets.get(getScopedWalletKey(walletId));
   if (!wallet) {
     throw new Error(`Wallet "${walletId}" not found or not unlocked`);
   }
@@ -262,14 +339,20 @@ export function getWalletAddress(walletId: string): string {
  * Check if wallets are unlocked.
  */
 export function isWalletUnlocked(): boolean {
-  return isUnlocked;
+  if (isHostedMultiTenantMode()) {
+    return true;
+  }
+  return unlockedTenants.has(getScopedTenantId());
 }
 
 /**
  * Get all unlocked wallet IDs.
  */
 export function getUnlockedWalletIds(): string[] {
-  return Array.from(decryptedWallets.keys());
+  const prefix = `${getScopedTenantId()}:`;
+  return Array.from(decryptedWallets.keys())
+    .filter((key) => key.startsWith(prefix))
+    .map((key) => key.slice(prefix.length));
 }
 
 /**
@@ -287,9 +370,27 @@ export async function listStoredWalletIds(): Promise<string[]> {
  * Lock all wallets (clear all decrypted data from memory).
  */
 export function lockAllWallets(): void {
-  decryptedWallets.clear();
-  decryptedBuilderCreds.clear();
-  isUnlocked = false;
+  const explicitTenantId = getTenantId();
+  if (!explicitTenantId) {
+    decryptedWallets.clear();
+    decryptedBuilderCreds.clear();
+    unlockedTenants.clear();
+    return;
+  }
+
+  const tenantId = explicitTenantId;
+  const prefix = `${tenantId}:`;
+  for (const key of decryptedWallets.keys()) {
+    if (key.startsWith(prefix)) {
+      decryptedWallets.delete(key);
+    }
+  }
+  for (const key of decryptedBuilderCreds.keys()) {
+    if (key.startsWith(prefix)) {
+      decryptedBuilderCreds.delete(key);
+    }
+  }
+  unlockedTenants.delete(tenantId);
 }
 
 /**
@@ -297,6 +398,11 @@ export function lockAllWallets(): void {
  * This is a one-time migration for users upgrading from single-wallet.
  */
 export async function migrateEnvPrivateKey(masterPassword: string): Promise<string | null> {
+  if (isHostedMultiTenantMode()) {
+    log.info('[SecureKeys] Skipping .env PRIVATE_KEY migration in hosted multi-tenant mode');
+    return null;
+  }
+
   const envKey = config.privateKey;
   if (!envKey) return null;
 

@@ -4,16 +4,19 @@ import { mkdtempSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { config } from '../src/config.js';
+import { runWithTenant } from '../src/tenantContext.js';
 import {
   addEncryptedWallet,
   removeEncryptedWallet,
   unlockAllWallets,
   getSigner,
   getWalletAddress,
+  getBuilderCredentials,
   isWalletUnlocked,
   getUnlockedWalletIds,
   listStoredWalletIds,
   lockAllWallets,
+  migrateEnvPrivateKey,
 } from '../src/secureKeyManager.js';
 
 // Test private key (DO NOT use in production — this is a well-known test key)
@@ -23,14 +26,29 @@ const TEST_ADDRESS = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 let tempDir: string;
 
 describe('SecureKeyManager', () => {
+  let savedAuthMode: string;
+  let savedStorage: string;
+  let savedPrivateKey: string | undefined;
+  let savedAuthSessionSecret: string;
+
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'keys-test-'));
     (config as any).dataDir = tempDir;
+    savedAuthMode = config.authMode;
+    savedStorage = config.storageBackend;
+    savedPrivateKey = config.privateKey;
+    savedAuthSessionSecret = config.authSessionSecret;
+    (config as any).authMode = 'legacy';
+    (config as any).storageBackend = 'json';
     lockAllWallets();
   });
 
   afterEach(() => {
     lockAllWallets();
+    (config as any).authMode = savedAuthMode;
+    (config as any).storageBackend = savedStorage;
+    (config as any).privateKey = savedPrivateKey;
+    (config as any).authSessionSecret = savedAuthSessionSecret;
     if (existsSync(tempDir)) {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -133,5 +151,67 @@ describe('SecureKeyManager', () => {
     const ids = await listStoredWalletIds();
     assert.ok(ids.includes('a'));
     assert.equal(isWalletUnlocked(), false);
+  });
+
+  it('isolates keystore files by tenant context', async () => {
+    await runWithTenant('tenant-a', () => addEncryptedWallet('main', TEST_PRIVATE_KEY, 'pw'));
+    await runWithTenant('tenant-b', () => addEncryptedWallet('main', TEST_PRIVATE_KEY, 'pw'));
+
+    const tenantAIds = await runWithTenant('tenant-a', () => listStoredWalletIds());
+    const tenantBIds = await runWithTenant('tenant-b', () => listStoredWalletIds());
+
+    assert.deepEqual(tenantAIds, ['main']);
+    assert.deepEqual(tenantBIds, ['main']);
+  });
+
+  it('migrateEnvPrivateKey does nothing in hosted multi-tenant mode', async () => {
+    (config as any).authMode = 'oidc';
+    (config as any).storageBackend = 'sqlite';
+    (config as any).privateKey = TEST_PRIVATE_KEY;
+
+    const migrated = await migrateEnvPrivateKey('secret');
+    assert.equal(migrated, null);
+
+    const ids = await listStoredWalletIds();
+    assert.deepEqual(ids, []);
+  });
+
+  it('migrateEnvPrivateKey imports .env private key as main in legacy mode', async () => {
+    (config as any).authMode = 'legacy';
+    (config as any).storageBackend = 'json';
+    (config as any).privateKey = TEST_PRIVATE_KEY;
+
+    const addr = await migrateEnvPrivateKey('secret');
+    assert.equal(addr, TEST_ADDRESS);
+
+    const ids = await listStoredWalletIds();
+    assert.ok(ids.includes('main'));
+  });
+
+  it('hosted multitenant wallets auto-load from disk without a master password', async () => {
+    (config as any).authMode = 'oidc';
+    (config as any).storageBackend = 'sqlite';
+    (config as any).authSessionSecret = 'hosted-session-secret';
+
+    await runWithTenant('tenant-a', async () => {
+      await addEncryptedWallet('main', TEST_PRIVATE_KEY, undefined, {
+        apiKey: 'builder-key',
+        apiSecret: 'builder-secret',
+        apiPassphrase: 'builder-passphrase',
+      });
+
+      lockAllWallets();
+
+      const signer = getSigner('main');
+      const builderCreds = getBuilderCredentials('main');
+
+      assert.equal(signer.address, TEST_ADDRESS);
+      assert.deepEqual(builderCreds, {
+        apiKey: 'builder-key',
+        apiSecret: 'builder-secret',
+        apiPassphrase: 'builder-passphrase',
+      });
+      assert.equal(isWalletUnlocked(), true);
+    });
   });
 });

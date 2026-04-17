@@ -1,6 +1,5 @@
 import { Storage } from './storage.js';
 import { PolymarketApi } from './polymarketApi.js';
-import { domeGetPositions, isDomeConfigured } from './domeClient.js';
 import { getAdapter, getConfiguredAdapters } from './platform/platformRegistry.js';
 import type { NormalizedPosition } from './platform/types.js';
 import { createComponentLogger } from './logger.js';
@@ -400,27 +399,6 @@ export class EntityManager {
    * Get positions for a wallet address.
    */
   private async getWalletPositions(walletAddress: string): Promise<WalletPosition[]> {
-    // Try Dome first, fall back to Polymarket API
-    if (isDomeConfigured()) {
-      try {
-        const domePositions = await domeGetPositions(walletAddress);
-        return domePositions.map((p: any) => ({
-          platform: 'polymarket' as const,
-          walletAddress,
-          tokenId: p.token_id || p.asset || '',
-          conditionId: p.condition_id || p.conditionId || '',
-          outcome: p.outcome || 'Unknown',
-          marketTitle: p.title || p.market_title || 'Unknown',
-          size: parseFloat(p.size || '0'),
-          avgPrice: parseFloat(p.avg_price || p.avgPrice || '0'),
-          currentPrice: parseFloat(p.cur_price || p.curPrice || '0'),
-          side: (p.outcome || '').toUpperCase().includes('NO') ? 'NO' as const : 'YES' as const,
-        }));
-      } catch {
-        // Fall through to Polymarket API
-      }
-    }
-
     const positions = await this.api.getUserPositions(walletAddress);
     return positions.map((p: any) => ({
       platform: 'polymarket' as const,
@@ -455,7 +433,7 @@ export class EntityManager {
   /**
    * Detect hedging across platforms for all entities.
    * Finds entities that have positions on both Polymarket and Kalshi for the same event.
-   * Uses Dome's matching markets API when available.
+   * Uses the matched-markets cache maintained elsewhere.
    */
   async detectCrossPlatformHedges(): Promise<CrossPlatformHedge[]> {
     const results: CrossPlatformHedge[] = [];

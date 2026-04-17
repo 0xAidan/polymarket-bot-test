@@ -147,3 +147,17 @@ export async function kalshiGetPositions(): Promise<any[]> {
   }
 }
 
+/**
+ * Get a Kalshi market snapshot for price discovery.
+ */
+export async function kalshiGetMarket(ticker: string): Promise<any | null> {
+  try {
+    const { marketsApi: api } = await ensureInit();
+    const result = await api.getMarket(ticker);
+    return result?.data?.market || result?.market || result?.data || result || null;
+  } catch (err: any) {
+    log.error({ detail: err.message }, `[KalshiClient] Failed to get market ${ticker}`);
+    return null;
+  }
+}
+

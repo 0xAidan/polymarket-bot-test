@@ -1,0 +1,161 @@
+/* ==========================================================================
+   Jungle Agents — shared brand tokens
+   Fonts: IBM Plex Mono (body), Instrument Serif (display headings)
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap');
+
+/* ---------- Brand Tokens ---------- */
+:root {
+  --jungle-gold: #E5B80B;
+  --jungle-gold-light: #FFD700;
+  --jungle-gold-dim: #B8940A;
+  --jungle-bg: #161721;
+  --jungle-bg-card: #1C1D2E;
+  --jungle-bg-elevated: #22233A;
+  --jungle-bg-surface: #282940;
+  --jungle-border: rgba(229, 184, 11, 0.15);
+  --jungle-border-strong: rgba(229, 184, 11, 0.35);
+  --jungle-text: #F5F5F5;
+  --jungle-text-muted: #8A8B9E;
+  --jungle-text-dim: #5C5D70;
+  --jungle-win: #00D4AA;
+  --jungle-loss: #FF6B6B;
+  --jungle-neutral: #9B59B6;
+
+  /* Fonts */
+  --font-mono: 'IBM Plex Mono', monospace;
+  --font-serif: 'Instrument Serif', serif;
+
+  /* Spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+}
+
+/* ---------- Reset & Base ---------- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--jungle-bg);
+  color: var(--jungle-text);
+  font-family: var(--font-mono);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- Utility Classes ---------- */
+.font-serif { font-family: var(--font-serif); }
+.font-mono  { font-family: var(--font-mono); }
+
+.text-gold  { color: var(--jungle-gold); }
+.text-muted { color: var(--jungle-text-muted); }
+.text-dim   { color: var(--jungle-text-dim); }
+.text-win   { color: var(--jungle-win); }
+.text-loss  { color: var(--jungle-loss); }
+
+.bg-card     { background: var(--jungle-bg-card); }
+.bg-elevated { background: var(--jungle-bg-elevated); }
+.bg-surface  { background: var(--jungle-bg-surface); }
+
+.border-gold       { border: 1px solid var(--jungle-border); }
+.border-gold-strong { border: 1px solid var(--jungle-border-strong); }
+
+/* Gold gradient text */
+.text-gradient {
+  background: linear-gradient(135deg, #E5B80B 0%, #FFD700 50%, #E5B80B 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Subtle noise overlay */
+.noise-overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.03;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Grid pattern background */
+.grid-pattern {
+  background-image:
+    linear-gradient(rgba(229, 184, 11, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(229, 184, 11, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Glow effects */
+.glow-gold {
+  box-shadow: 0 0 20px rgba(229, 184, 11, 0.15), 0 0 40px rgba(229, 184, 11, 0.05);
+}
+
+.glow-border {
+  border: 1px solid rgba(229, 184, 11, 0.25);
+  box-shadow:
+    inset 0 1px 0 rgba(229, 184, 11, 0.1),
+    0 0 15px rgba(229, 184, 11, 0.08);
+}
+
+/* Animated pulse for live indicators */
+@keyframes pulse-live {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.5; transform: scale(1.3); }
+}
+
+.pulse-dot {
+  animation: pulse-live 2s ease-in-out infinite;
+}
+
+/* Perforated edge for betting slip effect */
+.perforation-top {
+  background-image: radial-gradient(circle, var(--jungle-bg) 5px, transparent 5px);
+  background-size: 18px 18px;
+  background-position: -9px 0;
+  height: 10px;
+  width: 100%;
+}
+
+.perforation-bottom {
+  background-image: radial-gradient(circle, var(--jungle-bg) 5px, transparent 5px);
+  background-size: 18px 18px;
+  background-position: -9px -8px;
+  height: 10px;
+  width: 100%;
+}
+
+/* Scanline effect (subtle CRT retro feel) */
+.scanlines::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.02) 2px,
+    rgba(0, 0, 0, 0.02) 4px
+  );
+  pointer-events: none;
+}
+
+/* Confidence bar */
+.confidence-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.confidence-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.6s ease;
+}
+

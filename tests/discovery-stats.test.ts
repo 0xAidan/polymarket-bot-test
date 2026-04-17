@@ -385,6 +385,9 @@ test('cleanupOldSignals clears wallet signal markers when old signals are remove
 test('createServer initializes the database before discovery startup', async () => {
   closeDatabase();
 
+  const configMod = await import('../src/config.js');
+  (configMod.config as any).authMode = 'legacy';
+
   const { createServer, getDiscoveryManager } = await import('../src/server.js');
   await createServer({
     getPerformanceTracker: () => ({}),
@@ -396,6 +399,9 @@ test('createServer initializes the database before discovery startup', async () 
 
 test('createServer keeps discovery runtime passive inside the main app process', async () => {
   closeDatabase();
+
+  const configMod = await import('../src/config.js');
+  (configMod.config as any).authMode = 'legacy';
 
   const { createServer, getDiscoveryManager } = await import('../src/server.js');
   await createServer({
