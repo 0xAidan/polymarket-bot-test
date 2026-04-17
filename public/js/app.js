@@ -244,6 +244,11 @@ function refreshCurrentTab() {
         loadDiscoveryOverview();
         loadDiscoverySignals();
         loadUnusualMarkets();
+        loadDiscoveryWatchlist();
+        loadDiscoveryAlertsCenter();
+        loadDiscoveryAllocationStates();
+        loadDiscoveryAllocationTransitions();
+        loadDiscoveryDittoExecutionPanel();
       }
       break;
   }
@@ -2926,6 +2931,46 @@ const shortAddress = (address) => {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 };
 
+const DISCOVERY_ALIAS_ADJECTIVES = [
+  'Silver', 'Blue', 'Quiet', 'Sharp', 'Swift', 'Amber', 'Crimson', 'Clever', 'Steady', 'Bright', 'Iron', 'Nimbus',
+];
+
+const DISCOVERY_ALIAS_ANIMALS = [
+  'Otter', 'Falcon', 'Panther', 'Fox', 'Eagle', 'Wolf', 'Hawk', 'Bear', 'Lynx', 'Raven', 'Tiger', 'Puma',
+];
+
+const hashStringToPositiveInt = (value) => {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = ((hash << 5) - hash) + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+};
+
+const buildWalletAlias = (address) => {
+  const normalized = String(address || '').toLowerCase();
+  if (!normalized) return 'Unknown Wallet';
+  const adjective = DISCOVERY_ALIAS_ADJECTIVES[hashStringToPositiveInt(normalized) % DISCOVERY_ALIAS_ADJECTIVES.length];
+  const animal = DISCOVERY_ALIAS_ANIMALS[hashStringToPositiveInt(normalized.split('').reverse().join('')) % DISCOVERY_ALIAS_ANIMALS.length];
+  return `${adjective} ${animal}`;
+};
+
+const getDiscoveryIdentityLabel = (walletOrAddress) => {
+  if (!walletOrAddress) return 'Unknown Wallet';
+  if (typeof walletOrAddress === 'string') return buildWalletAlias(walletOrAddress);
+  const wallet = walletOrAddress;
+  return wallet.displayName || wallet.pseudonym || buildWalletAlias(wallet.address);
+};
+
+const getDiscoverySupportingReasons = (wallet) => Array.isArray(wallet?.supportingReasons)
+  ? wallet.supportingReasons.map((value) => String(value || '').trim()).filter(Boolean).slice(0, 3)
+  : [];
+
+const getDiscoveryCautionFlags = (wallet) => Array.isArray(wallet?.cautionFlags)
+  ? wallet.cautionFlags.map((value) => String(value || '').trim()).filter(Boolean).slice(0, 1)
+  : [];
+
 const heatBadge = (heat) => {
   const map = { HOT: 'HOT', WARMING: 'WARM', STEADY: 'STEADY', COOLING: 'COOL', COLD: 'COLD', NEW: 'NEW' };
   return '<span class="heat-badge heat-' + (heat || 'new').toLowerCase() + '">' + (map[heat] || heat || 'NEW') + '</span>';
@@ -3048,8 +3093,8 @@ const filterWalletsBySearch = (wallets) => {
 const addWalletToDiscoveryCompare = (address) => {
   const normalized = String(address || '').trim().toLowerCase();
   if (!normalized) return;
-  if (discoveryCompareSelection.size >= 6 && !discoveryCompareSelection.has(normalized)) {
-    win95Dialog.alert('Compare limit', 'You can compare up to 6 wallets at once.');
+  if (discoveryCompareSelection.size >= 4 && !discoveryCompareSelection.has(normalized)) {
+    win95Dialog.alert('Compare limit', 'You can compare up to 4 wallets at once.');
     return;
   }
   discoveryCompareSelection.add(normalized);
@@ -3080,7 +3125,7 @@ const renderDiscoveryCompareChips = () => {
   }
   chipsEl.innerHTML = addresses.map((address) => `
     <span class="discovery-chip">
-      ${escapeHtml(shortAddress(address))}
+      ${escapeHtml(getDiscoveryIdentityLabel(address))}
       <button class="win-btn win-btn-sm" style="min-width:auto;padding:0 4px;" onclick="event.stopPropagation();removeWalletFromDiscoveryCompare('${escapeJsString(address)}')" aria-label="Remove compare wallet">x</button>
     </span>
   `).join('');
@@ -3111,9 +3156,10 @@ const runDiscoveryCompare = async () => {
     tbody.innerHTML = profiles.map((entry) => {
       const wallet = entry.profile?.wallet || {};
       const allocation = entry.profile?.allocation || {};
+      const identityLabel = getDiscoveryIdentityLabel(entry.address || wallet.address || '');
       return `
         <tr>
-          <td class="text-mono">${escapeHtml(shortAddress(entry.address || wallet.address || ''))}</td>
+          <td>${escapeHtml(identityLabel)}<div class="text-xs text-muted text-mono">${escapeHtml(shortAddress(entry.address || wallet.address || ''))}</div></td>
           <td>${Math.round(normalizeDiscoveryScore(wallet))}</td>
           <td>${Math.round(normalizeTrustScore(wallet))}</td>
           <td>${Math.round(normalizeCopyabilityScore(wallet))}</td>
@@ -3169,7 +3215,7 @@ const loadDiscoveryWatchlist = async () => {
     }
     tbody.innerHTML = rows.map((row) => `
       <tr>
-        <td class="text-mono">${escapeHtml(shortAddress(row.address))}</td>
+        <td>${escapeHtml(getDiscoveryIdentityLabel(row.address))}<div class="text-xs text-muted text-mono">${escapeHtml(shortAddress(row.address))}</div></td>
         <td>${Number(row.discoveryScore || 0).toFixed(0)}</td>
         <td>${escapeHtml(row.allocationState || 'N/A')} ${row.allocationWeight != null ? `(${Number(row.allocationWeight).toFixed(2)}x)` : ''}</td>
         <td>
@@ -3202,7 +3248,10 @@ const loadDiscoveryAlertsCenter = async () => {
         <span class="signal-type-badge">${escapeHtml((alert.signalType || '').replace(/_/g, ' '))}</span>
         <strong>${escapeHtml(alert.title || '')}</strong>
         <div class="text-xs text-muted">${escapeHtml(alert.description || '')}</div>
-        <div class="text-xs text-muted">${escapeHtml(shortAddress(alert.address || ''))}</div>
+        <div class="text-xs text-muted">${escapeHtml(getDiscoveryIdentityLabel(alert.address || ''))} • ${escapeHtml(shortAddress(alert.address || ''))}</div>
+        <div class="mt-8">
+          <button class="win-btn win-btn-sm" onclick="dismissDiscoveryAlert(${Number(alert.id || 0)})">Dismiss</button>
+        </div>
       </div>
     `).join('');
   } catch (err) {
@@ -3224,12 +3273,81 @@ const loadDiscoveryAllocationStates = async () => {
     }
     listEl.innerHTML = states.map((state) => `
       <div class="discovery-allocation-row">
-        <div class="text-sm text-mono">${escapeHtml(shortAddress(state.address || ''))}</div>
+        <div class="text-sm">${escapeHtml(getDiscoveryIdentityLabel(state.address || ''))}</div>
+        <div class="text-xs text-muted text-mono">${escapeHtml(shortAddress(state.address || ''))}</div>
         <div class="text-xs text-muted">${escapeHtml(state.state || 'NEW')} • weight ${Number(state.targetWeight || 0).toFixed(2)}x • action ${escapeHtml(state.action || 'monitor')}</div>
       </div>
     `).join('');
   } catch (err) {
     listEl.innerHTML = `<div class="text-center text-danger text-sm">${escapeHtml(err.message || 'Allocation state load failed')}</div>`;
+  }
+};
+
+const dismissDiscoveryAlert = async (id) => {
+  if (!id) return;
+  try {
+    await fetch(`/api/discovery/alerts/${encodeURIComponent(String(id))}/dismiss`, { method: 'POST' });
+    await loadDiscoveryAlertsCenter();
+  } catch {
+    /* best-effort */
+  }
+};
+
+const loadDiscoveryAllocationTransitions = async () => {
+  const listEl = document.getElementById('discoveryAllocationTransitionsBody');
+  if (!listEl) return;
+  try {
+    const resp = await fetch('/api/discovery/allocation/transitions?limit=20&offset=0');
+    const data = await resp.json();
+    if (!data.success) throw new Error(data.error || 'Allocation transitions unavailable');
+    const transitions = data.transitions || [];
+    if (transitions.length === 0) {
+      listEl.innerHTML = '<div class="text-center text-muted text-sm">No transitions recorded yet.</div>';
+      return;
+    }
+    listEl.innerHTML = transitions.map((transition) => `
+      <div class="discovery-allocation-row">
+        <div class="text-sm">${escapeHtml(getDiscoveryIdentityLabel(transition.address || ''))}</div>
+        <div class="text-xs text-muted text-mono">${escapeHtml(shortAddress(transition.address || ''))}</div>
+        <div class="text-xs text-muted">${escapeHtml(transition.fromState || 'NEW')} -> ${escapeHtml(transition.toState || 'NEW')} • ${escapeHtml(transition.reason || 'state update')}</div>
+      </div>
+    `).join('');
+  } catch (err) {
+    listEl.innerHTML = `<div class="text-center text-danger text-sm">${escapeHtml(err.message || 'Allocation transition load failed')}</div>`;
+  }
+};
+
+const loadDiscoveryDittoExecutionPanel = async () => {
+  const listEl = document.getElementById('discoveryDittoExecutionBody');
+  if (!listEl) return;
+  try {
+    const [assignmentsResp, tradesResp] = await Promise.all([
+      API.get('/copy-assignments'),
+      API.get('/trades?limit=20'),
+    ]);
+    const assignments = assignmentsResp.assignments || [];
+    const allTrades = tradesResp.trades || [];
+    const recentDiscoveryTrades = allTrades.filter((trade) => String(trade.source || '').toLowerCase() === 'discovery').slice(0, 8);
+    const successful = recentDiscoveryTrades.filter((trade) => String(trade.status || '').toLowerCase() === 'executed').length;
+    const failed = recentDiscoveryTrades.filter((trade) => String(trade.status || '').toLowerCase() === 'failed').length;
+    const summary = `
+      <div class="discovery-allocation-row">
+        <div class="text-sm">Active copy assignments: <strong>${assignments.length}</strong></div>
+        <div class="text-xs text-muted">Recent discovery executions: ${successful} success • ${failed} failed</div>
+      </div>
+    `;
+    const detailRows = recentDiscoveryTrades.length === 0
+      ? '<div class="text-center text-muted text-sm">No recent discovery-linked executions yet.</div>'
+      : recentDiscoveryTrades.map((trade) => `
+        <div class="discovery-allocation-row">
+          <div class="text-sm">${escapeHtml(getDiscoveryIdentityLabel(trade.trackedWallet || trade.trackedWalletAddress || ''))}</div>
+          <div class="text-xs text-muted text-mono">${escapeHtml(shortAddress(trade.trackedWallet || trade.trackedWalletAddress || ''))}</div>
+          <div class="text-xs text-muted">${escapeHtml(trade.status || 'unknown')} • ${escapeHtml(trade.reason || trade.market || 'execution')}</div>
+        </div>
+      `).join('');
+    listEl.innerHTML = summary + detailRows;
+  } catch (err) {
+    listEl.innerHTML = `<div class="text-center text-danger text-sm">${escapeHtml(err.message || 'Ditto execution load failed')}</div>`;
   }
 };
 
@@ -3428,11 +3546,14 @@ const buildDiscoveryWalletCardHtml = (wallet) => {
   const discoveryScore = Math.round(normalizeDiscoveryScore(wallet));
   const trustScore = Math.round(normalizeTrustScore(wallet));
   const copyabilityScore = Math.round(normalizeCopyabilityScore(wallet));
-  const identityLabel = wallet.displayName || wallet.pseudonym || shortAddress(wallet.address);
+  const identityLabel = getDiscoveryIdentityLabel(wallet);
   const strategyClass = (wallet.strategyClass || 'unknown').replace(/_/g, ' ');
   const scoreStackLine = `Score ${discoveryScore} • Trust ${trustScore} • Copy ${copyabilityScore}`;
   const reasonLine = wallet.whySurfaced || wallet.primaryReason || 'Reason details are collecting.';
   const confidence = (wallet.confidence || 'low').toUpperCase();
+  const supportingReasons = getDiscoverySupportingReasons(wallet);
+  const cautionFlags = getDiscoveryCautionFlags(wallet);
+  const provisionalChip = confidence === 'LOW' ? '<span class="discovery-chip provisional">Provisional evidence</span>' : '';
   const categoryLabel = discoveryCategoryLabel(wallet.focusCategory);
   const activeClass = (wallet.address || '').toLowerCase() === (discoverySelectedWalletAddress || '').toLowerCase()
     ? ' active'
@@ -3450,11 +3571,17 @@ const buildDiscoveryWalletCardHtml = (wallet) => {
       <div class="discovery-wallet-card-body">
         <div class="text-xs" style="text-transform:capitalize;">${escapeHtml(strategyClass)} • ${escapeHtml(confidence)}</div>
         <div class="discovery-wallet-card-reason">${escapeHtml(reasonLine)}</div>
+        <div class="discovery-wallet-card-chips">
+          ${provisionalChip}
+          ${supportingReasons.map((reason) => `<span class="discovery-chip">${escapeHtml(reason)}</span>`).join('')}
+          ${cautionFlags.map((flag) => `<span class="discovery-chip caution">${escapeHtml(flag)}</span>`).join('')}
+        </div>
       </div>
       <div class="discovery-wallet-card-actions">
         <div class="discovery-wallet-scoreline">${escapeHtml(scoreStackLine)}</div>
         <div class="flex-row gap-8">
           <button class="win-btn win-btn-sm" onclick="event.stopPropagation();addWalletToDiscoveryCompare('${safeAddress}')" aria-label="Add wallet to compare">Compare</button>
+          <button class="win-btn win-btn-sm" onclick="event.stopPropagation();selectDiscoveryWallet('${safeAddress}');addSelectedDiscoveryWalletToWatchlist()" aria-label="Add wallet to watchlist">Watch</button>
           <button class="win-btn win-btn-sm" onclick="event.stopPropagation();openWalletDetail('${safeAddress}')" aria-label="Open detailed wallet modal" tabindex="0">Deep View</button>
           ${buildDiscoveryTrackButton(wallet)}
         </div>
@@ -3495,7 +3622,7 @@ const renderDiscoveryBoard = (wallets) => {
     const stack = bucket.wallets.length
       ? bucket.wallets.slice(0, 40).map((wallet) => {
         const safeAddress = (wallet.address || '').replace(/'/g, "\\'");
-        const identityLabel = wallet.displayName || wallet.pseudonym || shortAddress(wallet.address);
+        const identityLabel = getDiscoveryIdentityLabel(wallet);
         const discoveryScore = Math.round(normalizeDiscoveryScore(wallet));
         const activeClass = (wallet.address || '').toLowerCase() === (discoverySelectedWalletAddress || '').toLowerCase()
           ? ' active'
@@ -3523,7 +3650,7 @@ const renderDiscoveryTable = (wallets) => {
   if (!tbody) return;
   tbody.innerHTML = wallets.map((wallet) => {
     const safeAddress = (wallet.address || '').replace(/'/g, "\\'");
-    const identityLabel = wallet.displayName || wallet.pseudonym || shortAddress(wallet.address);
+    const identityLabel = getDiscoveryIdentityLabel(wallet);
     const discoveryScore = Math.round(normalizeDiscoveryScore(wallet));
     const trustScore = Math.round(normalizeTrustScore(wallet));
     const copyabilityScore = Math.round(normalizeCopyabilityScore(wallet));
@@ -3538,7 +3665,13 @@ const renderDiscoveryTable = (wallets) => {
         <td>${copyabilityScore}</td>
         <td>${heatBadge(wallet.heatIndicator)}</td>
         <td>$${Number(wallet.volume7d || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</td>
-        <td>${buildDiscoveryTrackButton(wallet)}</td>
+        <td>
+          <div class="flex-row gap-8">
+            <button class="win-btn win-btn-sm" onclick="event.stopPropagation();openWalletDetail('${safeAddress}')">View</button>
+            <button class="win-btn win-btn-sm" onclick="event.stopPropagation();selectDiscoveryWallet('${safeAddress}');addSelectedDiscoveryWalletToWatchlist()">Watch</button>
+            ${buildDiscoveryTrackButton(wallet)}
+          </div>
+        </td>
       </tr>
     `;
   }).join('');
@@ -3669,13 +3802,15 @@ const renderDiscoveryInspector = async () => {
     return;
   }
 
-  const identityLabel = wallet.displayName || wallet.pseudonym || shortAddress(wallet.address);
+  const identityLabel = getDiscoveryIdentityLabel(wallet);
   const strategyClass = (wallet.strategyClass || 'unknown').replace(/_/g, ' ');
   const discoveryScore = Math.round(normalizeDiscoveryScore(wallet));
   const trustScore = Math.round(normalizeTrustScore(wallet));
   const copyabilityScore = Math.round(normalizeCopyabilityScore(wallet));
   const confidence = (wallet.confidence || 'low').toUpperCase();
   const reasonLine = wallet.whySurfaced || wallet.primaryReason || 'Reason details are still collecting.';
+  const supportingReasons = getDiscoverySupportingReasons(wallet);
+  const cautionFlags = getDiscoveryCautionFlags(wallet);
   const safeAddress = (wallet.address || '').replace(/'/g, "\\'");
 
   titleEl.textContent = `Inspector • ${identityLabel}`;
@@ -3694,7 +3829,13 @@ const renderDiscoveryInspector = async () => {
     </div>
     <div class="discovery-inspector-section">
       <div class="discovery-inspector-label">Why Surfaced</div>
-      <div class="discovery-inspector-value">${escapeHtml(reasonLine)}</div>
+      <div class="discovery-inspector-value">
+        <div>${escapeHtml(reasonLine)}</div>
+        <div class="discovery-wallet-card-chips">
+          ${supportingReasons.map((reason) => `<span class="discovery-chip">${escapeHtml(reason)}</span>`).join('')}
+          ${cautionFlags.map((flag) => `<span class="discovery-chip caution">${escapeHtml(flag)}</span>`).join('')}
+        </div>
+      </div>
     </div>
     <div class="discovery-inspector-section">
       <div class="discovery-inspector-label">Actions</div>
@@ -3747,7 +3888,13 @@ const renderDiscoveryInspector = async () => {
       </div>
       <div class="discovery-inspector-section">
         <div class="discovery-inspector-label">Why Surfaced</div>
-        <div class="discovery-inspector-value">${escapeHtml(reasonLine)}</div>
+        <div class="discovery-inspector-value">
+          <div>${escapeHtml(reasonLine)}</div>
+          <div class="discovery-wallet-card-chips">
+            ${supportingReasons.map((reason) => `<span class="discovery-chip">${escapeHtml(reason)}</span>`).join('')}
+            ${cautionFlags.map((flag) => `<span class="discovery-chip caution">${escapeHtml(flag)}</span>`).join('')}
+          </div>
+        </div>
       </div>
       <div class="discovery-inspector-section">
         <div class="discovery-inspector-label">${escapeHtml(sourceLabel)}</div>
@@ -3784,6 +3931,7 @@ window.runDiscoveryCompare = runDiscoveryCompare;
 window.addSelectedDiscoveryWalletToWatchlist = addSelectedDiscoveryWalletToWatchlist;
 window.removeDiscoveryWatchlist = removeDiscoveryWatchlist;
 window.loadDiscoveryAlertsCenter = loadDiscoveryAlertsCenter;
+window.dismissDiscoveryAlert = dismissDiscoveryAlert;
 
 const loadDiscoverySignals = async () => {
   try {
@@ -4212,6 +4360,16 @@ const clearDiscoveryUiState = () => {
     allocationBody.innerHTML = '<div class="text-center text-muted text-sm">Waiting for allocation evaluations...</div>';
   }
 
+  const transitionsBody = document.getElementById('discoveryAllocationTransitionsBody');
+  if (transitionsBody) {
+    transitionsBody.innerHTML = '<div class="text-center text-muted text-sm">No transitions recorded yet.</div>';
+  }
+
+  const dittoExecutionBody = document.getElementById('discoveryDittoExecutionBody');
+  if (dittoExecutionBody) {
+    dittoExecutionBody.innerHTML = '<div class="text-center text-muted text-sm">Loading Ditto execution telemetry...</div>';
+  }
+
   const methodologyBody = document.getElementById('discoveryMethodologyBody');
   if (methodologyBody) {
     methodologyBody.innerHTML = '<div class="text-sm text-muted">Loading methodology...</div>';
@@ -4230,6 +4388,8 @@ const startDiscoveryRefresh = () => {
   loadDiscoveryWatchlist();
   loadDiscoveryAlertsCenter();
   loadDiscoveryAllocationStates();
+  loadDiscoveryAllocationTransitions();
+  loadDiscoveryDittoExecutionPanel();
   loadDiscoveryMethodology();
   renderDiscoveryCompareChips();
   discoveryRefreshTimer = setInterval(() => {
@@ -4247,6 +4407,8 @@ const startDiscoveryRefresh = () => {
     loadDiscoveryWatchlist();
     loadDiscoveryAlertsCenter();
     loadDiscoveryAllocationStates();
+    loadDiscoveryAllocationTransitions();
+    loadDiscoveryDittoExecutionPanel();
   }, 10000);
 };
 

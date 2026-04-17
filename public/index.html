@@ -636,7 +636,7 @@
             <div class="discovery-v2-product-grid">
               <div class="win-group">
                 <div class="win-group-title">Compare Workbench</div>
-                <div class="text-sm text-muted mb-8">Select up to 6 wallets and compare score stack, confidence, and allocation state side-by-side.</div>
+                <div class="text-sm text-muted mb-8">Select up to 4 wallets and compare score stack, confidence, and allocation state side-by-side.</div>
                 <div id="discoveryCompareChips" class="discovery-chip-list mb-8">
                   <span class="text-sm text-muted">No wallets selected yet.</span>
                 </div>
@@ -705,6 +705,22 @@
                 <div class="text-sm text-muted mb-8">State machine output that controls whether Ditto mirrors, upsizes, de-risks, or pauses.</div>
                 <div id="discoveryAllocationStatesBody" class="discovery-allocation-list">
                   <div class="text-center text-muted text-sm">Waiting for allocation evaluations...</div>
+                </div>
+              </div>
+
+              <div class="win-group">
+                <div class="win-group-title">Allocation Transition Log</div>
+                <div class="text-sm text-muted mb-8">Latest reasons a wallet moved between NEW, CONSISTENT, HOT_STREAK, COOLDOWN, and PAUSED.</div>
+                <div id="discoveryAllocationTransitionsBody" class="discovery-allocation-list">
+                  <div class="text-center text-muted text-sm">No transitions recorded yet.</div>
+                </div>
+              </div>
+
+              <div class="win-group">
+                <div class="win-group-title">Ditto Execution Panel</div>
+                <div class="text-sm text-muted mb-8">Shows whether copy-trading execution is keeping up with Discovery recommendations.</div>
+                <div id="discoveryDittoExecutionBody" class="discovery-allocation-list">
+                  <div class="text-center text-muted text-sm">Loading Ditto execution telemetry...</div>
                 </div>
               </div>
 

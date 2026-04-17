@@ -1799,6 +1799,24 @@ body {
   background: var(--jungle-bg-elevated);
 }
 
+.discovery-chip.caution {
+  border-color: var(--jungle-warning);
+  color: var(--jungle-warning);
+}
+
+.discovery-chip.provisional {
+  border-color: var(--jungle-warning);
+  color: var(--jungle-warning);
+  font-weight: 600;
+}
+
+.discovery-wallet-card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
 .discovery-compare-wrap,
 .discovery-watchlist-wrap {
   max-height: 240px;

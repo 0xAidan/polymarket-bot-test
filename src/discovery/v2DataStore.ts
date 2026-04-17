@@ -249,6 +249,17 @@ export const getDiscoveryAlertsV2 = (
   }));
 };
 
+export const dismissDiscoveryAlertV2 = (id: number): boolean => {
+  if (!Number.isFinite(id) || id <= 0) return false;
+  const db = getDatabase();
+  const result = db.prepare(`
+    UPDATE discovery_alerts_v2
+    SET status = 'dismissed'
+    WHERE id = ?
+  `).run(id);
+  return Number(result.changes || 0) > 0;
+};
+
 const parseJsonObject = (value: unknown): Record<string, unknown> | undefined => {
   if (!value) return undefined;
   try {

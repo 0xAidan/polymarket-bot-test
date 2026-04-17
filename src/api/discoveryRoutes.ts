@@ -25,7 +25,7 @@ import { classifyDiscoveryMarket } from '../discovery/marketClassifier.js';
 import { getRecentWalletReasons, getWalletReasons } from '../discovery/discoveryScorer.js';
 import { getWalletValidation } from '../discovery/walletValidator.js';
 import { getValidEvmAddress } from '../addressUtils.js';
-import { getDiscoveryAlertsV2 } from '../discovery/v2DataStore.js';
+import { dismissDiscoveryAlertV2, getDiscoveryAlertsV2 } from '../discovery/v2DataStore.js';
 import {
   buildDiscoveryMethodologyPayload,
   getDiscoveryWatchlistEntry,
@@ -608,7 +608,7 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
         addressesInput
           .map((value: unknown): string => String(value || '').trim().toLowerCase())
           .filter((value: string): value is string => Boolean(value))
-      )].slice(0, 6);
+      )].slice(0, 4);
       if (addresses.length < 2) {
         res.status(400).json({ success: false, error: 'Provide at least two wallet addresses to compare.' });
         return;
@@ -682,6 +682,24 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
         onlyUndismissed,
       });
       res.json({ success: true, alerts });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/alerts/:id/dismiss', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        res.status(400).json({ success: false, error: 'Invalid alert id' });
+        return;
+      }
+      const dismissed = dismissDiscoveryAlertV2(id);
+      if (!dismissed) {
+        res.status(404).json({ success: false, error: 'Alert not found' });
+        return;
+      }
+      res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }
