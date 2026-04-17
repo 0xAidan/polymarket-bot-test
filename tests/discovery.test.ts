@@ -526,6 +526,13 @@ test('shouldIncludeDiscoveryWallet hides low-evidence wallets from the default f
     tradeCount7d: 1,
     lastSignalAt: Date.now(),
   }), true);
+
+  assert.equal(shouldIncludeDiscoveryWallet({
+    discoveryScore: 95,
+    volume7d: 12000,
+    tradeCount7d: 12,
+    surfaceBucket: 'suppressed',
+  }), false);
 });
 
 test('matchesDiscoveryFocusFilter narrows to high-information wallets when requested', () => {

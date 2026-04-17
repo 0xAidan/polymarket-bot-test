@@ -1,4 +1,5 @@
 import { getDatabase } from '../database.js';
+import { getLatestDiscoveryEvaluationSnapshot } from './evaluationEngine.js';
 import { getLatestDiscoveryRunLog } from './runLog.js';
 import { getWalletReasons } from './discoveryScorer.js';
 import { getWalletCandidateFocusSummary } from './walletSeedEngine.js';
@@ -12,7 +13,13 @@ import {
   purgeOldTrades,
   updateDiscoveryConfig,
 } from './statsStore.js';
-import { DiscoveryConfig, DiscoveryStatus } from './types.js';
+import {
+  DiscoveryConfig,
+  DiscoveryConfidenceBucket,
+  DiscoveryStatus,
+  DiscoveryStrategyClass,
+  DiscoverySurfaceBucket,
+} from './types.js';
 
 const roundPct = (value: number): number => Math.round(value * 10) / 10;
 
@@ -87,6 +94,54 @@ const buildWhatChanged = (row: Record<string, unknown>): string => {
   return 'Revalidated with no material score change.';
 };
 
+const aliasAdjectives = [
+  'Silver', 'Blue', 'Quiet', 'Crimson', 'Golden', 'Rapid', 'Steady', 'Swift', 'Bold', 'Calm',
+];
+const aliasAnimals = [
+  'Otter', 'Falcon', 'Panther', 'Fox', 'Wolf', 'Hawk', 'Lynx', 'Bear', 'Dolphin', 'Badger',
+];
+
+const hashAddress = (address: string): number => {
+  let hash = 0;
+  for (const char of address.toLowerCase()) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  }
+  return hash;
+};
+
+const buildWalletAlias = (address: string): string => {
+  const hash = hashAddress(address);
+  const adjective = aliasAdjectives[hash % aliasAdjectives.length] ?? 'Sharp';
+  const animal = aliasAnimals[Math.floor(hash / aliasAdjectives.length) % aliasAnimals.length] ?? 'Trader';
+  return `${adjective} ${animal}`;
+};
+
+const parseJsonArray = (value: unknown): string[] => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(String(value)) as unknown[];
+    return Array.isArray(parsed) ? parsed.map((entry) => String(entry)) : [];
+  } catch {
+    return [];
+  }
+};
+
+const normalizeConfidence = (value: unknown): DiscoveryConfidenceBucket => {
+  const normalized = String(value ?? '').toLowerCase();
+  if (normalized === 'high' || normalized === 'medium' || normalized === 'low') {
+    return normalized;
+  }
+  return 'low';
+};
+
+const normalizeSurfaceBucket = (value: unknown): DiscoverySurfaceBucket => {
+  const normalized = String(value ?? '').toLowerCase();
+  const valid: DiscoverySurfaceBucket[] = ['emerging', 'trusted', 'copyable', 'watch_only', 'suppressed'];
+  return valid.includes(normalized as DiscoverySurfaceBucket)
+    ? normalized as DiscoverySurfaceBucket
+    : 'watch_only';
+};
+
 export class DiscoveryControlPlane {
   getConfig(): DiscoveryConfig {
     return getDiscoveryConfig();
@@ -100,6 +155,7 @@ export class DiscoveryControlPlane {
   getStatus(): DiscoveryStatus {
     const cfg = getDiscoveryConfig();
     const latestRun = getLatestDiscoveryRunLog();
+    const latestEvaluation = getLatestDiscoveryEvaluationSnapshot();
     const latestRunCreatedAtMs = latestRun
       ? (latestRun.createdAt < 1_000_000_000_000 ? latestRun.createdAt * 1000 : latestRun.createdAt)
       : undefined;
@@ -147,6 +203,12 @@ export class DiscoveryControlPlane {
           walletsWithTwoReasonsPct: latestRun.walletsWithTwoReasonsPct ?? 0,
           freeModeNoAlchemy: latestRun.freeModeNoAlchemy !== false,
         } : undefined,
+        evaluation: latestEvaluation ? {
+          precisionAtK: latestEvaluation.precisionAtK,
+          meanAveragePrecision: latestEvaluation.meanAveragePrecision,
+          ndcg: latestEvaluation.ndcg,
+          baselinePrecisionAtK: latestEvaluation.baselinePrecisionAtK,
+        } : undefined,
       },
     } as DiscoveryStatus;
   }
@@ -158,22 +220,23 @@ export class DiscoveryControlPlane {
     filters?: { minScore?: number; heat?: string; hasSignals?: boolean }
   ) {
     const db = getDatabase();
+    const scoreOrderExpr = 'COALESCE(s2.discovery_score, s.final_score, 0)';
     const orderByMap: Record<string, string> = {
-      volume: 'seed_metric DESC, s.final_score DESC',
-      trades: 'v.trade_activity_count DESC, s.final_score DESC',
-      recent: 's.updated_at DESC',
-      score: 's.final_score DESC',
-      roi: 'v.realized_pnl DESC, s.final_score DESC',
+      volume: `seed_metric DESC, ${scoreOrderExpr} DESC`,
+      trades: `v.trade_activity_count DESC, ${scoreOrderExpr} DESC`,
+      recent: 'COALESCE(s2.updated_at, s.updated_at, seed.last_candidate_at) DESC',
+      score: `${scoreOrderExpr} DESC`,
+      roi: `v.realized_pnl DESC, ${scoreOrderExpr} DESC`,
     };
 
     let whereClause = 'WHERE 1=1';
     const params: Array<string | number> = [];
     if (filters?.minScore !== undefined) {
-      whereClause += ' AND s.final_score >= ?';
+      whereClause += ' AND COALESCE(s2.discovery_score, s.final_score, 0) >= ?';
       params.push(filters.minScore);
     }
     if (filters?.hasSignals) {
-      whereClause += ' AND EXISTS (SELECT 1 FROM discovery_wallet_reasons r WHERE r.address = s.address)';
+      whereClause += ' AND EXISTS (SELECT 1 FROM discovery_wallet_reasons r WHERE r.address = seed.address)';
     }
 
     params.push(limit, offset);
@@ -197,7 +260,23 @@ export class DiscoveryControlPlane {
         s.previous_passed_profitability_gate,
         s.previous_passed_focus_gate,
         s.previous_passed_copyability_gate,
+        s.trust_score,
+        s.strategy_class,
+        s.confidence_bucket,
+        s.surface_bucket,
+        s.score_version,
         s.updated_at,
+        s2.discovery_score AS v2_discovery_score,
+        s2.trust_score AS v2_trust_score,
+        s2.copyability_score AS v2_copyability_score,
+        s2.strategy_class AS v2_strategy_class,
+        s2.confidence_bucket AS v2_confidence_bucket,
+        s2.surface_bucket AS v2_surface_bucket,
+        s2.primary_reason AS v2_primary_reason,
+        s2.supporting_reasons_json AS v2_supporting_reasons_json,
+        s2.caution_flags_json AS v2_caution_flags_json,
+        s2.score_version AS v2_score_version,
+        s2.updated_at AS v2_updated_at,
         v.profile_name,
         v.pseudonym,
         v.realized_pnl,
@@ -216,6 +295,7 @@ export class DiscoveryControlPlane {
         GROUP BY address
       ) seed
       LEFT JOIN discovery_wallet_scores s ON s.address = seed.address
+      LEFT JOIN discovery_wallet_scores_v2 s2 ON s2.address = seed.address
       LEFT JOIN discovery_wallet_validation v ON v.address = seed.address
       LEFT JOIN tracked_wallets tw ON tw.address = seed.address
       ${whereClause}
@@ -230,14 +310,22 @@ export class DiscoveryControlPlane {
       const supportingReasons = reasons.filter((reason) => reason.reasonType === 'supporting').map((reason) => reason.message);
       const warningReasons = reasons.filter((reason) => reason.reasonType !== 'supporting').map((reason) => reason.message);
       const reasonCodes = reasons.map((reason) => reason.reasonCode).sort();
-      const finalScore = Number(row.final_score ?? 0);
-      const heatIndicator = finalScore >= 75
+      const discoveryScore = Number(row.v2_discovery_score ?? row.final_score ?? 0);
+      const trustScore = Number(row.v2_trust_score ?? row.trust_score ?? 0);
+      const copyabilityScore = Number(row.v2_copyability_score ?? row.copyability_score ?? 0);
+      const strategyClass = String(
+        row.v2_strategy_class ?? row.strategy_class ?? 'unknown',
+      ) as DiscoveryStrategyClass;
+      const confidenceBucket = normalizeConfidence(row.v2_confidence_bucket ?? row.confidence_bucket);
+      const surfaceBucket = normalizeSurfaceBucket(row.v2_surface_bucket ?? row.surface_bucket);
+      const scoreVersion = Number(row.v2_score_version ?? row.score_version ?? 1);
+      const heatIndicator = discoveryScore >= 75
         ? 'HOT'
-        : finalScore >= 60
+        : discoveryScore >= 60
           ? 'WARMING'
-          : finalScore >= 45
+          : discoveryScore >= 45
             ? 'STEADY'
-            : finalScore >= 30
+            : discoveryScore >= 30
               ? 'COOLING'
               : 'COLD';
       const failedGates = [
@@ -258,13 +346,45 @@ export class DiscoveryControlPlane {
         supportingReasonCount: supportingReasons.length,
         warningReasonCount: warningReasons.length,
       });
-      const updatedAt = Number(row.updated_at ?? row.last_validated_at ?? row.last_candidate_at ?? 0);
+      const updatedAt = Number(
+        row.v2_updated_at ?? row.updated_at ?? row.last_validated_at ?? row.last_candidate_at ?? 0,
+      );
+      const parsedSupportingReasons = parseJsonArray(row.v2_supporting_reasons_json);
+      const parsedCautionFlags = parseJsonArray(row.v2_caution_flags_json);
+      const displayName = row.pseudonym
+        ? String(row.pseudonym)
+        : (row.profile_name ? String(row.profile_name) : buildWalletAlias(address));
+      const primaryReason = row.v2_primary_reason
+        ? String(row.v2_primary_reason)
+        : (supportingReasons[0] ?? (hasValidation
+          ? 'Surfaced from wallet-seeded discovery signals.'
+          : 'Surfaced from wallet seeds and queued for validation.'));
+      const cautionFlags = parsedCautionFlags.length > 0 ? parsedCautionFlags : warningReasons;
+      const finalSupportingReasons = parsedSupportingReasons.length > 0
+        ? parsedSupportingReasons
+        : supportingReasons;
+      const freshnessMs = updatedAt > 0
+        ? Math.max(0, Date.now() - (updatedAt < 1_000_000_000_000 ? updatedAt * 1000 : updatedAt))
+        : null;
 
       return {
+        schemaVersion: 2,
         address,
+        displayName,
         pseudonym: row.pseudonym ? String(row.pseudonym) : (row.profile_name ? String(row.profile_name) : undefined),
-        whaleScore: finalScore,
-        finalScore,
+        strategyClass,
+        discoveryScore,
+        trustScore,
+        copyabilityScore,
+        confidence: confidenceBucket,
+        surfaceBucket,
+        scoreVersion,
+        primaryReason,
+        supportingReasonChips: finalSupportingReasons.slice(0, 3),
+        cautionFlags,
+        freshnessMs,
+        whaleScore: discoveryScore,
+        finalScore: discoveryScore,
         heatIndicator,
         roiPct: null,
         totalPnl: Number(row.realized_pnl ?? 0),
@@ -275,9 +395,7 @@ export class DiscoveryControlPlane {
         lastValidatedAt: Number(row.last_validated_at ?? 0),
         activePositions: Number(row.open_positions_count ?? 0),
         isTracked: Boolean(row.tracked_active),
-        whySurfaced: supportingReasons[0] ?? (hasValidation
-          ? 'Surfaced from wallet-seeded discovery signals.'
-          : 'Surfaced from wallet seeds and queued for validation.'),
+        whySurfaced: primaryReason,
         whyNotTracked: buildWhyNotTracked({
           isTracked: Boolean(row.tracked_active),
           discoveryState,
@@ -292,15 +410,16 @@ export class DiscoveryControlPlane {
         separateScores: {
           profitability: Number(row.profitability_score ?? 0),
           focus: Number(row.focus_score ?? 0),
-          copyability: Number(row.copyability_score ?? 0),
+          copyability: copyabilityScore,
           early: Number(row.early_score ?? 0),
           consistency: Number(row.consistency_score ?? 0),
           conviction: Number(row.conviction_score ?? 0),
+          trust: trustScore,
           noisePenalty: Number(row.noise_penalty ?? 0),
         },
         failedGates,
-        supportingReasons,
-        warningReasons,
+        supportingReasons: finalSupportingReasons,
+        warningReasons: cautionFlags,
       };
     });
 
@@ -323,9 +442,25 @@ export class DiscoveryControlPlane {
       const candidates = db.prepare('DELETE FROM discovery_wallet_candidates').run().changes;
       const validation = db.prepare('DELETE FROM discovery_wallet_validation').run().changes;
       const scores = db.prepare('DELETE FROM discovery_wallet_scores').run().changes;
+      const scoresV2 = db.prepare('DELETE FROM discovery_wallet_scores_v2').run().changes;
       const reasons = db.prepare('DELETE FROM discovery_wallet_reasons').run().changes;
+      const reasonsV2 = db.prepare('DELETE FROM discovery_wallet_reasons_v2').run().changes;
       const runs = db.prepare('DELETE FROM discovery_run_log').run().changes;
-      return { marketPool, tokenMap, candidates, validation, scores, reasons, runs };
+      const evaluations = db.prepare('DELETE FROM discovery_eval_snapshots_v2').run().changes;
+      const costSnapshots = db.prepare('DELETE FROM discovery_cost_snapshots_v2').run().changes;
+      return {
+        marketPool,
+        tokenMap,
+        candidates,
+        validation,
+        scores,
+        scoresV2,
+        reasons,
+        reasonsV2,
+        runs,
+        evaluations,
+        costSnapshots,
+      };
     });
 
     return {
