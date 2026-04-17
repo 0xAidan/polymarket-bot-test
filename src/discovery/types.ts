@@ -197,6 +197,11 @@ export interface DiscoveryWalletScoreRow {
   previousPassedFocusGate?: boolean;
   previousPassedCopyabilityGate?: boolean;
   updatedAt: number;
+  trustScore?: number;
+  strategyClass?: DiscoveryStrategyClass;
+  confidenceBucket?: DiscoveryConfidenceBucket;
+  surfaceBucket?: DiscoverySurfaceBucket;
+  scoreVersion?: number;
 }
 
 export interface DiscoveryWalletReason {
@@ -204,6 +209,69 @@ export interface DiscoveryWalletReason {
   reasonType: 'supporting' | 'warning' | 'rejection';
   reasonCode: string;
   message: string;
+  createdAt: number;
+}
+
+export type DiscoveryStrategyClass =
+  | 'informational_directional'
+  | 'structural_arbitrage'
+  | 'market_maker'
+  | 'reactive_momentum'
+  | 'suspicious'
+  | 'unknown';
+
+export type DiscoveryConfidenceBucket = 'low' | 'medium' | 'high';
+
+export type DiscoverySurfaceBucket =
+  | 'emerging'
+  | 'trusted'
+  | 'copyable'
+  | 'watch_only'
+  | 'suppressed';
+
+export interface DiscoveryReasonPayloadV2 {
+  primaryReason: string;
+  supportingReasons: string[];
+  cautionFlags: string[];
+}
+
+export interface DiscoveryWalletScoreV2Row {
+  address: string;
+  scoreVersion: number;
+  strategyClass: DiscoveryStrategyClass;
+  discoveryScore: number;
+  trustScore: number;
+  copyabilityScore: number;
+  confidenceBucket: DiscoveryConfidenceBucket;
+  surfaceBucket: DiscoverySurfaceBucket;
+  primaryReason: string;
+  supportingReasons: string[];
+  cautionFlags: string[];
+  updatedAt: number;
+}
+
+export interface DiscoveryEvaluationSnapshot {
+  id?: number;
+  windowStart: number;
+  windowEnd: number;
+  sampleSize: number;
+  topK: number;
+  precisionAtK: number;
+  meanAveragePrecision: number;
+  ndcg: number;
+  baselinePrecisionAtK: number;
+  createdAt: number;
+  notes?: string;
+}
+
+export interface DiscoveryCostSnapshot {
+  id?: number;
+  provider: 'gamma' | 'data' | 'clob' | 'other';
+  endpoint: string;
+  requestCount: number;
+  estimatedCostUsd: number;
+  coverageCount: number;
+  runtimeMs: number;
   createdAt: number;
 }
 

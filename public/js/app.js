@@ -3131,6 +3131,12 @@ const fetchDiscoveryWallets = async (append) => {
       tr.setAttribute('role', 'button');
       tr.setAttribute('aria-label', 'View wallet ' + (w.address || '').slice(0, 10) + '...');
       const shortAddr = w.address ? (w.address.slice(0, 6) + '...' + w.address.slice(-4)) : '—';
+      const identityLabel = w.displayName || w.pseudonym || shortAddr;
+      const strategyClass = (w.strategyClass || 'unknown').replace(/_/g, ' ');
+      const discoveryScore = Number.isFinite(Number(w.discoveryScore)) ? Number(w.discoveryScore) : Number(w.whaleScore || 0);
+      const trustScore = Number.isFinite(Number(w.trustScore)) ? Number(w.trustScore) : Number(w.separateScores?.profitability || 0);
+      const copyabilityScore = Number.isFinite(Number(w.copyabilityScore)) ? Number(w.copyabilityScore) : Number(w.separateScores?.copyability || 0);
+      const confidence = (w.confidence || 'low').toUpperCase();
       const trackBtn = w.isTracked
         ? '<button class="win-btn win-btn-sm" disabled>Tracked</button>'
         : '<button class="win-btn win-btn-sm win-btn-primary" onclick="event.stopPropagation();trackDiscoveredWallet(\'' + (w.address || '').replace(/'/g, "\\'") + '\', this)" aria-label="Track and activate wallet" tabindex="0">Track &amp; Activate</button>';
@@ -3153,8 +3159,14 @@ const fetchDiscoveryWallets = async (append) => {
       const reasonCodeLine = Array.isArray(w.reasonCodes) && w.reasonCodes.length
         ? `<div class="text-xs text-muted" style="margin-top:2px;">Codes: ${w.reasonCodes.join(', ')}</div>`
         : '';
+      const supportingChipsLine = Array.isArray(w.supportingReasonChips) && w.supportingReasonChips.length
+        ? `<div class="text-xs text-muted" style="margin-top:2px;">${w.supportingReasonChips.join(' • ')}</div>`
+        : '';
+      const cautionLine = Array.isArray(w.cautionFlags) && w.cautionFlags.length
+        ? `<div class="text-xs text-muted" style="margin-top:2px;">Caution: ${w.cautionFlags[0]}</div>`
+        : '';
       const whySurfaced = w.whySurfaced
-        ? `<div class="text-xs text-muted" style="margin-top:2px;max-width:280px;">${w.whySurfaced}</div>${stateLine}${changeLine}${sourceLine}${marketLine}${reasonCodeLine}`
+        ? `<div class="text-xs text-muted" style="margin-top:2px;max-width:280px;">${w.whySurfaced}</div>${supportingChipsLine}${cautionLine}${stateLine}${changeLine}${sourceLine}${marketLine}${reasonCodeLine}`
         : `${stateLine}${changeLine}${sourceLine}${marketLine}${reasonCodeLine}`;
       const signalCell = w.discoveryState
         ? `${w.discoveryState}${Array.isArray(w.failedGates) && w.failedGates.length
@@ -3163,11 +3175,17 @@ const fetchDiscoveryWallets = async (append) => {
             ? `<div class="text-xs text-muted" style="margin-top:2px;">${w.warningReasons[0]}</div>`
             : '')}`
         : 'Qualified';
+      const scoreStackCell = `
+        <div>${scoreBar(discoveryScore)}</div>
+        <div class="text-xs text-muted" style="margin-top:2px;">
+          Trust ${Math.round(trustScore)} • Copy ${Math.round(copyabilityScore)} • ${confidence}
+        </div>
+      `;
       tr.innerHTML =
         '<td>' + heatBadge(w.heatIndicator) + '</td>' +
-        '<td class="text-mono" title="' + (w.address || '') + '">' + shortAddr + categoryBadge + '</td>' +
-        '<td><div>' + (w.pseudonym || '—') + '</div>' + whySurfaced + '</td>' +
-        '<td>' + scoreBar(w.whaleScore) + '</td>' +
+        '<td class="text-mono" title="' + (w.address || '') + '">' + identityLabel + '<div class="text-xs text-muted">' + shortAddr + '</div>' + categoryBadge + '</td>' +
+        '<td><div class="text-xs" style="text-transform:capitalize;">' + strategyClass + '</div>' + whySurfaced + '</td>' +
+        '<td>' + scoreStackCell + '</td>' +
         '<td>' + roiLabel + '</td>' +
         '<td>$' + (w.volume7d || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</td>' +
         '<td>' + (w.tradeCount7d || 0).toLocaleString() + '</td>' +

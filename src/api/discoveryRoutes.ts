@@ -163,6 +163,7 @@ export const applyDiscoveryWalletScore = <T extends {
 
 export const sortWalletsForResponse = <T extends {
   whaleScore?: number;
+  discoveryScore?: number;
   roiPct?: number | null;
   lastActive?: number;
   tradeCount7d?: number;
@@ -173,7 +174,7 @@ export const sortWalletsForResponse = <T extends {
 ): T[] => {
   const sorted = [...wallets];
   sorted.sort((a, b) => {
-    if (sort === 'score') return (b.whaleScore || 0) - (a.whaleScore || 0);
+    if (sort === 'score') return (Number(b.discoveryScore ?? b.whaleScore) || 0) - (Number(a.discoveryScore ?? a.whaleScore) || 0);
     if (sort === 'roi') return (b.roiPct ?? Number.NEGATIVE_INFINITY) - (a.roiPct ?? Number.NEGATIVE_INFINITY);
     if (sort === 'recent') return (b.lastActive || 0) - (a.lastActive || 0);
     if (sort === 'trades') return (b.tradeCount7d || 0) - (a.tradeCount7d || 0);
@@ -208,6 +209,7 @@ const DISCOVERY_CATEGORY_PRIORITY: Record<string, number> = {
 };
 
 export const buildDiscoveryWalletExplanation = <T extends {
+  primaryReason?: string;
   focusCategory?: DiscoveryMarketCategory;
   highInformationVolume7d?: number;
   volume7d?: number;
@@ -217,6 +219,9 @@ export const buildDiscoveryWalletExplanation = <T extends {
 }>(
   wallet: T,
 ): string => {
+  if (wallet.primaryReason) {
+    return wallet.primaryReason;
+  }
   const focusLabel = DISCOVERY_CATEGORY_LABELS[wallet.focusCategory || 'event'] || 'Real-world';
   const parts: string[] = [`${focusLabel} focus`];
   const highInformationShare = Number(wallet.volume7d || 0) > 0
@@ -241,14 +246,17 @@ export const buildDiscoveryWalletExplanation = <T extends {
 
 export const shouldIncludeDiscoveryWallet = <T extends {
   whaleScore?: number;
+  discoveryScore?: number;
+  surfaceBucket?: string;
   volume7d?: number;
   tradeCount7d?: number;
   lastSignalAt?: number;
 }>(
   wallet: T,
 ): boolean => {
+  if ((wallet.surfaceBucket || '').toLowerCase() === 'suppressed') return false;
   if ((wallet.lastSignalAt || 0) > 0) return true;
-  if (Number(wallet.whaleScore || 0) >= 20) return true;
+  if (Number(wallet.discoveryScore ?? wallet.whaleScore) >= 20) return true;
   if (Number(wallet.volume7d || 0) >= 2500) return true;
   return Number(wallet.tradeCount7d || 0) >= 4 && Number(wallet.volume7d || 0) >= 750;
 };
@@ -496,6 +504,7 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
           }));
           res.json({
             success: true,
+            apiVersion: 'v2',
             wallets: derivedWallets,
             positionsSource: 'derived',
           });
@@ -515,6 +524,7 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
 
         res.json({
           success: true,
+          apiVersion: 'v2',
           wallets: hydratedWallets.map(annotateDiscoveryWallet),
           positionsSource: 'verified',
         });

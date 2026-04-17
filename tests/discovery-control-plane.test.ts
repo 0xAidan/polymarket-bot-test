@@ -129,6 +129,13 @@ test('DiscoveryControlPlane exposes reason codes and change summaries for scored
     assert.deepEqual(wallet.reasonCodes, ['focus', 'profitability']);
     assert.equal(wallet.discoveryState, 'Qualified');
     assert.match(wallet.whatChanged, /score improved/i);
+    assert.equal(wallet.schemaVersion, 2);
+    assert.equal(typeof wallet.displayName, 'string');
+    assert.equal(typeof wallet.discoveryScore, 'number');
+    assert.equal(typeof wallet.trustScore, 'number');
+    assert.equal(typeof wallet.copyabilityScore, 'number');
+    assert.equal(typeof wallet.confidence, 'string');
+    assert.equal(typeof wallet.surfaceBucket, 'string');
   } finally {
     closeDatabase();
     if (existsSync(tempDir)) {

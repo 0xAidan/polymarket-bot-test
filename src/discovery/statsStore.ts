@@ -520,25 +520,34 @@ export const purgeOldTrades = (olderThanDays: number): number => {
 export const purgeAllDiscoveryData = (): {
   trades: number;
   wallets: number;
+  walletsV2: number;
   positions: number;
   signals: number;
   marketCache: number;
+  evaluations: number;
+  costs: number;
   total: number;
 } => {
   const db = getDatabase();
   const tx = db.transaction(() => {
     const trades = db.prepare('DELETE FROM discovery_trades').run().changes;
     const wallets = db.prepare('DELETE FROM discovery_wallets').run().changes;
+    const walletsV2 = db.prepare('DELETE FROM discovery_wallet_scores_v2').run().changes;
     const positions = db.prepare('DELETE FROM discovery_positions').run().changes;
     const signals = db.prepare('DELETE FROM discovery_signals').run().changes;
     const marketCache = db.prepare('DELETE FROM discovery_market_cache').run().changes;
+    const evaluations = db.prepare('DELETE FROM discovery_eval_snapshots_v2').run().changes;
+    const costs = db.prepare('DELETE FROM discovery_cost_snapshots_v2').run().changes;
     return {
       trades,
       wallets,
+      walletsV2,
       positions,
       signals,
       marketCache,
-      total: trades + wallets + positions + signals + marketCache,
+      evaluations,
+      costs,
+      total: trades + wallets + walletsV2 + positions + signals + marketCache + evaluations + costs,
     };
   });
   return tx();
