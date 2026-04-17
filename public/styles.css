@@ -1507,16 +1507,395 @@ body {
 }
 .wallet-detail-body { padding: 8px; }
 
-.discovery-filters {
+.discovery-v2-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.discovery-v2-intro {
+  margin-bottom: 0;
+}
+
+.discovery-v2-metrics {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.discovery-v2-statusline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--jungle-text-muted);
+}
+
+.discovery-v2-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+
+.discovery-toolbar-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  padding: 4px 0;
+  margin-bottom: 8px;
 }
-.discovery-filters label { font-size: 12px; white-space: nowrap; }
 
-.discovery-wallet-row { cursor: pointer; }
+.discovery-toolbar-row label {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.discovery-score-slider {
+  width: 140px;
+}
+
+.discovery-layout-switch {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.discovery-layout-switch .win-btn.active {
+  box-shadow: inset 0 -2px 0 var(--jungle-gold);
+  border-color: rgba(229, 184, 11, 0.55);
+}
+
+.discovery-v2-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.discovery-v2-candidates,
+.discovery-v2-inspector {
+  margin-bottom: 0;
+}
+
+.discovery-view {
+  min-height: 460px;
+}
+
+.discovery-wallet-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 560px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.discovery-wallet-card {
+  border: 1px solid var(--jungle-border);
+  border-radius: 10px;
+  background: var(--jungle-bg-elevated);
+  padding: 10px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.discovery-wallet-card:hover {
+  border-color: rgba(229, 184, 11, 0.45);
+}
+
+.discovery-wallet-card.active {
+  border-color: rgba(229, 184, 11, 0.6);
+  background: rgba(229, 184, 11, 0.08);
+}
+
+.discovery-wallet-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.discovery-wallet-card-name {
+  font-family: var(--font-mono);
+  color: var(--jungle-gold-light);
+  font-size: 13px;
+}
+
+.discovery-wallet-card-meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--jungle-text-muted);
+}
+
+.discovery-wallet-card-body {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--jungle-text);
+}
+
+.discovery-wallet-card-reason {
+  color: var(--jungle-text-muted);
+  margin-top: 4px;
+}
+
+.discovery-wallet-card-actions {
+  margin-top: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.discovery-wallet-scoreline {
+  font-size: 12px;
+  color: var(--jungle-text-muted);
+}
+
+.discovery-board-columns {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(220px, 1fr));
+  gap: 10px;
+  max-height: 560px;
+  overflow: auto;
+}
+
+.discovery-board-column {
+  border: 1px solid var(--jungle-border);
+  border-radius: 10px;
+  background: var(--jungle-bg-elevated);
+  padding: 10px;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.discovery-board-title {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--jungle-gold);
+  border-bottom: 1px solid var(--jungle-border);
+  padding-bottom: 6px;
+}
+
+.discovery-board-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.discovery-board-card {
+  border: 1px solid var(--jungle-border);
+  border-radius: 8px;
+  background: var(--jungle-bg-surface);
+  padding: 8px;
+  cursor: pointer;
+}
+
+.discovery-board-card.active {
+  border-color: rgba(229, 184, 11, 0.6);
+}
+
+.discovery-table-wrap {
+  max-height: 560px;
+  overflow: auto;
+}
+
+.discovery-wallet-row {
+  cursor: pointer;
+}
+
+.discovery-wallet-row.selected td {
+  background: rgba(229, 184, 11, 0.12);
+}
+
+.discovery-v2-inspector .win-group-title {
+  margin-bottom: 8px;
+}
+
+.discovery-inspector-body {
+  min-height: 220px;
+  max-height: 340px;
+  overflow-y: auto;
+  border: 1px solid var(--jungle-border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--jungle-bg-elevated);
+}
+
+.discovery-inspector-section {
+  margin-bottom: 12px;
+}
+
+.discovery-inspector-section:last-child {
+  margin-bottom: 0;
+}
+
+.discovery-inspector-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--jungle-text-muted);
+  margin-bottom: 4px;
+}
+
+.discovery-inspector-value {
+  font-size: 13px;
+  color: var(--jungle-text);
+}
+
+.discovery-inspector-pulse {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr;
+}
+
+.discovery-inspector-pulse-column {
+  border: 1px solid var(--jungle-border);
+  border-radius: 8px;
+  background: var(--jungle-bg-elevated);
+  padding: 8px;
+}
+
+.discovery-v2-secondary-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.discovery-signals-list {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.discovery-markets-wrap {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.discovery-v2-product-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.discovery-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.discovery-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--jungle-border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  background: var(--jungle-bg-elevated);
+}
+
+.discovery-chip.caution {
+  border-color: var(--jungle-warning);
+  color: var(--jungle-warning);
+}
+
+.discovery-chip.provisional {
+  border-color: var(--jungle-warning);
+  color: var(--jungle-warning);
+  font-weight: 600;
+}
+
+.discovery-wallet-card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.discovery-compare-wrap,
+.discovery-watchlist-wrap {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.discovery-alerts-center-list {
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.discovery-allocation-list {
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.discovery-allocation-row {
+  border: 1px solid var(--jungle-border);
+  border-radius: 8px;
+  background: var(--jungle-bg-elevated);
+  padding: 8px;
+}
+
+.discovery-methodology-body {
+  max-height: 260px;
+  overflow-y: auto;
+  font-size: 12px;
+  color: var(--jungle-text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.discovery-v2-advanced {
+  margin-bottom: 0;
+}
+
+.discovery-v2-advanced-summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+  color: var(--jungle-gold);
+}
+
+.discovery-v2-advanced-summary::-webkit-details-marker {
+  display: none;
+}
+
+.discovery-v2-advanced-content {
+  margin-top: 12px;
+}
+
+@media (max-width: 1180px) {
+  .discovery-v2-main {
+    grid-template-columns: 1fr;
+  }
+
+  .discovery-v2-secondary-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .discovery-board-columns {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .discovery-board-columns {
+    grid-template-columns: 1fr;
+  }
+}
 
 /* ============================================================
    JUNGLE AGENTS — component overrides (gold accent, dark chrome)

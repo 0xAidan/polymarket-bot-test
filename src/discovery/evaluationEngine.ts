@@ -3,22 +3,28 @@ import { DiscoveryCostSnapshot, DiscoveryEvaluationSnapshot, DiscoveryWalletScor
 
 const clamp = (value: number, min = 0, max = 1): number => Math.max(min, Math.min(max, value));
 
-const precisionAtK = (rows: DiscoveryWalletScoreRow[], k: number): number => {
+type RankedEvaluationCandidate = {
+  score: number;
+  isRelevant: boolean;
+};
+
+const isRelevantRow = (row: Pick<DiscoveryWalletScoreRow, 'passedProfitabilityGate' | 'passedFocusGate' | 'passedCopyabilityGate'>): boolean => {
+  return row.passedProfitabilityGate && row.passedFocusGate && row.passedCopyabilityGate;
+};
+
+const precisionAtK = (rows: RankedEvaluationCandidate[], k: number): number => {
   if (rows.length === 0 || k <= 0) return 0;
   const topRows = rows.slice(0, k);
-  const positives = topRows.filter(
-    (row) => row.passedProfitabilityGate && row.passedFocusGate && row.passedCopyabilityGate,
-  ).length;
+  const positives = topRows.filter((row) => row.isRelevant).length;
   return positives / topRows.length;
 };
 
-const meanAveragePrecision = (rows: DiscoveryWalletScoreRow[]): number => {
+const meanAveragePrecision = (rows: RankedEvaluationCandidate[]): number => {
   if (rows.length === 0) return 0;
   let relevantSeen = 0;
   let runningPrecision = 0;
   rows.forEach((row, index) => {
-    const isRelevant = row.passedProfitabilityGate && row.passedFocusGate && row.passedCopyabilityGate;
-    if (!isRelevant) return;
+    if (!row.isRelevant) return;
     relevantSeen += 1;
     runningPrecision += relevantSeen / (index + 1);
   });
@@ -26,20 +32,117 @@ const meanAveragePrecision = (rows: DiscoveryWalletScoreRow[]): number => {
   return runningPrecision / relevantSeen;
 };
 
-const ndcgProxy = (rows: DiscoveryWalletScoreRow[], k: number): number => {
+const ndcgProxy = (rows: RankedEvaluationCandidate[], k: number): number => {
   const topRows = rows.slice(0, k);
   if (topRows.length === 0) return 0;
   const dcg = topRows.reduce((sum, row, index) => {
-    const gain = row.passedProfitabilityGate && row.passedFocusGate && row.passedCopyabilityGate ? 1 : 0;
+    const gain = row.isRelevant ? 1 : 0;
     return sum + gain / Math.log2(index + 2);
   }, 0);
-  const idealTop = [...topRows].sort((a, b) => Number(b.passedProfitabilityGate) - Number(a.passedProfitabilityGate));
+  const idealTop = [...topRows].sort((a, b) => Number(b.isRelevant) - Number(a.isRelevant));
   const idcg = idealTop.reduce((sum, row, index) => {
-    const gain = row.passedProfitabilityGate && row.passedFocusGate && row.passedCopyabilityGate ? 1 : 0;
+    const gain = row.isRelevant ? 1 : 0;
     return sum + gain / Math.log2(index + 2);
   }, 0);
   if (idcg === 0) return 0;
   return clamp(dcg / idcg);
+};
+
+export const insertDiscoveryEvaluationObservations = (
+  runTimestamp: number,
+  scoredRows: DiscoveryWalletScoreRow[],
+): void => {
+  if (scoredRows.length === 0) return;
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    INSERT INTO discovery_eval_observations_v2 (
+      run_at, address, discovery_score, passed_all_gates, confidence_bucket, strategy_class, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(run_at, address) DO UPDATE SET
+      discovery_score = excluded.discovery_score,
+      passed_all_gates = excluded.passed_all_gates,
+      confidence_bucket = excluded.confidence_bucket,
+      strategy_class = excluded.strategy_class,
+      created_at = excluded.created_at
+  `);
+  const tx = db.transaction(() => {
+    for (const row of scoredRows) {
+      stmt.run(
+        runTimestamp,
+        row.address.toLowerCase(),
+        row.finalScore,
+        isRelevantRow(row) ? 1 : 0,
+        row.confidenceBucket ?? null,
+        row.strategyClass ?? null,
+        runTimestamp,
+      );
+    }
+  });
+  tx();
+};
+
+export const createWalkForwardEvaluationSnapshot = (input: {
+  runTimestamp: number;
+  embargoRuns?: number;
+  horizonRuns?: number;
+  topK?: number;
+}): DiscoveryEvaluationSnapshot | null => {
+  const db = getDatabase();
+  const runRows = db.prepare(`
+    SELECT DISTINCT run_at
+    FROM discovery_eval_observations_v2
+    ORDER BY run_at ASC
+  `).all() as Array<{ run_at: number }>;
+  const runTimes = runRows.map((row) => Number(row.run_at)).filter((value) => Number.isFinite(value));
+  const embargoRuns = Math.max(1, input.embargoRuns ?? 1);
+  const horizonRuns = Math.max(1, input.horizonRuns ?? 3);
+  const minimumRuns = embargoRuns + horizonRuns + 1;
+  if (runTimes.length < minimumRuns) return null;
+
+  const trainRunIndex = runTimes.length - minimumRuns;
+  const trainRun = runTimes[trainRunIndex];
+  const futureStartIndex = trainRunIndex + embargoRuns + 1;
+  const futureEndIndex = Math.min(runTimes.length - 1, futureStartIndex + horizonRuns - 1);
+  const futureRuns = runTimes.slice(futureStartIndex, futureEndIndex + 1);
+  if (futureRuns.length === 0) return null;
+
+  const trainRows = db.prepare(`
+    SELECT address, discovery_score
+    FROM discovery_eval_observations_v2
+    WHERE run_at = ?
+    ORDER BY discovery_score DESC
+  `).all(trainRun) as Array<{ address: string; discovery_score: number }>;
+  if (trainRows.length === 0) return null;
+
+  const placeholders = futureRuns.map(() => '?').join(', ');
+  const positiveRows = db.prepare(`
+    SELECT DISTINCT address
+    FROM discovery_eval_observations_v2
+    WHERE run_at IN (${placeholders}) AND passed_all_gates = 1
+  `).all(...futureRuns) as Array<{ address: string }>;
+  const positives = new Set(positiveRows.map((row) => row.address.toLowerCase()));
+
+  const candidates: RankedEvaluationCandidate[] = trainRows.map((row) => ({
+    score: Number(row.discovery_score ?? 0),
+    isRelevant: positives.has(row.address.toLowerCase()),
+  }));
+  const topK = Math.min(Math.max(1, input.topK ?? 10), candidates.length);
+  const baselinePositiveRate = candidates.length === 0
+    ? 0
+    : candidates.filter((candidate) => candidate.isRelevant).length / candidates.length;
+
+  return {
+    windowStart: trainRun,
+    windowEnd: futureRuns[futureRuns.length - 1] ?? trainRun,
+    sampleSize: candidates.length,
+    topK,
+    precisionAtK: precisionAtK(candidates, topK),
+    meanAveragePrecision: meanAveragePrecision(candidates),
+    ndcg: ndcgProxy(candidates, topK),
+    baselinePrecisionAtK: baselinePositiveRate,
+    createdAt: input.runTimestamp,
+    notes: 'Walk-forward evaluation (embargoed): labels sourced only from future runs after embargo.',
+  };
 };
 
 export const insertDiscoveryEvaluationSnapshot = (snapshot: DiscoveryEvaluationSnapshot): void => {
@@ -68,11 +171,19 @@ export const createCycleEvaluationSnapshot = (input: {
   scoredRows: DiscoveryWalletScoreRow[];
   windowSeconds?: number;
 }): DiscoveryEvaluationSnapshot => {
-  const sortedRows = [...input.scoredRows].sort((a, b) => b.finalScore - a.finalScore);
+  const walkForwardSnapshot = createWalkForwardEvaluationSnapshot({ runTimestamp: input.runTimestamp });
+  if (walkForwardSnapshot) {
+    return walkForwardSnapshot;
+  }
+
+  const sortedRows = [...input.scoredRows]
+    .sort((a, b) => b.finalScore - a.finalScore)
+    .map((row) => ({
+      score: row.finalScore,
+      isRelevant: isRelevantRow(row),
+    }));
   const topK = Math.min(10, Math.max(1, sortedRows.length));
-  const baselineRelevant = sortedRows.filter(
-    (row) => row.passedProfitabilityGate && row.passedFocusGate && row.passedCopyabilityGate,
-  ).length;
+  const baselineRelevant = sortedRows.filter((row) => row.isRelevant).length;
 
   return {
     windowStart: input.runTimestamp - (input.windowSeconds ?? 24 * 60 * 60),

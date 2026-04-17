@@ -519,35 +519,66 @@ export const purgeOldTrades = (olderThanDays: number): number => {
 
 export const purgeAllDiscoveryData = (): {
   trades: number;
+  tradeFactsV2: number;
   wallets: number;
   walletsV2: number;
+  walletFeaturesV2: number;
+  marketUniverseV2: number;
+  alertsV2: number;
+  watchlist: number;
   positions: number;
   signals: number;
   marketCache: number;
   evaluations: number;
+  evalObservations: number;
   costs: number;
   total: number;
 } => {
   const db = getDatabase();
   const tx = db.transaction(() => {
     const trades = db.prepare('DELETE FROM discovery_trades').run().changes;
+    const tradeFactsV2 = db.prepare('DELETE FROM discovery_trade_facts_v2').run().changes;
     const wallets = db.prepare('DELETE FROM discovery_wallets').run().changes;
     const walletsV2 = db.prepare('DELETE FROM discovery_wallet_scores_v2').run().changes;
+    const walletFeaturesV2 = db.prepare('DELETE FROM discovery_wallet_features_v2').run().changes;
+    const marketUniverseV2 = db.prepare('DELETE FROM discovery_market_universe_v2').run().changes;
+    const alertsV2 = db.prepare('DELETE FROM discovery_alerts_v2').run().changes;
+    const watchlist = db.prepare('DELETE FROM discovery_watchlist').run().changes;
     const positions = db.prepare('DELETE FROM discovery_positions').run().changes;
     const signals = db.prepare('DELETE FROM discovery_signals').run().changes;
     const marketCache = db.prepare('DELETE FROM discovery_market_cache').run().changes;
     const evaluations = db.prepare('DELETE FROM discovery_eval_snapshots_v2').run().changes;
+    const evalObservations = db.prepare('DELETE FROM discovery_eval_observations_v2').run().changes;
     const costs = db.prepare('DELETE FROM discovery_cost_snapshots_v2').run().changes;
     return {
       trades,
+      tradeFactsV2,
       wallets,
       walletsV2,
+      walletFeaturesV2,
+      marketUniverseV2,
+      alertsV2,
+      watchlist,
       positions,
       signals,
       marketCache,
       evaluations,
+      evalObservations,
       costs,
-      total: trades + wallets + walletsV2 + positions + signals + marketCache + evaluations + costs,
+      total: trades +
+        tradeFactsV2 +
+        wallets +
+        walletsV2 +
+        walletFeaturesV2 +
+        marketUniverseV2 +
+        alertsV2 +
+        watchlist +
+        positions +
+        signals +
+        marketCache +
+        evaluations +
+        evalObservations +
+        costs,
     };
   });
   return tx();

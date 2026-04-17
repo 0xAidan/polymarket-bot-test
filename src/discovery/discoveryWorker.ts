@@ -35,11 +35,14 @@ import {
 import {
   createCycleEvaluationSnapshot,
   insertDiscoveryCostSnapshots,
+  insertDiscoveryEvaluationObservations,
   insertDiscoveryEvaluationSnapshot,
 } from './evaluationEngine.js';
 import { insertDiscoveryRunLog } from './runLog.js';
 import { getDiscoveryConfig } from './statsStore.js';
-import { DiscoveryWalletScoreRow } from './types.js';
+import { DiscoveryStrategyClass, DiscoveryWalletScoreRow } from './types.js';
+import { upsertWalletFeatureSnapshotV2 } from './v2DataStore.js';
+import { evaluateAndPersistAllocationPolicies } from '../allocation/policyEngine.js';
 
 type MarketContext = {
   averageSpreadBps: number;
@@ -70,7 +73,7 @@ const DEFAULT_DISCOVERY_CYCLE_MS = 15 * 60 * 1000;
 const DEFAULT_MARKET_SEED_LIMIT = 10;
 const DEFAULT_LEADERBOARD_CATEGORIES = ['POLITICS', 'ECONOMICS', 'TECH', 'FINANCE'];
 const DEFAULT_LEADERBOARD_WINDOWS = ['WEEK', 'MONTH'];
-const NOISE_CATEGORIES = new Set(['sports', 'crypto']);
+const NOISE_CATEGORIES = new Set(['crypto']);
 
 const clamp = (value: number, min = 0, max = 100): number => Math.max(min, Math.min(max, value));
 const roundPct = (value: number): number => Math.round(value * 10) / 10;
@@ -134,6 +137,16 @@ export class DiscoveryWorkerRuntime {
     let copyabilityPassCount = 0;
     let walletsWithTwoReasonsCount = 0;
     const scoredRows: DiscoveryWalletScoreRow[] = [];
+    const allocationInputs: Array<{
+      address: string;
+      discoveryScore: number;
+      trustScore: number;
+      copyabilityScore: number;
+      confidenceBucket: 'low' | 'medium' | 'high';
+      strategyClass: DiscoveryStrategyClass;
+      cautionFlags: string[];
+      updatedAt: number;
+    }> = [];
 
     const events = await (async () => {
       gammaRequestCount += 1;
@@ -302,6 +315,21 @@ export class DiscoveryWorkerRuntime {
           strategyClass,
         });
 
+        upsertWalletFeatureSnapshotV2({
+          address,
+          runTimestamp,
+          focusCategory: focusSummary.focusCategory,
+          strategyClass,
+          confidenceBucket,
+          featureSnapshot,
+          metrics: {
+            averageSpreadBps,
+            averageTopOfBookUsd,
+            latestTradePrice: Number.isFinite(latestTradePrice) ? latestTradePrice : undefined,
+            currentPrice,
+          },
+        });
+
         const row = buildWalletScoreRow({
           address,
           profitabilityScore,
@@ -338,6 +366,17 @@ export class DiscoveryWorkerRuntime {
           ...reasonPayload,
           cautionFlags: [...reasonPayload.cautionFlags, ...featureSnapshot.cautionFlags]
             .filter((value, index, values) => values.indexOf(value) === index),
+        });
+        allocationInputs.push({
+          address,
+          discoveryScore: row.finalScore,
+          trustScore: row.trustScore ?? featureSnapshot.trustScore,
+          copyabilityScore: row.copyabilityScore,
+          confidenceBucket,
+          strategyClass,
+          cautionFlags: [...reasonPayload.cautionFlags, ...featureSnapshot.cautionFlags]
+            .filter((value, index, values) => values.indexOf(value) === index),
+          updatedAt: row.updatedAt,
         });
         scoredRows.push(row);
         if (row.passedCopyabilityGate) {
@@ -389,6 +428,7 @@ export class DiscoveryWorkerRuntime {
         scoredRows,
       }),
     );
+    insertDiscoveryEvaluationObservations(runTimestamp, scoredRows);
     insertDiscoveryCostSnapshots([
       {
         provider: 'gamma',
@@ -418,6 +458,19 @@ export class DiscoveryWorkerRuntime {
         createdAt: runTimestamp,
       },
     ]);
+    evaluateAndPersistAllocationPolicies(
+      allocationInputs.map((input) => ({
+        address: input.address,
+        discoveryScore: input.discoveryScore,
+        trustScore: input.trustScore,
+        copyabilityScore: input.copyabilityScore,
+        confidenceBucket: input.confidenceBucket,
+        strategyClass: input.strategyClass,
+        cautionFlags: input.cautionFlags,
+        updatedAt: input.updatedAt,
+      })),
+      runTimestamp,
+    );
     this.lastCompletedCycleAt = runTimestamp;
     console.log(`[DiscoveryWorker] Cycle complete in ${durationMs}ms (${qualifiedCount} qualified, ${rejectedCount} rejected)`);
     } finally {

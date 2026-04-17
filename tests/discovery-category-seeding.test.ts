@@ -29,7 +29,7 @@ test('deriveSeedCategory prefers first-party event tags over title heuristics', 
   assert.equal(category, 'politics');
 });
 
-test('buildDiscoveryMarketPoolEntries filters sports-like events out of the whitelist', () => {
+test('buildDiscoveryMarketPoolEntries keeps sports events in the discovery market pool', () => {
   const entries = buildDiscoveryMarketPoolEntries([
     {
       id: 'event-1',
@@ -50,7 +50,10 @@ test('buildDiscoveryMarketPoolEntries filters sports-like events out of the whit
     },
   ], Math.floor(Date.now() / 1000));
 
-  assert.deepEqual(entries, []);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0]?.conditionId, 'condition-sports');
+  assert.equal(entries[0]?.focusCategory, 'sports');
+  assert.deepEqual(entries[0]?.tokenIds, ['yes-sports', 'no-sports']);
 });
 
 test('buildDiscoveryMarketPoolEntries keeps whitelisted real-world markets and attaches token ids', () => {

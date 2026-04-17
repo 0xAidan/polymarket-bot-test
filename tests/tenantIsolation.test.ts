@@ -16,6 +16,11 @@ describe('tenant isolation hardening', () => {
   let savedPrivateKey: string;
   let savedDataDir: string;
   let savedFunderEnv: string | undefined;
+  let savedAuthSessionSecret: string;
+  let savedAuth0IssuerBaseUrl: string;
+  let savedAuth0BaseUrl: string;
+  let savedAuth0ClientId: string;
+  let savedAuth0ClientSecret: string;
 
   beforeEach(() => {
     savedAuthMode = config.authMode;
@@ -23,6 +28,11 @@ describe('tenant isolation hardening', () => {
     savedPrivateKey = config.privateKey;
     savedDataDir = config.dataDir;
     savedFunderEnv = process.env.POLYMARKET_FUNDER_ADDRESS;
+    savedAuthSessionSecret = config.authSessionSecret;
+    savedAuth0IssuerBaseUrl = config.auth0IssuerBaseUrl;
+    savedAuth0BaseUrl = config.auth0BaseUrl;
+    savedAuth0ClientId = config.auth0ClientId;
+    savedAuth0ClientSecret = config.auth0ClientSecret;
   });
 
   afterEach(() => {
@@ -30,6 +40,11 @@ describe('tenant isolation hardening', () => {
     (config as any).storageBackend = savedStorage;
     (config as any).privateKey = savedPrivateKey;
     (config as any).dataDir = savedDataDir;
+    (config as any).authSessionSecret = savedAuthSessionSecret;
+    (config as any).auth0IssuerBaseUrl = savedAuth0IssuerBaseUrl;
+    (config as any).auth0BaseUrl = savedAuth0BaseUrl;
+    (config as any).auth0ClientId = savedAuth0ClientId;
+    (config as any).auth0ClientSecret = savedAuth0ClientSecret;
     if (savedFunderEnv === undefined) {
       delete process.env.POLYMARKET_FUNDER_ADDRESS;
     } else {
@@ -104,6 +119,11 @@ describe('tenant isolation hardening', () => {
   it('config validation rejects hosted mode with PRIVATE_KEY set', () => {
     (config as any).authMode = 'oidc';
     (config as any).storageBackend = 'sqlite';
+    (config as any).authSessionSecret = 'test-session-secret';
+    (config as any).auth0IssuerBaseUrl = 'https://example.auth0.com';
+    (config as any).auth0BaseUrl = 'https://staging.example.com';
+    (config as any).auth0ClientId = 'test-client-id';
+    (config as any).auth0ClientSecret = 'test-client-secret';
     (config as any).privateKey = '0xabc123';
     assert.throws(() => config.validate(), /forbids PRIVATE_KEY/);
   });

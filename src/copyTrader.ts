@@ -23,6 +23,7 @@ import {
 } from './tradeDiagnostics.js';
 import { createComponentLogger } from './logger.js';
 import { getTenantIdOrDefault } from './tenantContext.js';
+import { getAllocationPolicyState } from './allocation/policyEngine.js';
 
 const log = createComponentLogger('CopyTrader');
 
@@ -306,6 +307,32 @@ export class CopyTrader {
       executionTargets = [{ tradingWalletId: undefined }];
     } else {
       executionTargets = assignments.map(a => ({ tradingWalletId: a.tradingWalletId }));
+    }
+
+    const allocationState = getAllocationPolicyState(trade.walletAddress);
+    const allocationWeight = allocationState
+      ? Math.max(0, Math.min(2, Number(allocationState.targetWeight || 0)))
+      : 1;
+    if ((allocationState?.state === 'PAUSED') || allocationWeight <= 0) {
+      const blockedReason = allocationState?.pauseReason
+        || `Allocation policy is ${allocationState?.state || 'PAUSED'} for this wallet`;
+      log.info(`[CopyTrader] ⏸️ Allocation policy blocked trade for ${trade.walletAddress.slice(0, 10)}...: ${blockedReason}`);
+      await this.performanceTracker.recordTrade({
+        timestamp: new Date(),
+        walletAddress: trade.walletAddress,
+        marketId: trade.marketId,
+        marketTitle: trade.marketTitle,
+        outcome: trade.outcome,
+        amount: trade.amount,
+        price: trade.price,
+        success: false,
+        status: 'rejected',
+        executionTimeMs: 0,
+        error: `[ALLOCATION_POLICY] ${blockedReason}`,
+        detectedTxHash: trade.transactionHash,
+        tokenId: trade.tokenId,
+      });
+      return;
     }
     const execSuffix = executionTargets.map(t => t.tradingWalletId ?? 'env').sort().join('+');
     const compoundKey = `${tenantKey}:${trade.walletAddress.toLowerCase()}-${positionKey}-${trade.side}-${timeWindow}-${execSuffix}`;
@@ -892,6 +919,11 @@ export class CopyTrader {
       }
       
       // Validate final trade size
+      if (allocationWeight !== 1) {
+        tradeSizeUsdcNum = parseFloat((tradeSizeUsdcNum * allocationWeight).toFixed(2));
+        tradeSizeSource = `${tradeSizeSource}, allocation x${allocationWeight.toFixed(2)} (${allocationState?.state || 'CONSISTENT'})`;
+      }
+
       if (isNaN(tradeSizeUsdcNum) || tradeSizeUsdcNum <= 0) {
         log.error(`❌ Invalid calculated trade size ($${tradeSizeUsdcNum} USDC), cannot execute trade`);
         await this.performanceTracker.logIssue(
