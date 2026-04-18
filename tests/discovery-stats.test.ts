@@ -13,6 +13,7 @@ let insertTradeBatch: typeof import('../src/discovery/statsStore.js').insertTrad
 let upsertWallet: typeof import('../src/discovery/statsStore.js').upsertWallet;
 let aggregateStats: typeof import('../src/discovery/statsStore.js').aggregateStats;
 let getWalletStats: typeof import('../src/discovery/statsStore.js').getWalletStats;
+let getTopWallets: typeof import('../src/discovery/statsStore.js').getTopWallets;
 let refreshWalletStats: typeof import('../src/discovery/statsStore.js').refreshWalletStats;
 let upsertPosition: typeof import('../src/discovery/statsStore.js').upsertPosition;
 let insertSignal: typeof import('../src/discovery/statsStore.js').insertSignal;
@@ -42,6 +43,7 @@ beforeEach(async () => {
   upsertWallet = statsMod.upsertWallet;
   aggregateStats = statsMod.aggregateStats;
   getWalletStats = statsMod.getWalletStats;
+  getTopWallets = statsMod.getTopWallets;
   refreshWalletStats = statsMod.refreshWalletStats;
   upsertPosition = statsMod.upsertPosition;
   insertSignal = statsMod.insertSignal;
@@ -331,6 +333,49 @@ test('aggregateStats excludes crypto trades from discovery wallet stats', () => 
   assert.equal(stats.tradeCount7d, 1);
   assert.equal(stats.volume7d, 100);
   assert.equal(stats.focusCategory, 'politics');
+});
+
+test('getTopWallets sorts trust mode by authoritative trust scores rather than legacy whale score', () => {
+  const detectedAt = Date.now();
+  const lowTrustAddress = '0xmaker000000000000000000000000000000000010';
+  const highTrustAddress = '0xmaker000000000000000000000000000000000011';
+
+  upsertWallet(lowTrustAddress, detectedAt);
+  upsertWallet(highTrustAddress, detectedAt);
+
+  const db = getDatabase();
+  db.prepare(`
+    UPDATE discovery_wallets
+    SET whale_score = ?
+    WHERE address = ?
+  `).run(95, lowTrustAddress);
+  db.prepare(`
+    UPDATE discovery_wallets
+    SET whale_score = ?
+    WHERE address = ?
+  `).run(20, highTrustAddress);
+
+  db.prepare(`
+    INSERT INTO discovery_wallet_scores_v2 (
+      address, score_version, strategy_class, discovery_score, trust_score,
+      copyability_score, confidence_bucket, surface_bucket, primary_reason,
+      supporting_reasons_json, caution_flags_json, updated_at
+    ) VALUES (?, 2, 'informational_directional', 55, 25, 75, 'medium', 'watch_only', 'Low trust wallet', '[]', '[]', ?)
+    ON CONFLICT(address) DO UPDATE SET trust_score = excluded.trust_score
+  `).run(lowTrustAddress, Math.floor(detectedAt / 1000));
+  db.prepare(`
+    INSERT INTO discovery_wallet_scores_v2 (
+      address, score_version, strategy_class, discovery_score, trust_score,
+      copyability_score, confidence_bucket, surface_bucket, primary_reason,
+      supporting_reasons_json, caution_flags_json, updated_at
+    ) VALUES (?, 2, 'informational_directional', 45, 92, 65, 'high', 'trusted', 'High trust wallet', '[]', '[]', ?)
+    ON CONFLICT(address) DO UPDATE SET trust_score = excluded.trust_score
+  `).run(highTrustAddress, Math.floor(detectedAt / 1000));
+
+  const wallets = getTopWallets('trust', 10, 0);
+
+  assert.equal(wallets[0]?.address, highTrustAddress);
+  assert.equal(wallets[1]?.address, lowTrustAddress);
 });
 
 test('dismissSignal clears stale wallet signal markers when no active signals remain', () => {

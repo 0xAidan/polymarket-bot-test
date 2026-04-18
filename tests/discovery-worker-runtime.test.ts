@@ -5,12 +5,12 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 
 import { config } from '../src/config.js';
-import { closeDatabase, initDatabase } from '../src/database.js';
+import { closeDatabase, getDatabase, initDatabase } from '../src/database.js';
 import { getDiscoveryMarketPool } from '../src/discovery/categorySeeder.ts';
 import { getLatestDiscoveryRunLog } from '../src/discovery/runLog.ts';
 import { getWalletScoreRow, getWalletScoreRowV2 } from '../src/discovery/discoveryScorer.ts';
 import { getWalletValidation } from '../src/discovery/walletValidator.ts';
-import { getWalletCandidates } from '../src/discovery/walletSeedEngine.ts';
+import { getWalletCandidates, getWalletCandidatesV2 } from '../src/discovery/walletSeedEngine.ts';
 import { DiscoveryWorkerRuntime } from '../src/discovery/discoveryWorker.ts';
 import { updateDiscoveryConfig } from '../src/discovery/statsStore.js';
 import { getLatestDiscoveryEvaluationSnapshot } from '../src/discovery/evaluationEngine.ts';
@@ -69,9 +69,14 @@ test('DiscoveryWorkerRuntime runs an end-to-end free-mode discovery cycle', asyn
 
     assert.equal(getDiscoveryMarketPool(10).length, 1);
     assert.equal(getWalletCandidates(10).length > 0, true);
+    assert.equal(getWalletCandidatesV2(10).length > 0, true);
     assert.equal(getWalletValidation('0xabc')?.realizedPnl, 120);
     assert.equal((getWalletScoreRow('0xabc')?.finalScore ?? 0) > 0, true);
     assert.equal((getWalletScoreRowV2('0xabc')?.discoveryScore ?? 0) > 0, true);
+    const candidateHistoryCount = (getDatabase().prepare(
+      'SELECT COUNT(*) AS cnt FROM discovery_wallet_candidates_v2'
+    ).get() as { cnt: number }).cnt;
+    assert.equal(candidateHistoryCount > 0, true);
     assert.equal(getLatestDiscoveryRunLog()?.candidateCount, 1);
     assert.equal((getLatestDiscoveryEvaluationSnapshot()?.sampleSize ?? 0) >= 1, true);
   } finally {

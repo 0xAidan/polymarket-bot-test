@@ -5,13 +5,15 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 
 import { config } from '../src/config.js';
-import { closeDatabase, initDatabase } from '../src/database.js';
+import { closeDatabase, getDatabase, initDatabase } from '../src/database.js';
 import {
   buildHolderSeedCandidates,
   buildLeaderboardSeedCandidates,
   buildMarketPositionSeedCandidates,
   buildTradeSeedCandidates,
   getWalletCandidates,
+  getWalletCandidatesV2,
+  upsertWalletCandidatesV2,
   upsertWalletCandidates,
 } from '../src/discovery/walletSeedEngine.ts';
 
@@ -149,6 +151,56 @@ test('wallet candidates are upserted and ordered by recency and source strength'
     assert.equal(candidates.length, 2);
     assert.equal(candidates[0]?.address, '0xbbb');
     assert.equal(candidates[1]?.address, '0xaaa');
+  } finally {
+    closeDatabase();
+    if (existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('v2 wallet candidates preserve historical snapshots while latest reads stay current', async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), 'discovery-wallet-candidates-v2-'));
+  (config as any).dataDir = tempDir;
+  closeDatabase();
+  await initDatabase();
+
+  try {
+    upsertWalletCandidatesV2([
+      {
+        address: '0xaaa',
+        sourceType: 'leaderboard',
+        sourceLabel: 'POLITICS:WEEK',
+        sourceRank: 1,
+        sourceMetric: 9000,
+        firstSeenAt: 1710000000,
+        lastSeenAt: 1710000000,
+        updatedAt: 1710000000,
+      },
+    ], 1710000000);
+
+    upsertWalletCandidatesV2([
+      {
+        address: '0xaaa',
+        sourceType: 'leaderboard',
+        sourceLabel: 'POLITICS:WEEK',
+        sourceRank: 1,
+        sourceMetric: 12000,
+        firstSeenAt: 1710000000,
+        lastSeenAt: 1710000600,
+        updatedAt: 1710000600,
+      },
+    ], 1710000600);
+
+    const latestCandidates = getWalletCandidatesV2(10);
+    assert.equal(latestCandidates.length, 1);
+    assert.equal(latestCandidates[0]?.sourceMetric, 12000);
+    assert.equal(latestCandidates[0]?.updatedAt, 1710000600);
+
+    const historyCount = (getDatabase().prepare(
+      'SELECT COUNT(*) AS cnt FROM discovery_wallet_candidates_v2 WHERE address = ?'
+    ).get('0xaaa') as { cnt: number }).cnt;
+    assert.equal(historyCount, 2);
   } finally {
     closeDatabase();
     if (existsSync(tempDir)) {

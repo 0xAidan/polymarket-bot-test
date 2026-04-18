@@ -366,6 +366,27 @@ function createSchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_discovery_wallet_candidates_updated
       ON discovery_wallet_candidates (updated_at DESC, source_metric DESC);
 
+    CREATE TABLE IF NOT EXISTS discovery_wallet_candidates_v2 (
+      address         TEXT NOT NULL,
+      source_type     TEXT NOT NULL,
+      source_label    TEXT NOT NULL,
+      condition_id    TEXT NOT NULL DEFAULT '',
+      market_title    TEXT,
+      source_rank     INTEGER,
+      source_metric   REAL,
+      source_metadata TEXT,
+      first_seen_at   INTEGER NOT NULL,
+      last_seen_at    INTEGER NOT NULL,
+      updated_at      INTEGER NOT NULL,
+      snapshot_at     INTEGER NOT NULL,
+      PRIMARY KEY (address, source_type, condition_id, source_label, snapshot_at)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_wallet_candidates_v2_snapshot
+      ON discovery_wallet_candidates_v2 (snapshot_at DESC, updated_at DESC, source_metric DESC);
+    CREATE INDEX IF NOT EXISTS idx_discovery_wallet_candidates_v2_address
+      ON discovery_wallet_candidates_v2 (address, snapshot_at DESC, updated_at DESC);
+
     CREATE TABLE IF NOT EXISTS discovery_wallet_validation (
       address               TEXT PRIMARY KEY,
       profile_name          TEXT,

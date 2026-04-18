@@ -179,36 +179,46 @@ export const getWalletStats = (address: string): WalletStats | null => {
 };
 
 export const getTopWallets = (
-  sort: 'volume' | 'trades' | 'recent' | 'score' | 'roi' = 'volume',
+  sort: 'volume' | 'trades' | 'recent' | 'score' | 'roi' | 'trust' = 'trust',
   limit = 50,
   offset = 0,
   filters?: { minScore?: number; heat?: string; hasSignals?: boolean },
 ): WalletStats[] => {
   const db = getDatabase();
+  const discoveryScoreExpr = 'COALESCE(s2.discovery_score, w.whale_score, 0)';
+  const trustScoreExpr = 'COALESCE(s2.trust_score, s.trust_score, 0)';
+  const copyabilityScoreExpr = 'COALESCE(s2.copyability_score, s.copyability_score, 0)';
   const orderMap: Record<string, string> = {
-    volume: 'volume_7d DESC',
-    trades: 'trade_count_7d DESC',
-    recent: 'last_active DESC',
-    score: 'whale_score DESC',
-    roi: 'roi_pct DESC',
+    volume: `w.volume_7d DESC, ${discoveryScoreExpr} DESC`,
+    trades: `w.trade_count_7d DESC, ${discoveryScoreExpr} DESC`,
+    recent: `w.last_active DESC, ${discoveryScoreExpr} DESC`,
+    score: `${discoveryScoreExpr} DESC, ${trustScoreExpr} DESC`,
+    roi: `w.roi_pct DESC, ${discoveryScoreExpr} DESC`,
+    trust: `${trustScoreExpr} DESC, ${copyabilityScoreExpr} DESC, ${discoveryScoreExpr} DESC`,
   };
   const orderBy = orderMap[sort] || 'volume_7d DESC';
   let where = 'WHERE 1=1';
   const params: any[] = [];
   if (filters?.minScore !== undefined) {
-    where += ' AND whale_score >= ?';
+    where += ` AND ${discoveryScoreExpr} >= ?`;
     params.push(filters.minScore);
   }
   if (filters?.heat) {
-    where += ' AND heat_indicator = ?';
+    where += ' AND w.heat_indicator = ?';
     params.push(filters.heat);
   }
   if (filters?.hasSignals) {
-    where += ' AND last_signal_at IS NOT NULL';
+    where += ' AND w.last_signal_at IS NOT NULL';
   }
   params.push(limit, offset);
   const rows = db.prepare(
-    `SELECT * FROM discovery_wallets ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`
+    `SELECT w.*
+     FROM discovery_wallets w
+     LEFT JOIN discovery_wallet_scores s ON s.address = w.address
+     LEFT JOIN discovery_wallet_scores_v2 s2 ON s2.address = w.address
+     ${where}
+     ORDER BY ${orderBy}
+     LIMIT ? OFFSET ?`
   ).all(...params) as any[];
   return rows.map(rowToWalletStats);
 };
@@ -522,6 +532,7 @@ export const purgeAllDiscoveryData = (): {
   tradeFactsV2: number;
   wallets: number;
   walletsV2: number;
+  walletCandidatesV2: number;
   walletFeaturesV2: number;
   marketUniverseV2: number;
   alertsV2: number;
@@ -540,6 +551,7 @@ export const purgeAllDiscoveryData = (): {
     const tradeFactsV2 = db.prepare('DELETE FROM discovery_trade_facts_v2').run().changes;
     const wallets = db.prepare('DELETE FROM discovery_wallets').run().changes;
     const walletsV2 = db.prepare('DELETE FROM discovery_wallet_scores_v2').run().changes;
+    const walletCandidatesV2 = db.prepare('DELETE FROM discovery_wallet_candidates_v2').run().changes;
     const walletFeaturesV2 = db.prepare('DELETE FROM discovery_wallet_features_v2').run().changes;
     const marketUniverseV2 = db.prepare('DELETE FROM discovery_market_universe_v2').run().changes;
     const alertsV2 = db.prepare('DELETE FROM discovery_alerts_v2').run().changes;
@@ -555,6 +567,7 @@ export const purgeAllDiscoveryData = (): {
       tradeFactsV2,
       wallets,
       walletsV2,
+      walletCandidatesV2,
       walletFeaturesV2,
       marketUniverseV2,
       alertsV2,
@@ -569,6 +582,7 @@ export const purgeAllDiscoveryData = (): {
         tradeFactsV2 +
         wallets +
         walletsV2 +
+        walletCandidatesV2 +
         walletFeaturesV2 +
         marketUniverseV2 +
         alertsV2 +

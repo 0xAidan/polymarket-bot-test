@@ -17,16 +17,17 @@ import {
   buildLeaderboardSeedCandidates,
   buildMarketPositionSeedCandidates,
   buildTradeSeedCandidates,
-  getCandidateAddressesForScoring,
+  getCandidateAddressesForScoringV2,
   getCandidateAddressesNeedingValidation,
-  getWalletCandidateFocusSummary,
-  getWalletCandidatesByAddress,
+  getWalletCandidateFocusSummaryV2,
+  getWalletCandidatesByAddressV2,
   upsertWalletCandidates,
+  upsertWalletCandidatesV2,
 } from './walletSeedEngine.js';
 import { buildWalletValidationRecord, getWalletValidation, upsertWalletValidation } from './walletValidator.js';
 import { computeCopyabilityScore } from './copyabilityScorer.js';
 import { computeEarlyEntryScore } from './earlyEntryScorer.js';
-import { buildDiscoveryFeatureSnapshot } from './featureEngine.js';
+import { buildDiscoveryFeatureSnapshot, computeProfitabilityScore } from './featureEngine.js';
 import {
   classifyDiscoveryStrategy,
   computeConfidenceBucket,
@@ -71,7 +72,7 @@ type DiscoveryWorkerOptions = {
 
 const DEFAULT_DISCOVERY_CYCLE_MS = 15 * 60 * 1000;
 const DEFAULT_MARKET_SEED_LIMIT = 10;
-const DEFAULT_LEADERBOARD_CATEGORIES = ['POLITICS', 'ECONOMICS', 'TECH', 'FINANCE'];
+const DEFAULT_LEADERBOARD_CATEGORIES = ['SPORTS', 'POLITICS', 'ECONOMICS', 'TECH', 'FINANCE'];
 const DEFAULT_LEADERBOARD_WINDOWS = ['WEEK', 'MONTH'];
 const NOISE_CATEGORIES = new Set(['crypto']);
 
@@ -203,6 +204,7 @@ export class DiscoveryWorkerRuntime {
     }
 
     upsertWalletCandidates(seededCandidates);
+    upsertWalletCandidatesV2(seededCandidates, runTimestamp);
 
     const addressesForValidation = getCandidateAddressesNeedingValidation(15, runTimestamp - 6 * 3600);
     let validatedCount = 0;
@@ -238,18 +240,18 @@ export class DiscoveryWorkerRuntime {
 
     let qualifiedCount = 0;
     let rejectedCount = 0;
-    const candidateAddresses = getCandidateAddressesForScoring(200);
+    const candidateAddresses = getCandidateAddressesForScoringV2(200);
     let categorizedCandidateCount = 0;
     for (const address of candidateAddresses) {
       const validation = getWalletValidation(address);
       if (!validation) continue;
 
       try {
-        const focusSummary = getWalletCandidateFocusSummary(address);
+        const focusSummary = getWalletCandidateFocusSummaryV2(address);
         if (focusSummary.focusCategory && !NOISE_CATEGORIES.has(focusSummary.focusCategory)) {
           categorizedCandidateCount += 1;
         }
-        const candidates = getWalletCandidatesByAddress(address);
+        const candidates = getWalletCandidatesByAddressV2(address);
         const marketContexts = await Promise.all(
           candidates
             .map((candidate) => candidate.conditionId)
@@ -289,11 +291,12 @@ export class DiscoveryWorkerRuntime {
           averageSpreadBps,
           averageTopOfBookUsd,
         });
-        const profitabilityScore = clamp(
-          validation.realizedWinRate * 0.55 +
-          (validation.realizedPnl > 0 ? Math.min(35, validation.realizedPnl / 20) : 0) +
-          featureSnapshot.marketSelectionScore * 0.1,
-        );
+        const profitabilityScore = computeProfitabilityScore({
+          realizedWinRate: validation.realizedWinRate,
+          realizedPnl: validation.realizedPnl,
+          closedPositionsCount: validation.closedPositionsCount,
+          marketSelectionScore: featureSnapshot.marketSelectionScore,
+        });
         const focusScore = clamp(
           featureSnapshot.categoryFocusScore * 0.7 +
           featureSnapshot.marketSelectionScore * 0.3,

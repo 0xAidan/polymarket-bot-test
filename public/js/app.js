@@ -212,6 +212,9 @@ function updateClock() {
 function startAutoRefresh() {
   if (refreshInterval) clearInterval(refreshInterval);
   refreshInterval = setInterval(() => {
+    if (currentTab === 'discovery') {
+      return;
+    }
     refreshCurrentTab();
   }, 5000);
 }
@@ -237,18 +240,9 @@ function refreshCurrentTab() {
       if (!discoveryRefreshTimer) {
         startDiscoveryRefresh();
       } else {
-        loadDiscoveryStatus();
-        if (discoveryWalletOffset === 0) {
-          fetchDiscoveryWallets(false);
-        }
-        loadDiscoveryOverview();
-        loadDiscoverySignals();
-        loadUnusualMarkets();
-        loadDiscoveryWatchlist();
-        loadDiscoveryAlertsCenter();
-        loadDiscoveryAllocationStates();
-        loadDiscoveryAllocationTransitions();
-        loadDiscoveryDittoExecutionPanel();
+        void loadDiscoveryHome().finally(() => {
+          void loadDiscoverySecondaryPanels();
+        });
       }
       break;
   }
@@ -2913,7 +2907,10 @@ const toggleHelpMenu = () => {
 
 let discoveryWalletOffset = 0;
 const DISCOVERY_PAGE_SIZE = 50;
+const DISCOVERY_PRIMARY_REFRESH_MS = 15000;
+const DISCOVERY_SECONDARY_REFRESH_EVERY = 4;
 let discoveryRefreshTimer = null;
+let discoveryRefreshTick = 0;
 let discoveryConfigLoaded = false;
 let discoveryLayoutMode = 'two-pane';
 let discoveryWalletsCache = [];
@@ -2921,6 +2918,11 @@ let discoverySelectedWalletAddress = '';
 let discoveryInspectorRequestSeq = 0;
 const discoveryWalletDetailCache = new Map();
 const discoveryCompareSelection = new Set();
+const discoveryRequestInflight = new Map();
+let discoveryLastPrimaryLoadedAt = 0;
+let discoveryLastSecondaryLoadedAt = 0;
+let discoverySecondaryWarningActive = false;
+let discoveryHomeRefreshQueued = false;
 
 const escapeJsString = (value) => String(value ?? '')
   .replace(/\\/g, '\\\\')
@@ -2963,9 +2965,13 @@ const getDiscoveryIdentityLabel = (walletOrAddress) => {
   return wallet.displayName || wallet.pseudonym || buildWalletAlias(wallet.address);
 };
 
-const getDiscoverySupportingReasons = (wallet) => Array.isArray(wallet?.supportingReasons)
-  ? wallet.supportingReasons.map((value) => String(value || '').trim()).filter(Boolean).slice(0, 3)
-  : [];
+const getDiscoverySupportingReasons = (wallet) => {
+  const reasons = [
+    ...(Array.isArray(wallet?.supportingReasonChips) ? wallet.supportingReasonChips : []),
+    ...(Array.isArray(wallet?.supportingReasons) ? wallet.supportingReasons : []),
+  ];
+  return reasons.map((value) => String(value || '').trim()).filter(Boolean).slice(0, 3);
+};
 
 const getDiscoveryCautionFlags = (wallet) => Array.isArray(wallet?.cautionFlags)
   ? wallet.cautionFlags.map((value) => String(value || '').trim()).filter(Boolean).slice(0, 1)
@@ -2980,9 +2986,15 @@ const normalizeDiscoveryScore = (wallet) => Number.isFinite(Number(wallet.discov
   ? Number(wallet.discoveryScore)
   : Number(wallet.whaleScore || 0);
 
-const normalizeTrustScore = (wallet) => Number.isFinite(Number(wallet.trustScore))
-  ? Number(wallet.trustScore)
-  : Number(wallet.separateScores?.profitability || 0);
+const normalizeTrustScore = (wallet) => {
+  const helper = globalThis.DiscoveryCore?.normalizeTrustScore;
+  if (typeof helper === 'function') {
+    return helper(wallet);
+  }
+  return Number.isFinite(Number(wallet.trustScore))
+    ? Number(wallet.trustScore)
+    : Number(wallet.separateScores?.trust || 0);
+};
 
 const normalizeCopyabilityScore = (wallet) => Number.isFinite(Number(wallet.copyabilityScore))
   ? Number(wallet.copyabilityScore)
@@ -3057,13 +3069,14 @@ const getDiscoveryWalletByAddress = (address) => {
 };
 
 const getDiscoveryBucket = (wallet) => {
-  if (wallet.isTracked) return 'tracked';
-  const score = normalizeDiscoveryScore(wallet);
-  const trust = normalizeTrustScore(wallet);
-  const copyability = normalizeCopyabilityScore(wallet);
-  if (copyability >= 70 && trust >= 65 && score >= 65) return 'copyable';
-  if (trust >= 65 || (wallet.surfaceBucket || '').toLowerCase().includes('trusted')) return 'trusted';
-  if (score >= 55 || wallet.heatIndicator === 'HOT' || wallet.heatIndicator === 'WARMING') return 'emerging';
+  const helper = globalThis.DiscoveryCore?.getDiscoveryColumnBucket;
+  if (typeof helper === 'function') {
+    return helper(wallet);
+  }
+  const surfaceBucket = String(wallet.surfaceBucket || 'watch_only').toLowerCase();
+  if (surfaceBucket === 'copyable') return 'copyable';
+  if (surfaceBucket === 'trusted') return 'trusted';
+  if (surfaceBucket === 'emerging') return 'emerging';
   return 'watch-only';
 };
 
@@ -3141,13 +3154,7 @@ const runDiscoveryCompare = async () => {
   }
   tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Comparing wallets...</td></tr>';
   try {
-    const resp = await fetch('/api/discovery/wallets/compare', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ addresses }),
-    });
-    const data = await resp.json();
-    if (!data.success) throw new Error(data.error || 'Compare failed');
+    const data = await API.post('/discovery/wallets/compare', { addresses });
     const profiles = data.profiles || [];
     if (profiles.length === 0) {
       tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No compare data returned.</td></tr>';
@@ -3178,13 +3185,9 @@ const addSelectedDiscoveryWalletToWatchlist = async () => {
   if (!wallet?.address) return;
   try {
     const note = await win95Dialog.prompt('Optional note for this watchlist wallet:', '', 'Watchlist');
-    await fetch('/api/discovery/watchlist', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        address: wallet.address.toLowerCase(),
-        note: note || undefined,
-      }),
+    await API.post('/discovery/watchlist', {
+      address: wallet.address.toLowerCase(),
+      note: note || undefined,
     });
     await loadDiscoveryWatchlist();
   } catch {
@@ -3194,7 +3197,7 @@ const addSelectedDiscoveryWalletToWatchlist = async () => {
 
 const removeDiscoveryWatchlist = async (address) => {
   try {
-    await fetch('/api/discovery/watchlist/' + encodeURIComponent(address), { method: 'DELETE' });
+    await API.delete('/discovery/watchlist/' + encodeURIComponent(address));
     loadDiscoveryWatchlist();
   } catch {
     /* best-effort */
@@ -3203,15 +3206,13 @@ const removeDiscoveryWatchlist = async (address) => {
 
 const loadDiscoveryWatchlist = async () => {
   const tbody = document.getElementById('discoveryWatchlistBody');
-  if (!tbody) return;
+  if (!tbody) return true;
   try {
-    const resp = await fetch('/api/discovery/watchlist?limit=100&offset=0');
-    const data = await resp.json();
-    if (!data.success) throw new Error(data.error || 'Watchlist unavailable');
+    const data = await API.get('/discovery/watchlist?limit=100&offset=0');
     const rows = data.watchlist || [];
     if (rows.length === 0) {
       tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No watchlist entries yet.</td></tr>';
-      return;
+      return true;
     }
     tbody.innerHTML = rows.map((row) => `
       <tr>
@@ -3224,24 +3225,24 @@ const loadDiscoveryWatchlist = async () => {
         </td>
       </tr>
     `).join('');
+    return true;
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger">${escapeHtml(err.message || 'Watchlist load failed')}</td></tr>`;
+    return false;
   }
 };
 
 const loadDiscoveryAlertsCenter = async () => {
   const listEl = document.getElementById('discoveryAlertsCenterList');
-  if (!listEl) return;
+  if (!listEl) return true;
   try {
     const severityEl = document.getElementById('discoveryAlertsSeverityFilter');
     const severity = severityEl?.value ? `&severity=${encodeURIComponent(severityEl.value)}` : '';
-    const resp = await fetch('/api/discovery/alerts?limit=20&offset=0' + severity);
-    const data = await resp.json();
-    if (!data.success) throw new Error(data.error || 'Alerts unavailable');
+    const data = await API.get('/discovery/alerts?limit=20&offset=0' + severity);
     const alerts = data.alerts || [];
     if (alerts.length === 0) {
       listEl.innerHTML = '<div class="text-center text-muted text-sm">No alerts in this filter.</div>';
-      return;
+      return true;
     }
     listEl.innerHTML = alerts.map((alert) => `
       <div class="signal-card severity-${escapeHtml(alert.severity || 'medium')}">
@@ -3254,22 +3255,22 @@ const loadDiscoveryAlertsCenter = async () => {
         </div>
       </div>
     `).join('');
+    return true;
   } catch (err) {
     listEl.innerHTML = `<div class="text-center text-danger text-sm">${escapeHtml(err.message || 'Alerts load failed')}</div>`;
+    return false;
   }
 };
 
 const loadDiscoveryAllocationStates = async () => {
   const listEl = document.getElementById('discoveryAllocationStatesBody');
-  if (!listEl) return;
+  if (!listEl) return true;
   try {
-    const resp = await fetch('/api/discovery/allocation/states?limit=20&offset=0');
-    const data = await resp.json();
-    if (!data.success) throw new Error(data.error || 'Allocation states unavailable');
+    const data = await API.get('/discovery/allocation/states?limit=20&offset=0');
     const states = data.states || [];
     if (states.length === 0) {
       listEl.innerHTML = '<div class="text-center text-muted text-sm">Waiting for allocation evaluations...</div>';
-      return;
+      return true;
     }
     listEl.innerHTML = states.map((state) => `
       <div class="discovery-allocation-row">
@@ -3278,15 +3279,17 @@ const loadDiscoveryAllocationStates = async () => {
         <div class="text-xs text-muted">${escapeHtml(state.state || 'NEW')} • weight ${Number(state.targetWeight || 0).toFixed(2)}x • action ${escapeHtml(state.action || 'monitor')}</div>
       </div>
     `).join('');
+    return true;
   } catch (err) {
     listEl.innerHTML = `<div class="text-center text-danger text-sm">${escapeHtml(err.message || 'Allocation state load failed')}</div>`;
+    return false;
   }
 };
 
 const dismissDiscoveryAlert = async (id) => {
   if (!id) return;
   try {
-    await fetch(`/api/discovery/alerts/${encodeURIComponent(String(id))}/dismiss`, { method: 'POST' });
+    await API.post(`/discovery/alerts/${encodeURIComponent(String(id))}/dismiss`);
     await loadDiscoveryAlertsCenter();
   } catch {
     /* best-effort */
@@ -3295,15 +3298,13 @@ const dismissDiscoveryAlert = async (id) => {
 
 const loadDiscoveryAllocationTransitions = async () => {
   const listEl = document.getElementById('discoveryAllocationTransitionsBody');
-  if (!listEl) return;
+  if (!listEl) return true;
   try {
-    const resp = await fetch('/api/discovery/allocation/transitions?limit=20&offset=0');
-    const data = await resp.json();
-    if (!data.success) throw new Error(data.error || 'Allocation transitions unavailable');
+    const data = await API.get('/discovery/allocation/transitions?limit=20&offset=0');
     const transitions = data.transitions || [];
     if (transitions.length === 0) {
       listEl.innerHTML = '<div class="text-center text-muted text-sm">No transitions recorded yet.</div>';
-      return;
+      return true;
     }
     listEl.innerHTML = transitions.map((transition) => `
       <div class="discovery-allocation-row">
@@ -3312,14 +3313,16 @@ const loadDiscoveryAllocationTransitions = async () => {
         <div class="text-xs text-muted">${escapeHtml(transition.fromState || 'NEW')} -> ${escapeHtml(transition.toState || 'NEW')} • ${escapeHtml(transition.reason || 'state update')}</div>
       </div>
     `).join('');
+    return true;
   } catch (err) {
     listEl.innerHTML = `<div class="text-center text-danger text-sm">${escapeHtml(err.message || 'Allocation transition load failed')}</div>`;
+    return false;
   }
 };
 
 const loadDiscoveryDittoExecutionPanel = async () => {
   const listEl = document.getElementById('discoveryDittoExecutionBody');
-  if (!listEl) return;
+  if (!listEl) return true;
   try {
     const [assignmentsResp, tradesResp] = await Promise.all([
       API.get('/copy-assignments'),
@@ -3346,30 +3349,46 @@ const loadDiscoveryDittoExecutionPanel = async () => {
         </div>
       `).join('');
     listEl.innerHTML = summary + detailRows;
+    return true;
   } catch (err) {
     listEl.innerHTML = `<div class="text-center text-danger text-sm">${escapeHtml(err.message || 'Ditto execution load failed')}</div>`;
+    return false;
   }
 };
 
 const loadDiscoveryMethodology = async () => {
   const bodyEl = document.getElementById('discoveryMethodologyBody');
-  if (!bodyEl) return;
+  if (!bodyEl) return true;
   try {
-    const resp = await fetch('/api/discovery/methodology');
-    const data = await resp.json();
-    if (!data.success) throw new Error(data.error || 'Methodology unavailable');
+    const data = await API.get('/discovery/methodology');
     const methodology = data.methodology || {};
     const scoringStack = (methodology.scoring?.stack || []).join(' -> ');
     const allocationStates = (methodology.allocationPolicy?.states || []).join(', ');
     const controls = (methodology.allocationPolicy?.controls || []).join(', ');
+    const definitions = methodology.scoring?.definitions || {};
+    const bucketDefinitions = methodology.scoring?.bucketDefinitions || {};
+    const trackedOverlay = methodology.scoring?.uiOverlays?.tracked || '';
     bodyEl.innerHTML = `
       <div><strong>Scoring Stack:</strong> ${escapeHtml(scoringStack || 'N/A')}</div>
       <div><strong>Discovery Gates:</strong> ${escapeHtml(methodology.scoring?.discoveryGateLogic || 'N/A')}</div>
+      <div class="mt-8"><strong>Discovery:</strong> ${escapeHtml(definitions.discoveryScore || 'N/A')}</div>
+      <div><strong>Trust:</strong> ${escapeHtml(definitions.trustScore || 'N/A')}</div>
+      <div><strong>Copyability:</strong> ${escapeHtml(definitions.copyabilityScore || 'N/A')}</div>
+      <div><strong>Confidence:</strong> ${escapeHtml(definitions.confidenceBucket || 'N/A')}</div>
+      <div><strong>Strategy:</strong> ${escapeHtml(definitions.strategyClass || 'N/A')}</div>
+      <div class="mt-8"><strong>Emerging:</strong> ${escapeHtml(bucketDefinitions.emerging || 'N/A')}</div>
+      <div><strong>Trusted:</strong> ${escapeHtml(bucketDefinitions.trusted || 'N/A')}</div>
+      <div><strong>Copyable:</strong> ${escapeHtml(bucketDefinitions.copyable || 'N/A')}</div>
+      <div><strong>Watch only:</strong> ${escapeHtml(bucketDefinitions.watch_only || 'N/A')}</div>
+      <div><strong>Suppressed:</strong> ${escapeHtml(bucketDefinitions.suppressed || 'N/A')}</div>
+      <div><strong>Tracked overlay:</strong> ${escapeHtml(trackedOverlay || 'N/A')}</div>
       <div><strong>Allocation States:</strong> ${escapeHtml(allocationStates || 'N/A')}</div>
       <div><strong>Allocation Controls:</strong> ${escapeHtml(controls || 'N/A')}</div>
     `;
+    return true;
   } catch (err) {
     bodyEl.innerHTML = `<div class="text-danger">${escapeHtml(err.message || 'Methodology load failed')}</div>`;
+    return false;
   }
 };
 
@@ -3379,17 +3398,15 @@ const renderEmptyDiscoveryState = (message) => {
   const tableBody = document.getElementById('discoveryWalletsBody');
   if (listPane) listPane.innerHTML = `<div class="text-center text-muted text-sm">${escapeHtml(message)}</div>`;
   if (boardColumns) boardColumns.innerHTML = `<div class="text-center text-muted text-sm">${escapeHtml(message)}</div>`;
-  if (tableBody) tableBody.innerHTML = `<tr><td colspan="8" class="text-center text-muted">${escapeHtml(message)}</td></tr>`;
+  if (tableBody) tableBody.innerHTML = `<tr><td colspan="9" class="text-center text-muted">${escapeHtml(message)}</td></tr>`;
 };
 
 const loadDiscoveryConfig = async () => {
   // Only load from server once — don't overwrite fields the user is editing
-  if (discoveryConfigLoaded) return;
+  if (discoveryConfigLoaded) return true;
 
   try {
-    const resp = await fetch('/api/discovery/config');
-    const data = await resp.json();
-    if (!data.success) return;
+    const data = await API.get('/discovery/config');
     const cfg = data.config;
 
     const enabledEl = document.getElementById('discoveryEnabled');
@@ -3421,7 +3438,11 @@ const loadDiscoveryConfig = async () => {
     }
 
     discoveryConfigLoaded = true;
-  } catch { /* best-effort */ }
+    return true;
+  } catch (err) {
+    setDiscoveryHealthBanner(err.message || 'Discovery config is temporarily unavailable.', 'warning');
+    return false;
+  }
 };
 
 const normalizeEpochMs = (value) => {
@@ -3441,62 +3462,221 @@ const relativeTimeFromMs = (value) => {
   return `${(delta / 3600000).toFixed(1)}h ago`;
 };
 
-const loadDiscoveryStatus = async () => {
+const setDiscoveryHealthBanner = (message = '', tone = 'muted') => {
+  const banner = document.getElementById('discoveryHealthBanner');
+  if (!banner) return;
+  if (!message) {
+    banner.style.display = 'none';
+    banner.textContent = '';
+    banner.style.color = '';
+    return;
+  }
+
+  banner.style.display = '';
+  banner.textContent = message;
+  banner.style.color = tone === 'danger'
+    ? 'var(--danger, #c00)'
+    : tone === 'warning'
+      ? 'var(--warning, #d68c00)'
+      : '';
+};
+
+const runDiscoveryRequest = (key, loader) => {
+  if (discoveryRequestInflight.has(key)) {
+    return discoveryRequestInflight.get(key);
+  }
+
+  const promise = Promise.resolve()
+    .then(loader)
+    .finally(() => {
+      discoveryRequestInflight.delete(key);
+    });
+
+  discoveryRequestInflight.set(key, promise);
+  return promise;
+};
+
+const buildDiscoveryWalletQuery = ({ limit, offset }) => {
+  const sortEl = document.getElementById('discoveryWalletSort');
+  const sort = sortEl ? sortEl.value : 'trust';
+  const focusEl = document.getElementById('discoveryFocus');
+  const focus = focusEl ? focusEl.value : 'all-real-world';
+  const minScoreEl = document.getElementById('filterMinScore');
+  const heatEl = document.getElementById('filterHeat');
+  const hasSignalsEl = document.getElementById('filterHasSignals');
+  let query = `sort=${encodeURIComponent(sort)}&limit=${limit}&offset=${offset}`;
+  if (focus) query += `&focus=${encodeURIComponent(focus)}`;
+  if (minScoreEl && parseInt(minScoreEl.value, 10) > 0) query += `&minScore=${minScoreEl.value}`;
+  if (heatEl && heatEl.value) query += `&heat=${encodeURIComponent(heatEl.value)}`;
+  if (hasSignalsEl && hasSignalsEl.checked) query += '&hasSignals=true';
+  return query;
+};
+
+const renderDiscoveryStatusData = (data) => {
   const chainEl = document.getElementById('discoveryChainStatus');
   const pollerEl = document.getElementById('discoveryPollerStatus');
   const walletEl = document.getElementById('discoveryWalletCount');
   const tradeEl = document.getElementById('discoveryTradeCount');
   const uptimeEl = document.getElementById('discoveryUptime');
-  try {
-    const resp = await fetch('/api/discovery/status');
-    const data = await resp.json();
-    if (!data.success) {
-      if (chainEl) chainEl.textContent = 'Unavailable';
-      if (pollerEl) pollerEl.textContent = 'Unavailable';
-      if (walletEl) walletEl.textContent = '0';
-      if (tradeEl) tradeEl.textContent = '0';
-      if (uptimeEl) uptimeEl.textContent = '--';
-      return;
-    }
 
-    if (chainEl) {
-      const cl = data.chainListener || {};
-      const lastEventMs = normalizeEpochMs(cl.lastEventAt);
-      const usingCycleOnlyMode = !cl.connected && !lastEventMs && Boolean(data.latestRun);
-      if (usingCycleOnlyMode) {
-        chainEl.textContent = 'Cycle mode • no live chain stream';
-        chainEl.style.color = '';
-      } else {
-        const lastEventText = relativeTimeFromMs(lastEventMs);
-        chainEl.textContent = cl.connected ? `Connected • last ${lastEventText}` : `Disconnected • last ${lastEventText}`;
-        chainEl.style.color = cl.connected ? 'var(--success)' : 'var(--danger, #c00)';
-      }
-    }
-    if (pollerEl) {
-      const ap = data.apiPoller || {};
-      const lastPollMs = normalizeEpochMs(ap.lastPollAt);
-      const lastPollText = relativeTimeFromMs(lastPollMs);
-      pollerEl.textContent = ap.running
-        ? `Polling (${ap.marketsMonitored}) • last ${lastPollText}`
-        : `Stopped • last ${lastPollText}`;
-      const stale = lastPollMs && Date.now() - lastPollMs > 60000;
-      pollerEl.style.color = ap.running && !stale ? 'var(--success)' : (stale ? 'var(--danger, #c00)' : '');
-    }
-    if (walletEl) walletEl.textContent = (data.stats?.totalWallets ?? 0).toLocaleString();
-    if (tradeEl) tradeEl.textContent = (data.stats?.totalTrades ?? 0).toLocaleString();
-    if (uptimeEl) {
-      const ms = data.stats?.uptimeMs || 0;
-      if (ms === 0) { uptimeEl.textContent = '--'; }
-      else if (ms < 60000) { uptimeEl.textContent = Math.round(ms / 1000) + 's'; }
-      else if (ms < 3600000) { uptimeEl.textContent = Math.round(ms / 60000) + 'm'; }
-      else { uptimeEl.textContent = (ms / 3600000).toFixed(1) + 'h'; }
-    }
-  } catch {
+  if (!data) {
     if (chainEl) chainEl.textContent = 'Unavailable';
     if (pollerEl) pollerEl.textContent = 'Unavailable';
     if (walletEl) walletEl.textContent = '0';
     if (tradeEl) tradeEl.textContent = '0';
     if (uptimeEl) uptimeEl.textContent = '--';
+    return;
+  }
+
+  if (chainEl) {
+    const cl = data.chainListener || {};
+    const lastEventMs = normalizeEpochMs(cl.lastEventAt);
+    const usingCycleOnlyMode = !cl.connected && !lastEventMs && Boolean(data.latestRun);
+    if (usingCycleOnlyMode) {
+      chainEl.textContent = 'Cycle mode • no live chain stream';
+      chainEl.style.color = '';
+    } else {
+      const lastEventText = relativeTimeFromMs(lastEventMs);
+      chainEl.textContent = cl.connected ? `Connected • last ${lastEventText}` : `Disconnected • last ${lastEventText}`;
+      chainEl.style.color = cl.connected ? 'var(--success)' : 'var(--danger, #c00)';
+    }
+  }
+
+  if (pollerEl) {
+    const ap = data.apiPoller || {};
+    const lastPollMs = normalizeEpochMs(ap.lastPollAt);
+    const lastPollText = relativeTimeFromMs(lastPollMs);
+    pollerEl.textContent = ap.running
+      ? `Polling (${ap.marketsMonitored}) • last ${lastPollText}`
+      : `Stopped • last ${lastPollText}`;
+    const stale = lastPollMs && Date.now() - lastPollMs > 60000;
+    pollerEl.style.color = ap.running && !stale ? 'var(--success)' : (stale ? 'var(--danger, #c00)' : '');
+  }
+
+  if (walletEl) walletEl.textContent = (data.stats?.totalWallets ?? 0).toLocaleString();
+  if (tradeEl) tradeEl.textContent = (data.stats?.totalTrades ?? 0).toLocaleString();
+  if (uptimeEl) {
+    const ms = data.stats?.uptimeMs || 0;
+    if (ms === 0) uptimeEl.textContent = '--';
+    else if (ms < 60000) uptimeEl.textContent = `${Math.round(ms / 1000)}s`;
+    else if (ms < 3600000) uptimeEl.textContent = `${Math.round(ms / 60000)}m`;
+    else uptimeEl.textContent = `${(ms / 3600000).toFixed(1)}h`;
+  }
+};
+
+const renderDiscoveryOverviewData = (overview) => {
+  const quality = overview?.quality || {};
+  const categoryMix = overview?.surfacedByCategory || [];
+  const signalMix = overview?.signalCountsByCategory || [];
+  const topWalletsByDay = overview?.topWalletsByDay || [];
+
+  const surfacedTodayEl = document.getElementById('discoverySurfacedToday');
+  if (surfacedTodayEl) surfacedTodayEl.textContent = String(quality.walletsSurfacedToday || 0);
+  const highInfoPctEl = document.getElementById('discoveryHighInfoPct');
+  if (highInfoPctEl) highInfoPctEl.textContent = `${quality.highInformationWalletPct || 0}%`;
+  const strongSignalsEl = document.getElementById('discoveryStrongSignals');
+  if (strongSignalsEl) strongSignalsEl.textContent = String(quality.walletsWithTwoStrongSignals || 0);
+  const trackedCountEl = document.getElementById('discoveryTrackedCount');
+  if (trackedCountEl) trackedCountEl.textContent = String(quality.trackedWallets || 0);
+
+  const categoryMixEl = document.getElementById('discoveryCategoryMix');
+  if (categoryMixEl) {
+    categoryMixEl.innerHTML = categoryMix.length === 0
+      ? 'Collecting data...'
+      : categoryMix.map((item) => `<div>${discoveryCategoryLabel(item.category)}: <strong>${item.count}</strong></div>`).join('');
+  }
+
+  const signalMixEl = document.getElementById('discoverySignalMix');
+  if (signalMixEl) {
+    signalMixEl.innerHTML = signalMix.length === 0
+      ? 'Collecting data...'
+      : signalMix.map((item) => `<div>${discoveryCategoryLabel(item.category)}: <strong>${item.count}</strong></div>`).join('');
+  }
+
+  const topWalletsEl = document.getElementById('discoveryTopWalletsByDay');
+  if (topWalletsEl) {
+    topWalletsEl.innerHTML = topWalletsByDay.length === 0
+      ? 'Collecting data...'
+      : topWalletsByDay.map((day) => {
+        const wallets = (day.wallets || []).slice(0, 3).map((wallet) => {
+          const shortAddr = wallet.address ? `${wallet.address.slice(0, 6)}...${wallet.address.slice(-4)}` : '—';
+          return `${shortAddr} (${discoveryCategoryLabel(wallet.focusCategory)})`;
+        }).join(', ');
+        return `<div><strong>${day.day}</strong>: ${wallets || 'No surfaced wallets'}</div>`;
+      }).join('');
+  }
+};
+
+const renderDiscoverySignalsData = (signals) => {
+  const listEl = document.getElementById('discoverySignalsList');
+  const countEl = document.getElementById('signalCount');
+  if (!listEl) return;
+
+  const signalRows = signals || [];
+  if (countEl) countEl.textContent = `${signalRows.length} signal${signalRows.length !== 1 ? 's' : ''} shown`;
+
+  if (signalRows.length === 0) {
+    listEl.innerHTML = '<div class="text-center text-muted text-sm">No signals yet — collecting data...</div>';
+    return;
+  }
+
+  const priority = { CONVICTION_BUILD: 0, COORDINATED_ENTRY: 1, MARKET_PIONEER: 2, NEW_WHALE: 3, VOLUME_SPIKE: 4, SIZE_ANOMALY: 5, DORMANT_ACTIVATION: 6 };
+  const sortedSignals = [...signalRows].sort((a, b) => (priority[a.signalType] ?? 99) - (priority[b.signalType] ?? 99));
+  listEl.innerHTML = sortedSignals.map((s) => {
+    const detectedAtMs = normalizeEpochMs(s.detectedAt);
+    const timeAgo = detectedAtMs ? relativeTimeFromMs(detectedAtMs) : '';
+    const dismissBtn = s.canDismiss
+      ? '<button class="win-btn win-btn-sm" onclick="dismissSignal(' + s.id + ')" aria-label="Dismiss">Dismiss</button>'
+      : '';
+    const meta = s.metadata || {};
+    const detail = s.signalType === 'CONVICTION_BUILD'
+      ? `Fills: ${meta.fills || 0} • Notional: $${Number(meta.totalNotional || 0).toLocaleString()}`
+      : s.signalType === 'COORDINATED_ENTRY'
+        ? `Wallets: ${meta.walletCount || 0} • Volume: $${Number(meta.totalVolume || 0).toLocaleString()} • Avg score: ${Number(meta.avgScore || 0).toFixed(1)}`
+        : '';
+    return '<div class="signal-card severity-' + (s.severity || 'medium') + '">' +
+      '<span class="signal-type-badge">' + (s.signalType || '').replace(/_/g, ' ') + '</span>' +
+      '<strong>' + (s.title || '') + '</strong> ' + timeAgo + '<br>' +
+      '<span class="text-sm text-muted">' + (s.description || '') + '</span>' + (detail ? '<br><span class="text-xs text-muted">' + detail + '</span>' : '') + '<br>' +
+      dismissBtn + '</div>';
+  }).join('');
+};
+
+const renderDiscoveryMarketsData = (markets) => {
+  const tbody = document.getElementById('unusualMarketsBody');
+  if (!tbody) return;
+
+  const rows = markets || [];
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No unusual markets yet — this section only shows strict MARKET_PIONEER / COORDINATED_ENTRY signals.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map((m) => {
+    const title = m.market_title || m.condition_id?.slice(0, 12) || '—';
+    const types = (m.signal_types || '').replace(/,/g, ', ');
+    const walletCount = m.wallets ? m.wallets.split(',').length : 0;
+    const firstDetected = m.first_detected ? new Date(m.first_detected).toLocaleString() : '—';
+    const wallets = (m.wallets || '').split(',').filter(Boolean);
+    const walletActions = wallets.slice(0, 3).map((wallet) => {
+      const safeWallet = String(wallet).replace(/'/g, "\\'");
+      return `<button class="win-btn win-btn-sm" style="margin-right:4px;" onclick="event.stopPropagation();openWalletDetail('${safeWallet}')">${wallet.slice(0, 6)}...${wallet.slice(-4)}</button>`;
+    }).join('');
+    return `<tr>
+      <td>${title}</td>
+      <td>${types}</td>
+      <td>${walletCount}</td>
+      <td>${firstDetected}<div style="margin-top:4px;">${walletActions || '<span class="text-xs text-muted">No linked wallets</span>'}</div></td>
+    </tr>`;
+  }).join('');
+};
+
+const loadDiscoveryStatus = async () => {
+  try {
+    const data = await API.get('/discovery/status');
+    renderDiscoveryStatusData(data);
+  } catch {
+    renderDiscoveryStatusData(null);
   }
 };
 
@@ -3548,7 +3728,7 @@ const buildDiscoveryWalletCardHtml = (wallet) => {
   const copyabilityScore = Math.round(normalizeCopyabilityScore(wallet));
   const identityLabel = getDiscoveryIdentityLabel(wallet);
   const strategyClass = (wallet.strategyClass || 'unknown').replace(/_/g, ' ');
-  const scoreStackLine = `Score ${discoveryScore} • Trust ${trustScore} • Copy ${copyabilityScore}`;
+  const scoreStackLine = `Discovery ${discoveryScore} • Trust ${trustScore} • Copy ${copyabilityScore}`;
   const reasonLine = wallet.whySurfaced || wallet.primaryReason || 'Reason details are collecting.';
   const confidence = (wallet.confidence || 'low').toUpperCase();
   const supportingReasons = getDiscoverySupportingReasons(wallet);
@@ -3600,11 +3780,10 @@ const renderDiscoveryBoard = (wallets) => {
   const columnsEl = document.getElementById('discoveryBoardColumns');
   if (!columnsEl) return;
   const buckets = {
-    emerging: { title: 'Emerging', wallets: [] },
-    trusted: { title: 'Trusted', wallets: [] },
     copyable: { title: 'Copyable', wallets: [] },
+    trusted: { title: 'Trusted', wallets: [] },
+    emerging: { title: 'Emerging', wallets: [] },
     'watch-only': { title: 'Watch-Only', wallets: [] },
-    tracked: { title: 'Tracked', wallets: [] },
   };
 
   wallets.forEach((wallet) => {
@@ -3616,7 +3795,7 @@ const renderDiscoveryBoard = (wallets) => {
     buckets[bucket].wallets.push(wallet);
   });
 
-  const orderedKeys = ['emerging', 'trusted', 'copyable', 'watch-only', 'tracked'];
+  const orderedKeys = ['copyable', 'trusted', 'emerging', 'watch-only'];
   columnsEl.innerHTML = orderedKeys.map((bucketKey) => {
     const bucket = buckets[bucketKey];
     const stack = bucket.wallets.length
@@ -3631,7 +3810,7 @@ const renderDiscoveryBoard = (wallets) => {
           <div class="discovery-board-card${activeClass}" role="button" tabindex="0" onclick="selectDiscoveryWallet('${safeAddress}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectDiscoveryWallet('${safeAddress}')}" aria-label="Inspect wallet ${escapeHtml(identityLabel)}">
             <div class="text-sm">${escapeHtml(identityLabel)}</div>
             <div class="text-xs text-muted">${escapeHtml(shortAddress(wallet.address))}</div>
-            <div class="text-xs text-muted">${heatBadge(wallet.heatIndicator)} • Score ${discoveryScore}</div>
+            <div class="text-xs text-muted">${heatBadge(wallet.heatIndicator)} • Discovery ${discoveryScore}</div>
           </div>
         `;
       }).join('')
@@ -3654,7 +3833,10 @@ const renderDiscoveryTable = (wallets) => {
     const discoveryScore = Math.round(normalizeDiscoveryScore(wallet));
     const trustScore = Math.round(normalizeTrustScore(wallet));
     const copyabilityScore = Math.round(normalizeCopyabilityScore(wallet));
+    const confidence = String(wallet.confidence || 'low').toUpperCase();
     const strategyClass = (wallet.strategyClass || 'unknown').replace(/_/g, ' ');
+    const categoryLabel = discoveryCategoryLabel(wallet.focusCategory);
+    const reasonLine = wallet.whySurfaced || wallet.primaryReason || 'Reason details are collecting.';
     const selected = (wallet.address || '').toLowerCase() === (discoverySelectedWalletAddress || '').toLowerCase() ? ' selected' : '';
     return `
       <tr class="discovery-wallet-row${selected}" role="button" tabindex="0" onclick="selectDiscoveryWallet('${safeAddress}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectDiscoveryWallet('${safeAddress}')}" aria-label="Inspect wallet ${escapeHtml(identityLabel)}">
@@ -3663,8 +3845,9 @@ const renderDiscoveryTable = (wallets) => {
         <td>${scoreBar(discoveryScore)}</td>
         <td>${trustScore}</td>
         <td>${copyabilityScore}</td>
-        <td>${heatBadge(wallet.heatIndicator)}</td>
-        <td>$${Number(wallet.volume7d || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</td>
+        <td>${escapeHtml(confidence)}</td>
+        <td>${escapeHtml(categoryLabel)}</td>
+        <td class="text-xs text-muted">${escapeHtml(reasonLine)}</td>
         <td>
           <div class="flex-row gap-8">
             <button class="win-btn win-btn-sm" onclick="event.stopPropagation();openWalletDetail('${safeAddress}')">View</button>
@@ -3681,7 +3864,11 @@ const updateDiscoveryWalletCountLabel = (wallets) => {
   const countEl = document.getElementById('discoveryWalletsCount');
   if (!countEl) return;
   const focusEl = document.getElementById('discoveryFocus');
-  const focusLabel = focusEl?.value === 'high-information' ? 'High-Information' : 'All Real-World';
+  const focusLabel = focusEl?.value === 'sports-first'
+    ? 'Sports First'
+    : focusEl?.value === 'high-information'
+      ? 'High-Information'
+      : 'All Real-World';
   const query = getDiscoverySearchQuery();
   countEl.textContent = `${wallets.length} wallets shown • ${focusLabel}${query ? ` • search "${query}"` : ''}`;
 };
@@ -3712,22 +3899,10 @@ const renderDiscoveryWalletViews = () => {
 
 const fetchDiscoveryWallets = async (append) => {
   try {
-    const sortEl = document.getElementById('discoveryWalletSort');
-    const sort = sortEl ? sortEl.value : 'score';
-    const focusEl = document.getElementById('discoveryFocus');
-    const focus = focusEl ? focusEl.value : 'all-real-world';
-    const minScoreEl = document.getElementById('filterMinScore');
-    const heatEl = document.getElementById('filterHeat');
-    const hasSignalsEl = document.getElementById('filterHasSignals');
-    let url = `/api/discovery/wallets?sort=${encodeURIComponent(sort)}&limit=${DISCOVERY_PAGE_SIZE}&offset=${discoveryWalletOffset}`;
-    if (focus) url += '&focus=' + encodeURIComponent(focus);
-    if (minScoreEl && parseInt(minScoreEl.value, 10) > 0) url += '&minScore=' + minScoreEl.value;
-    if (heatEl && heatEl.value) url += '&heat=' + encodeURIComponent(heatEl.value);
-    if (hasSignalsEl && hasSignalsEl.checked) url += '&hasSignals=true';
-
-    const resp = await fetch(url);
-    const data = await resp.json();
-    if (!data.success) return;
+    const data = await API.get(`/discovery/wallets?${buildDiscoveryWalletQuery({
+      limit: DISCOVERY_PAGE_SIZE,
+      offset: discoveryWalletOffset,
+    })}`);
 
     const walletBatch = data.wallets || [];
     if (!append) {
@@ -3747,12 +3922,14 @@ const fetchDiscoveryWallets = async (append) => {
 
     const loadMoreBtn = document.getElementById('discoveryLoadMoreBtn');
     if (loadMoreBtn) loadMoreBtn.style.display = walletBatch.length >= DISCOVERY_PAGE_SIZE ? '' : 'none';
-  } catch { /* best-effort */ }
+  } catch (err) {
+    setDiscoveryHealthBanner(err.message || 'Discovery wallets are temporarily unavailable.', 'warning');
+  }
 };
 
 const applyDiscoveryFilters = () => {
   discoveryWalletOffset = 0;
-  fetchDiscoveryWallets(false);
+  void loadDiscoveryHome();
 };
 
 const handleDiscoverySearchInput = () => {
@@ -3774,17 +3951,15 @@ const fetchDiscoveryInspectorData = async (address) => {
     return cached.data;
   }
 
-  const [positionsResp, signalsResp] = await Promise.all([
-    fetch('/api/discovery/wallets/' + encodeURIComponent(cacheKey) + '/positions'),
-    fetch('/api/discovery/wallets/' + encodeURIComponent(cacheKey) + '/signals'),
+  const [positionsData, signalsData] = await Promise.all([
+    API.get('/discovery/wallets/' + encodeURIComponent(cacheKey) + '/positions'),
+    API.get('/discovery/wallets/' + encodeURIComponent(cacheKey) + '/signals'),
   ]);
-  const positionsData = await positionsResp.json();
-  const signalsData = await signalsResp.json();
   const data = {
-    positions: positionsData?.success ? (positionsData.positions || []) : [],
+    positions: positionsData.positions || [],
     positionSource: positionsData?.source || 'derived',
     profileUrl: positionsData?.profileUrl || '',
-    signals: signalsData?.success ? (signalsData.signals || []) : [],
+    signals: signalsData.signals || [],
   };
   discoveryWalletDetailCache.set(cacheKey, { data, updatedAt: now });
   return data;
@@ -3798,7 +3973,7 @@ const renderDiscoveryInspector = async () => {
   const wallet = getDiscoveryWalletByAddress(discoverySelectedWalletAddress);
   if (!wallet) {
     titleEl.textContent = 'Inspector';
-    bodyEl.innerHTML = '<div class="text-sm text-muted">Select a wallet to inspect why it surfaced and whether it is copy-ready.</div>';
+    bodyEl.innerHTML = '<div class="text-sm text-muted">Select a wallet to inspect why it surfaced and whether it is copyable.</div>';
     return;
   }
 
@@ -3937,130 +4112,31 @@ const loadDiscoverySignals = async () => {
   try {
     const severityEl = document.getElementById('signalSeverityFilter');
     const severity = severityEl ? severityEl.value : '';
-    let url = '/api/discovery/signals?limit=10&offset=0';
+    let url = '/discovery/signals?limit=10&offset=0';
     if (severity) url += '&severity=' + encodeURIComponent(severity);
-    const resp = await fetch(url);
-    const data = await resp.json();
-    const listEl = document.getElementById('discoverySignalsList');
-    const countEl = document.getElementById('signalCount');
-    if (!data.success || !listEl) return;
-
-    const signals = data.signals || [];
-    if (countEl) countEl.textContent = signals.length + ' signal' + (signals.length !== 1 ? 's' : '') + ' shown';
-
-    if (signals.length === 0) {
-      listEl.innerHTML = '<div class="text-center text-muted text-sm">No signals yet — collecting data...</div>';
-      return;
-    }
-
-    const priority = { CONVICTION_BUILD: 0, COORDINATED_ENTRY: 1, MARKET_PIONEER: 2, NEW_WHALE: 3, VOLUME_SPIKE: 4, SIZE_ANOMALY: 5, DORMANT_ACTIVATION: 6 };
-    const sortedSignals = [...signals].sort((a, b) => (priority[a.signalType] ?? 99) - (priority[b.signalType] ?? 99));
-    listEl.innerHTML = sortedSignals.map((s) => {
-      const timeAgo = s.detectedAt ? (Date.now() - s.detectedAt < 60000 ? 'Just now' : Math.floor((Date.now() - s.detectedAt) / 60000) + 'm ago') : '';
-      const dismissBtn = s.canDismiss
-        ? '<button class="win-btn win-btn-sm" onclick="dismissSignal(' + s.id + ')" aria-label="Dismiss">Dismiss</button>'
-        : '';
-      const meta = s.metadata || {};
-      const detail = s.signalType === 'CONVICTION_BUILD'
-        ? `Fills: ${meta.fills || 0} • Notional: $${Number(meta.totalNotional || 0).toLocaleString()}`
-        : s.signalType === 'COORDINATED_ENTRY'
-          ? `Wallets: ${meta.walletCount || 0} • Volume: $${Number(meta.totalVolume || 0).toLocaleString()} • Avg score: ${Number(meta.avgScore || 0).toFixed(1)}`
-          : '';
-      return '<div class="signal-card severity-' + (s.severity || 'medium') + '">' +
-        '<span class="signal-type-badge">' + (s.signalType || '').replace(/_/g, ' ') + '</span>' +
-        '<strong>' + (s.title || '') + '</strong> ' + timeAgo + '<br>' +
-        '<span class="text-sm text-muted">' + (s.description || '') + '</span>' + (detail ? '<br><span class="text-xs text-muted">' + detail + '</span>' : '') + '<br>' +
-        dismissBtn + '</div>';
-    }).join('');
+    const data = await API.get(url);
+    renderDiscoverySignalsData(data.signals || []);
   } catch { /* best-effort */ }
 };
 
 const dismissSignal = async (id) => {
   try {
-    await fetch('/api/discovery/signals/' + id + '/dismiss', { method: 'POST' });
+    await API.post('/discovery/signals/' + id + '/dismiss');
     loadDiscoverySignals();
   } catch { /* best-effort */ }
 };
 
 const loadUnusualMarkets = async () => {
   try {
-    const resp = await fetch('/api/discovery/signals/markets?days=7');
-    const data = await resp.json();
-    const tbody = document.getElementById('unusualMarketsBody');
-    if (!data.success || !tbody) return;
-
-    const markets = data.markets || [];
-    if (markets.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No unusual markets yet — this section only shows strict MARKET_PIONEER / COORDINATED_ENTRY signals.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = markets.map((m) => {
-      const title = m.market_title || m.condition_id?.slice(0, 12) || '—';
-      const types = (m.signal_types || '').replace(/,/g, ', ');
-      const walletCount = m.wallets ? m.wallets.split(',').length : 0;
-      const firstDetected = m.first_detected ? new Date(m.first_detected).toLocaleString() : '—';
-      const wallets = (m.wallets || '').split(',').filter(Boolean);
-      const walletActions = wallets.slice(0, 3).map((wallet) => {
-        const safeWallet = String(wallet).replace(/'/g, "\\'");
-        return `<button class="win-btn win-btn-sm" style="margin-right:4px;" onclick="event.stopPropagation();openWalletDetail('${safeWallet}')">${wallet.slice(0, 6)}...${wallet.slice(-4)}</button>`;
-      }).join('');
-      return `<tr>
-        <td>${title}</td>
-        <td>${types}</td>
-        <td>${walletCount}</td>
-        <td>${firstDetected}<div style="margin-top:4px;">${walletActions || '<span class="text-xs text-muted">No linked wallets</span>'}</div></td>
-      </tr>`;
-    }).join('');
+    const data = await API.get('/discovery/signals/markets?days=7');
+    renderDiscoveryMarketsData(data.markets || []);
   } catch { /* best-effort */ }
 };
 
 const loadDiscoveryOverview = async () => {
   try {
-    const resp = await fetch('/api/discovery/summary?days=7');
-    const data = await resp.json();
-    if (!data.success) return;
-
-    const overview = data.overview || {};
-    const quality = overview.quality || {};
-    const categoryMix = overview.surfacedByCategory || [];
-    const signalMix = overview.signalCountsByCategory || [];
-    const topWalletsByDay = overview.topWalletsByDay || [];
-
-    const surfacedTodayEl = document.getElementById('discoverySurfacedToday');
-    if (surfacedTodayEl) surfacedTodayEl.textContent = String(quality.walletsSurfacedToday || 0);
-    const highInfoPctEl = document.getElementById('discoveryHighInfoPct');
-    if (highInfoPctEl) highInfoPctEl.textContent = `${quality.highInformationWalletPct || 0}%`;
-    const strongSignalsEl = document.getElementById('discoveryStrongSignals');
-    if (strongSignalsEl) strongSignalsEl.textContent = String(quality.walletsWithTwoStrongSignals || 0);
-    const trackedCountEl = document.getElementById('discoveryTrackedCount');
-    if (trackedCountEl) trackedCountEl.textContent = String(quality.trackedWallets || 0);
-
-    const categoryMixEl = document.getElementById('discoveryCategoryMix');
-    if (categoryMixEl) {
-      categoryMixEl.innerHTML = categoryMix.length === 0
-        ? 'Collecting data...'
-        : categoryMix.map((item) => `<div>${discoveryCategoryLabel(item.category)}: <strong>${item.count}</strong></div>`).join('');
-    }
-
-    const signalMixEl = document.getElementById('discoverySignalMix');
-    if (signalMixEl) {
-      signalMixEl.innerHTML = signalMix.length === 0
-        ? 'Collecting data...'
-        : signalMix.map((item) => `<div>${discoveryCategoryLabel(item.category)}: <strong>${item.count}</strong></div>`).join('');
-    }
-
-    const topWalletsEl = document.getElementById('discoveryTopWalletsByDay');
-    if (topWalletsEl) {
-      topWalletsEl.innerHTML = topWalletsByDay.length === 0
-        ? 'Collecting data...'
-        : topWalletsByDay.map((day) => {
-          const wallets = (day.wallets || []).slice(0, 3).map((wallet) => {
-            const shortAddr = wallet.address ? `${wallet.address.slice(0, 6)}...${wallet.address.slice(-4)}` : '—';
-            return `${shortAddr} (${discoveryCategoryLabel(wallet.focusCategory)})`;
-          }).join(', ');
-          return `<div><strong>${day.day}</strong>: ${wallets || 'No surfaced wallets'}</div>`;
-        }).join('');
-    }
+    const data = await API.get('/discovery/summary?days=7');
+    renderDiscoveryOverviewData(data.overview || {});
   } catch { /* best-effort */ }
 };
 
@@ -4075,14 +4151,12 @@ const openWalletDetail = async (address) => {
   overlay.style.display = 'flex';
 
   try {
-    const [posResp, sigResp] = await Promise.all([
-      fetch('/api/discovery/wallets/' + encodeURIComponent(address.toLowerCase()) + '/positions'),
-      fetch('/api/discovery/wallets/' + encodeURIComponent(address.toLowerCase()) + '/signals'),
+    const [posData, sigData] = await Promise.all([
+      API.get('/discovery/wallets/' + encodeURIComponent(address.toLowerCase()) + '/positions'),
+      API.get('/discovery/wallets/' + encodeURIComponent(address.toLowerCase()) + '/signals'),
     ]);
-    const posData = await posResp.json();
-    const sigData = await sigResp.json();
-    const positions = posData.success ? (posData.positions || []) : [];
-    const signals = sigData.success ? (sigData.signals || []) : [];
+    const positions = posData.positions || [];
+    const signals = sigData.signals || [];
     const positionSource = posData.source || 'derived';
     const positionSourceLabel = positionSource === 'verified'
       ? 'Live open positions from Polymarket'
@@ -4376,40 +4450,120 @@ const clearDiscoveryUiState = () => {
   }
 };
 
+const loadDiscoveryHome = async () => {
+  if (discoveryRequestInflight.has('discovery-home')) {
+    discoveryHomeRefreshQueued = true;
+    return discoveryRequestInflight.get('discovery-home');
+  }
+
+  return runDiscoveryRequest('discovery-home', async () => {
+    try {
+      const data = await API.get(`/discovery/home?${buildDiscoveryWalletQuery({
+        limit: DISCOVERY_PAGE_SIZE,
+        offset: 0,
+      })}&days=7`);
+
+      renderDiscoveryStatusData(data.status || null);
+      renderDiscoveryOverviewData(data.overview || {});
+      const severityFilter = document.getElementById('signalSeverityFilter');
+      if (!severityFilter?.value) {
+        renderDiscoverySignalsData(data.signals || []);
+      }
+      renderDiscoveryMarketsData(data.markets || []);
+
+      const visibleWalletLimit = discoveryWalletOffset > 0
+        ? discoveryWalletOffset + DISCOVERY_PAGE_SIZE
+        : DISCOVERY_PAGE_SIZE;
+      const walletRows = discoveryWalletOffset > 0
+        ? ((await API.get(`/discovery/wallets?${buildDiscoveryWalletQuery({
+          limit: visibleWalletLimit,
+          offset: 0,
+        })}`)).wallets || [])
+        : (data.wallets || []);
+
+      discoveryWalletsCache = walletRows;
+      renderDiscoveryWalletViews();
+
+      const loadMoreBtn = document.getElementById('discoveryLoadMoreBtn');
+      if (loadMoreBtn) loadMoreBtn.style.display = walletRows.length >= visibleWalletLimit ? '' : 'none';
+
+      discoveryLastPrimaryLoadedAt = Date.now();
+      if (!discoverySecondaryWarningActive) {
+        setDiscoveryHealthBanner('');
+      }
+    } catch (err) {
+      const hasSnapshot = discoveryWalletsCache.length > 0;
+      const tone = /rate limit|too many requests/i.test(err.message || '') ? 'warning' : 'danger';
+      const message = hasSnapshot
+        ? `${err.message || 'Discovery is temporarily unavailable.'} Showing the last successful snapshot.`
+        : (err.message || 'Discovery is temporarily unavailable.');
+      setDiscoveryHealthBanner(message, tone);
+      renderDiscoveryStatusData(null);
+    } finally {
+      if (discoveryHomeRefreshQueued) {
+        discoveryHomeRefreshQueued = false;
+        window.setTimeout(() => {
+          void loadDiscoveryHome();
+        }, 0);
+      }
+    }
+  });
+};
+
+const loadDiscoverySecondaryPanels = async () => runDiscoveryRequest('discovery-secondary', async () => {
+  const tasks = await Promise.allSettled([
+    loadDiscoveryConfig(),
+    loadDiscoveryWatchlist(),
+    loadDiscoveryAlertsCenter(),
+    loadDiscoveryAllocationStates(),
+    loadDiscoveryAllocationTransitions(),
+    loadDiscoveryDittoExecutionPanel(),
+    loadDiscoveryMethodology(),
+  ]);
+
+  discoveryLastSecondaryLoadedAt = Date.now();
+  const failures = tasks.filter((result) => result.status === 'rejected' || result.value === false);
+  discoverySecondaryWarningActive = failures.length > 0;
+  if (discoverySecondaryWarningActive) {
+    setDiscoveryHealthBanner('Some secondary discovery panels are temporarily unavailable. Core Safari data is still loaded.', 'warning');
+  } else if (discoveryLastPrimaryLoadedAt > 0) {
+    setDiscoveryHealthBanner('');
+  }
+});
+
+const refreshDiscoverySignalsIfFiltered = () => {
+  const severityFilter = document.getElementById('signalSeverityFilter');
+  if (severityFilter?.value) {
+    void loadDiscoverySignals();
+  }
+};
+
 const startDiscoveryRefresh = () => {
   stopDiscoveryRefresh();
   hydrateDiscoveryLayoutPreference();
-  loadDiscoveryConfig();
-  loadDiscoveryStatus();
-  loadDiscoveryWallets();
-  loadDiscoveryOverview();
-  loadDiscoverySignals();
-  loadUnusualMarkets();
-  loadDiscoveryWatchlist();
-  loadDiscoveryAlertsCenter();
-  loadDiscoveryAllocationStates();
-  loadDiscoveryAllocationTransitions();
-  loadDiscoveryDittoExecutionPanel();
-  loadDiscoveryMethodology();
+  discoveryRefreshTick = 0;
+  void loadDiscoveryHome().finally(() => {
+    refreshDiscoverySignalsIfFiltered();
+    window.setTimeout(() => {
+      if (currentTab === 'discovery') {
+        void loadDiscoverySecondaryPanels();
+      }
+    }, 750);
+  });
   renderDiscoveryCompareChips();
   discoveryRefreshTimer = setInterval(() => {
     if (currentTab !== 'discovery') {
       stopDiscoveryRefresh();
       return;
     }
-    loadDiscoveryStatus();
-    if (discoveryWalletOffset === 0) {
-      fetchDiscoveryWallets(false);
-    }
-    loadDiscoveryOverview();
-    loadDiscoverySignals();
-    loadUnusualMarkets();
-    loadDiscoveryWatchlist();
-    loadDiscoveryAlertsCenter();
-    loadDiscoveryAllocationStates();
-    loadDiscoveryAllocationTransitions();
-    loadDiscoveryDittoExecutionPanel();
-  }, 10000);
+    discoveryRefreshTick += 1;
+    void loadDiscoveryHome().finally(() => {
+      refreshDiscoverySignalsIfFiltered();
+      if (discoveryRefreshTick % DISCOVERY_SECONDARY_REFRESH_EVERY === 0) {
+        void loadDiscoverySecondaryPanels();
+      }
+    });
+  }, DISCOVERY_PRIMARY_REFRESH_MS);
 };
 
 const stopDiscoveryRefresh = () => {

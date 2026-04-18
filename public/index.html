@@ -444,7 +444,7 @@
           <div class="discovery-v2-shell">
             <div class="section-intro discovery-v2-intro">
               <div class="app-section-kicker">Safari V2</div>
-              <p class="section-intro-text">Discovery is now built for three jobs at once: scan strong candidates fast, decide if they are copy-worthy, and monitor what changed without drowning in noise.</p>
+              <p class="section-intro-text">Discovery is now built for three jobs at once: scan strong candidates fast, decide if they are copyable, and monitor what changed without drowning in noise.</p>
             </div>
 
             <div class="discovery-v2-metrics">
@@ -480,24 +480,28 @@
               <span><strong>Uptime:</strong> <span id="discoveryUptime">--</span></span>
             </div>
 
+            <div id="discoveryHealthBanner" class="text-sm text-muted" style="display:none; margin: 10px 0 0 0;"></div>
+
             <div class="win-group discovery-v2-toolbar">
               <div class="discovery-toolbar-row">
                 <label>Focus</label>
                 <select id="discoveryFocus" class="win-select" onchange="applyDiscoveryFilters()" aria-label="Discovery focus filter">
-                  <option value="all-real-world" selected>All Real-World</option>
+                  <option value="sports-first" selected>Sports First</option>
                   <option value="high-information">High-Information</option>
+                  <option value="all-real-world">All Real-World</option>
                 </select>
 
                 <label>Sort</label>
                 <select id="discoveryWalletSort" class="win-select" onchange="loadDiscoveryWallets()" aria-label="Sort discovered wallets">
+                  <option value="trust" selected>Trust First</option>
                   <option value="volume">7d Volume</option>
                   <option value="trades">Trade Count</option>
                   <option value="recent">Most Recent</option>
-                  <option value="score" selected>Discovery Score</option>
+                  <option value="score">Discovery Score</option>
                   <option value="roi">ROI</option>
                 </select>
 
-                <label>Heat</label>
+                <label>Pulse</label>
                 <select id="filterHeat" class="win-select" onchange="applyDiscoveryFilters()" aria-label="Filter by heat">
                   <option value="">All</option>
                   <option value="HOT">HOT</option>
@@ -515,7 +519,7 @@
               </div>
 
               <div class="discovery-toolbar-row">
-                <label>Min Score <span id="filterMinScoreVal" class="text-sm">0</span></label>
+                <label>Min Discovery <span id="filterMinScoreVal" class="text-sm">0</span></label>
                 <input type="range" id="filterMinScore" min="0" max="100" value="0" class="win-input discovery-score-slider" oninput="document.getElementById('filterMinScoreVal').textContent=this.value" onchange="applyDiscoveryFilters()">
 
                 <label>Search</label>
@@ -553,16 +557,17 @@
                         <tr>
                           <th>Wallet</th>
                           <th>Strategy</th>
-                          <th>Score</th>
+                          <th>Discovery</th>
                           <th>Trust</th>
                           <th>Copyability</th>
-                          <th>Heat</th>
-                          <th>7d Volume</th>
+                          <th>Confidence</th>
+                          <th>Category</th>
+                          <th>Why</th>
                           <th>Action</th>
                         </tr>
                       </thead>
                       <tbody id="discoveryWalletsBody">
-                        <tr><td colspan="8" class="text-center text-muted">Enable discovery to start finding wallets</td></tr>
+                        <tr><td colspan="9" class="text-center text-muted">Enable discovery to start finding wallets</td></tr>
                       </tbody>
                     </table>
                   </div>
@@ -649,7 +654,7 @@
                     <thead>
                       <tr>
                         <th>Wallet</th>
-                        <th>Score</th>
+                        <th>Discovery</th>
                         <th>Trust</th>
                         <th>Copyability</th>
                         <th>Confidence</th>
@@ -671,7 +676,7 @@
                     <thead>
                       <tr>
                         <th>Wallet</th>
-                        <th>Score</th>
+                        <th>Discovery</th>
                         <th>Allocation</th>
                         <th>Actions</th>
                       </tr>
@@ -1720,6 +1725,8 @@
     </div>
   </div>
 
+  <script src="/js/api-core.js"></script>
+  <script src="/js/discovery-core.js"></script>
   <script src="/js/api.js"></script>
   <script>
     // Auth bootstrap runs before app.js so app initialization is gated by session state.

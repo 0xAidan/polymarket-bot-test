@@ -235,19 +235,22 @@ export class DiscoveryControlPlane {
   }
 
   getWallets(
-    sort: 'volume' | 'trades' | 'recent' | 'score' | 'roi' = 'volume',
+    sort: 'volume' | 'trades' | 'recent' | 'score' | 'roi' | 'trust' = 'trust',
     limit = 50,
     offset = 0,
     filters?: { minScore?: number; heat?: string; hasSignals?: boolean }
   ) {
     const db = getDatabase();
     const scoreOrderExpr = 'COALESCE(s2.discovery_score, s.final_score, 0)';
+    const trustOrderExpr = 'COALESCE(s2.trust_score, s.trust_score, 0)';
+    const copyabilityOrderExpr = 'COALESCE(s2.copyability_score, s.copyability_score, 0)';
     const orderByMap: Record<string, string> = {
       volume: `seed_metric DESC, ${scoreOrderExpr} DESC`,
       trades: `v.trade_activity_count DESC, ${scoreOrderExpr} DESC`,
       recent: 'COALESCE(s2.updated_at, s.updated_at, seed.last_candidate_at) DESC',
       score: `${scoreOrderExpr} DESC`,
       roi: `v.realized_pnl DESC, ${scoreOrderExpr} DESC`,
+      trust: `${trustOrderExpr} DESC, ${copyabilityOrderExpr} DESC, ${scoreOrderExpr} DESC`,
     };
 
     let whereClause = 'WHERE 1=1';
