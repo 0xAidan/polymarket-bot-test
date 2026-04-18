@@ -103,6 +103,14 @@ const API = {
     });
   },
 
+  // PUT request
+  async put(endpoint, body) {
+    return this.fetch(endpoint, {
+      method: 'PUT',
+      body: JSON.stringify(body)
+    });
+  },
+
   // DELETE request
   async delete(endpoint) {
     return this.fetch(endpoint, {

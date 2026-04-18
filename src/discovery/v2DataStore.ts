@@ -113,6 +113,8 @@ export const upsertWalletFeatureSnapshotV2 = (input: {
   focusCategory?: string;
   strategyClass?: string;
   confidenceBucket?: string;
+  sourceChannels?: string[];
+  supportingMarkets?: string[];
   featureSnapshot: {
     marketSelectionScore: number;
     categoryFocusScore: number;
@@ -131,36 +133,15 @@ export const upsertWalletFeatureSnapshotV2 = (input: {
   };
 }): void => {
   const db = getDatabase();
-  db.prepare(`
-    INSERT INTO discovery_wallet_features_v2 (
-      address, snapshot_at, focus_category, strategy_class, confidence_bucket,
-      market_selection_score, category_focus_score, consistency_score, conviction_score,
-      trust_score, integrity_penalty, confidence_evidence_count, average_spread_bps,
-      average_top_of_book_usd, latest_trade_price, current_price, caution_flags_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(address) DO UPDATE SET
-      snapshot_at = excluded.snapshot_at,
-      focus_category = excluded.focus_category,
-      strategy_class = excluded.strategy_class,
-      confidence_bucket = excluded.confidence_bucket,
-      market_selection_score = excluded.market_selection_score,
-      category_focus_score = excluded.category_focus_score,
-      consistency_score = excluded.consistency_score,
-      conviction_score = excluded.conviction_score,
-      trust_score = excluded.trust_score,
-      integrity_penalty = excluded.integrity_penalty,
-      confidence_evidence_count = excluded.confidence_evidence_count,
-      average_spread_bps = excluded.average_spread_bps,
-      average_top_of_book_usd = excluded.average_top_of_book_usd,
-      latest_trade_price = excluded.latest_trade_price,
-      current_price = excluded.current_price,
-      caution_flags_json = excluded.caution_flags_json
-  `).run(
+  const params = [
     input.address,
     input.runTimestamp,
+    2,
     input.focusCategory ?? null,
     input.strategyClass ?? null,
     input.confidenceBucket ?? null,
+    JSON.stringify(input.sourceChannels ?? []),
+    JSON.stringify(input.supportingMarkets ?? []),
     input.featureSnapshot.marketSelectionScore,
     input.featureSnapshot.categoryFocusScore,
     input.featureSnapshot.consistencyScore,
@@ -173,7 +154,70 @@ export const upsertWalletFeatureSnapshotV2 = (input: {
     input.metrics.latestTradePrice ?? null,
     input.metrics.currentPrice ?? null,
     JSON.stringify(input.featureSnapshot.cautionFlags ?? []),
-  );
+  ];
+
+  const tx = db.transaction(() => {
+    db.prepare(`
+      INSERT INTO discovery_wallet_features_v2 (
+        address, snapshot_at, feature_version, focus_category, strategy_class, confidence_bucket,
+        source_channels_json, supporting_markets_json,
+        market_selection_score, category_focus_score, consistency_score, conviction_score,
+        trust_score, integrity_penalty, confidence_evidence_count, average_spread_bps,
+        average_top_of_book_usd, latest_trade_price, current_price, caution_flags_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(address) DO UPDATE SET
+        snapshot_at = excluded.snapshot_at,
+        feature_version = excluded.feature_version,
+        focus_category = excluded.focus_category,
+        strategy_class = excluded.strategy_class,
+        confidence_bucket = excluded.confidence_bucket,
+        source_channels_json = excluded.source_channels_json,
+        supporting_markets_json = excluded.supporting_markets_json,
+        market_selection_score = excluded.market_selection_score,
+        category_focus_score = excluded.category_focus_score,
+        consistency_score = excluded.consistency_score,
+        conviction_score = excluded.conviction_score,
+        trust_score = excluded.trust_score,
+        integrity_penalty = excluded.integrity_penalty,
+        confidence_evidence_count = excluded.confidence_evidence_count,
+        average_spread_bps = excluded.average_spread_bps,
+        average_top_of_book_usd = excluded.average_top_of_book_usd,
+        latest_trade_price = excluded.latest_trade_price,
+        current_price = excluded.current_price,
+        caution_flags_json = excluded.caution_flags_json
+    `).run(...params);
+
+    db.prepare(`
+      INSERT INTO discovery_wallet_feature_history_v2 (
+        address, snapshot_at, feature_version, focus_category, strategy_class, confidence_bucket,
+        source_channels_json, supporting_markets_json,
+        market_selection_score, category_focus_score, consistency_score, conviction_score,
+        trust_score, integrity_penalty, confidence_evidence_count, average_spread_bps,
+        average_top_of_book_usd, latest_trade_price, current_price, caution_flags_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(address, snapshot_at) DO UPDATE SET
+        feature_version = excluded.feature_version,
+        focus_category = excluded.focus_category,
+        strategy_class = excluded.strategy_class,
+        confidence_bucket = excluded.confidence_bucket,
+        source_channels_json = excluded.source_channels_json,
+        supporting_markets_json = excluded.supporting_markets_json,
+        market_selection_score = excluded.market_selection_score,
+        category_focus_score = excluded.category_focus_score,
+        consistency_score = excluded.consistency_score,
+        conviction_score = excluded.conviction_score,
+        trust_score = excluded.trust_score,
+        integrity_penalty = excluded.integrity_penalty,
+        confidence_evidence_count = excluded.confidence_evidence_count,
+        average_spread_bps = excluded.average_spread_bps,
+        average_top_of_book_usd = excluded.average_top_of_book_usd,
+        latest_trade_price = excluded.latest_trade_price,
+        current_price = excluded.current_price,
+        caution_flags_json = excluded.caution_flags_json
+    `).run(...params);
+  });
+
+  tx();
 };
 
 export const insertDiscoveryAlertV2 = (signal: Omit<DiscoverySignal, 'id' | 'dismissed'>): void => {

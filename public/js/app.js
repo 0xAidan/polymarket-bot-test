@@ -2913,8 +2913,11 @@ let discoveryRefreshTimer = null;
 let discoveryRefreshTick = 0;
 let discoveryConfigLoaded = false;
 let discoveryLayoutMode = 'two-pane';
+let discoveryHomeLayoutMode = 'two-pane';
+let discoverySurfaceMode = 'home';
 let discoveryWalletsCache = [];
 let discoverySelectedWalletAddress = '';
+let discoveryProfileAddressOverride = '';
 let discoveryInspectorRequestSeq = 0;
 const discoveryWalletDetailCache = new Map();
 const discoveryCompareSelection = new Set();
@@ -3032,10 +3035,24 @@ const getDiscoveryLayoutButtons = () => ({
   table: document.getElementById('discoveryLayoutTable'),
 });
 
+const getDiscoverySurfaceButtons = () => ({
+  home: document.getElementById('discoverySurfaceHome'),
+  leaderboard: document.getElementById('discoverySurfaceLeaderboard'),
+  profile: document.getElementById('discoverySurfaceProfile'),
+  compare: document.getElementById('discoverySurfaceCompare'),
+  watchlist: document.getElementById('discoverySurfaceWatchlist'),
+  alerts: document.getElementById('discoverySurfaceAlerts'),
+  allocation: document.getElementById('discoverySurfaceAllocation'),
+  methodology: document.getElementById('discoverySurfaceMethodology'),
+});
+
 const setDiscoveryLayout = (mode) => {
   const allowedModes = new Set(['two-pane', 'board', 'table']);
   if (!allowedModes.has(mode)) return;
   discoveryLayoutMode = mode;
+  if (discoverySurfaceMode !== 'leaderboard') {
+    discoveryHomeLayoutMode = mode;
+  }
   try { localStorage.setItem('discovery_layout_mode', mode); } catch { /* ignore */ }
 
   const twoPaneView = document.getElementById('discoveryTwoPaneView');
@@ -3051,6 +3068,79 @@ const setDiscoveryLayout = (mode) => {
   if (buttons.table) buttons.table.classList.toggle('active', mode === 'table');
 
   renderDiscoveryWalletViews();
+};
+
+const setDiscoverySurface = (mode) => {
+  const allowedModes = new Set(['home', 'leaderboard', 'profile', 'compare', 'watchlist', 'alerts', 'allocation', 'methodology']);
+  if (!allowedModes.has(mode)) return;
+  discoverySurfaceMode = mode;
+
+  const buttons = getDiscoverySurfaceButtons();
+  Object.entries(buttons).forEach(([key, button]) => {
+    if (button) {
+      button.classList.toggle('active', key === mode);
+    }
+  });
+
+  const main = document.getElementById('discoverySurfaceMain');
+  const candidates = document.getElementById('discoveryCandidatesSection');
+  const inspector = document.getElementById('discoveryInspectorSection');
+  const secondary = document.getElementById('discoverySecondarySurface');
+  const productGrid = document.getElementById('discoveryProductGrid');
+  const compareGroup = document.getElementById('discoveryCompareGroup');
+  const watchlistGroup = document.getElementById('discoveryWatchlistGroup');
+  const alertsGroup = document.getElementById('discoveryAlertsGroup');
+  const allocationStatesGroup = document.getElementById('discoveryAllocationStatesGroup');
+  const allocationTransitionsGroup = document.getElementById('discoveryAllocationTransitionsGroup');
+  const dittoExecutionGroup = document.getElementById('discoveryDittoExecutionGroup');
+  const methodologyGroup = document.getElementById('discoveryMethodologyGroup');
+
+  if (main) {
+    main.classList.toggle('profile-mode', mode === 'profile');
+  }
+
+  const showHome = mode === 'home';
+  const showLeaderboard = mode === 'leaderboard';
+  const showProfile = mode === 'profile';
+
+  if (candidates) candidates.style.display = (showHome || showLeaderboard) ? '' : 'none';
+  if (inspector) inspector.style.display = (showHome || showProfile) ? '' : 'none';
+  if (secondary) secondary.style.display = showHome ? '' : 'none';
+
+  const visibleProductGroups = mode === 'compare'
+    ? [compareGroup]
+    : mode === 'watchlist'
+      ? [watchlistGroup]
+      : mode === 'alerts'
+        ? [alertsGroup]
+        : mode === 'allocation'
+          ? [allocationStatesGroup, allocationTransitionsGroup, dittoExecutionGroup]
+          : mode === 'methodology'
+            ? [methodologyGroup]
+            : [];
+
+  if (productGrid) {
+    productGrid.style.display = visibleProductGroups.length > 0 ? '' : 'none';
+  }
+
+  [compareGroup, watchlistGroup, alertsGroup, allocationStatesGroup, allocationTransitionsGroup, dittoExecutionGroup, methodologyGroup]
+    .forEach((group) => {
+      if (group) {
+        group.style.display = visibleProductGroups.includes(group) ? '' : 'none';
+      }
+    });
+
+  if (showLeaderboard) {
+    if (discoveryLayoutMode !== 'table') {
+      setDiscoveryLayout('table');
+    }
+  } else if (showHome && discoveryLayoutMode !== discoveryHomeLayoutMode) {
+    setDiscoveryLayout(discoveryHomeLayoutMode);
+  }
+
+  if (showProfile) {
+    void renderDiscoveryInspector();
+  }
 };
 
 const hydrateDiscoveryLayoutPreference = () => {
@@ -3220,7 +3310,7 @@ const loadDiscoveryWatchlist = async () => {
         <td>${Number(row.discoveryScore || 0).toFixed(0)}</td>
         <td>${escapeHtml(row.allocationState || 'N/A')} ${row.allocationWeight != null ? `(${Number(row.allocationWeight).toFixed(2)}x)` : ''}</td>
         <td>
-          <button class="win-btn win-btn-sm" onclick="selectDiscoveryWallet('${escapeJsString(row.address)}')">Inspect</button>
+          <button class="win-btn win-btn-sm" onclick="openDiscoveryProfile('${escapeJsString(row.address)}')">Inspect</button>
           <button class="win-btn win-btn-sm" onclick="removeDiscoveryWatchlist('${escapeJsString(row.address)}')">Remove</button>
         </td>
       </tr>
@@ -3250,9 +3340,9 @@ const loadDiscoveryAlertsCenter = async () => {
         <strong>${escapeHtml(alert.title || '')}</strong>
         <div class="text-xs text-muted">${escapeHtml(alert.description || '')}</div>
         <div class="text-xs text-muted">${escapeHtml(getDiscoveryIdentityLabel(alert.address || ''))} • ${escapeHtml(shortAddress(alert.address || ''))}</div>
-        <div class="mt-8">
+        ${alert.canDismiss !== false ? `<div class="mt-8">
           <button class="win-btn win-btn-sm" onclick="dismissDiscoveryAlert(${Number(alert.id || 0)})">Dismiss</button>
-        </div>
+        </div>` : ''}
       </div>
     `).join('');
     return true;
@@ -3330,7 +3420,9 @@ const loadDiscoveryDittoExecutionPanel = async () => {
     ]);
     const assignments = assignmentsResp.assignments || [];
     const allTrades = tradesResp.trades || [];
-    const recentDiscoveryTrades = allTrades.filter((trade) => String(trade.source || '').toLowerCase() === 'discovery').slice(0, 8);
+    const recentDiscoveryTrades = allTrades
+      .filter((trade) => Array.isArray(trade.walletTags) && trade.walletTags.map((tag) => String(tag || '').toLowerCase()).includes('discovery'))
+      .slice(0, 8);
     const successful = recentDiscoveryTrades.filter((trade) => String(trade.status || '').toLowerCase() === 'executed').length;
     const failed = recentDiscoveryTrades.filter((trade) => String(trade.status || '').toLowerCase() === 'failed').length;
     const summary = `
@@ -3343,9 +3435,9 @@ const loadDiscoveryDittoExecutionPanel = async () => {
       ? '<div class="text-center text-muted text-sm">No recent discovery-linked executions yet.</div>'
       : recentDiscoveryTrades.map((trade) => `
         <div class="discovery-allocation-row">
-          <div class="text-sm">${escapeHtml(getDiscoveryIdentityLabel(trade.trackedWallet || trade.trackedWalletAddress || ''))}</div>
-          <div class="text-xs text-muted text-mono">${escapeHtml(shortAddress(trade.trackedWallet || trade.trackedWalletAddress || ''))}</div>
-          <div class="text-xs text-muted">${escapeHtml(trade.status || 'unknown')} • ${escapeHtml(trade.reason || trade.market || 'execution')}</div>
+          <div class="text-sm">${escapeHtml(trade.walletLabel || getDiscoveryIdentityLabel(trade.walletAddress || ''))}</div>
+          <div class="text-xs text-muted text-mono">${escapeHtml(shortAddress(trade.walletAddress || ''))}</div>
+          <div class="text-xs text-muted">${escapeHtml(trade.status || 'unknown')} • ${escapeHtml(trade.error || trade.marketName || trade.marketTitle || 'execution')}</div>
         </div>
       `).join('');
     listEl.innerHTML = summary + detailRows;
@@ -3414,6 +3506,7 @@ const loadDiscoveryConfig = async () => {
     const pollEl = document.getElementById('discoveryPollInterval');
     const marketEl = document.getElementById('discoveryMarketCount');
     const statsEl = document.getElementById('discoveryStatsInterval');
+    const readModeEl = document.getElementById('discoveryReadMode');
     const urlHasKeyEl = document.getElementById('discoveryAlchemyUrlHasKey');
 
     if (enabledEl) enabledEl.checked = cfg.enabled;
@@ -3422,6 +3515,7 @@ const loadDiscoveryConfig = async () => {
     if (fastModeEl) fastModeEl.checked = Number(cfg.pollIntervalMs || 30000) <= 15000;
     if (marketEl) marketEl.value = cfg.marketCount || 50;
     if (statsEl) statsEl.value = Math.round((cfg.statsIntervalMs || 300000) / 60000);
+    if (readModeEl) readModeEl.value = cfg.readMode || 'v2-with-v1-fallback';
 
     // Show whether a key is saved without putting the masked value in the field
     if (urlEl && urlHasKeyEl) {
@@ -3441,6 +3535,31 @@ const loadDiscoveryConfig = async () => {
     return true;
   } catch (err) {
     setDiscoveryHealthBanner(err.message || 'Discovery config is temporarily unavailable.', 'warning');
+    return false;
+  }
+};
+
+const loadDiscoveryMigrationStatus = async () => {
+  const statusEl = document.getElementById('discoveryMigrationStatus');
+  if (!statusEl) return true;
+  try {
+    const data = await API.get('/discovery/migration/status');
+    const migration = data.migration || {};
+    const readMode = migration.cutoverReadMode || 'v2-with-v1-fallback';
+    const recommended = migration.recommendedReadMode || readMode;
+    const coverage = Number(migration.dualWriteCoveragePct || 0);
+    const evalObs = Number(migration.evalObservationCount || 0);
+    const ready = Boolean(migration.readyForCutover);
+    statusEl.innerHTML = `
+      <div><strong>Configured read mode:</strong> ${escapeHtml(readMode)}</div>
+      <div><strong>Recommended mode:</strong> ${escapeHtml(recommended)}</div>
+      <div><strong>Dual-write coverage:</strong> ${escapeHtml(String(coverage))}%</div>
+      <div><strong>Evaluation observations:</strong> ${escapeHtml(String(evalObs))}</div>
+      <div><strong>Ready for cutover:</strong> ${ready ? 'Yes' : 'No'}</div>
+    `;
+    return true;
+  } catch (err) {
+    statusEl.textContent = err.message || 'Migration status unavailable.';
     return false;
   }
 };
@@ -3660,7 +3779,7 @@ const renderDiscoveryMarketsData = (markets) => {
     const wallets = (m.wallets || '').split(',').filter(Boolean);
     const walletActions = wallets.slice(0, 3).map((wallet) => {
       const safeWallet = String(wallet).replace(/'/g, "\\'");
-      return `<button class="win-btn win-btn-sm" style="margin-right:4px;" onclick="event.stopPropagation();openWalletDetail('${safeWallet}')">${wallet.slice(0, 6)}...${wallet.slice(-4)}</button>`;
+      return `<button class="win-btn win-btn-sm" style="margin-right:4px;" onclick="event.stopPropagation();openDiscoveryProfile('${safeWallet}')">${wallet.slice(0, 6)}...${wallet.slice(-4)}</button>`;
     }).join('');
     return `<tr>
       <td>${title}</td>
@@ -3730,6 +3849,9 @@ const buildDiscoveryWalletCardHtml = (wallet) => {
   const strategyClass = (wallet.strategyClass || 'unknown').replace(/_/g, ' ');
   const scoreStackLine = `Discovery ${discoveryScore} • Trust ${trustScore} • Copy ${copyabilityScore}`;
   const reasonLine = wallet.whySurfaced || wallet.primaryReason || 'Reason details are collecting.';
+  const allocationLine = wallet.allocationState
+    ? `Allocation ${wallet.allocationState}${wallet.allocationWeight != null ? ` (${Number(wallet.allocationWeight).toFixed(2)}x)` : ''}`
+    : 'Allocation pending';
   const confidence = (wallet.confidence || 'low').toUpperCase();
   const supportingReasons = getDiscoverySupportingReasons(wallet);
   const cautionFlags = getDiscoveryCautionFlags(wallet);
@@ -3751,6 +3873,7 @@ const buildDiscoveryWalletCardHtml = (wallet) => {
       <div class="discovery-wallet-card-body">
         <div class="text-xs" style="text-transform:capitalize;">${escapeHtml(strategyClass)} • ${escapeHtml(confidence)}</div>
         <div class="discovery-wallet-card-reason">${escapeHtml(reasonLine)}</div>
+        <div class="text-xs text-muted mt-4">${escapeHtml(allocationLine)}</div>
         <div class="discovery-wallet-card-chips">
           ${provisionalChip}
           ${supportingReasons.map((reason) => `<span class="discovery-chip">${escapeHtml(reason)}</span>`).join('')}
@@ -3762,7 +3885,7 @@ const buildDiscoveryWalletCardHtml = (wallet) => {
         <div class="flex-row gap-8">
           <button class="win-btn win-btn-sm" onclick="event.stopPropagation();addWalletToDiscoveryCompare('${safeAddress}')" aria-label="Add wallet to compare">Compare</button>
           <button class="win-btn win-btn-sm" onclick="event.stopPropagation();selectDiscoveryWallet('${safeAddress}');addSelectedDiscoveryWalletToWatchlist()" aria-label="Add wallet to watchlist">Watch</button>
-          <button class="win-btn win-btn-sm" onclick="event.stopPropagation();openWalletDetail('${safeAddress}')" aria-label="Open detailed wallet modal" tabindex="0">Deep View</button>
+          <button class="win-btn win-btn-sm" onclick="event.stopPropagation();openDiscoveryProfile('${safeAddress}')" aria-label="Open wallet profile surface" tabindex="0">Profile</button>
           ${buildDiscoveryTrackButton(wallet)}
         </div>
       </div>
@@ -3850,7 +3973,7 @@ const renderDiscoveryTable = (wallets) => {
         <td class="text-xs text-muted">${escapeHtml(reasonLine)}</td>
         <td>
           <div class="flex-row gap-8">
-            <button class="win-btn win-btn-sm" onclick="event.stopPropagation();openWalletDetail('${safeAddress}')">View</button>
+            <button class="win-btn win-btn-sm" onclick="event.stopPropagation();openDiscoveryProfile('${safeAddress}')">Profile</button>
             <button class="win-btn win-btn-sm" onclick="event.stopPropagation();selectDiscoveryWallet('${safeAddress}');addSelectedDiscoveryWalletToWatchlist()">Watch</button>
             ${buildDiscoveryTrackButton(wallet)}
           </div>
@@ -3888,7 +4011,9 @@ const renderDiscoveryWalletViews = () => {
     (wallet) => (wallet.address || '').toLowerCase() === (discoverySelectedWalletAddress || '').toLowerCase()
   );
   if (!selectedExists) {
-    discoverySelectedWalletAddress = (wallets[0]?.address || '').toLowerCase();
+    if (!(discoverySurfaceMode === 'profile' && discoveryProfileAddressOverride)) {
+      discoverySelectedWalletAddress = (wallets[0]?.address || '').toLowerCase();
+    }
   }
 
   renderDiscoveryTwoPane(wallets);
@@ -3939,7 +4064,16 @@ const handleDiscoverySearchInput = () => {
 const selectDiscoveryWallet = (address) => {
   if (!address) return;
   discoverySelectedWalletAddress = address.toLowerCase();
+  discoveryProfileAddressOverride = address.toLowerCase();
   renderDiscoveryWalletViews();
+};
+
+const openDiscoveryProfile = (address) => {
+  if (!address) return;
+  discoveryProfileAddressOverride = address.toLowerCase();
+  discoverySelectedWalletAddress = address.toLowerCase();
+  setDiscoverySurface('profile');
+  void renderDiscoveryInspector();
 };
 
 const fetchDiscoveryInspectorData = async (address) => {
@@ -3970,7 +4104,16 @@ const renderDiscoveryInspector = async () => {
   const titleEl = document.getElementById('discoveryInspectorTitle');
   if (!bodyEl || !titleEl) return;
 
-  const wallet = getDiscoveryWalletByAddress(discoverySelectedWalletAddress);
+  const profileAddress = discoveryProfileAddressOverride || discoverySelectedWalletAddress;
+  let wallet = getDiscoveryWalletByAddress(profileAddress);
+  if (!wallet && profileAddress) {
+    try {
+      const profileData = await API.get('/discovery/wallets/' + encodeURIComponent(profileAddress) + '/profile');
+      wallet = profileData?.profile?.wallet || null;
+    } catch {
+      wallet = null;
+    }
+  }
   if (!wallet) {
     titleEl.textContent = 'Inspector';
     bodyEl.innerHTML = '<div class="text-sm text-muted">Select a wallet to inspect why it surfaced and whether it is copyable.</div>';
@@ -3984,6 +4127,9 @@ const renderDiscoveryInspector = async () => {
   const copyabilityScore = Math.round(normalizeCopyabilityScore(wallet));
   const confidence = (wallet.confidence || 'low').toUpperCase();
   const reasonLine = wallet.whySurfaced || wallet.primaryReason || 'Reason details are still collecting.';
+  const allocationLine = wallet.allocationState
+    ? `${wallet.allocationState}${wallet.allocationWeight != null ? ` (${Number(wallet.allocationWeight).toFixed(2)}x)` : ''}`
+    : 'Pending evaluation';
   const supportingReasons = getDiscoverySupportingReasons(wallet);
   const cautionFlags = getDiscoveryCautionFlags(wallet);
   const safeAddress = (wallet.address || '').replace(/'/g, "\\'");
@@ -4003,6 +4149,10 @@ const renderDiscoveryInspector = async () => {
       <div class="discovery-inspector-value">${scoreBar(discoveryScore)}<div class="text-xs text-muted">Trust ${trustScore} • Copyability ${copyabilityScore}</div></div>
     </div>
     <div class="discovery-inspector-section">
+      <div class="discovery-inspector-label">Allocation Posture</div>
+      <div class="discovery-inspector-value">${escapeHtml(allocationLine)}</div>
+    </div>
+    <div class="discovery-inspector-section">
       <div class="discovery-inspector-label">Why Surfaced</div>
       <div class="discovery-inspector-value">
         <div>${escapeHtml(reasonLine)}</div>
@@ -4018,7 +4168,7 @@ const renderDiscoveryInspector = async () => {
         ${buildDiscoveryTrackButton(wallet)}
         <button class="win-btn win-btn-sm" onclick="addWalletToDiscoveryCompare('${safeAddress}')" aria-label="Add wallet to compare" tabindex="0">Compare</button>
         <button class="win-btn win-btn-sm" onclick="addSelectedDiscoveryWalletToWatchlist()" aria-label="Add wallet to watchlist" tabindex="0">Watchlist</button>
-        <button class="win-btn win-btn-sm" onclick="openWalletDetail('${safeAddress}')" aria-label="Open deep wallet detail modal" tabindex="0">Deep View</button>
+        <button class="win-btn win-btn-sm" onclick="openDiscoveryProfile('${safeAddress}')" aria-label="Open wallet profile surface" tabindex="0">Profile</button>
       </div>
     </div>
     <div class="discovery-inspector-section text-xs text-muted">Loading live positions and signals...</div>
@@ -4040,6 +4190,9 @@ const renderDiscoveryInspector = async () => {
     const signalRows = signals.length
       ? signals.map((signal) => `<div class="text-xs" style="margin-bottom:4px;">${escapeHtml((signal.signalType || '').replace(/_/g, ' '))}: ${escapeHtml(signal.description || '')}</div>`).join('')
       : '<div class="text-xs text-muted">No recent signals for this wallet.</div>';
+    const detailedAllocationLine = wallet.allocationState
+      ? `${wallet.allocationState}${wallet.allocationWeight != null ? ` (${Number(wallet.allocationWeight).toFixed(2)}x)` : ''}`
+      : 'Pending evaluation';
 
     const sourceLabel = detail?.positionSource === 'verified'
       ? 'Live positions'
@@ -4060,6 +4213,10 @@ const renderDiscoveryInspector = async () => {
       <div class="discovery-inspector-section">
         <div class="discovery-inspector-label">Score Stack</div>
         <div class="discovery-inspector-value">${scoreBar(discoveryScore)}<div class="text-xs text-muted">Trust ${trustScore} • Copyability ${copyabilityScore}</div></div>
+      </div>
+      <div class="discovery-inspector-section">
+        <div class="discovery-inspector-label">Allocation Posture</div>
+        <div class="discovery-inspector-value">${escapeHtml(detailedAllocationLine)}</div>
       </div>
       <div class="discovery-inspector-section">
         <div class="discovery-inspector-label">Why Surfaced</div>
@@ -4085,7 +4242,7 @@ const renderDiscoveryInspector = async () => {
           ${buildDiscoveryTrackButton(wallet)}
           <button class="win-btn win-btn-sm" onclick="addWalletToDiscoveryCompare('${safeAddress}')" aria-label="Add wallet to compare" tabindex="0">Compare</button>
           <button class="win-btn win-btn-sm" onclick="addSelectedDiscoveryWalletToWatchlist()" aria-label="Add wallet to watchlist" tabindex="0">Watchlist</button>
-          <button class="win-btn win-btn-sm" onclick="openWalletDetail('${safeAddress}')" aria-label="Open deep wallet detail modal" tabindex="0">Deep View</button>
+          <button class="win-btn win-btn-sm" onclick="openDiscoveryProfile('${safeAddress}')" aria-label="Open wallet profile surface" tabindex="0">Profile</button>
           ${detail?.profileUrl ? `<button class="win-btn win-btn-sm" onclick="window.open('${safeProfileUrl}', '_blank')" aria-label="Open Polymarket profile" tabindex="0">Polymarket</button>` : ''}
         </div>
       </div>
@@ -4097,7 +4254,9 @@ const renderDiscoveryInspector = async () => {
 };
 
 window.setDiscoveryLayout = setDiscoveryLayout;
+window.setDiscoverySurface = setDiscoverySurface;
 window.selectDiscoveryWallet = selectDiscoveryWallet;
+window.openDiscoveryProfile = openDiscoveryProfile;
 window.handleDiscoverySearchInput = handleDiscoverySearchInput;
 window.addWalletToDiscoveryCompare = addWalletToDiscoveryCompare;
 window.removeWalletFromDiscoveryCompare = removeWalletFromDiscoveryCompare;
@@ -4216,39 +4375,17 @@ const trackDiscoveredWallet = async (address, btn) => {
   try {
     btn.disabled = true;
     btn.textContent = '...';
-
-    const resp = await fetch('/api/wallets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address }),
-    });
-    const data = await resp.json();
-    const alreadyTracked = !resp.ok && typeof data.error === 'string' && data.error.includes('already being tracked');
-
-    if (data.success || resp.ok || alreadyTracked) {
-      const toggleResp = await fetch('/api/wallets/' + encodeURIComponent(address) + '/toggle', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ active: true }),
-      });
-      const toggleData = await toggleResp.json();
-      if (!toggleResp.ok || !toggleData.success) {
-        throw new Error(toggleData.error || 'Failed to activate wallet');
-      }
-
-      await fetch(`/api/discovery/wallets/${address}/track`, { method: 'POST' });
-      btn.textContent = 'Active';
-      btn.classList.remove('win-btn-primary');
-    } else {
-      btn.textContent = 'Track & Activate';
-      btn.disabled = false;
-      win95Dialog.alert('Error', data.error || 'Failed to track wallet');
+    const data = await API.post('/discovery/wallets/' + encodeURIComponent(address) + '/track', {});
+    btn.textContent = data.activated === false ? 'Tracked' : 'Active';
+    btn.classList.remove('win-btn-primary');
+    if (data.activated === false && data.message) {
+      await win95Dialog.alert(data.message, 'Tracked');
     }
   } catch (err) {
     btn.textContent = 'Track & Activate';
     btn.disabled = false;
     if (err?.message) {
-      win95Dialog.alert('Error', err.message);
+      await win95Dialog.error(err.message, 'Error');
     }
   }
 };
@@ -4260,12 +4397,14 @@ const saveDiscoveryConfig = async () => {
     const marketEl = document.getElementById('discoveryMarketCount');
     const statsEl = document.getElementById('discoveryStatsInterval');
     const enabledEl = document.getElementById('discoveryEnabled');
+    const readModeEl = document.getElementById('discoveryReadMode');
 
     const body = {
       enabled: enabledEl?.checked ?? false,
       pollIntervalMs: (parseInt(pollEl?.value) || 30) * 1000,
       marketCount: parseInt(marketEl?.value) || 50,
       statsIntervalMs: (parseInt(statsEl?.value) || 5) * 60000,
+      readMode: readModeEl?.value || 'v2-with-v1-fallback',
     };
 
     // Only send URL if the user typed a new one (field is not empty)
@@ -4274,26 +4413,17 @@ const saveDiscoveryConfig = async () => {
       body.alchemyWsUrl = urlVal;
     }
 
-    const resp = await fetch('/api/discovery/config', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await resp.json();
-    if (data.success) {
-      // Refresh the "key saved" indicator
-      discoveryConfigLoaded = false;
-      loadDiscoveryConfig();
+    await API.put('/discovery/config', body);
+    discoveryConfigLoaded = false;
+    await loadDiscoveryConfig();
+    await loadDiscoveryMigrationStatus();
 
-      const msg = urlVal
-        ? 'Settings saved. Restart the engine for URL changes to take effect.'
-        : 'Settings saved.';
-      win95Dialog.alert('Settings Saved', msg);
-    } else {
-      win95Dialog.alert('Error', data.error || 'Failed to save settings');
-    }
+    const msg = urlVal
+      ? 'Settings saved. Restart the engine for URL changes to take effect.'
+      : 'Settings saved.';
+    await win95Dialog.success(msg, 'Settings Saved');
   } catch (err) {
-    win95Dialog.alert('Error', 'Failed to save settings: ' + err.message);
+    await win95Dialog.error('Failed to save settings: ' + err.message, 'Error');
   }
 };
 
@@ -4301,28 +4431,20 @@ const handleDiscoveryToggle = async () => {
   const enabledEl = document.getElementById('discoveryEnabled');
   const enabled = enabledEl?.checked ?? false;
   try {
-    await fetch('/api/discovery/config', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled }),
-    });
-    // Always restart — if enabled=true it starts, if enabled=false it stops
-    await fetch('/api/discovery/config/restart', { method: 'POST' });
+    await API.put('/discovery/config', { enabled });
+    await API.post('/discovery/config/restart', {});
+    await loadDiscoveryMigrationStatus();
     loadDiscoveryStatus();
   } catch { /* best-effort */ }
 };
 
 const restartDiscovery = async () => {
   try {
-    const resp = await fetch('/api/discovery/config/restart', { method: 'POST' });
-    const data = await resp.json();
-    if (data.success) {
-      win95Dialog.alert('Restart Needed', 'Discovery settings were saved. The dedicated discovery worker is restarted separately.');
-    } else {
-      win95Dialog.alert('Error', data.error || 'Failed to restart');
-    }
+    await API.post('/discovery/config/restart', {});
+    await loadDiscoveryMigrationStatus();
+    await win95Dialog.alert('Discovery settings were saved. The dedicated discovery worker is restarted separately.', 'Restart Needed');
   } catch (err) {
-    win95Dialog.alert('Error', 'Failed to restart: ' + err.message);
+    await win95Dialog.error('Failed to restart: ' + err.message, 'Error');
   }
 };
 
@@ -4513,6 +4635,7 @@ const loadDiscoveryHome = async () => {
 const loadDiscoverySecondaryPanels = async () => runDiscoveryRequest('discovery-secondary', async () => {
   const tasks = await Promise.allSettled([
     loadDiscoveryConfig(),
+    loadDiscoveryMigrationStatus(),
     loadDiscoveryWatchlist(),
     loadDiscoveryAlertsCenter(),
     loadDiscoveryAllocationStates(),
@@ -4541,6 +4664,7 @@ const refreshDiscoverySignalsIfFiltered = () => {
 const startDiscoveryRefresh = () => {
   stopDiscoveryRefresh();
   hydrateDiscoveryLayoutPreference();
+  setDiscoverySurface(discoverySurfaceMode);
   discoveryRefreshTick = 0;
   void loadDiscoveryHome().finally(() => {
     refreshDiscoverySignalsIfFiltered();

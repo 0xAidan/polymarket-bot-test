@@ -49,6 +49,7 @@ export const getDiscoveryConfig = (): DiscoveryConfig => {
     marketCount: stored.marketCount !== undefined ? parseInt(stored.marketCount, 10) : config.discoveryMarketCount,
     statsIntervalMs: stored.statsIntervalMs !== undefined ? parseInt(stored.statsIntervalMs, 10) : config.discoveryStatsIntervalMs,
     retentionDays: stored.retentionDays !== undefined ? parseInt(stored.retentionDays, 10) : DEFAULT_DISCOVERY_CONFIG.retentionDays,
+    readMode: stored.readMode === 'v2-primary' ? 'v2-primary' : DEFAULT_DISCOVERY_CONFIG.readMode,
   };
 };
 
@@ -534,6 +535,7 @@ export const purgeAllDiscoveryData = (): {
   walletsV2: number;
   walletCandidatesV2: number;
   walletFeaturesV2: number;
+  walletFeatureHistoryV2: number;
   marketUniverseV2: number;
   alertsV2: number;
   watchlist: number;
@@ -553,6 +555,7 @@ export const purgeAllDiscoveryData = (): {
     const walletsV2 = db.prepare('DELETE FROM discovery_wallet_scores_v2').run().changes;
     const walletCandidatesV2 = db.prepare('DELETE FROM discovery_wallet_candidates_v2').run().changes;
     const walletFeaturesV2 = db.prepare('DELETE FROM discovery_wallet_features_v2').run().changes;
+    const walletFeatureHistoryV2 = db.prepare('DELETE FROM discovery_wallet_feature_history_v2').run().changes;
     const marketUniverseV2 = db.prepare('DELETE FROM discovery_market_universe_v2').run().changes;
     const alertsV2 = db.prepare('DELETE FROM discovery_alerts_v2').run().changes;
     const watchlist = db.prepare('DELETE FROM discovery_watchlist').run().changes;
@@ -569,6 +572,7 @@ export const purgeAllDiscoveryData = (): {
       walletsV2,
       walletCandidatesV2,
       walletFeaturesV2,
+      walletFeatureHistoryV2,
       marketUniverseV2,
       alertsV2,
       watchlist,
@@ -584,6 +588,7 @@ export const purgeAllDiscoveryData = (): {
         walletsV2 +
         walletCandidatesV2 +
         walletFeaturesV2 +
+        walletFeatureHistoryV2 +
         marketUniverseV2 +
         alertsV2 +
         watchlist +

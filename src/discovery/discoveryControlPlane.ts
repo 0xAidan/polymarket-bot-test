@@ -2,7 +2,8 @@ import { getDatabase } from '../database.js';
 import { getLatestDiscoveryEvaluationSnapshot } from './evaluationEngine.js';
 import { getLatestDiscoveryRunLog } from './runLog.js';
 import { getWalletReasons } from './discoveryScorer.js';
-import { getWalletCandidateFocusSummary } from './walletSeedEngine.js';
+import { getWalletCandidateFocusSummary, getWalletCandidateFocusSummaryV2 } from './walletSeedEngine.js';
+import { getAllocationPolicyState } from '../allocation/policyEngine.js';
 import {
   cleanupOldSignals,
   cleanupStalePositions,
@@ -166,7 +167,19 @@ export class DiscoveryControlPlane {
     const db = getDatabase();
     const scoredWallets = db.prepare('SELECT COUNT(*) AS count FROM discovery_wallet_scores').get() as { count: number };
     const scoredWalletsV2 = db.prepare('SELECT COUNT(*) AS count FROM discovery_wallet_scores_v2').get() as { count: number };
-    const candidateWallets = db.prepare('SELECT COUNT(DISTINCT address) AS count FROM discovery_wallet_candidates').get() as { count: number };
+    const latestCandidateSnapshot = db.prepare(`
+      SELECT MAX(snapshot_at) AS snapshot_at
+      FROM discovery_wallet_candidates_v2
+    `).get() as { snapshot_at?: number | null };
+    const candidateWallets = Number(latestCandidateSnapshot.snapshot_at ?? 0) > 0
+      ? (db.prepare(`
+          SELECT COUNT(DISTINCT address) AS count
+          FROM discovery_wallet_candidates_v2
+          WHERE snapshot_at = ?
+        `).get(Number(latestCandidateSnapshot.snapshot_at)) as { count: number })
+      : cfg.readMode === 'v2-primary'
+        ? ({ count: 0 } as { count: number })
+        : (db.prepare('SELECT COUNT(DISTINCT address) AS count FROM discovery_wallet_candidates').get() as { count: number });
     const marketPoolCount = (db.prepare('SELECT COUNT(*) AS count FROM discovery_market_pool').get() as { count: number }).count;
     const evalObservationCount = (db.prepare('SELECT COUNT(*) AS count FROM discovery_eval_observations_v2').get() as { count: number }).count;
     const dualWriteCoveragePct = scoredWallets.count > 0
@@ -228,7 +241,9 @@ export class DiscoveryControlPlane {
           evalObservationCount,
           evaluationLiftPctPoints: evaluationLift,
           readyForCutover,
-          cutoverReadMode: readyForCutover ? 'v2-primary' : 'v2-with-v1-fallback',
+          configuredReadMode: cfg.readMode,
+          recommendedReadMode: readyForCutover ? 'v2-primary' : 'v2-with-v1-fallback',
+          cutoverReadMode: cfg.readMode,
         },
       },
     } as DiscoveryStatus;
@@ -241,9 +256,21 @@ export class DiscoveryControlPlane {
     filters?: { minScore?: number; heat?: string; hasSignals?: boolean }
   ) {
     const db = getDatabase();
-    const scoreOrderExpr = 'COALESCE(s2.discovery_score, s.final_score, 0)';
-    const trustOrderExpr = 'COALESCE(s2.trust_score, s.trust_score, 0)';
-    const copyabilityOrderExpr = 'COALESCE(s2.copyability_score, s.copyability_score, 0)';
+    const cfg = getDiscoveryConfig();
+    const latestCandidateSnapshot = db.prepare(`
+      SELECT MAX(snapshot_at) AS snapshot_at
+      FROM discovery_wallet_candidates_v2
+    `).get() as { snapshot_at?: number | null };
+    const hasV2CandidateSnapshot = Number(latestCandidateSnapshot.snapshot_at ?? 0) > 0;
+    const scoreOrderExpr = cfg.readMode === 'v2-primary'
+      ? 'COALESCE(s2.discovery_score, 0)'
+      : 'COALESCE(s2.discovery_score, s.final_score, 0)';
+    const trustOrderExpr = cfg.readMode === 'v2-primary'
+      ? 'COALESCE(s2.trust_score, 0)'
+      : 'COALESCE(s2.trust_score, s.trust_score, 0)';
+    const copyabilityOrderExpr = cfg.readMode === 'v2-primary'
+      ? 'COALESCE(s2.copyability_score, 0)'
+      : 'COALESCE(s2.copyability_score, s.copyability_score, 0)';
     const orderByMap: Record<string, string> = {
       volume: `seed_metric DESC, ${scoreOrderExpr} DESC`,
       trades: `v.trade_activity_count DESC, ${scoreOrderExpr} DESC`,
@@ -264,6 +291,26 @@ export class DiscoveryControlPlane {
     }
 
     params.push(limit, offset);
+
+    const seedQuery = hasV2CandidateSnapshot
+      ? `
+        SELECT address, MAX(source_metric) AS seed_metric, COUNT(*) AS seed_count
+             , MAX(updated_at) AS last_candidate_at
+        FROM discovery_wallet_candidates_v2
+        WHERE snapshot_at = ${Number(latestCandidateSnapshot.snapshot_at)}
+        GROUP BY address
+      `
+      : cfg.readMode === 'v2-primary'
+        ? `
+        SELECT NULL AS address, 0 AS seed_metric, 0 AS seed_count, 0 AS last_candidate_at
+        WHERE 1 = 0
+      `
+        : `
+        SELECT address, MAX(source_metric) AS seed_metric, COUNT(*) AS seed_count
+             , MAX(updated_at) AS last_candidate_at
+        FROM discovery_wallet_candidates
+        GROUP BY address
+      `;
 
     const rows = db.prepare(`
       SELECT
@@ -301,6 +348,9 @@ export class DiscoveryControlPlane {
         s2.caution_flags_json AS v2_caution_flags_json,
         s2.score_version AS v2_score_version,
         s2.updated_at AS v2_updated_at,
+        f2.confidence_evidence_count AS v2_confidence_evidence_count,
+        f2.source_channels_json AS v2_source_channels_json,
+        f2.supporting_markets_json AS v2_supporting_markets_json,
         v.profile_name,
         v.pseudonym,
         v.realized_pnl,
@@ -313,13 +363,11 @@ export class DiscoveryControlPlane {
         COALESCE(seed.seed_count, 0) AS seed_count,
         COALESCE(seed.last_candidate_at, 0) AS last_candidate_at
       FROM (
-        SELECT address, MAX(source_metric) AS seed_metric, COUNT(*) AS seed_count
-             , MAX(updated_at) AS last_candidate_at
-        FROM discovery_wallet_candidates
-        GROUP BY address
+        ${seedQuery}
       ) seed
       LEFT JOIN discovery_wallet_scores s ON s.address = seed.address
       LEFT JOIN discovery_wallet_scores_v2 s2 ON s2.address = seed.address
+      LEFT JOIN discovery_wallet_features_v2 f2 ON f2.address = seed.address
       LEFT JOIN discovery_wallet_validation v ON v.address = seed.address
       LEFT JOIN tracked_wallets tw ON tw.address = seed.address
       ${whereClause}
@@ -329,20 +377,55 @@ export class DiscoveryControlPlane {
 
     const wallets = rows.map((row) => {
       const address = String(row.address);
-      const focusSummary = getWalletCandidateFocusSummary(address);
+      const focusSummaryV2 = getWalletCandidateFocusSummaryV2(address);
+      const focusSummary = (
+        focusSummaryV2.focusCategory ||
+        focusSummaryV2.supportingMarkets.length > 0 ||
+        focusSummaryV2.sourceChannels.length > 0
+      )
+        ? focusSummaryV2
+        : getWalletCandidateFocusSummary(address);
+      const persistedSourceChannels = parseJsonArray(row.v2_source_channels_json);
+      const persistedSupportingMarkets = parseJsonArray(row.v2_supporting_markets_json);
       const reasons = getWalletReasons(address);
+      const reasonDetails = reasons.map((reason) => ({
+        reasonType: reason.reasonType,
+        reasonCode: reason.reasonCode,
+        message: reason.message,
+        createdAt: reason.createdAt,
+      }));
       const supportingReasons = reasons.filter((reason) => reason.reasonType === 'supporting').map((reason) => reason.message);
       const warningReasons = reasons.filter((reason) => reason.reasonType !== 'supporting').map((reason) => reason.message);
       const reasonCodes = reasons.map((reason) => reason.reasonCode).sort();
-      const discoveryScore = Number(row.v2_discovery_score ?? row.final_score ?? 0);
-      const trustScore = Number(row.v2_trust_score ?? row.trust_score ?? 0);
-      const copyabilityScore = Number(row.v2_copyability_score ?? row.copyability_score ?? 0);
+      const discoveryScore = Number(cfg.readMode === 'v2-primary'
+        ? (row.v2_discovery_score ?? 0)
+        : (row.v2_discovery_score ?? row.final_score ?? 0));
+      const trustScore = Number(cfg.readMode === 'v2-primary'
+        ? (row.v2_trust_score ?? 0)
+        : (row.v2_trust_score ?? row.trust_score ?? 0));
+      const copyabilityScore = Number(cfg.readMode === 'v2-primary'
+        ? (row.v2_copyability_score ?? 0)
+        : (row.v2_copyability_score ?? row.copyability_score ?? 0));
       const strategyClass = String(
-        row.v2_strategy_class ?? row.strategy_class ?? 'unknown',
+        cfg.readMode === 'v2-primary'
+          ? (row.v2_strategy_class ?? 'unknown')
+          : (row.v2_strategy_class ?? row.strategy_class ?? 'unknown'),
       ) as DiscoveryStrategyClass;
-      const confidenceBucket = normalizeConfidence(row.v2_confidence_bucket ?? row.confidence_bucket);
-      const surfaceBucket = normalizeSurfaceBucket(row.v2_surface_bucket ?? row.surface_bucket);
-      const scoreVersion = Number(row.v2_score_version ?? row.score_version ?? 1);
+      const confidenceBucket = normalizeConfidence(
+        cfg.readMode === 'v2-primary'
+          ? (row.v2_confidence_bucket ?? 'low')
+          : (row.v2_confidence_bucket ?? row.confidence_bucket)
+      );
+      const surfaceBucket = normalizeSurfaceBucket(
+        cfg.readMode === 'v2-primary'
+          ? (row.v2_surface_bucket ?? 'watch_only')
+          : (row.v2_surface_bucket ?? row.surface_bucket)
+      );
+      const scoreVersion = Number(
+        cfg.readMode === 'v2-primary'
+          ? (row.v2_score_version ?? 2)
+          : (row.v2_score_version ?? row.score_version ?? 1)
+      );
       const heatIndicator = discoveryScore >= 75
         ? 'HOT'
         : discoveryScore >= 60
@@ -390,6 +473,7 @@ export class DiscoveryControlPlane {
       const freshnessMs = updatedAt > 0
         ? Math.max(0, Date.now() - (updatedAt < 1_000_000_000_000 ? updatedAt * 1000 : updatedAt))
         : null;
+      const allocationState = getAllocationPolicyState(address);
 
       return {
         schemaVersion: 2,
@@ -420,6 +504,8 @@ export class DiscoveryControlPlane {
         activePositions: Number(row.open_positions_count ?? 0),
         isTracked: Boolean(row.tracked_active),
         whySurfaced: primaryReason,
+        allocationState: allocationState?.state,
+        allocationWeight: allocationState?.targetWeight,
         whyNotTracked: buildWhyNotTracked({
           isTracked: Boolean(row.tracked_active),
           discoveryState,
@@ -428,9 +514,11 @@ export class DiscoveryControlPlane {
         whatChanged: buildWhatChanged(row),
         discoveryState,
         focusCategory: focusSummary.focusCategory,
-        sourceChannels: focusSummary.sourceChannels,
-        supportingMarkets: focusSummary.supportingMarkets,
+        sourceChannels: persistedSourceChannels.length > 0 ? persistedSourceChannels : focusSummary.sourceChannels,
+        supportingMarkets: persistedSupportingMarkets.length > 0 ? persistedSupportingMarkets : focusSummary.supportingMarkets,
+        evidenceCount: Number(row.v2_confidence_evidence_count ?? 0),
         reasonCodes,
+        reasonDetails,
         separateScores: {
           profitability: Number(row.profitability_score ?? 0),
           focus: Number(row.focus_score ?? 0),

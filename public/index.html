@@ -482,6 +482,17 @@
 
             <div id="discoveryHealthBanner" class="text-sm text-muted" style="display:none; margin: 10px 0 0 0;"></div>
 
+            <div class="discovery-surface-nav" role="tablist" aria-label="Safari surfaces">
+              <button id="discoverySurfaceHome" class="win-btn win-btn-sm active" onclick="setDiscoverySurface('home')" aria-label="Open Safari Home" tabindex="0">Safari Home</button>
+              <button id="discoverySurfaceLeaderboard" class="win-btn win-btn-sm" onclick="setDiscoverySurface('leaderboard')" aria-label="Open Safari Leaderboard" tabindex="0">Leaderboard</button>
+              <button id="discoverySurfaceProfile" class="win-btn win-btn-sm" onclick="setDiscoverySurface('profile')" aria-label="Open Wallet Profile surface" tabindex="0">Wallet Profile</button>
+              <button id="discoverySurfaceCompare" class="win-btn win-btn-sm" onclick="setDiscoverySurface('compare')" aria-label="Open compare surface" tabindex="0">Compare</button>
+              <button id="discoverySurfaceWatchlist" class="win-btn win-btn-sm" onclick="setDiscoverySurface('watchlist')" aria-label="Open watchlist surface" tabindex="0">Watchlist</button>
+              <button id="discoverySurfaceAlerts" class="win-btn win-btn-sm" onclick="setDiscoverySurface('alerts')" aria-label="Open alerts center surface" tabindex="0">Alerts</button>
+              <button id="discoverySurfaceAllocation" class="win-btn win-btn-sm" onclick="setDiscoverySurface('allocation')" aria-label="Open allocation surface" tabindex="0">Allocation</button>
+              <button id="discoverySurfaceMethodology" class="win-btn win-btn-sm" onclick="setDiscoverySurface('methodology')" aria-label="Open methodology surface" tabindex="0">Methodology</button>
+            </div>
+
             <div class="win-group discovery-v2-toolbar">
               <div class="discovery-toolbar-row">
                 <label>Focus</label>
@@ -535,8 +546,8 @@
               </div>
             </div>
 
-            <div class="discovery-v2-main">
-              <section class="win-group discovery-v2-candidates">
+            <div class="discovery-v2-main" id="discoverySurfaceMain">
+              <section class="win-group discovery-v2-candidates" id="discoveryCandidatesSection">
                 <div class="win-group-title">Candidates</div>
                 <div class="discovery-view active" id="discoveryTwoPaneView">
                   <div id="discoveryWalletsListPane" class="discovery-wallet-card-list">
@@ -579,7 +590,7 @@
                 </div>
               </section>
 
-              <aside class="win-group discovery-v2-inspector">
+              <aside class="win-group discovery-v2-inspector" id="discoveryInspectorSection">
                 <div class="win-group-title" id="discoveryInspectorTitle">Inspector</div>
                 <div id="discoveryInspectorBody" class="discovery-inspector-body">
                   <div class="text-sm text-muted">Select a wallet from any layout to inspect why it surfaced, trust level, copyability, and recent signals.</div>
@@ -601,7 +612,7 @@
               </aside>
             </div>
 
-            <div class="discovery-v2-secondary-grid">
+            <div class="discovery-v2-secondary-grid" id="discoverySecondarySurface">
               <div class="win-group" id="discoverySignalsGroup">
                 <div class="win-group-title">Signals &amp; Alerts</div>
                 <div class="flex-row gap-8 mb-8">
@@ -638,8 +649,8 @@
               </div>
             </div>
 
-            <div class="discovery-v2-product-grid">
-              <div class="win-group">
+            <div class="discovery-v2-product-grid" id="discoveryProductGrid" style="display:none;">
+              <div class="win-group" id="discoveryCompareGroup">
                 <div class="win-group-title">Compare Workbench</div>
                 <div class="text-sm text-muted mb-8">Select up to 4 wallets and compare score stack, confidence, and allocation state side-by-side.</div>
                 <div id="discoveryCompareChips" class="discovery-chip-list mb-8">
@@ -668,7 +679,7 @@
                 </div>
               </div>
 
-              <div class="win-group">
+              <div class="win-group" id="discoveryWatchlistGroup">
                 <div class="win-group-title">Watchlist</div>
                 <div class="text-sm text-muted mb-8">Pin interesting wallets so they stay visible even when rankings shift.</div>
                 <div class="trades-scroll-container discovery-watchlist-wrap">
@@ -688,7 +699,7 @@
                 </div>
               </div>
 
-              <div class="win-group">
+              <div class="win-group" id="discoveryAlertsGroup">
                 <div class="win-group-title">Alerts Center</div>
                 <div class="flex-row gap-8 mb-8">
                   <select id="discoveryAlertsSeverityFilter" class="win-select" onchange="loadDiscoveryAlertsCenter()" aria-label="Filter alerts by severity">
@@ -705,7 +716,7 @@
                 </div>
               </div>
 
-              <div class="win-group">
+              <div class="win-group" id="discoveryAllocationStatesGroup">
                 <div class="win-group-title">Allocation Policy Board</div>
                 <div class="text-sm text-muted mb-8">State machine output that controls whether Ditto mirrors, upsizes, de-risks, or pauses.</div>
                 <div id="discoveryAllocationStatesBody" class="discovery-allocation-list">
@@ -713,7 +724,7 @@
                 </div>
               </div>
 
-              <div class="win-group">
+              <div class="win-group" id="discoveryAllocationTransitionsGroup">
                 <div class="win-group-title">Allocation Transition Log</div>
                 <div class="text-sm text-muted mb-8">Latest reasons a wallet moved between NEW, CONSISTENT, HOT_STREAK, COOLDOWN, and PAUSED.</div>
                 <div id="discoveryAllocationTransitionsBody" class="discovery-allocation-list">
@@ -721,7 +732,7 @@
                 </div>
               </div>
 
-              <div class="win-group">
+              <div class="win-group" id="discoveryDittoExecutionGroup">
                 <div class="win-group-title">Ditto Execution Panel</div>
                 <div class="text-sm text-muted mb-8">Shows whether copy-trading execution is keeping up with Discovery recommendations.</div>
                 <div id="discoveryDittoExecutionBody" class="discovery-allocation-list">
@@ -729,7 +740,7 @@
                 </div>
               </div>
 
-              <div class="win-group">
+              <div class="win-group" id="discoveryMethodologyGroup">
                 <div class="win-group-title">Methodology</div>
                 <div id="discoveryMethodologyBody" class="discovery-methodology-body">
                   <div class="text-center text-muted text-sm">Loading methodology...</div>
@@ -773,6 +784,16 @@
                     <label>Stats interval (min):</label>
                     <input type="number" id="discoveryStatsInterval" value="5" min="1" max="60" class="win-input" style="width:80px;">
                   </div>
+                  <div class="form-row">
+                    <label>Read mode:</label>
+                    <select id="discoveryReadMode" class="win-select" aria-label="Safari read mode">
+                      <option value="v2-with-v1-fallback">V2 with V1 fallback</option>
+                      <option value="v2-primary">V2 primary</option>
+                    </select>
+                  </div>
+                </div>
+                <div id="discoveryMigrationStatus" class="discovery-migration-status text-sm text-muted mb-8">
+                  Loading migration status...
                 </div>
                 <div class="flex-row gap-8">
                   <button class="win-btn win-btn-primary" onclick="saveDiscoveryConfig()" aria-label="Save discovery settings" tabindex="0">Save Settings</button>

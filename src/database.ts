@@ -81,6 +81,9 @@ export async function initDatabase(): Promise<Database.Database> {
   safeAddColumn(db, 'discovery_wallet_scores', 'confidence_bucket', "TEXT DEFAULT 'low'");
   safeAddColumn(db, 'discovery_wallet_scores', 'surface_bucket', "TEXT DEFAULT 'watch_only'");
   safeAddColumn(db, 'discovery_wallet_scores', 'score_version', 'INTEGER DEFAULT 1');
+  safeAddColumn(db, 'discovery_wallet_features_v2', 'feature_version', 'INTEGER DEFAULT 2');
+  safeAddColumn(db, 'discovery_wallet_features_v2', 'source_channels_json', "TEXT NOT NULL DEFAULT '[]'");
+  safeAddColumn(db, 'discovery_wallet_features_v2', 'supporting_markets_json', "TEXT NOT NULL DEFAULT '[]'");
   safeAddColumn(db, 'discovery_run_log', 'estimated_cost_usd', 'REAL DEFAULT 0');
   safeAddColumn(db, 'discovery_run_log', 'category_purity_pct', 'REAL DEFAULT 0');
   safeAddColumn(db, 'discovery_run_log', 'copyability_pass_pct', 'REAL DEFAULT 0');
@@ -413,9 +416,12 @@ function createSchema(database: Database.Database): void {
     CREATE TABLE IF NOT EXISTS discovery_wallet_features_v2 (
       address                    TEXT PRIMARY KEY,
       snapshot_at                INTEGER NOT NULL,
+      feature_version            INTEGER NOT NULL DEFAULT 2,
       focus_category             TEXT,
       strategy_class             TEXT,
       confidence_bucket          TEXT,
+      source_channels_json       TEXT NOT NULL DEFAULT '[]',
+      supporting_markets_json    TEXT NOT NULL DEFAULT '[]',
       market_selection_score     REAL NOT NULL DEFAULT 0,
       category_focus_score       REAL NOT NULL DEFAULT 0,
       consistency_score          REAL NOT NULL DEFAULT 0,
@@ -432,6 +438,33 @@ function createSchema(database: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_discovery_wallet_features_v2_focus
       ON discovery_wallet_features_v2 (focus_category, snapshot_at DESC);
+
+    CREATE TABLE IF NOT EXISTS discovery_wallet_feature_history_v2 (
+      address                    TEXT NOT NULL,
+      snapshot_at                INTEGER NOT NULL,
+      feature_version            INTEGER NOT NULL DEFAULT 2,
+      focus_category             TEXT,
+      strategy_class             TEXT,
+      confidence_bucket          TEXT,
+      source_channels_json       TEXT NOT NULL DEFAULT '[]',
+      supporting_markets_json    TEXT NOT NULL DEFAULT '[]',
+      market_selection_score     REAL NOT NULL DEFAULT 0,
+      category_focus_score       REAL NOT NULL DEFAULT 0,
+      consistency_score          REAL NOT NULL DEFAULT 0,
+      conviction_score           REAL NOT NULL DEFAULT 0,
+      trust_score                REAL NOT NULL DEFAULT 0,
+      integrity_penalty          REAL NOT NULL DEFAULT 0,
+      confidence_evidence_count  INTEGER NOT NULL DEFAULT 0,
+      average_spread_bps         REAL NOT NULL DEFAULT 0,
+      average_top_of_book_usd    REAL NOT NULL DEFAULT 0,
+      latest_trade_price         REAL,
+      current_price              REAL,
+      caution_flags_json         TEXT NOT NULL DEFAULT '[]',
+      PRIMARY KEY (address, snapshot_at)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_wallet_feature_history_v2_address
+      ON discovery_wallet_feature_history_v2 (address, snapshot_at DESC);
 
     CREATE TABLE IF NOT EXISTS discovery_wallet_scores (
       address                   TEXT PRIMARY KEY,

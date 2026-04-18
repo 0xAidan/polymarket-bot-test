@@ -11,6 +11,7 @@ import {
   buildLeaderboardSeedCandidates,
   buildMarketPositionSeedCandidates,
   buildTradeSeedCandidates,
+  getCandidateAddressesNeedingValidationV2,
   getWalletCandidates,
   getWalletCandidatesV2,
   upsertWalletCandidatesV2,
@@ -201,6 +202,54 @@ test('v2 wallet candidates preserve historical snapshots while latest reads stay
       'SELECT COUNT(*) AS cnt FROM discovery_wallet_candidates_v2 WHERE address = ?'
     ).get('0xaaa') as { cnt: number }).cnt;
     assert.equal(historyCount, 2);
+  } finally {
+    closeDatabase();
+    if (existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('v2 candidate validation queue reads from the latest candidate snapshot', async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), 'discovery-wallet-candidates-v2-validation-'));
+  (config as any).dataDir = tempDir;
+  closeDatabase();
+  await initDatabase();
+
+  try {
+    upsertWalletCandidatesV2([
+      {
+        address: '0xstale',
+        sourceType: 'leaderboard',
+        sourceLabel: 'SPORTS:WEEK',
+        sourceRank: 1,
+        sourceMetric: 9000,
+        firstSeenAt: 1710000000,
+        lastSeenAt: 1710000000,
+        updatedAt: 1710000000,
+      },
+      {
+        address: '0xfresh',
+        sourceType: 'leaderboard',
+        sourceLabel: 'SPORTS:WEEK',
+        sourceRank: 2,
+        sourceMetric: 7000,
+        firstSeenAt: 1710000000,
+        lastSeenAt: 1710000000,
+        updatedAt: 1710000000,
+      },
+    ], 1710000000);
+
+    getDatabase().prepare(`
+      INSERT INTO discovery_wallet_validation (
+        address, open_positions_count, closed_positions_count, realized_pnl,
+        realized_win_rate, maker_rebate_count, trade_activity_count,
+        buy_activity_count, sell_activity_count, markets_touched, last_validated_at
+      ) VALUES (?, 0, 0, 0, 0, 0, 0, 0, 0, 0, ?)
+    `).run('0xfresh', 1710000000);
+
+    const addresses = getCandidateAddressesNeedingValidationV2(10, 1710000000 - 1);
+    assert.deepEqual(addresses, ['0xstale']);
   } finally {
     closeDatabase();
     if (existsSync(tempDir)) {

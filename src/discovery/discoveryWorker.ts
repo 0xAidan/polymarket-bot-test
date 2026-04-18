@@ -19,6 +19,7 @@ import {
   buildTradeSeedCandidates,
   getCandidateAddressesForScoringV2,
   getCandidateAddressesNeedingValidation,
+  getCandidateAddressesNeedingValidationV2,
   getWalletCandidateFocusSummaryV2,
   getWalletCandidatesByAddressV2,
   upsertWalletCandidates,
@@ -72,7 +73,7 @@ type DiscoveryWorkerOptions = {
 
 const DEFAULT_DISCOVERY_CYCLE_MS = 15 * 60 * 1000;
 const DEFAULT_MARKET_SEED_LIMIT = 10;
-const DEFAULT_LEADERBOARD_CATEGORIES = ['SPORTS', 'POLITICS', 'ECONOMICS', 'TECH', 'FINANCE'];
+const DEFAULT_LEADERBOARD_CATEGORIES = ['SPORTS'];
 const DEFAULT_LEADERBOARD_WINDOWS = ['WEEK', 'MONTH'];
 const NOISE_CATEGORIES = new Set(['crypto']);
 
@@ -206,7 +207,7 @@ export class DiscoveryWorkerRuntime {
     upsertWalletCandidates(seededCandidates);
     upsertWalletCandidatesV2(seededCandidates, runTimestamp);
 
-    const addressesForValidation = getCandidateAddressesNeedingValidation(15, runTimestamp - 6 * 3600);
+    const addressesForValidation = getCandidateAddressesNeedingValidationV2(15, runTimestamp - 6 * 3600);
     let validatedCount = 0;
     for (const address of addressesForValidation) {
       try {
@@ -324,6 +325,8 @@ export class DiscoveryWorkerRuntime {
           focusCategory: focusSummary.focusCategory,
           strategyClass,
           confidenceBucket,
+          sourceChannels: focusSummary.sourceChannels,
+          supportingMarkets: focusSummary.supportingMarkets,
           featureSnapshot,
           metrics: {
             averageSpreadBps,

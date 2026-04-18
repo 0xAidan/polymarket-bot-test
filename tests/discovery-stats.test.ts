@@ -14,6 +14,7 @@ let upsertWallet: typeof import('../src/discovery/statsStore.js').upsertWallet;
 let aggregateStats: typeof import('../src/discovery/statsStore.js').aggregateStats;
 let getWalletStats: typeof import('../src/discovery/statsStore.js').getWalletStats;
 let getTopWallets: typeof import('../src/discovery/statsStore.js').getTopWallets;
+let updateDiscoveryConfig: typeof import('../src/discovery/statsStore.js').updateDiscoveryConfig;
 let refreshWalletStats: typeof import('../src/discovery/statsStore.js').refreshWalletStats;
 let upsertPosition: typeof import('../src/discovery/statsStore.js').upsertPosition;
 let insertSignal: typeof import('../src/discovery/statsStore.js').insertSignal;
@@ -44,6 +45,7 @@ beforeEach(async () => {
   aggregateStats = statsMod.aggregateStats;
   getWalletStats = statsMod.getWalletStats;
   getTopWallets = statsMod.getTopWallets;
+  updateDiscoveryConfig = statsMod.updateDiscoveryConfig;
   refreshWalletStats = statsMod.refreshWalletStats;
   upsertPosition = statsMod.upsertPosition;
   insertSignal = statsMod.insertSignal;
@@ -459,4 +461,13 @@ test('createServer keeps discovery runtime passive inside the main app process',
   const status = discoveryManager.getStatus();
   assert.equal(status.apiPoller.running, false);
   assert.equal(status.chainListener.connected, false);
+});
+
+test('discovery config persists explicit Safari read mode for cutover control', async () => {
+  updateDiscoveryConfig({ readMode: 'v2-primary' } as any);
+
+  const statsMod = await import('../src/discovery/statsStore.js');
+  const cfg = statsMod.getDiscoveryConfig();
+
+  assert.equal((cfg as any).readMode, 'v2-primary');
 });
