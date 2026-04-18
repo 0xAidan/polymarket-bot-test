@@ -80,3 +80,9 @@ test('hydrated Safari profile keeps Safari actions instead of falling back to de
   assert.doesNotMatch(inspectorMatch[0], /openWalletDetail\('/);
   assert.match(inspectorMatch[0], /openDiscoveryProfile\('/);
 });
+
+test('classic Safari scripts avoid duplicate top-level identifiers from helper files', () => {
+  assert.doesNotMatch(appSource, /const normalizeTrustScore =/);
+  const apiSource = readFileSync(new URL('../public/js/api.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(apiSource, /const readApiResponse =/);
+});

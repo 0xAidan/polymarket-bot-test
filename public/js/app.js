@@ -2989,7 +2989,7 @@ const normalizeDiscoveryScore = (wallet) => Number.isFinite(Number(wallet.discov
   ? Number(wallet.discoveryScore)
   : Number(wallet.whaleScore || 0);
 
-const normalizeTrustScore = (wallet) => {
+const getDiscoveryTrustScore = (wallet) => {
   const helper = globalThis.DiscoveryCore?.normalizeTrustScore;
   if (typeof helper === 'function') {
     return helper(wallet);
@@ -3258,7 +3258,7 @@ const runDiscoveryCompare = async () => {
         <tr>
           <td>${escapeHtml(identityLabel)}<div class="text-xs text-muted text-mono">${escapeHtml(shortAddress(entry.address || wallet.address || ''))}</div></td>
           <td>${Math.round(normalizeDiscoveryScore(wallet))}</td>
-          <td>${Math.round(normalizeTrustScore(wallet))}</td>
+          <td>${Math.round(getDiscoveryTrustScore(wallet))}</td>
           <td>${Math.round(normalizeCopyabilityScore(wallet))}</td>
           <td>${escapeHtml(String(wallet.confidence || 'low').toUpperCase())}</td>
           <td>${escapeHtml(allocation.state || 'N/A')} ${allocation.targetWeight != null ? `(${Number(allocation.targetWeight).toFixed(2)}x)` : ''}</td>
@@ -3843,7 +3843,7 @@ const buildDiscoveryTrackButton = (wallet) => {
 const buildDiscoveryWalletCardHtml = (wallet) => {
   const safeAddress = (wallet.address || '').replace(/'/g, "\\'");
   const discoveryScore = Math.round(normalizeDiscoveryScore(wallet));
-  const trustScore = Math.round(normalizeTrustScore(wallet));
+  const trustScore = Math.round(getDiscoveryTrustScore(wallet));
   const copyabilityScore = Math.round(normalizeCopyabilityScore(wallet));
   const identityLabel = getDiscoveryIdentityLabel(wallet);
   const strategyClass = (wallet.strategyClass || 'unknown').replace(/_/g, ' ');
@@ -3954,7 +3954,7 @@ const renderDiscoveryTable = (wallets) => {
     const safeAddress = (wallet.address || '').replace(/'/g, "\\'");
     const identityLabel = getDiscoveryIdentityLabel(wallet);
     const discoveryScore = Math.round(normalizeDiscoveryScore(wallet));
-    const trustScore = Math.round(normalizeTrustScore(wallet));
+    const trustScore = Math.round(getDiscoveryTrustScore(wallet));
     const copyabilityScore = Math.round(normalizeCopyabilityScore(wallet));
     const confidence = String(wallet.confidence || 'low').toUpperCase();
     const strategyClass = (wallet.strategyClass || 'unknown').replace(/_/g, ' ');
@@ -4123,7 +4123,7 @@ const renderDiscoveryInspector = async () => {
   const identityLabel = getDiscoveryIdentityLabel(wallet);
   const strategyClass = (wallet.strategyClass || 'unknown').replace(/_/g, ' ');
   const discoveryScore = Math.round(normalizeDiscoveryScore(wallet));
-  const trustScore = Math.round(normalizeTrustScore(wallet));
+  const trustScore = Math.round(getDiscoveryTrustScore(wallet));
   const copyabilityScore = Math.round(normalizeCopyabilityScore(wallet));
   const confidence = (wallet.confidence || 'low').toUpperCase();
   const reasonLine = wallet.whySurfaced || wallet.primaryReason || 'Reason details are still collecting.';

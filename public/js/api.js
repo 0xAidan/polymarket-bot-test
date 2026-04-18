@@ -3,7 +3,7 @@
  * Handles all communication with the backend API
  */
 
-const readApiResponse = async (response) => {
+const readApiResponseViaCore = async (response) => {
   const helper = globalThis.ApiCore?.readApiResponse;
   if (typeof helper !== 'function') {
     throw new Error('API core helper is unavailable.');
@@ -70,7 +70,7 @@ const API = {
         throw new Error('Authentication required');
       }
 
-      const parsed = await readApiResponse(response);
+      const parsed = await readApiResponseViaCore(response);
       if (!parsed.ok) {
         throw new Error(parsed.error || `HTTP ${response.status}`);
       }
