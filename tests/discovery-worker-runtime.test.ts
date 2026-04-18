@@ -255,3 +255,115 @@ test('DiscoveryWorkerRuntime records budget and acceptance metrics in the run lo
     }
   }
 });
+
+test('DiscoveryWorkerRuntime preserves feature snapshot history across cycles', async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), 'discovery-worker-feature-history-'));
+  (config as any).dataDir = tempDir;
+  closeDatabase();
+  await initDatabase();
+  updateDiscoveryConfig({ enabled: true, marketCount: 1 });
+
+  try {
+    const runtime = new DiscoveryWorkerRuntime({
+      now: (() => {
+        const runTimes = [1710000000, 1710000600];
+        let index = 0;
+        return () => runTimes[Math.min(index++, runTimes.length - 1)];
+      })(),
+      marketSeedLimit: 1,
+      leaderboardCategories: ['SPORTS'],
+      leaderboardWindows: ['WEEK'],
+      fetchActiveEvents: async () => [
+        {
+          id: 'event-1',
+          slug: 'lakers-celtics',
+          title: 'Lakers vs Celtics',
+          tags: [{ slug: 'sports', label: 'Sports' }],
+          markets: [
+            {
+              id: 'market-1',
+              conditionId: 'condition-sports',
+              slug: 'will-the-lakers-win',
+              question: 'Will the Lakers win?',
+              clobTokenIds: JSON.stringify(['yes-sports', 'no-sports']),
+              outcomes: ['Yes', 'No'],
+              volume24hr: '250000',
+              acceptingOrders: true,
+              competitive: true,
+            },
+          ],
+        },
+      ],
+      fetchLeaderboard: async () => [
+        { proxyWallet: '0xsports', rank: 1, pnl: 500, vol: 10000 },
+      ],
+      fetchMarketPositions: async () => [
+        { positions: [{ proxyWallet: '0xsports', totalPnl: 400, currentValue: 1000 }] },
+      ],
+      fetchHolders: async () => [{ proxyWallet: '0xsports', size: 1000 }],
+      fetchTrades: async () => [{ proxyWallet: '0xsports', size: 100, price: 0.4 }],
+      fetchProfile: async () => ({ name: 'Sports Alpha', pseudonym: 'sports-alpha', verifiedBadge: true }),
+      fetchTraded: async () => ({ traded: 8 }),
+      fetchPositions: async () => [{ conditionId: 'condition-sports' }],
+      fetchClosedPositions: async () => [{ realizedPnl: 120 }],
+      fetchActivity: async () => [{ type: 'TRADE', side: 'BUY', marketSlug: 'lakers-celtics' }],
+      fetchMarketContext: async () => ({ averageSpreadBps: 20, averageTopOfBookUsd: 5000 }),
+    });
+
+    await runtime.runCycle();
+    await runtime.runCycle();
+
+    const historyCount = (getDatabase().prepare(`
+      SELECT COUNT(*) AS cnt
+      FROM discovery_wallet_feature_history_v2
+      WHERE address = ?
+    `).get('0xsports') as { cnt: number }).cnt;
+
+    assert.equal(historyCount, 2);
+  } finally {
+    closeDatabase();
+    if (existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('DiscoveryWorkerRuntime defaults leaderboard seeding to sports-first scope', async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), 'discovery-worker-sports-default-'));
+  (config as any).dataDir = tempDir;
+  closeDatabase();
+  await initDatabase();
+  updateDiscoveryConfig({ enabled: true, marketCount: 1 });
+
+  const requestedCategories: string[] = [];
+
+  try {
+    const runtime = new DiscoveryWorkerRuntime({
+      now: () => 1710000000,
+      marketSeedLimit: 1,
+      fetchActiveEvents: async () => [],
+      fetchLeaderboard: async (category: string) => {
+        requestedCategories.push(category);
+        return [];
+      },
+      fetchMarketPositions: async () => [],
+      fetchHolders: async () => [],
+      fetchTrades: async () => [],
+      fetchProfile: async () => null,
+      fetchTraded: async () => null,
+      fetchPositions: async () => [],
+      fetchClosedPositions: async () => [],
+      fetchActivity: async () => [],
+      fetchMarketContext: async () => ({ averageSpreadBps: 20, averageTopOfBookUsd: 5000 }),
+    });
+
+    await runtime.runCycle();
+
+    assert.deepEqual([...new Set(requestedCategories)], ['SPORTS']);
+  } finally {
+    closeDatabase();
+    if (existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+});

@@ -1703,6 +1703,18 @@ body {
   overflow: auto;
 }
 
+.discovery-surface-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.discovery-surface-nav .win-btn.active {
+  background: rgba(229, 184, 11, 0.16);
+  border-color: rgba(229, 184, 11, 0.6);
+}
+
 .discovery-wallet-row {
   cursor: pointer;
 }
@@ -1764,6 +1776,19 @@ body {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.discovery-v2-main.profile-mode {
+  grid-template-columns: 1fr;
+}
+
+.discovery-v2-main.profile-mode .discovery-v2-inspector {
+  min-height: 100%;
+}
+
+.discovery-v2-main.profile-mode .discovery-inspector-body {
+  max-height: none;
+  min-height: 320px;
 }
 
 .discovery-signals-list {
@@ -1873,6 +1898,16 @@ body {
 
 .discovery-v2-advanced-content {
   margin-top: 12px;
+}
+
+.discovery-migration-status {
+  border: 1px solid var(--jungle-border);
+  border-radius: 8px;
+  background: var(--jungle-bg-elevated);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 @media (max-width: 1180px) {

@@ -341,6 +341,28 @@ export const getCandidateAddressesNeedingValidation = (
   return rows.map((row) => row.address);
 };
 
+export const getCandidateAddressesNeedingValidationV2 = (
+  limit = 25,
+  staleBefore = Math.floor(Date.now() / 1000) - 6 * 60 * 60,
+): string[] => {
+  const snapshotAt = latestCandidateSnapshotAt();
+  if (!snapshotAt) return [];
+
+  const db = getDatabase();
+  const rows = db.prepare(`
+    SELECT c.address
+    FROM discovery_wallet_candidates_v2 c
+    LEFT JOIN discovery_wallet_validation v ON v.address = c.address
+    WHERE c.snapshot_at = ?
+    GROUP BY c.address
+    HAVING MAX(COALESCE(v.last_validated_at, 0)) < ?
+    ORDER BY MAX(c.updated_at) DESC
+    LIMIT ?
+  `).all(snapshotAt, staleBefore, limit) as Array<{ address: string }>;
+
+  return rows.map((row) => row.address);
+};
+
 export const getWalletCandidateFocusSummary = (address: string): {
   focusCategory?: string;
   supportingMarkets: string[];

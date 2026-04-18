@@ -29,9 +29,12 @@ import {
 } from '../src/discovery/strategyClassifier.ts';
 import {
   applyAuthoritativeWalletSummary,
+  buildAllocationPolicyInputFromWallet,
   buildWalletPositionsResponse,
   applyDiscoveryWalletScore,
   buildDiscoveryOverview,
+  buildDiscoveryReasonRowsFromWallet,
+  buildDiscoverySignalRowsFromWallets,
   buildDiscoveryWalletExplanation,
   matchesDiscoveryFocusFilter,
   paginateDiscoveryWalletsForPresentation,
@@ -577,6 +580,90 @@ test('buildDiscoveryWalletExplanation summarizes category focus and strongest ev
   assert.match(explanation, /Macro/i);
   assert.match(explanation, /high-information/i);
   assert.match(explanation, /conviction build/i);
+});
+
+test('buildDiscoveryReasonRowsFromWallet preserves supporting and caution evidence from v2 wallet state', () => {
+  const reasons = buildDiscoveryReasonRowsFromWallet({
+    address: '0xabc',
+    primaryReason: 'Strong sports edge',
+    supportingReasons: ['Early entry', 'Repeat conviction'],
+    cautionFlags: ['Thin liquidity'],
+    reasonCodes: ['early_entry', 'repeat_conviction'],
+    updatedAt: 1710000000,
+  });
+
+  assert.equal(reasons.length, 3);
+  assert.equal(reasons[0]?.reasonType, 'supporting');
+  assert.equal(reasons[0]?.reasonCode, 'early_entry');
+  assert.equal(reasons[1]?.reasonCode, 'repeat_conviction');
+  assert.equal(reasons[2]?.reasonType, 'warning');
+  assert.equal(reasons[2]?.message, 'Thin liquidity');
+});
+
+test('buildDiscoverySignalRowsFromWallets derives feed signals from v2 wallet semantics', () => {
+  const signals = buildDiscoverySignalRowsFromWallets([
+    {
+      address: '0xabc',
+      supportingMarkets: ['Lakers vs Celtics'],
+      supportingReasons: ['Early entry'],
+      cautionFlags: ['Thin liquidity'],
+      updatedAt: 1710000000,
+      reasonCodes: ['early_entry'],
+    },
+  ]);
+
+  assert.equal(signals.length, 2);
+  assert.equal(signals[0]?.address, '0xabc');
+  assert.equal(signals[0]?.severity, 'low');
+  assert.equal(signals[0]?.marketTitle, 'Lakers vs Celtics');
+  assert.equal(signals[1]?.severity, 'medium');
+  assert.equal(signals[1]?.description, 'Thin liquidity');
+});
+
+test('buildDiscoverySignalRowsFromWallets sorts newest signals first across wallets', () => {
+  const signals = buildDiscoverySignalRowsFromWallets([
+    {
+      address: '0xolder',
+      supportingMarkets: ['Older market'],
+      supportingReasons: ['Older reason'],
+      updatedAt: 1710000000,
+      reasonCodes: ['older_reason'],
+    },
+    {
+      address: '0xnewer',
+      supportingMarkets: ['Newer market'],
+      supportingReasons: ['Newer reason'],
+      updatedAt: 1710000600,
+      reasonCodes: ['newer_reason'],
+    },
+  ]);
+
+  assert.equal(signals[0]?.address, '0xnewer');
+  assert.equal(signals[1]?.address, '0xolder');
+});
+
+test('buildAllocationPolicyInputFromWallet maps Safari wallet semantics into allocation inputs', () => {
+  const input = buildAllocationPolicyInputFromWallet({
+    address: '0xabc',
+    discoveryScore: 72,
+    trustScore: 68,
+    copyabilityScore: 61,
+    confidence: 'high',
+    strategyClass: 'informational_directional',
+    cautionFlags: ['Thin liquidity'],
+    updatedAt: 1710000000,
+  } as any);
+
+  assert.deepEqual(input, {
+    address: '0xabc',
+    discoveryScore: 72,
+    trustScore: 68,
+    copyabilityScore: 61,
+    confidenceBucket: 'high',
+    strategyClass: 'informational_directional',
+    cautionFlags: ['Thin liquidity'],
+    updatedAt: 1710000000,
+  });
 });
 
 test('shouldIncludeDiscoveryWallet hides low-evidence wallets from the default feed', () => {
