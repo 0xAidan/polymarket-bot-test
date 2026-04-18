@@ -960,6 +960,34 @@ test('buildDiscoveryHomePayload honors sports-first focus for the default home s
   assert.equal(payload.overview.surfacedByCategory[0]?.category, 'sports');
 });
 
+test('buildDiscoveryOverview uses explicit signal category when provided', () => {
+  const now = Date.now();
+  const overview = buildDiscoveryOverview(
+    [
+      {
+        address: '0x1',
+        whaleScore: 32,
+        volume7d: 12000,
+        tradeCount7d: 7,
+        lastActive: now,
+        focusCategory: 'sports',
+      },
+    ] as any,
+    [
+      {
+        address: '0x1',
+        severity: 'low',
+        detectedAt: now,
+        category: 'sports',
+        marketTitle: undefined,
+      },
+    ] as any,
+    7,
+  );
+
+  assert.ok(overview.signalCountsByCategory.some((row) => row.category === 'sports' && row.count >= 1));
+});
+
 test('paginateDiscoveryWalletsForPresentation paginates after filtering hidden wallets', () => {
   const wallets = [
     { address: '0xhidden', whaleScore: 4, volume7d: 100, tradeCount7d: 1, focusCategory: 'event' },
