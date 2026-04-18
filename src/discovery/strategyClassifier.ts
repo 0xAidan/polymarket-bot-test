@@ -11,6 +11,7 @@ const HIGH_INFORMATION_CATEGORIES = new Set([
   'company',
   'legal',
   'geopolitics',
+  'sports',
 ]);
 
 type StrategyClassifierInput = {
@@ -88,7 +89,7 @@ export const resolveDiscoverySurfaceBucket = (input: {
     return 'trusted';
   }
 
-  if (input.discoveryScore >= 60 || input.confidenceBucket === 'high') {
+  if (input.discoveryScore >= 60 && input.copyabilityScore >= 55 && input.trustScore >= 50) {
     return 'emerging';
   }
 

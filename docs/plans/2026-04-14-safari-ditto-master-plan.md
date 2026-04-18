@@ -237,7 +237,7 @@ Each wallet should receive one primary strategy class:
 | ---------- | -------------------------------------------------------------------------- |
 | Emerging   | interesting early wallet, still building confidence                        |
 | Trusted    | strong, stable Safari candidate                                            |
-| Copy-ready | Safari-approved and strong input for the allocation policy layer and Ditto |
+| Copyable | Safari-approved and strong input for the allocation policy layer and Ditto |
 | Watch-only | interesting but not default copy target                                    |
 | Suppressed | too risky, too noisy, or too weakly supported                              |
 

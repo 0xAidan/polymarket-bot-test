@@ -315,7 +315,7 @@ export class DiscoveryManager {
   }
 
   getWallets(
-    sort: 'volume' | 'trades' | 'recent' | 'score' | 'roi' = 'volume',
+    sort: 'volume' | 'trades' | 'recent' | 'score' | 'roi' | 'trust' = 'trust',
     limit = 50,
     offset = 0,
     filters?: { minScore?: number; heat?: string; hasSignals?: boolean }
