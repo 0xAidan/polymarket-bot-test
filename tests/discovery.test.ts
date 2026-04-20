@@ -48,7 +48,7 @@ import {
   buildBackfillPositionTrades,
 } from '../src/discovery/positionTracker.ts';
 
-test('classifyMarketEntry keeps sports markets out of emerging feed but eligible for sharp-wallet tracking', () => {
+test('classifyMarketEntry keeps sports markets eligible for emerging and sharp-wallet tracking', () => {
   const market: MarketCacheEntry = {
     conditionId: '0xabc',
     slug: 'nba-lakers-vs-celtics-march-5',
@@ -61,7 +61,7 @@ test('classifyMarketEntry keeps sports markets out of emerging feed but eligible
 
   assert.equal(classified.isSportsLike, true);
   assert.equal(classified.isRecurring, true);
-  assert.equal(classified.emergingEligible, false);
+  assert.equal(classified.emergingEligible, true);
   assert.equal(classified.sharpWalletEligible, true);
 });
 
@@ -292,11 +292,11 @@ test('summarizeAuthoritativePositions derives wallet-level pnl and roi from offi
   assert.equal(summary.roiPct, 30.76923076923077);
 });
 
-test('isEmergingSignalEligibleTrade excludes recurring sports trades from event-driven signals', () => {
+test('isEmergingSignalEligibleTrade includes sports while still excluding crypto', () => {
   assert.equal(isEmergingSignalEligibleTrade({
     marketTitle: 'Los Angeles Lakers vs Boston Celtics',
     marketSlug: 'nba-lakers-vs-celtics',
-  }), false);
+  }), true);
 
   assert.equal(isEmergingSignalEligibleTrade({
     marketTitle: 'Will Bitcoin be above $150k by June?',
@@ -309,7 +309,7 @@ test('isEmergingSignalEligibleTrade excludes recurring sports trades from event-
   }), true);
 });
 
-test('isPrimaryDiscoveryTrade excludes crypto and sports but keeps real-world markets', () => {
+test('isPrimaryDiscoveryTrade excludes crypto but keeps sports and real-world markets', () => {
   assert.equal(isPrimaryDiscoveryTrade({
     marketTitle: 'Will Bitcoin be above $150k by June?',
     marketSlug: 'will-bitcoin-be-above-150k-by-june',
@@ -318,7 +318,7 @@ test('isPrimaryDiscoveryTrade excludes crypto and sports but keeps real-world ma
   assert.equal(isPrimaryDiscoveryTrade({
     marketTitle: 'Los Angeles Lakers vs Boston Celtics',
     marketSlug: 'nba-lakers-vs-celtics',
-  }), false);
+  }), true);
 
   assert.equal(isPrimaryDiscoveryTrade({
     marketTitle: 'Will the Fed cut rates in June?',
@@ -463,10 +463,11 @@ test('buildWalletPositionsResponse marks cached fallback rows distinctly from li
   assert.equal(response.positions[0]?.dataSource, 'cached');
 });
 
-test('applyDiscoveryWalletScore recalculates wallet score from current wallet performance', () => {
+test('applyDiscoveryWalletScore uses precomputed discovery score when available', () => {
   const wallet = applyDiscoveryWalletScore({
     address: '0x123400000000000000000000000000000000abcd',
     whaleScore: 12,
+    discoveryScore: 77,
     volume7d: 25000,
     volumePrev7d: 12000,
     tradeCount7d: 18,
@@ -477,7 +478,7 @@ test('applyDiscoveryWalletScore recalculates wallet score from current wallet pe
     activePositions: 4,
   }, 30000);
 
-  assert.ok(wallet.whaleScore > 12);
+  assert.equal(wallet.whaleScore, 77);
 });
 
 test('sortWalletsForResponse reorders hydrated wallets by the latest score', () => {

@@ -165,8 +165,22 @@ export class DiscoveryControlPlane {
     );
     const db = getDatabase();
     const scoredWallets = db.prepare('SELECT COUNT(*) AS count FROM discovery_wallet_scores').get() as { count: number };
+    const scoredWalletsV2 = db.prepare('SELECT COUNT(*) AS count FROM discovery_wallet_scores_v2').get() as { count: number };
     const candidateWallets = db.prepare('SELECT COUNT(DISTINCT address) AS count FROM discovery_wallet_candidates').get() as { count: number };
     const marketPoolCount = (db.prepare('SELECT COUNT(*) AS count FROM discovery_market_pool').get() as { count: number }).count;
+    const evalObservationCount = (db.prepare('SELECT COUNT(*) AS count FROM discovery_eval_observations_v2').get() as { count: number }).count;
+    const dualWriteCoveragePct = scoredWallets.count > 0
+      ? roundPct((scoredWalletsV2.count / scoredWallets.count) * 100)
+      : 100;
+    const evaluationLift = latestEvaluation
+      ? roundPct((latestEvaluation.precisionAtK - latestEvaluation.baselinePrecisionAtK) * 100)
+      : 0;
+    const readyForCutover = Boolean(
+      latestEvaluation &&
+      dualWriteCoveragePct >= 90 &&
+      evalObservationCount >= 100 &&
+      latestEvaluation.precisionAtK >= latestEvaluation.baselinePrecisionAtK
+    );
 
     return {
       enabled: cfg.enabled,
@@ -209,6 +223,13 @@ export class DiscoveryControlPlane {
           ndcg: latestEvaluation.ndcg,
           baselinePrecisionAtK: latestEvaluation.baselinePrecisionAtK,
         } : undefined,
+        migration: {
+          dualWriteCoveragePct,
+          evalObservationCount,
+          evaluationLiftPctPoints: evaluationLift,
+          readyForCutover,
+          cutoverReadMode: readyForCutover ? 'v2-primary' : 'v2-with-v1-fallback',
+        },
       },
     } as DiscoveryStatus;
   }
@@ -447,7 +468,16 @@ export class DiscoveryControlPlane {
       const reasonsV2 = db.prepare('DELETE FROM discovery_wallet_reasons_v2').run().changes;
       const runs = db.prepare('DELETE FROM discovery_run_log').run().changes;
       const evaluations = db.prepare('DELETE FROM discovery_eval_snapshots_v2').run().changes;
+      const evalObservations = db.prepare('DELETE FROM discovery_eval_observations_v2').run().changes;
       const costSnapshots = db.prepare('DELETE FROM discovery_cost_snapshots_v2').run().changes;
+      const tradeFactsV2 = db.prepare('DELETE FROM discovery_trade_facts_v2').run().changes;
+      const marketUniverseV2 = db.prepare('DELETE FROM discovery_market_universe_v2').run().changes;
+      const walletFeaturesV2 = db.prepare('DELETE FROM discovery_wallet_features_v2').run().changes;
+      const alertsV2 = db.prepare('DELETE FROM discovery_alerts_v2').run().changes;
+      const watchlist = db.prepare('DELETE FROM discovery_watchlist').run().changes;
+      const allocationStates = db.prepare('DELETE FROM allocation_policy_states').run().changes;
+      const allocationTransitions = db.prepare('DELETE FROM allocation_policy_transitions').run().changes;
+      const allocationConfig = db.prepare('DELETE FROM allocation_policy_config').run().changes;
       return {
         marketPool,
         tokenMap,
@@ -459,7 +489,16 @@ export class DiscoveryControlPlane {
         reasonsV2,
         runs,
         evaluations,
+        evalObservations,
         costSnapshots,
+        tradeFactsV2,
+        marketUniverseV2,
+        walletFeaturesV2,
+        alertsV2,
+        watchlist,
+        allocationStates,
+        allocationTransitions,
+        allocationConfig,
       };
     });
 

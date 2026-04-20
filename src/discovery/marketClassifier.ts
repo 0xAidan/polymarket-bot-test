@@ -149,7 +149,7 @@ export const classifyDiscoveryMarket = (
   const isSportsLike = SPORTS_KEYWORDS.some((keyword) => matchesKeyword(haystack, tokens, keyword));
   const isCryptoLike = CRYPTO_KEYWORDS.some((keyword) => matchesKeyword(haystack, tokens, keyword));
   const category = resolveCategory(haystack, isSportsLike, isCryptoLike);
-  const primaryDiscoveryEligible = category !== 'crypto' && category !== 'sports';
+  const primaryDiscoveryEligible = category !== 'crypto';
 
   return {
     category,

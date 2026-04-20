@@ -32,6 +32,7 @@ import {
   getPositionValue,
 } from './statsStore.js';
 import { classifyDiscoveryMarket } from './marketClassifier.js';
+import { insertDiscoveryAlertV2 } from './v2DataStore.js';
 
 let thresholds: SignalThresholds = { ...DEFAULT_SIGNAL_THRESHOLDS };
 
@@ -431,6 +432,7 @@ const checkConvictionBuild = (trade: DiscoveredTrade, stats: WalletStats): void 
 const fireSignal = (signal: Omit<DiscoverySignal, 'id' | 'dismissed'>): void => {
   try {
     insertSignal(signal);
+    insertDiscoveryAlertV2(signal);
     console.log(`[SignalEngine] ${signal.severity.toUpperCase()} ${signal.signalType}: ${signal.title}`);
   } catch (err) {
     console.error('[SignalEngine] Failed to insert signal:', err);
