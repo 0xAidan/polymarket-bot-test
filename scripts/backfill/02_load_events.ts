@@ -11,17 +11,20 @@ import { dirname } from 'path';
 import { openDuckDB } from '../../src/discovery/v3/duckdbClient.js';
 import { runV3DuckDBMigrations } from '../../src/discovery/v3/duckdbSchema.js';
 import { getDuckDBPath } from '../../src/discovery/v3/featureFlag.js';
-import { buildEventIngestSqlAntiJoin } from '../../src/discovery/v3/backfillQueries.js';
+import { buildEventIngestSqlAntiJoin, buildEventIngestSqlAntiJoinChunked } from '../../src/discovery/v3/backfillQueries.js';
 import { isEligible } from '../../src/discovery/v3/eligibility.js';
 
-function parseArgs(argv: string[]): { limit?: number; sourceUrl?: string; sampleReport: boolean } {
-  const out: { limit?: number; sourceUrl?: string; sampleReport: boolean } = { sampleReport: false };
+function parseArgs(argv: string[]): { limit?: number; sourceUrl?: string; sampleReport: boolean; buckets: number } {
+  const out: { limit?: number; sourceUrl?: string; sampleReport: boolean; buckets: number } = { sampleReport: false, buckets: 1 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--limit') out.limit = Number(argv[++i]);
     else if (a === '--source-url') out.sourceUrl = argv[++i];
     else if (a === '--sample-report') out.sampleReport = true;
+    else if (a === '--buckets') out.buckets = Math.max(1, Number(argv[++i]) || 1);
   }
+  const envBuckets = Number(process.env.DUCKDB_INGEST_BUCKETS);
+  if (!Number.isNaN(envBuckets) && envBuckets > 1 && out.buckets === 1) out.buckets = Math.floor(envBuckets);
   return out;
 }
 
@@ -56,7 +59,18 @@ async function main(): Promise<void> {
     console.log(`[02] existing rows in discovery_activity_v3: ${before}`);
 
     const t0 = Date.now();
-    await db.exec(buildEventIngestSqlAntiJoin(sourceRef, args.limit));
+    if (args.buckets <= 1) {
+      await db.exec(buildEventIngestSqlAntiJoin(sourceRef, args.limit));
+    } else {
+      console.log(`[02] chunked ingest: ${args.buckets} buckets (reduces temp-directory spill by ~${args.buckets}x)`);
+      for (let b = 0; b < args.buckets; b++) {
+        const tb = Date.now();
+        const sql = buildEventIngestSqlAntiJoinChunked(sourceRef, b, args.buckets, args.limit);
+        await db.exec(sql);
+        const cur = (await db.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM discovery_activity_v3'))[0].c;
+        console.log(`[02] bucket ${b + 1}/${args.buckets} done in ${Math.round((Date.now() - tb) / 1000)}s — total rows: ${cur}`);
+      }
+    }
     const after = (await db.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM discovery_activity_v3'))[0].c;
     const inserted = Number(after) - Number(before);
     console.log(`[02] inserted ${inserted} rows in ${Math.round((Date.now() - t0) / 1000)}s`);

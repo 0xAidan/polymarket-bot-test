@@ -91,6 +91,77 @@ export function buildEventIngestSqlAntiJoin(sourceRef: string, limit?: number): 
   `;
 }
 
+/**
+ * Chunked variant of buildEventIngestSqlAntiJoin.
+ *
+ * The non-chunked version runs ROW_NUMBER() OVER (PARTITION BY tx_hash, log_index)
+ * across the entire parquet, which materializes the whole sort state in temp
+ * (44 GiB for users.parquet). This variant restricts the parquet scan to one
+ * hash bucket at a time via hash(transaction_hash) % totalBuckets = bucketIdx,
+ * so each chunk's window function only sees 1/N of the data.
+ *
+ * Call once per bucket in [0, totalBuckets). The anti-join against
+ * discovery_activity_v3 still runs per chunk (so re-runs are safe), but each
+ * chunk's temp footprint is ~(44 GiB / totalBuckets).
+ */
+export function buildEventIngestSqlAntiJoinChunked(
+  sourceRef: string,
+  bucketIdx: number,
+  totalBuckets: number,
+  limit?: number
+): string {
+  if (!Number.isInteger(totalBuckets) || totalBuckets < 1) {
+    throw new Error(`totalBuckets must be a positive integer, got ${totalBuckets}`);
+  }
+  if (!Number.isInteger(bucketIdx) || bucketIdx < 0 || bucketIdx >= totalBuckets) {
+    throw new Error(`bucketIdx must be an integer in [0, ${totalBuckets}), got ${bucketIdx}`);
+  }
+  const limitClause = typeof limit === 'number' && limit > 0 ? `LIMIT ${limit}` : '';
+  return `
+    INSERT INTO discovery_activity_v3
+    WITH filtered AS (
+      SELECT * FROM ${sourceRef}
+      WHERE timestamp > 0
+        AND usd_amount > 0
+        AND token_amount <> 0
+        AND transaction_hash IS NOT NULL
+        AND (abs(hash(transaction_hash)) % ${totalBuckets}) = ${bucketIdx}
+      ${limitClause}
+    ),
+    deduped AS (
+      SELECT * FROM (
+        SELECT *, ROW_NUMBER() OVER (
+          PARTITION BY transaction_hash, log_index
+          ORDER BY timestamp
+        ) AS rn
+        FROM filtered
+      ) q
+      WHERE rn = 1
+    )
+    SELECT
+      user                                              AS proxy_wallet,
+      market_id,
+      condition_id,
+      event_id,
+      CAST(timestamp AS UBIGINT)                        AS ts_unix,
+      CAST(block_number AS UBIGINT)                     AS block_number,
+      transaction_hash                                  AS tx_hash,
+      CAST(log_index AS UINTEGER)                       AS log_index,
+      LOWER(role)                                       AS role,
+      CASE WHEN token_amount > 0 THEN 'BUY' ELSE 'SELL' END AS side,
+      CAST(price AS DOUBLE)                             AS price_yes,
+      CAST(usd_amount AS DOUBLE)                        AS usd_notional,
+      CAST(token_amount AS DOUBLE)                      AS signed_size,
+      ABS(CAST(token_amount AS DOUBLE))                 AS abs_size
+    FROM deduped src
+    WHERE NOT EXISTS (
+      SELECT 1 FROM discovery_activity_v3 a
+      WHERE a.tx_hash = src.transaction_hash
+        AND a.log_index = CAST(src.log_index AS UINTEGER)
+    )
+  `;
+}
+
 export interface MarketsIngestOptions {
   sourceRef: string;
   limit?: number;

@@ -6,7 +6,7 @@ import { join } from 'path';
 
 import { openDuckDB } from '../src/discovery/v3/duckdbClient.ts';
 import { runV3DuckDBMigrations } from '../src/discovery/v3/duckdbSchema.ts';
-import { buildEventIngestSqlAntiJoin, buildMarketsIngestSql } from '../src/discovery/v3/backfillQueries.ts';
+import { buildEventIngestSqlAntiJoin, buildEventIngestSqlAntiJoinChunked, buildMarketsIngestSql } from '../src/discovery/v3/backfillQueries.ts';
 
 test('02_load_events: parquet → discovery_activity_v3 schema mapping + dedup', async () => {
   const tmp = mkdtempSync(join(tmpdir(), 'v3-map-'));
@@ -52,6 +52,60 @@ test('02_load_events: parquet → discovery_activity_v3 schema mapping + dedup',
     assert.equal(b.side, 'SELL');
     const c = rows.find((r) => r.proxy_wallet === '0xC')!;
     assert.equal(c.role, 'maker', 'role lowercased');
+  } finally {
+    await db.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('02_load_events chunked: bucketed ingest matches unchunked result', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'v3-chunk-'));
+  const parquet = join(tmp, 'users.parquet');
+  const db = openDuckDB(':memory:');
+  try {
+    await db.exec(`CREATE TABLE users_source (
+      user VARCHAR, market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR,
+      timestamp BIGINT, block_number BIGINT, transaction_hash VARCHAR, log_index INTEGER,
+      role VARCHAR, price DOUBLE, usd_amount DOUBLE, token_amount DOUBLE
+    )`);
+    // 20 distinct tx hashes, plus a duplicate on tx5 to exercise dedup within a bucket.
+    let values: string[] = [];
+    for (let i = 1; i <= 20; i++) {
+      values.push(`('0xW${i}','m${i}','c${i}','e${i}',${1000 + i},${i},'tx${i}',0,'maker',0.5,50.0,100.0)`);
+    }
+    values.push(`('0xW5','m5','c5','e5',1006,5,'tx5',0,'maker',0.5,50.0,100.0)`); // dup
+    await db.exec(`INSERT INTO users_source VALUES ${values.join(',')}`);
+    await db.exec(`COPY users_source TO '${parquet}' (FORMAT PARQUET)`);
+    await db.exec(`DROP TABLE users_source`);
+
+    await runV3DuckDBMigrations((sql) => db.exec(sql));
+
+    const BUCKETS = 4;
+    for (let b = 0; b < BUCKETS; b++) {
+      await db.exec(buildEventIngestSqlAntiJoinChunked(`read_parquet('${parquet}')`, b, BUCKETS));
+    }
+    // Re-run to confirm idempotency across chunks.
+    for (let b = 0; b < BUCKETS; b++) {
+      await db.exec(buildEventIngestSqlAntiJoinChunked(`read_parquet('${parquet}')`, b, BUCKETS));
+    }
+
+    const rows = await db.query<{ c: number }>(`SELECT COUNT(*)::BIGINT AS c FROM discovery_activity_v3`);
+    assert.equal(Number(rows[0].c), 20, 'chunked ingest union should equal 20 distinct (tx_hash,log_index)');
+
+    // Bucket assertions: union(bucket_i) must equal full set, intersection must be empty.
+    const perBucket: number[] = [];
+    for (let b = 0; b < BUCKETS; b++) {
+      const r = await db.query<{ c: number }>(
+        `SELECT COUNT(*)::BIGINT AS c FROM discovery_activity_v3 WHERE (abs(hash(tx_hash)) % ${BUCKETS}) = ${b}`
+      );
+      perBucket.push(Number(r[0].c));
+    }
+    assert.equal(perBucket.reduce((a, b) => a + b, 0), 20, 'bucket counts sum to total');
+
+    // Arg validation.
+    assert.throws(() => buildEventIngestSqlAntiJoinChunked(`read_parquet('x')`, -1, 4), /bucketIdx/);
+    assert.throws(() => buildEventIngestSqlAntiJoinChunked(`read_parquet('x')`, 4, 4), /bucketIdx/);
+    assert.throws(() => buildEventIngestSqlAntiJoinChunked(`read_parquet('x')`, 0, 0), /totalBuckets/);
   } finally {
     await db.close();
     rmSync(tmp, { recursive: true, force: true });
