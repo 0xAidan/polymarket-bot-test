@@ -45,6 +45,13 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   // Serve static files from public directory
   // Note: Using process.cwd() since the app runs from project root
   const publicPath = path.join(process.cwd(), 'public');
+  app.use('/discovery-v3', (req, res, next) => {
+    if (!isDiscoveryV3Enabled()) {
+      res.status(404).send('Discovery v3 is not enabled');
+      return;
+    }
+    next();
+  });
   app.use(express.static(publicPath));
 
   discoveryManagerInstance = new DiscoveryManager('passive');
