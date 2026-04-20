@@ -6,8 +6,10 @@ import { auth, type ConfigParams } from 'express-openid-connect';
 import { config } from './config.js';
 import { createRoutes } from './api/routes.js';
 import { CopyTrader } from './copyTrader.js';
-import { initDatabase } from './database.js';
 import { createDiscoveryRoutes } from './api/discoveryRoutes.js';
+import { createDiscoveryV3Router } from './api/discoveryRoutesV3.js';
+import { isDiscoveryV3Enabled } from './discovery/v3/featureFlag.js';
+import { initDatabase, getDatabase } from './database.js';
 import { DiscoveryManager } from './discovery/discoveryManager.js';
 import { DiscoveryControlPlane } from './discovery/discoveryControlPlane.js';
 import { createComponentLogger } from './logger.js';
@@ -263,6 +265,10 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   // API routes
   app.use('/api', createRoutes(copyTrader));
   app.use('/api/discovery', createDiscoveryRoutes(discoveryControlPlane as any));
+
+  if (isDiscoveryV3Enabled()) {
+    app.use('/api/discovery/v3', createDiscoveryV3Router({ getDb: () => getDatabase() }));
+  }
 
   // API 404 handler - catch any unmatched /api routes and return JSON
   app.use('/api/*', (req, res) => {
