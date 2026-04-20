@@ -115,21 +115,29 @@ const normalizeWalletDetailProfile = (
   address: string,
   rawProfile?: Record<string, unknown>
 ): { profileAddress?: string; profileUrl?: string } => {
-  const profileAddress = getValidEvmAddress(
+  const routeAddress = getValidEvmAddress(address);
+  const profileFromApi = getValidEvmAddress(
     rawProfile?.address ??
     rawProfile?.walletAddress ??
     rawProfile?.publicAddress ??
     rawProfile?.proxyWallet
   );
 
-  if (!profileAddress || profileAddress !== address.toLowerCase()) {
-    return {};
+  if (profileFromApi && profileFromApi === String(address).toLowerCase()) {
+    return {
+      profileAddress: profileFromApi,
+      profileUrl: `https://polymarket.com/profile/${profileFromApi}`,
+    };
   }
 
-  return {
-    profileAddress,
-    profileUrl: `https://polymarket.com/profile/${profileAddress}`,
-  };
+  if (routeAddress) {
+    return {
+      profileAddress: routeAddress,
+      profileUrl: `https://polymarket.com/profile/${routeAddress}`,
+    };
+  }
+
+  return {};
 };
 
 export const buildWalletPositionsResponse = (
@@ -339,6 +347,7 @@ export const buildDiscoveryReasonRowsFromWallet = (wallet: {
 
 export const buildDiscoverySignalRowsFromWallets = (wallets: Array<{
   address?: string;
+  focusCategory?: string;
   reasonDetails?: Array<{ reasonType?: string; reasonCode?: string; message?: string; createdAt?: number; marketTitle?: string }>;
   supportingMarkets?: string[];
   supportingReasons?: string[];
@@ -348,6 +357,9 @@ export const buildDiscoverySignalRowsFromWallets = (wallets: Array<{
   reasonCodes?: string[];
   updatedAt?: number;
 }>) => wallets.flatMap((wallet) => {
+  const walletCategory = typeof wallet.focusCategory === 'string' && wallet.focusCategory
+    ? (wallet.focusCategory.toLowerCase() as DiscoveryMarketCategory)
+    : undefined;
   if (Array.isArray(wallet.reasonDetails) && wallet.reasonDetails.length > 0) {
     return wallet.reasonDetails.map((reason, index) => ({
       id: `${String(wallet.address || '').toLowerCase()}:reason:${index}`,
@@ -359,6 +371,7 @@ export const buildDiscoverySignalRowsFromWallets = (wallets: Array<{
       detectedAt: Number(reason.createdAt || wallet.updatedAt || Date.now()),
       canDismiss: false,
       marketTitle: reason.marketTitle || wallet.supportingMarkets?.[0],
+      category: walletCategory,
     })).filter((signal) => signal.description);
   }
 
@@ -385,6 +398,7 @@ export const buildDiscoverySignalRowsFromWallets = (wallets: Array<{
     detectedAt: updatedAt,
     canDismiss: false,
     marketTitle,
+    category: walletCategory,
   })).filter((signal) => signal.description);
 
   const cautionRows = cautionFlags.map((flag, index) => ({
@@ -397,6 +411,7 @@ export const buildDiscoverySignalRowsFromWallets = (wallets: Array<{
     detectedAt: updatedAt,
     canDismiss: false,
     marketTitle,
+    category: walletCategory,
   })).filter((signal) => signal.description);
 
   return [...supportingRows, ...cautionRows];
@@ -562,6 +577,7 @@ export const buildDiscoveryOverview = (
     severity?: string;
     marketTitle?: string;
     detectedAt?: number;
+    category?: DiscoveryMarketCategory;
   }>,
   days: number,
 ) => {
@@ -594,7 +610,10 @@ export const buildDiscoveryOverview = (
 
   const signalCountsByCategory = [...signals.reduce((acc, signal) => {
     if (Number(signal.detectedAt || 0) < signalCutoff) return acc;
-    const category = classifyDiscoveryMarket({ title: signal.marketTitle }).category || 'event';
+    const category =
+      signal.category
+      ?? classifyDiscoveryMarket({ title: signal.marketTitle }).category
+      ?? 'event';
     acc.set(category, (acc.get(category) ?? 0) + 1);
     return acc;
   }, new Map<string, number>()).entries()]

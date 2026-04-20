@@ -4068,6 +4068,12 @@ const selectDiscoveryWallet = (address) => {
   renderDiscoveryWalletViews();
 };
 
+const getPolymarketProfileUrl = (address) => {
+  if (!address || typeof address !== 'string') return '';
+  const lower = address.trim().toLowerCase();
+  return /^0x[a-f0-9]{40}$/.test(lower) ? `https://polymarket.com/profile/${lower}` : '';
+};
+
 const openDiscoveryProfile = (address) => {
   if (!address) return;
   discoveryProfileAddressOverride = address.toLowerCase();
@@ -4079,21 +4085,35 @@ const openDiscoveryProfile = (address) => {
 const fetchDiscoveryInspectorData = async (address) => {
   if (!address) return null;
   const cacheKey = address.toLowerCase();
+  const fallbackProfileUrl = getPolymarketProfileUrl(cacheKey);
   const cached = discoveryWalletDetailCache.get(cacheKey);
   const now = Date.now();
   if (cached && (now - cached.updatedAt) < 15000) {
     return cached.data;
   }
 
-  const [positionsData, signalsData] = await Promise.all([
-    API.get('/discovery/wallets/' + encodeURIComponent(cacheKey) + '/positions'),
-    API.get('/discovery/wallets/' + encodeURIComponent(cacheKey) + '/signals'),
-  ]);
+  let positionsData = { positions: [], source: 'derived', profileUrl: fallbackProfileUrl };
+  let signalsData = { signals: [] };
+  let positionsOk = true;
+  let signalsOk = true;
+  try {
+    positionsData = await API.get('/discovery/wallets/' + encodeURIComponent(cacheKey) + '/positions');
+  } catch {
+    positionsOk = false;
+  }
+  try {
+    signalsData = await API.get('/discovery/wallets/' + encodeURIComponent(cacheKey) + '/signals');
+  } catch {
+    signalsOk = false;
+  }
+
   const data = {
     positions: positionsData.positions || [],
     positionSource: positionsData?.source || 'derived',
-    profileUrl: positionsData?.profileUrl || '',
+    profileUrl: positionsData?.profileUrl || fallbackProfileUrl,
     signals: signalsData.signals || [],
+    positionsOk,
+    signalsOk,
   };
   discoveryWalletDetailCache.set(cacheKey, { data, updatedAt: now });
   return data;
@@ -4133,12 +4153,16 @@ const renderDiscoveryInspector = async () => {
   const supportingReasons = getDiscoverySupportingReasons(wallet);
   const cautionFlags = getDiscoveryCautionFlags(wallet);
   const safeAddress = (wallet.address || '').replace(/'/g, "\\'");
-
+  const polymarketProfileUrl = getPolymarketProfileUrl(wallet.address);
+  const polymarketLinkHtml = polymarketProfileUrl
+    ? `<div class="mt-4"><a href="${escapeHtml(polymarketProfileUrl)}" target="_blank" rel="noopener noreferrer" class="text-sm" style="color:var(--win-link);" tabindex="0" aria-label="Open this wallet on Polymarket">View on Polymarket →</a></div>`
+    : '';
   titleEl.textContent = `Inspector • ${identityLabel}`;
   bodyEl.innerHTML = `
     <div class="discovery-inspector-section">
       <div class="discovery-inspector-label">Wallet</div>
       <div class="discovery-inspector-value text-mono">${escapeHtml(shortAddress(wallet.address))}</div>
+      ${polymarketLinkHtml}
     </div>
     <div class="discovery-inspector-section">
       <div class="discovery-inspector-label">Classification</div>
@@ -4164,11 +4188,12 @@ const renderDiscoveryInspector = async () => {
     </div>
     <div class="discovery-inspector-section">
       <div class="discovery-inspector-label">Actions</div>
-      <div class="flex-row gap-8">
+      <div class="flex-row gap-8 flex-wrap">
         ${buildDiscoveryTrackButton(wallet)}
         <button class="win-btn win-btn-sm" onclick="addWalletToDiscoveryCompare('${safeAddress}')" aria-label="Add wallet to compare" tabindex="0">Compare</button>
         <button class="win-btn win-btn-sm" onclick="addSelectedDiscoveryWalletToWatchlist()" aria-label="Add wallet to watchlist" tabindex="0">Watchlist</button>
         <button class="win-btn win-btn-sm" onclick="openDiscoveryProfile('${safeAddress}')" aria-label="Open wallet profile surface" tabindex="0">Profile</button>
+        ${polymarketProfileUrl ? `<a class="win-btn win-btn-sm" href="${escapeHtml(polymarketProfileUrl)}" target="_blank" rel="noopener noreferrer" tabindex="0" aria-label="Open Polymarket profile in a new tab">Polymarket</a>` : ''}
       </div>
     </div>
     <div class="discovery-inspector-section text-xs text-muted">Loading live positions and signals...</div>
@@ -4188,7 +4213,7 @@ const renderDiscoveryInspector = async () => {
       }).join('')
       : '<div class="text-xs text-muted">No active positions found.</div>';
     const signalRows = signals.length
-      ? signals.map((signal) => `<div class="text-xs" style="margin-bottom:4px;">${escapeHtml((signal.signalType || '').replace(/_/g, ' '))}: ${escapeHtml(signal.description || '')}</div>`).join('')
+      ? signals.map((signal) => `<div class="text-xs" style="margin-bottom:4px;">${escapeHtml((signal.signalType || '').replace(/_/g, ' '))}: ${escapeHtml(signal.description || signal.title || '')}</div>`).join('')
       : '<div class="text-xs text-muted">No recent signals for this wallet.</div>';
     const detailedAllocationLine = wallet.allocationState
       ? `${wallet.allocationState}${wallet.allocationWeight != null ? ` (${Number(wallet.allocationWeight).toFixed(2)}x)` : ''}`
@@ -4199,12 +4224,19 @@ const renderDiscoveryInspector = async () => {
       : detail?.positionSource === 'cached'
         ? 'Cached profile positions'
         : 'Derived positions';
-    const safeProfileUrl = escapeJsString(detail?.profileUrl || '');
+    const profileOpenUrl = detail?.profileUrl || polymarketProfileUrl || '';
+    const positionNote = detail?.positionsOk === false
+      ? '<div class="text-xs text-muted mb-4">Live positions request did not complete; you may only see derived or cached data.</div>'
+      : '';
+    const signalNote = detail?.signalsOk === false
+      ? '<div class="text-xs text-muted mb-4">Signals request did not complete; recent reasons may be incomplete.</div>'
+      : '';
 
     bodyEl.innerHTML = `
       <div class="discovery-inspector-section">
         <div class="discovery-inspector-label">Wallet</div>
         <div class="discovery-inspector-value text-mono">${escapeHtml(shortAddress(wallet.address))}</div>
+        ${polymarketLinkHtml}
       </div>
       <div class="discovery-inspector-section">
         <div class="discovery-inspector-label">Classification</div>
@@ -4230,26 +4262,65 @@ const renderDiscoveryInspector = async () => {
       </div>
       <div class="discovery-inspector-section">
         <div class="discovery-inspector-label">${escapeHtml(sourceLabel)}</div>
-        <div class="discovery-inspector-value">${positionRows}</div>
+        <div class="discovery-inspector-value">${positionNote}${positionRows}</div>
       </div>
       <div class="discovery-inspector-section">
         <div class="discovery-inspector-label">Recent Signals</div>
-        <div class="discovery-inspector-value">${signalRows}</div>
+        <div class="discovery-inspector-value">${signalNote}${signalRows}</div>
       </div>
       <div class="discovery-inspector-section">
         <div class="discovery-inspector-label">Actions</div>
-        <div class="flex-row gap-8">
+        <div class="flex-row gap-8 flex-wrap">
           ${buildDiscoveryTrackButton(wallet)}
           <button class="win-btn win-btn-sm" onclick="addWalletToDiscoveryCompare('${safeAddress}')" aria-label="Add wallet to compare" tabindex="0">Compare</button>
           <button class="win-btn win-btn-sm" onclick="addSelectedDiscoveryWalletToWatchlist()" aria-label="Add wallet to watchlist" tabindex="0">Watchlist</button>
           <button class="win-btn win-btn-sm" onclick="openDiscoveryProfile('${safeAddress}')" aria-label="Open wallet profile surface" tabindex="0">Profile</button>
-          ${detail?.profileUrl ? `<button class="win-btn win-btn-sm" onclick="window.open('${safeProfileUrl}', '_blank')" aria-label="Open Polymarket profile" tabindex="0">Polymarket</button>` : ''}
+          ${profileOpenUrl ? `<a class="win-btn win-btn-sm" href="${escapeHtml(profileOpenUrl)}" target="_blank" rel="noopener noreferrer" tabindex="0" aria-label="Open Polymarket profile in a new tab">Polymarket</a>` : ''}
         </div>
       </div>
     `;
   } catch {
     if (requestId !== discoveryInspectorRequestSeq) return;
-    bodyEl.innerHTML += '<div class="text-xs text-muted">Live detail lookup failed; showing cached ranking context only.</div>';
+    bodyEl.innerHTML = `
+      <div class="discovery-inspector-section">
+        <div class="discovery-inspector-label">Wallet</div>
+        <div class="discovery-inspector-value text-mono">${escapeHtml(shortAddress(wallet.address))}</div>
+        ${polymarketLinkHtml}
+      </div>
+      <div class="discovery-inspector-section">
+        <div class="discovery-inspector-label">Classification</div>
+        <div class="discovery-inspector-value" style="text-transform:capitalize;">${escapeHtml(strategyClass)} • ${escapeHtml(discoveryCategoryLabel(wallet.focusCategory))} • ${escapeHtml(confidence)}</div>
+      </div>
+      <div class="discovery-inspector-section">
+        <div class="discovery-inspector-label">Score Stack</div>
+        <div class="discovery-inspector-value">${scoreBar(discoveryScore)}<div class="text-xs text-muted">Trust ${trustScore} • Copyability ${copyabilityScore}</div></div>
+      </div>
+      <div class="discovery-inspector-section">
+        <div class="discovery-inspector-label">Allocation Posture</div>
+        <div class="discovery-inspector-value">${escapeHtml(allocationLine)}</div>
+      </div>
+      <div class="discovery-inspector-section">
+        <div class="discovery-inspector-label">Why Surfaced</div>
+        <div class="discovery-inspector-value">
+          <div>${escapeHtml(reasonLine)}</div>
+          <div class="discovery-wallet-card-chips">
+            ${supportingReasons.map((reason) => `<span class="discovery-chip">${escapeHtml(reason)}</span>`).join('')}
+            ${cautionFlags.map((flag) => `<span class="discovery-chip caution">${escapeHtml(flag)}</span>`).join('')}
+          </div>
+        </div>
+      </div>
+      <div class="discovery-inspector-section text-xs text-muted">Live positions and signals could not be loaded. Try again in a moment.</div>
+      <div class="discovery-inspector-section">
+        <div class="discovery-inspector-label">Actions</div>
+        <div class="flex-row gap-8 flex-wrap">
+          ${buildDiscoveryTrackButton(wallet)}
+          <button class="win-btn win-btn-sm" onclick="addWalletToDiscoveryCompare('${safeAddress}')" aria-label="Add wallet to compare" tabindex="0">Compare</button>
+          <button class="win-btn win-btn-sm" onclick="addSelectedDiscoveryWalletToWatchlist()" aria-label="Add wallet to watchlist" tabindex="0">Watchlist</button>
+          <button class="win-btn win-btn-sm" onclick="openDiscoveryProfile('${safeAddress}')" aria-label="Open wallet profile surface" tabindex="0">Profile</button>
+          ${polymarketProfileUrl ? `<a class="win-btn win-btn-sm" href="${escapeHtml(polymarketProfileUrl)}" target="_blank" rel="noopener noreferrer" tabindex="0" aria-label="Open Polymarket profile in a new tab">Polymarket</a>` : ''}
+        </div>
+      </div>
+    `;
   }
 };
 
@@ -4323,7 +4394,7 @@ const openWalletDetail = async (address) => {
         ? 'Cached Polymarket snapshot'
         : 'Derived from observed discovery trades';
 
-    const profileUrl = posData.profileUrl || '';
+    const profileUrl = posData.profileUrl || getPolymarketProfileUrl(address);
     let html = '<p class="text-mono text-sm mb-4">' + address + '</p>';
     if (profileUrl) {
       html += '<p class="mb-8"><a href="' + profileUrl + '" target="_blank" rel="noopener noreferrer" style="color:#0066cc;text-decoration:underline;font-size:12px;" tabindex="0" aria-label="View Polymarket profile for this wallet">View on Polymarket &rarr;</a></p>';
