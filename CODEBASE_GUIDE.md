@@ -164,3 +164,38 @@ Start in this order:
 2.  **`src/config.ts`**: See what settings exist.
 3.  **`src/walletMonitor.ts`**: See how we fetch data.
 4.  **`src/clobClient.ts`**: The "hard" technical part interacting with the exchange.
+
+---
+
+## Part 12: Discovery Engine v3 (Tiered Wallet Discovery)
+
+Discovery v3 is an additive rebuild that introduces analytical wallet tiering
+(alpha / whale / specialist) with point-in-time-pure historical scoring. All v3
+code lives under `src/discovery/v3/`, `scripts/backfill/`, and
+`public/discovery-v3/` and is gated on `DISCOVERY_V3=true`.
+
+### Key components
+- `src/discovery/v3/featureFlag.ts` — `isDiscoveryV3Enabled()`, `getDuckDBPath()`
+- `src/discovery/v3/duckdbClient.ts` — CJS-interop DuckDB wrapper (ESM-friendly)
+- `src/discovery/v3/schema.ts`, `duckdbSchema.ts` — migrations
+- `src/discovery/v3/eligibility.ts` — hard gates (span, markets, trades)
+- `src/discovery/v3/backfillQueries.ts` — ingest + snapshot SQL
+- `src/discovery/v3/tierScoring.ts` — z-score blends + per-tier percentile rank
+- `src/discovery/v3/goldskyListener.ts` — live OrderFilled subscription
+- `src/discovery/v3/refreshWorker.ts` — hourly re-scoring loop
+- `src/discovery/v3/workerIntegration.ts` — bootstrap wired into `discoveryWorker.ts`
+- `src/api/discoveryRoutesV3.ts` — 9 endpoints under `/api/discovery/v3/`
+- `public/discovery-v3/` — standalone three-tier UI
+
+### Running locally
+```bash
+export DISCOVERY_V3=true
+npm run build
+tsx scripts/backfill/01_init_duckdb.ts
+tsx scripts/backfill/04_emit_snapshots.ts
+tsx scripts/backfill/05_score_and_publish.ts
+npm start
+# Browse http://localhost:3000/discovery-v3/
+```
+
+See `docs/discovery-v3-operations.md` for the full runbook.
