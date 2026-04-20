@@ -31,10 +31,54 @@ function loadDuckDB(): DuckDBModule {
   return require('duckdb') as DuckDBModule;
 }
 
+/**
+ * Apply DuckDB runtime settings from environment variables. Safe to call
+ * synchronously via the CJS `run` method; pragmas are fire-and-forget and
+ * will be fully applied before the first real query resolves.
+ *
+ * Supported env vars:
+ *   DUCKDB_MEMORY_LIMIT_GB   — cap DuckDB's memory (default: let DuckDB pick)
+ *   DUCKDB_THREADS           — cap parallelism (default: all cores)
+ *   DUCKDB_TEMP_DIR          — where to spill when memory_limit is exceeded
+ *                              (default: DuckDB's own tmp, often too small)
+ *
+ * Setting temp_directory is essential: without it, a GROUP BY or ROW_NUMBER
+ * on a larger-than-memory dataset will OOM instead of spilling to disk.
+ */
+function applyRuntimeSettings(conn: DuckDBConnection): void {
+  const memGb = process.env.DUCKDB_MEMORY_LIMIT_GB;
+  const threads = process.env.DUCKDB_THREADS;
+  const tempDir = process.env.DUCKDB_TEMP_DIR;
+
+  if (memGb && Number(memGb) > 0) {
+    conn.run(`SET memory_limit = '${Number(memGb)}GB'`, (err) => {
+      if (err) console.warn('[duckdb] memory_limit pragma failed:', err.message);
+    });
+  }
+  if (threads && Number(threads) > 0) {
+    conn.run(`SET threads = ${Number(threads)}`, (err) => {
+      if (err) console.warn('[duckdb] threads pragma failed:', err.message);
+    });
+  }
+  if (tempDir) {
+    // Escape single quotes in the path to be safe.
+    const escaped = tempDir.replace(/'/g, "''");
+    conn.run(`SET temp_directory = '${escaped}'`, (err) => {
+      if (err) console.warn('[duckdb] temp_directory pragma failed:', err.message);
+    });
+  }
+  // preserve_insertion_order=false lets DuckDB stream INSERT ... SELECT
+  // without buffering the whole result set — critical for 48GB ingests.
+  conn.run('SET preserve_insertion_order = false', (err) => {
+    if (err) console.warn('[duckdb] preserve_insertion_order pragma failed:', err.message);
+  });
+}
+
 export function openDuckDB(path: string): DuckDBClient {
   const duckdb = loadDuckDB();
   const db = new duckdb.Database(path);
   const conn = db.connect();
+  applyRuntimeSettings(conn);
 
   return {
     query<T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<T[]> {
