@@ -98,3 +98,12 @@ STORAGE_BACKEND=json
 
 # Optional: Master password for encrypted wallet/keystore unlock (multi-wallet mode)
 MASTER_PASSWORD=
+
+# ============================================================
+# Discovery Engine v3 (additive, behind feature flag)
+# ============================================================
+# When true, v3 schema migrations run and v3 ingest/worker/API/UI are active
+# alongside legacy v1/v2 discovery. Default false.
+DISCOVERY_V3=false
+# Path to the DuckDB sidecar file used by the v3 analytics pipeline.
+DUCKDB_PATH=./data/discovery_v3.duckdb
