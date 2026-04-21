@@ -15,6 +15,7 @@ import {
   buildStagingIngestSql,
   buildStagingToActivitySql,
   buildStagingSortToParquetSql,
+  buildStagingSortBucketToParquetSql,
   buildSortedParquetToActivitySql,
 } from '../src/discovery/v3/backfillQueries.ts';
 
@@ -252,6 +253,87 @@ test('02_load_events sort-based: external-sort-then-LAG dedup matches single-sho
     assert.equal(c.role, 'maker', 'role lowercased');
   } finally {
     await db.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('02_load_events bucketed sort: per-bucket dedup matches single-sort dedup', async () => {
+  // Correctness guarantee of the bucketed path: abs(hash(tx_hash)) % N is
+  // deterministic, so every duplicate (tx_hash, log_index) lands in the same
+  // bucket. Per-bucket dedup must therefore produce the same output as the
+  // single-sort dedup. This is what lets Phase B fit on the production volume.
+  const tmp = mkdtempSync(join(tmpdir(), 'v3-bucketed-'));
+  const parquet = join(tmp, 'users.parquet');
+  const dbSingle = openDuckDB(':memory:');
+  const dbBucketed = openDuckDB(':memory:');
+  try {
+    // Build a fixture with duplicates spread across many transaction_hash
+    // values so buckets get non-trivial content.
+    const values: string[] = [];
+    for (let i = 0; i < 40; i++) {
+      const tx = `tx${i.toString().padStart(3, '0')}`;
+      values.push(`('0xW${i % 7}','m${i % 5}','c${i % 5}','e${i}',${1000 + i},${i},'${tx}',0,'maker',0.5,${10 + i}.0, 100.0)`);
+      // Add a duplicate of half the rows at a later timestamp — dedup must
+      // keep the earlier one.
+      if (i % 2 === 0) {
+        values.push(`('0xW${i % 7}','m${i % 5}','c${i % 5}','e${i}',${2000 + i},${i},'${tx}',0,'maker',0.5,${10 + i}.0, 100.0)`);
+      }
+    }
+
+    for (const db of [dbSingle, dbBucketed]) {
+      await db.exec(`CREATE TABLE users_source (
+        user VARCHAR, market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR,
+        timestamp BIGINT, block_number BIGINT, transaction_hash VARCHAR, log_index INTEGER,
+        role VARCHAR, price DOUBLE, usd_amount DOUBLE, token_amount DOUBLE
+      )`);
+      await db.exec(`INSERT INTO users_source VALUES ${values.join(', ')}`);
+    }
+    await dbSingle.exec(`COPY users_source TO '${parquet}' (FORMAT PARQUET)`);
+    await dbSingle.exec(`DROP TABLE users_source`);
+    await dbBucketed.exec(`DROP TABLE users_source`);
+    await runV3DuckDBMigrations((sql) => dbSingle.exec(sql));
+    await runV3DuckDBMigrations((sql) => dbBucketed.exec(sql));
+
+    // --- Single-sort baseline ---
+    const singleSorted = join(tmp, 'single.parquet');
+    await dbSingle.exec(buildStagingDropSql());
+    await dbSingle.exec(buildStagingCreateSql());
+    await dbSingle.exec(buildStagingIngestSql(`read_parquet('${parquet}')`));
+    await dbSingle.exec(buildStagingSortToParquetSql(singleSorted));
+    await dbSingle.exec(buildStagingDropSql());
+    await dbSingle.exec(buildSortedParquetToActivitySql(singleSorted));
+
+    // --- Bucketed path ---
+    const totalBuckets = 4;
+    await dbBucketed.exec(buildStagingDropSql());
+    await dbBucketed.exec(buildStagingCreateSql());
+    await dbBucketed.exec(buildStagingIngestSql(`read_parquet('${parquet}')`));
+    for (let b = 0; b < totalBuckets; b++) {
+      const bp = join(tmp, `bucket_${b}.parquet`);
+      await dbBucketed.exec(buildStagingSortBucketToParquetSql(b, totalBuckets, bp));
+      await dbBucketed.exec(buildSortedParquetToActivitySql(bp));
+    }
+    await dbBucketed.exec(buildStagingDropSql());
+
+    // --- Compare ---
+    const asRows = async (db: ReturnType<typeof openDuckDB>) =>
+      db.query<{ k: string }>(
+        `SELECT tx_hash || '|' || log_index || '|' || CAST(ts_unix AS VARCHAR) || '|' || proxy_wallet AS k
+           FROM discovery_activity_v3
+          ORDER BY tx_hash, log_index, ts_unix, proxy_wallet`
+      );
+    const singleRows = (await asRows(dbSingle)).map((r) => r.k);
+    const bucketedRows = (await asRows(dbBucketed)).map((r) => r.k);
+    assert.deepEqual(bucketedRows, singleRows, 'bucketed path must produce identical rows to single-sort path');
+    assert.ok(singleRows.length === 40, `expected 40 unique (tx_hash, log_index), got ${singleRows.length}`);
+
+    // Argument validation.
+    assert.throws(() => buildStagingSortBucketToParquetSql(0, 0, '/tmp/x.parquet'), /totalBuckets/);
+    assert.throws(() => buildStagingSortBucketToParquetSql(-1, 4, '/tmp/x.parquet'), /bucketIdx/);
+    assert.throws(() => buildStagingSortBucketToParquetSql(4, 4, '/tmp/x.parquet'), /bucketIdx/);
+  } finally {
+    await dbSingle.close();
+    await dbBucketed.close();
     rmSync(tmp, { recursive: true, force: true });
   }
 });

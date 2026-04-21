@@ -41,6 +41,10 @@ function loadDuckDB(): DuckDBModule {
  *   DUCKDB_THREADS           — cap parallelism (default: all cores)
  *   DUCKDB_TEMP_DIR          — where to spill when memory_limit is exceeded
  *                              (default: DuckDB's own tmp, often too small)
+ *   DUCKDB_MAX_TEMP_DIR_GB   — cap on spill directory size. DuckDB defaults
+ *                              this to 90% of FREE disk at spill time, which
+ *                              breaks when the volume is already crowded.
+ *                              Set explicitly for large sort/GROUP BY runs.
  *
  * Setting temp_directory is essential: without it, a GROUP BY or ROW_NUMBER
  * on a larger-than-memory dataset will OOM instead of spilling to disk.
@@ -65,6 +69,16 @@ function applyRuntimeSettings(conn: DuckDBConnection): void {
     const escaped = tempDir.replace(/'/g, "''");
     conn.run(`SET temp_directory = '${escaped}'`, (err) => {
       if (err) console.warn('[duckdb] temp_directory pragma failed:', err.message);
+    });
+  }
+  // max_temp_directory_size defaults to 90% of FREE disk at spill time.
+  // If the volume is already crowded (e.g. source parquet + staging DB share
+  // the same disk), DuckDB computes a tiny cap (~7 GB in our runs) and the
+  // next sort hits OOM immediately. Pin the cap explicitly.
+  const maxTempGb = process.env.DUCKDB_MAX_TEMP_DIR_GB;
+  if (maxTempGb && Number(maxTempGb) > 0) {
+    conn.run(`SET max_temp_directory_size = '${Number(maxTempGb)}GB'`, (err) => {
+      if (err) console.warn('[duckdb] max_temp_directory_size pragma failed:', err.message);
     });
   }
   // preserve_insertion_order=false lets DuckDB stream INSERT ... SELECT

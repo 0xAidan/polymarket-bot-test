@@ -199,3 +199,53 @@ npm start
 ```
 
 See `docs/discovery-v3-operations.md` for the full runbook.
+
+### Backfill: `02_load_events` ingest paths (read before changing!)
+
+`scripts/backfill/02_load_events.ts` supports three modes via `--mode`:
+
+- `legacy`  — single INSERT with ROW_NUMBER. OOMs on the real 927M-row
+  `users.parquet`. Kept only for tiny test fixtures.
+- `chunked` — N buckets of ROW_NUMBER ingest. Each bucket still materializes
+  its full sort state; not safe on the production dataset.
+- `staging` (default, **production**) — bucketed external sort:
+    1. Phase A: stream parquet → `staging_events_v3` (bounded RAM).
+    2. Phase B: for each of `DUCKDB_SORT_BUCKETS` (default 64) hash buckets on
+       `transaction_hash`, `COPY (ORDER BY tx_hash, log_index, timestamp)` to
+       a per-bucket parquet, then `INSERT` with LAG-dedup, then `rm` the
+       bucket parquet.
+    3. Drop staging + CHECKPOINT.
+
+  Why bucketed: DuckDB's `max_temp_directory_size` defaults to 90% of FREE
+  disk at spill time. With `users.parquet` (48 GB) + `staging_events_v3` (41
+  GB) sharing the 93 GB volume, free disk at sort time is ~8 GB, so a single
+  sort of 900M rows (needs ~100 GB spill) OOMs instantly. `abs(hash(tx_hash))
+  % N` keeps all duplicates of a `(tx_hash, log_index)` key in the same
+  bucket, so per-bucket dedup is provably equivalent to global dedup
+  (tested in `tests/v3-backfill-mapping.test.ts`).
+
+### Backfill: required env vars (`duckdbClient.ts`)
+
+- `DUCKDB_MEMORY_LIMIT_GB` — cap DuckDB RAM (e.g. 8 on a 16 GB box).
+- `DUCKDB_THREADS`         — cap parallelism (2 is stable).
+- `DUCKDB_TEMP_DIR`        — spill directory; must be on a volume with
+  plenty of free space.
+- `DUCKDB_MAX_TEMP_DIR_GB`  — **must be set explicitly** for the backfill.
+  Without it, DuckDB computes `max_temp_directory_size` = 90% of free disk
+  at spill time, which is tiny when the volume is crowded.
+- `DUCKDB_SORT_BUCKETS`    — bucketed-sort pass count for step 02 staging
+  mode. Default 64. Raise if a bucket still OOMs.
+- `SORTED_PARQUET_DIR`     — where step 02 writes bucket parquets. Defaults
+  to `DUCKDB_TEMP_DIR`.
+
+### Backfill: pitfalls that have bitten us
+
+- **Never** do `COPY (SELECT ... ORDER BY ...) TO parquet` on the whole
+  `staging_events_v3` table on this hardware. The sort state does not fit.
+- **Never** rely on DuckDB's default `max_temp_directory_size`. Set
+  `DUCKDB_MAX_TEMP_DIR_GB` explicitly.
+- **Never** assume an empty `duckdb_tmp/` means spill isn't the problem —
+  DuckDB deletes partial spill files when a query aborts.
+- ROW_NUMBER OVER (PARTITION BY ...) across the full parquet materializes
+  the whole sort state in temp and does not bucket cleanly. Use the
+  bucketed external sort (`buildStagingSortBucketToParquetSql`) instead.

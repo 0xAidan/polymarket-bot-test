@@ -64,12 +64,50 @@ export function buildStagingIngestSql(sourceRef: string, limit?: number): string
  * DuckDB's COPY ... ORDER BY uses an external merge sort with bounded
  * memory and spill to temp_directory. This is the ONLY operation that
  * reliably sorts larger-than-memory data in DuckDB.
+ *
+ * ⚠️  At 900M+ rows this sort needs ~100 GB of spill space and will hit
+ *    disk-cap OOMs on a 93 GB volume. Use buildStagingSortBucketToParquetSql
+ *    instead for the real backfill; kept for tests and small runs.
  */
 export function buildStagingSortToParquetSql(sortedParquetPath: string): string {
   const escaped = sortedParquetPath.replace(/'/g, "''");
   return `
     COPY (
       SELECT * FROM staging_events_v3
+      ORDER BY transaction_hash, log_index, timestamp
+    ) TO '${escaped}' (FORMAT PARQUET, COMPRESSION SNAPPY)
+  `;
+}
+
+/**
+ * Phase B1 (bucketed): external merge sort ONE hash bucket of
+ * staging_events_v3 → one sorted parquet file.
+ *
+ * Why bucket: a single sort of 900M rows requires ~100 GB of spill, which
+ * does not fit on the production volume alongside users.parquet + the staging
+ * DB. Splitting on abs(hash(transaction_hash)) % totalBuckets lets each
+ * bucket's sort state fit in a few GB.
+ *
+ * Correctness: all rows sharing the same transaction_hash land in the same
+ * bucket (hash is deterministic), so per-bucket dedup on
+ * (transaction_hash, log_index) is equivalent to global dedup.
+ */
+export function buildStagingSortBucketToParquetSql(
+  bucketIdx: number,
+  totalBuckets: number,
+  sortedParquetPath: string
+): string {
+  if (!Number.isInteger(totalBuckets) || totalBuckets < 1) {
+    throw new Error(`totalBuckets must be a positive integer, got ${totalBuckets}`);
+  }
+  if (!Number.isInteger(bucketIdx) || bucketIdx < 0 || bucketIdx >= totalBuckets) {
+    throw new Error(`bucketIdx must be an integer in [0, ${totalBuckets}), got ${bucketIdx}`);
+  }
+  const escaped = sortedParquetPath.replace(/'/g, "''");
+  return `
+    COPY (
+      SELECT * FROM staging_events_v3
+      WHERE (abs(hash(transaction_hash)) % ${totalBuckets}) = ${bucketIdx}
       ORDER BY transaction_hash, log_index, timestamp
     ) TO '${escaped}' (FORMAT PARQUET, COMPRESSION SNAPPY)
   `;
