@@ -4,6 +4,98 @@
  */
 
 /**
+ * Two-phase streaming ingest — the only path that works on 48GB parquet
+ * with bounded memory.
+ *
+ * Phase A: parquet → staging_events_v3 (no window, no join, no casts).
+ * Phase B: staging_events_v3 → discovery_activity_v3 via DISTINCT ON
+ *          (streaming sort, spills cleanly to temp_dir).
+ *
+ * Avoids three things that pin memory and OOM DuckDB:
+ *   1. ROW_NUMBER() OVER (PARTITION BY ...) across the full table
+ *   2. WHERE NOT EXISTS correlated subquery (index lookup state)
+ *   3. Multi-CTE pipelines (optimizer materializes intermediates)
+ */
+export function buildStagingCreateSql(): string {
+  return `
+    CREATE TABLE IF NOT EXISTS staging_events_v3 (
+      user             VARCHAR,
+      market_id        VARCHAR,
+      condition_id     VARCHAR,
+      event_id         VARCHAR,
+      timestamp        BIGINT,
+      block_number     BIGINT,
+      transaction_hash VARCHAR,
+      log_index        INTEGER,
+      role             VARCHAR,
+      price            DOUBLE,
+      usd_amount       DOUBLE,
+      token_amount     DOUBLE
+    )
+  `;
+}
+
+export function buildStagingDropSql(): string {
+  return `DROP TABLE IF EXISTS staging_events_v3`;
+}
+
+/**
+ * Phase A: streaming INSERT from parquet into staging_events_v3.
+ * No window function, no join, no cast — DuckDB can pipeline this.
+ */
+export function buildStagingIngestSql(sourceRef: string, limit?: number): string {
+  const limitClause = typeof limit === 'number' && limit > 0 ? `LIMIT ${limit}` : '';
+  return `
+    INSERT INTO staging_events_v3
+    SELECT user, market_id, condition_id, event_id, timestamp, block_number,
+           transaction_hash, log_index, role, price, usd_amount, token_amount
+    FROM ${sourceRef}
+    WHERE timestamp > 0
+      AND usd_amount > 0
+      AND token_amount <> 0
+      AND transaction_hash IS NOT NULL
+    ${limitClause}
+  `;
+}
+
+/**
+ * Phase B: streaming INSERT from staging into discovery_activity_v3.
+ *
+ * Uses GROUP BY with arg_min() — which DuckDB's planner executes as a
+ * HASH_GROUP_BY (streaming hash aggregate with spill), NOT a WINDOW
+ * operator. This is the critical difference from ROW_NUMBER():
+ *
+ *   - WINDOW operator pins sort state → OOMs at scale.
+ *   - HASH_GROUP_BY streams and spills cleanly to temp_directory.
+ *
+ * Semantics: for each (tx_hash, log_index) group, arg_min picks the row
+ * with the smallest timestamp — matching the original ROW_NUMBER ORDER BY
+ * timestamp tie-break.
+ */
+export function buildStagingToActivitySql(): string {
+  return `
+    INSERT INTO discovery_activity_v3
+    SELECT
+      arg_min("user", timestamp)                        AS proxy_wallet,
+      arg_min(market_id, timestamp)                     AS market_id,
+      arg_min(condition_id, timestamp)                  AS condition_id,
+      arg_min(event_id, timestamp)                      AS event_id,
+      CAST(arg_min(timestamp, timestamp) AS UBIGINT)    AS ts_unix,
+      CAST(arg_min(block_number, timestamp) AS UBIGINT) AS block_number,
+      transaction_hash                                  AS tx_hash,
+      CAST(log_index AS UINTEGER)                       AS log_index,
+      LOWER(arg_min(role, timestamp))                   AS role,
+      CASE WHEN arg_min(token_amount, timestamp) > 0 THEN 'BUY' ELSE 'SELL' END AS side,
+      CAST(arg_min(price, timestamp) AS DOUBLE)         AS price_yes,
+      CAST(arg_min(usd_amount, timestamp) AS DOUBLE)    AS usd_notional,
+      CAST(arg_min(token_amount, timestamp) AS DOUBLE)  AS signed_size,
+      ABS(CAST(arg_min(token_amount, timestamp) AS DOUBLE)) AS abs_size
+    FROM staging_events_v3
+    GROUP BY transaction_hash, log_index
+  `;
+}
+
+/**
  * Build the INSERT that maps users.parquet → discovery_activity_v3.
  * Respects the schema quirks from the real dataset:
  *   - token_amount is signed (+buy / -sell)

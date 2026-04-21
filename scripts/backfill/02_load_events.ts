@@ -11,20 +11,47 @@ import { dirname } from 'path';
 import { openDuckDB } from '../../src/discovery/v3/duckdbClient.js';
 import { runV3DuckDBMigrations } from '../../src/discovery/v3/duckdbSchema.js';
 import { getDuckDBPath } from '../../src/discovery/v3/featureFlag.js';
-import { buildEventIngestSqlAntiJoin, buildEventIngestSqlAntiJoinChunked } from '../../src/discovery/v3/backfillQueries.js';
+import {
+  buildEventIngestSqlAntiJoin,
+  buildEventIngestSqlAntiJoinChunked,
+  buildStagingCreateSql,
+  buildStagingDropSql,
+  buildStagingIngestSql,
+  buildStagingToActivitySql,
+} from '../../src/discovery/v3/backfillQueries.js';
 import { isEligible } from '../../src/discovery/v3/eligibility.js';
 
-function parseArgs(argv: string[]): { limit?: number; sourceUrl?: string; sampleReport: boolean; buckets: number } {
-  const out: { limit?: number; sourceUrl?: string; sampleReport: boolean; buckets: number } = { sampleReport: false, buckets: 1 };
+type Mode = 'legacy' | 'chunked' | 'staging';
+
+function parseArgs(argv: string[]): {
+  limit?: number;
+  sourceUrl?: string;
+  sampleReport: boolean;
+  buckets: number;
+  mode: Mode;
+} {
+  const out: {
+    limit?: number;
+    sourceUrl?: string;
+    sampleReport: boolean;
+    buckets: number;
+    mode: Mode;
+  } = { sampleReport: false, buckets: 1, mode: 'staging' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--limit') out.limit = Number(argv[++i]);
     else if (a === '--source-url') out.sourceUrl = argv[++i];
     else if (a === '--sample-report') out.sampleReport = true;
     else if (a === '--buckets') out.buckets = Math.max(1, Number(argv[++i]) || 1);
+    else if (a === '--mode') {
+      const m = argv[++i];
+      if (m === 'legacy' || m === 'chunked' || m === 'staging') out.mode = m;
+      else throw new Error(`--mode must be legacy|chunked|staging, got ${m}`);
+    }
   }
   const envBuckets = Number(process.env.DUCKDB_INGEST_BUCKETS);
   if (!Number.isNaN(envBuckets) && envBuckets > 1 && out.buckets === 1) out.buckets = Math.floor(envBuckets);
+  if (out.buckets > 1 && out.mode === 'staging') out.mode = 'chunked';
   return out;
 }
 
@@ -59,10 +86,11 @@ async function main(): Promise<void> {
     console.log(`[02] existing rows in discovery_activity_v3: ${before}`);
 
     const t0 = Date.now();
-    if (args.buckets <= 1) {
+    if (args.mode === 'legacy') {
+      console.log('[02] mode=legacy (single anti-join, OOM-prone at scale)');
       await db.exec(buildEventIngestSqlAntiJoin(sourceRef, args.limit));
-    } else {
-      console.log(`[02] chunked ingest: ${args.buckets} buckets (reduces temp-directory spill by ~${args.buckets}x)`);
+    } else if (args.mode === 'chunked') {
+      console.log(`[02] mode=chunked, ${args.buckets} buckets`);
       for (let b = 0; b < args.buckets; b++) {
         const tb = Date.now();
         const sql = buildEventIngestSqlAntiJoinChunked(sourceRef, b, args.buckets, args.limit);
@@ -70,6 +98,26 @@ async function main(): Promise<void> {
         const cur = (await db.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM discovery_activity_v3'))[0].c;
         console.log(`[02] bucket ${b + 1}/${args.buckets} done in ${Math.round((Date.now() - tb) / 1000)}s — total rows: ${cur}`);
       }
+    } else {
+      // mode=staging: two-phase streaming ingest
+      console.log('[02] mode=staging (phase A: parquet→staging_events_v3; phase B: GROUP BY dedup→discovery_activity_v3)');
+      await db.exec(buildStagingDropSql());
+      await db.exec(buildStagingCreateSql());
+
+      const tA = Date.now();
+      console.log('[02] phase A: streaming parquet → staging_events_v3 ...');
+      await db.exec(buildStagingIngestSql(sourceRef, args.limit));
+      const stagedRows = (await db.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM staging_events_v3'))[0].c;
+      console.log(`[02] phase A done in ${Math.round((Date.now() - tA) / 1000)}s — staged ${stagedRows} rows`);
+
+      const tB = Date.now();
+      console.log('[02] phase B: GROUP BY dedup → discovery_activity_v3 ...');
+      await db.exec(buildStagingToActivitySql());
+      console.log(`[02] phase B done in ${Math.round((Date.now() - tB) / 1000)}s`);
+
+      console.log('[02] dropping staging_events_v3 to reclaim disk ...');
+      await db.exec(buildStagingDropSql());
+      await db.exec('CHECKPOINT');
     }
     const after = (await db.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM discovery_activity_v3'))[0].c;
     const inserted = Number(after) - Number(before);
