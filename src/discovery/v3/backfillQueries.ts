@@ -59,18 +59,72 @@ export function buildStagingIngestSql(sourceRef: string, limit?: number): string
 }
 
 /**
- * Phase B: streaming INSERT from staging into discovery_activity_v3.
+ * Phase B1: external merge sort staging_events_v3 → sorted parquet.
  *
- * Uses GROUP BY with arg_min() — which DuckDB's planner executes as a
- * HASH_GROUP_BY (streaming hash aggregate with spill), NOT a WINDOW
- * operator. This is the critical difference from ROW_NUMBER():
+ * DuckDB's COPY ... ORDER BY uses an external merge sort with bounded
+ * memory and spill to temp_directory. This is the ONLY operation that
+ * reliably sorts larger-than-memory data in DuckDB.
+ */
+export function buildStagingSortToParquetSql(sortedParquetPath: string): string {
+  const escaped = sortedParquetPath.replace(/'/g, "''");
+  return `
+    COPY (
+      SELECT * FROM staging_events_v3
+      ORDER BY transaction_hash, log_index, timestamp
+    ) TO '${escaped}' (FORMAT PARQUET, COMPRESSION SNAPPY)
+  `;
+}
+
+/**
+ * Phase B2: streaming INSERT from sorted parquet into discovery_activity_v3.
  *
- *   - WINDOW operator pins sort state → OOMs at scale.
- *   - HASH_GROUP_BY streams and spills cleanly to temp_directory.
+ * Input is pre-sorted by (transaction_hash, log_index, timestamp) — so
+ * duplicates are adjacent and the first occurrence of each key already has
+ * the smallest timestamp (matches the original ROW_NUMBER ORDER BY timestamp
+ * tie-break).
  *
- * Semantics: for each (tx_hash, log_index) group, arg_min picks the row
- * with the smallest timestamp — matching the original ROW_NUMBER ORDER BY
- * timestamp tie-break.
+ * Dedup via LAG() with an empty OVER () on sorted input: O(1) memory per row.
+ * No hash table. No window partition state. No join. Pure streaming.
+ */
+export function buildSortedParquetToActivitySql(sortedParquetPath: string): string {
+  const escaped = sortedParquetPath.replace(/'/g, "''");
+  return `
+    INSERT INTO discovery_activity_v3
+    WITH sorted AS (
+      SELECT * FROM read_parquet('${escaped}')
+    ),
+    first_per_key AS (
+      SELECT *,
+             LAG(transaction_hash) OVER () AS prev_tx,
+             LAG(log_index)        OVER () AS prev_li
+      FROM sorted
+    )
+    SELECT
+      "user"                                            AS proxy_wallet,
+      market_id,
+      condition_id,
+      event_id,
+      CAST(timestamp AS UBIGINT)                        AS ts_unix,
+      CAST(block_number AS UBIGINT)                     AS block_number,
+      transaction_hash                                  AS tx_hash,
+      CAST(log_index AS UINTEGER)                       AS log_index,
+      LOWER(role)                                       AS role,
+      CASE WHEN token_amount > 0 THEN 'BUY' ELSE 'SELL' END AS side,
+      CAST(price AS DOUBLE)                             AS price_yes,
+      CAST(usd_amount AS DOUBLE)                        AS usd_notional,
+      CAST(token_amount AS DOUBLE)                      AS signed_size,
+      ABS(CAST(token_amount AS DOUBLE))                 AS abs_size
+    FROM first_per_key
+    WHERE prev_tx IS NULL
+       OR prev_tx <> transaction_hash
+       OR prev_li IS DISTINCT FROM log_index
+  `;
+}
+
+/**
+ * @deprecated Phase B original GROUP BY path. Kept for tests only — fails at
+ * scale when group count approaches row count (unique keys). Use
+ * buildStagingSortToParquetSql + buildSortedParquetToActivitySql instead.
  */
 export function buildStagingToActivitySql(): string {
   return `

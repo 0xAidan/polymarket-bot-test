@@ -14,6 +14,8 @@ import {
   buildStagingDropSql,
   buildStagingIngestSql,
   buildStagingToActivitySql,
+  buildStagingSortToParquetSql,
+  buildSortedParquetToActivitySql,
 } from '../src/discovery/v3/backfillQueries.ts';
 
 test('02_load_events: parquet → discovery_activity_v3 schema mapping + dedup', async () => {
@@ -177,6 +179,73 @@ test('02_load_events staging: two-phase streaming ingest equals single-shot resu
     assert.equal(Number(a.abs_size), 100);
     assert.equal(Number(a.ts_unix), 1000, 'dedup picks smallest timestamp (matches ROW_NUMBER ORDER BY timestamp)');
 
+    const b = rows.find((r) => r.proxy_wallet === '0xB')!;
+    assert.equal(b.side, 'SELL');
+    const c = rows.find((r) => r.proxy_wallet === '0xC')!;
+    assert.equal(c.role, 'maker', 'role lowercased');
+  } finally {
+    await db.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('02_load_events sort-based: external-sort-then-LAG dedup matches single-shot result', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'v3-sort-'));
+  const parquet = join(tmp, 'users.parquet');
+  const sortedParquet = join(tmp, 'sorted.parquet');
+  const db = openDuckDB(':memory:');
+  try {
+    await db.exec(`CREATE TABLE users_source (
+      user VARCHAR, market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR,
+      timestamp BIGINT, block_number BIGINT, transaction_hash VARCHAR, log_index INTEGER,
+      role VARCHAR, price DOUBLE, usd_amount DOUBLE, token_amount DOUBLE
+    )`);
+    await db.exec(`INSERT INTO users_source VALUES
+      ('0xA','m1','c1','e1',1000,1,'tx1',0,'maker',0.5, 50.0,  100.0),
+      ('0xA','m1','c1','e1',1001,1,'tx1',0,'maker',0.5, 50.0,  100.0),
+      ('0xB','m2','c2','e2',2000,2,'tx2',0,'taker',0.3, 30.0, -100.0),
+      ('0xC','m3','c3',NULL,3000,3,'tx3',0,'MAKER',0.7, 70.0,  100.0),
+      ('0xD','m4','c4','e4',0,   4,'tx4',0,'taker',0.5, 50.0,  100.0),
+      ('0xE','m5','c5','e5',5000,5,'tx5',0,'taker',0.5, 50.0,    0.0),
+      ('0xF','m6','c6','e6',6000,6, NULL, 0,'taker',0.5, 50.0,  100.0),
+      ('0xG','m7','c7','e7',7000,7,'tx7',1,'maker',0.9,  9.0,  -50.0)
+    `);
+    await db.exec(`COPY users_source TO '${parquet}' (FORMAT PARQUET)`);
+    await db.exec(`DROP TABLE users_source`);
+    await runV3DuckDBMigrations((sql) => db.exec(sql));
+
+    // New three-phase path: stage → external sort → streaming LAG dedup.
+    await db.exec(buildStagingDropSql());
+    await db.exec(buildStagingCreateSql());
+    await db.exec(buildStagingIngestSql(`read_parquet('${parquet}')`));
+    await db.exec(buildStagingSortToParquetSql(sortedParquet));
+    await db.exec(buildStagingDropSql());
+
+    // Verify plan for phase B2: must use parquet scan + LAG (streaming),
+    // NOT HASH_GROUP_BY (fails on unique keys) and NOT WINDOW partition state.
+    const plan = await db.query<{ explain_value: string }>(
+      `EXPLAIN ${buildSortedParquetToActivitySql(sortedParquet)}`
+    );
+    const planText = plan.map((r) => r.explain_value).join('\n');
+    assert.ok(!planText.includes('HASH_GROUP_BY'), 'phase B2 must NOT use HASH_GROUP_BY');
+    // LAG() compiles to WINDOW, but empty-OVER window on sorted input is O(1).
+    // What we guard against is the partitioned ROW_NUMBER pattern.
+    assert.ok(!planText.includes('PARTITION BY'), 'phase B2 must NOT use partitioned window');
+
+    await db.exec(buildSortedParquetToActivitySql(sortedParquet));
+
+    const rows = await db.query<{
+      proxy_wallet: string; role: string; side: string; ts_unix: number; abs_size: number;
+    }>(`SELECT proxy_wallet, role, side, CAST(ts_unix AS BIGINT) AS ts_unix, abs_size
+          FROM discovery_activity_v3 ORDER BY proxy_wallet`);
+    const wallets = rows.map((r) => r.proxy_wallet);
+    assert.deepEqual(wallets, ['0xA', '0xB', '0xC', '0xG'], 'same 4 wallets as other paths');
+
+    const a = rows.find((r) => r.proxy_wallet === '0xA')!;
+    assert.equal(a.role, 'maker');
+    assert.equal(a.side, 'BUY');
+    assert.equal(Number(a.abs_size), 100);
+    assert.equal(Number(a.ts_unix), 1000, 'dedup keeps first row (earliest timestamp after sort tie-break)');
     const b = rows.find((r) => r.proxy_wallet === '0xB')!;
     assert.equal(b.side, 'SELL');
     const c = rows.find((r) => r.proxy_wallet === '0xC')!;

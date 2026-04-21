@@ -17,8 +17,10 @@ import {
   buildStagingCreateSql,
   buildStagingDropSql,
   buildStagingIngestSql,
-  buildStagingToActivitySql,
+  buildStagingSortToParquetSql,
+  buildSortedParquetToActivitySql,
 } from '../../src/discovery/v3/backfillQueries.js';
+import { existsSync as fileExists, unlinkSync, statSync } from 'fs';
 import { isEligible } from '../../src/discovery/v3/eligibility.js';
 
 type Mode = 'legacy' | 'chunked' | 'staging';
@@ -99,8 +101,26 @@ async function main(): Promise<void> {
         console.log(`[02] bucket ${b + 1}/${args.buckets} done in ${Math.round((Date.now() - tb) / 1000)}s — total rows: ${cur}`);
       }
     } else {
-      // mode=staging: two-phase streaming ingest
-      console.log('[02] mode=staging (phase A: parquet→staging_events_v3; phase B: GROUP BY dedup→discovery_activity_v3)');
+      // mode=staging: three-phase sort-based ingest
+      //   Phase A : parquet → staging_events_v3 (streaming, bounded RAM)
+      //   Phase B1: staging_events_v3 → sorted parquet (external merge sort)
+      //   Phase B2: sorted parquet → discovery_activity_v3 (streaming LAG dedup)
+      //
+      // This path avoids both WINDOW (ROW_NUMBER pins memory) and
+      // HASH_GROUP_BY (fails when group count ≈ row count). External merge
+      // sort is the only DuckDB operator that provably handles
+      // larger-than-memory workloads with our data shape.
+      console.log('[02] mode=staging (3 phases: stage → external sort → streaming LAG dedup)');
+
+      const sortedParquet = process.env.SORTED_PARQUET_PATH
+        || (process.env.DUCKDB_TEMP_DIR
+             ? `${process.env.DUCKDB_TEMP_DIR}/sorted_events.parquet`
+             : './data/sorted_events.parquet');
+      if (fileExists(sortedParquet)) {
+        console.log(`[02] removing stale sorted parquet: ${sortedParquet}`);
+        unlinkSync(sortedParquet);
+      }
+
       await db.exec(buildStagingDropSql());
       await db.exec(buildStagingCreateSql());
 
@@ -110,13 +130,26 @@ async function main(): Promise<void> {
       const stagedRows = (await db.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM staging_events_v3'))[0].c;
       console.log(`[02] phase A done in ${Math.round((Date.now() - tA) / 1000)}s — staged ${stagedRows} rows`);
 
-      const tB = Date.now();
-      console.log('[02] phase B: GROUP BY dedup → discovery_activity_v3 ...');
-      await db.exec(buildStagingToActivitySql());
-      console.log(`[02] phase B done in ${Math.round((Date.now() - tB) / 1000)}s`);
+      const tB1 = Date.now();
+      console.log(`[02] phase B1: external merge sort → ${sortedParquet} ...`);
+      await db.exec(buildStagingSortToParquetSql(sortedParquet));
+      const parquetBytes = statSync(sortedParquet).size;
+      console.log(`[02] phase B1 done in ${Math.round((Date.now() - tB1) / 1000)}s — sorted parquet: ${(parquetBytes / 1e9).toFixed(2)} GB`);
 
+      // Drop staging_events_v3 now: we have the sorted parquet; reclaim the
+      // 40+ GB the staging table occupies inside discovery_v3.duckdb before
+      // phase B2 writes the final table.
       console.log('[02] dropping staging_events_v3 to reclaim disk ...');
       await db.exec(buildStagingDropSql());
+      await db.exec('CHECKPOINT');
+
+      const tB2 = Date.now();
+      console.log('[02] phase B2: streaming LAG dedup → discovery_activity_v3 ...');
+      await db.exec(buildSortedParquetToActivitySql(sortedParquet));
+      console.log(`[02] phase B2 done in ${Math.round((Date.now() - tB2) / 1000)}s`);
+
+      console.log(`[02] removing sorted parquet: ${sortedParquet}`);
+      if (fileExists(sortedParquet)) unlinkSync(sortedParquet);
       await db.exec('CHECKPOINT');
     }
     const after = (await db.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM discovery_activity_v3'))[0].c;
