@@ -208,12 +208,29 @@ See `docs/discovery-v3-operations.md` for the full runbook.
   `users.parquet`. Kept only for tiny test fixtures.
 - `chunked` — N buckets of ROW_NUMBER ingest. Each bucket still materializes
   its full sort state; not safe on the production dataset.
-- `parquet-direct` (**current production**) — same as `staging` but skips the
-  staging table and reads each bucket straight from `users.parquet` with
-  `WHERE (abs(hash(tx_hash)) % N) = B` pushed into the parquet scan.
-  Needed when the volume is too small to hold both `users.parquet` and a
-  full staging table at once. Unit-tested for byte-identical output vs
-  staging mode.
+- `parquet-direct` — loops 64 bucket sorts inside ONE node process and
+  inserts each into `discovery_activity_v3`. Failed in production after 3
+  successful buckets: DuckDB's buffer manager accumulated enough pinned
+  pages across commits that bucket 4's commit hit `failed to pin block
+  (7.4 GiB/7.4 GiB used)`. Deprecated in favour of the per-process flow.
+- **Current production**: **`02a_sort_bucket.ts` + `02b_merge_buckets.ts`**
+  run from `run_backfill_FINAL.sh`.
+    1. For each of `DUCKDB_SORT_BUCKETS` (default 64) hash buckets on
+       `transaction_hash`, the launcher calls `02a_sort_bucket.ts` in a
+       FRESH `tsx` process. Each process opens an in-memory DuckDB, sorts
+       one bucket directly from `users.parquet` to
+       `$SORTED_PARQUET_DIR/sorted_events_bucket_NNNN.parquet`, then exits.
+       Buffer manager starts empty every bucket, so pin pressure can't
+       accumulate.
+    2. `02a` is idempotent: it skips buckets whose output parquet already
+       exists (pass `--force` to overwrite). If a bucket fails, re-running
+       the launcher resumes from that bucket.
+    3. After all buckets exist, `02b_merge_buckets.ts` opens the persistent
+       DuckDB, streams each bucket parquet through LAG-dedup into
+       `discovery_activity_v3`, checkpoints, and deletes the bucket
+       parquet. Single process, single table, one CHECKPOINT per bucket.
+    4. Correctness is the same as `parquet-direct` and unit-tested against
+       the staging path.
 - `staging` — bucketed external sort with intermediate staging table:
     1. Phase A: stream parquet → `staging_events_v3` (bounded RAM).
     2. Phase B: for each of `DUCKDB_SORT_BUCKETS` (default 64) hash buckets on
