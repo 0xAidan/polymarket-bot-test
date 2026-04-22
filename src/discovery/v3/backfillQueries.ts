@@ -114,6 +114,50 @@ export function buildStagingSortBucketToParquetSql(
 }
 
 /**
+ * Phase B1 (parquet-direct, no staging table): sort ONE hash bucket read
+ * STRAIGHT FROM users.parquet → one sorted parquet file.
+ *
+ * Why this exists: keeping the 49 GB staging_events_v3 table on the same 93
+ * GB volume as users.parquet (48 GB) leaves only ~1 GB free for bucket
+ * output and spill, which is not enough. Reading directly from parquet
+ * skips the staging table entirely; DuckDB pushes the bucket filter into
+ * the parquet scan, so each bucket only reads ~1/N of the file.
+ *
+ * Applies the same cleanup filters as buildStagingIngestSql to keep output
+ * schema identical.
+ */
+export function buildSortBucketFromParquetToParquetSql(
+  bucketIdx: number,
+  totalBuckets: number,
+  sourceParquetRef: string,
+  sortedParquetPath: string,
+  limit?: number
+): string {
+  if (!Number.isInteger(totalBuckets) || totalBuckets < 1) {
+    throw new Error(`totalBuckets must be a positive integer, got ${totalBuckets}`);
+  }
+  if (!Number.isInteger(bucketIdx) || bucketIdx < 0 || bucketIdx >= totalBuckets) {
+    throw new Error(`bucketIdx must be an integer in [0, ${totalBuckets}), got ${bucketIdx}`);
+  }
+  const escaped = sortedParquetPath.replace(/'/g, "''");
+  const limitClause = typeof limit === 'number' && limit > 0 ? `LIMIT ${limit}` : '';
+  return `
+    COPY (
+      SELECT "user", market_id, condition_id, event_id, timestamp, block_number,
+             transaction_hash, log_index, role, price, usd_amount, token_amount
+      FROM ${sourceParquetRef}
+      WHERE timestamp > 0
+        AND usd_amount > 0
+        AND token_amount <> 0
+        AND transaction_hash IS NOT NULL
+        AND (abs(hash(transaction_hash)) % ${totalBuckets}) = ${bucketIdx}
+      ORDER BY transaction_hash, log_index, timestamp
+      ${limitClause}
+    ) TO '${escaped}' (FORMAT PARQUET, COMPRESSION SNAPPY)
+  `;
+}
+
+/**
  * Phase B2: streaming INSERT from sorted parquet into discovery_activity_v3.
  *
  * Input is pre-sorted by (transaction_hash, log_index, timestamp) — so

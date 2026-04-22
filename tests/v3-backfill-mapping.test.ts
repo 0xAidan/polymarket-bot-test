@@ -16,6 +16,7 @@ import {
   buildStagingToActivitySql,
   buildStagingSortToParquetSql,
   buildStagingSortBucketToParquetSql,
+  buildSortBucketFromParquetToParquetSql,
   buildSortedParquetToActivitySql,
 } from '../src/discovery/v3/backfillQueries.ts';
 
@@ -334,6 +335,80 @@ test('02_load_events bucketed sort: per-bucket dedup matches single-sort dedup',
   } finally {
     await dbSingle.close();
     await dbBucketed.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('02_load_events parquet-direct: no staging table, result matches staging path', async () => {
+  // parquet-direct mode reads users.parquet 1/N of the way each iteration
+  // (bucket filter pushed into the parquet scan). Must produce identical
+  // output to the staging-based bucketed path.
+  const tmp = mkdtempSync(join(tmpdir(), 'v3-pqdirect-'));
+  const parquet = join(tmp, 'users.parquet');
+  const dbStaging = openDuckDB(':memory:');
+  const dbDirect = openDuckDB(':memory:');
+  try {
+    const values: string[] = [];
+    for (let i = 0; i < 40; i++) {
+      const tx = `tx${i.toString().padStart(3, '0')}`;
+      values.push(`('0xW${i % 7}','m${i % 5}','c${i % 5}','e${i}',${1000 + i},${i},'${tx}',0,'maker',0.5,${10 + i}.0, 100.0)`);
+      if (i % 2 === 0) {
+        values.push(`('0xW${i % 7}','m${i % 5}','c${i % 5}','e${i}',${2000 + i},${i},'${tx}',0,'maker',0.5,${10 + i}.0, 100.0)`);
+      }
+    }
+    for (const db of [dbStaging, dbDirect]) {
+      await db.exec(`CREATE TABLE users_source (
+        user VARCHAR, market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR,
+        timestamp BIGINT, block_number BIGINT, transaction_hash VARCHAR, log_index INTEGER,
+        role VARCHAR, price DOUBLE, usd_amount DOUBLE, token_amount DOUBLE
+      )`);
+      await db.exec(`INSERT INTO users_source VALUES ${values.join(', ')}`);
+    }
+    await dbStaging.exec(`COPY users_source TO '${parquet}' (FORMAT PARQUET)`);
+    await dbStaging.exec(`DROP TABLE users_source`);
+    await dbDirect.exec(`DROP TABLE users_source`);
+    await runV3DuckDBMigrations((sql) => dbStaging.exec(sql));
+    await runV3DuckDBMigrations((sql) => dbDirect.exec(sql));
+
+    const totalBuckets = 4;
+
+    // Staging path baseline.
+    await dbStaging.exec(buildStagingDropSql());
+    await dbStaging.exec(buildStagingCreateSql());
+    await dbStaging.exec(buildStagingIngestSql(`read_parquet('${parquet}')`));
+    for (let b = 0; b < totalBuckets; b++) {
+      const bp = join(tmp, `s_${b}.parquet`);
+      await dbStaging.exec(buildStagingSortBucketToParquetSql(b, totalBuckets, bp));
+      await dbStaging.exec(buildSortedParquetToActivitySql(bp));
+    }
+    await dbStaging.exec(buildStagingDropSql());
+
+    // Parquet-direct path.
+    for (let b = 0; b < totalBuckets; b++) {
+      const bp = join(tmp, `d_${b}.parquet`);
+      await dbDirect.exec(
+        buildSortBucketFromParquetToParquetSql(b, totalBuckets, `read_parquet('${parquet}')`, bp)
+      );
+      await dbDirect.exec(buildSortedParquetToActivitySql(bp));
+    }
+
+    const asRows = async (db: ReturnType<typeof openDuckDB>) =>
+      db.query<{ k: string }>(
+        `SELECT tx_hash || '|' || log_index || '|' || CAST(ts_unix AS VARCHAR) || '|' || proxy_wallet AS k
+           FROM discovery_activity_v3
+          ORDER BY tx_hash, log_index, ts_unix, proxy_wallet`
+      );
+    const stagingRows = (await asRows(dbStaging)).map((r) => r.k);
+    const directRows = (await asRows(dbDirect)).map((r) => r.k);
+    assert.deepEqual(directRows, stagingRows, 'parquet-direct must match staging-based dedup');
+    assert.ok(stagingRows.length === 40, `expected 40 unique keys, got ${stagingRows.length}`);
+
+    assert.throws(() => buildSortBucketFromParquetToParquetSql(0, 0, 'x', '/tmp/x.parquet'), /totalBuckets/);
+    assert.throws(() => buildSortBucketFromParquetToParquetSql(-1, 4, 'x', '/tmp/x.parquet'), /bucketIdx/);
+    assert.throws(() => buildSortBucketFromParquetToParquetSql(4, 4, 'x', '/tmp/x.parquet'), /bucketIdx/);
+  } finally {
+    await dbStaging.close();
+    await dbDirect.close();
     rmSync(tmp, { recursive: true, force: true });
   }
 });

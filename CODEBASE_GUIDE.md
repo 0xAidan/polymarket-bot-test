@@ -208,7 +208,13 @@ See `docs/discovery-v3-operations.md` for the full runbook.
   `users.parquet`. Kept only for tiny test fixtures.
 - `chunked` — N buckets of ROW_NUMBER ingest. Each bucket still materializes
   its full sort state; not safe on the production dataset.
-- `staging` (default, **production**) — bucketed external sort:
+- `parquet-direct` (**current production**) — same as `staging` but skips the
+  staging table and reads each bucket straight from `users.parquet` with
+  `WHERE (abs(hash(tx_hash)) % N) = B` pushed into the parquet scan.
+  Needed when the volume is too small to hold both `users.parquet` and a
+  full staging table at once. Unit-tested for byte-identical output vs
+  staging mode.
+- `staging` — bucketed external sort with intermediate staging table:
     1. Phase A: stream parquet → `staging_events_v3` (bounded RAM).
     2. Phase B: for each of `DUCKDB_SORT_BUCKETS` (default 64) hash buckets on
        `transaction_hash`, `COPY (ORDER BY tx_hash, log_index, timestamp)` to

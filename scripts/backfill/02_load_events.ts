@@ -19,12 +19,13 @@ import {
   buildStagingIngestSql,
   buildStagingSortToParquetSql,
   buildStagingSortBucketToParquetSql,
+  buildSortBucketFromParquetToParquetSql,
   buildSortedParquetToActivitySql,
 } from '../../src/discovery/v3/backfillQueries.js';
 import { existsSync as fileExists, unlinkSync, statSync } from 'fs';
 import { isEligible } from '../../src/discovery/v3/eligibility.js';
 
-type Mode = 'legacy' | 'chunked' | 'staging';
+type Mode = 'legacy' | 'chunked' | 'staging' | 'parquet-direct';
 
 function parseArgs(argv: string[]): {
   limit?: number;
@@ -48,8 +49,8 @@ function parseArgs(argv: string[]): {
     else if (a === '--buckets') out.buckets = Math.max(1, Number(argv[++i]) || 1);
     else if (a === '--mode') {
       const m = argv[++i];
-      if (m === 'legacy' || m === 'chunked' || m === 'staging') out.mode = m;
-      else throw new Error(`--mode must be legacy|chunked|staging, got ${m}`);
+      if (m === 'legacy' || m === 'chunked' || m === 'staging' || m === 'parquet-direct') out.mode = m;
+      else throw new Error(`--mode must be legacy|chunked|staging|parquet-direct, got ${m}`);
     }
   }
   const envBuckets = Number(process.env.DUCKDB_INGEST_BUCKETS);
@@ -101,6 +102,61 @@ async function main(): Promise<void> {
         const cur = (await db.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM discovery_activity_v3'))[0].c;
         console.log(`[02] bucket ${b + 1}/${args.buckets} done in ${Math.round((Date.now() - tb) / 1000)}s — total rows: ${cur}`);
       }
+    } else if (args.mode === 'parquet-direct') {
+      // mode=parquet-direct: NO staging table. Sort each hash bucket straight
+      // from users.parquet into its own sorted_B.parquet, then LAG-dedup into
+      // discovery_activity_v3, then delete the bucket parquet. Used when the
+      // volume is too small to hold both users.parquet AND a full staging
+      // table at the same time (i.e. the production Hetzner case).
+      //
+      // Correctness is identical to staging mode: the bucket filter is
+      // deterministic on transaction_hash, so dup keys stay together.
+      const totalBuckets = Math.max(1, Number(process.env.DUCKDB_SORT_BUCKETS) || 64);
+      console.log(`[02] mode=parquet-direct (${totalBuckets}× [sort from parquet → LAG dedup → rm], no staging)`);
+
+      const sortedParquetDir = process.env.SORTED_PARQUET_DIR
+        || process.env.DUCKDB_TEMP_DIR
+        || './data';
+      const bucketParquetPath = (b: number) => `${sortedParquetDir}/sorted_events_bucket_${String(b).padStart(4, '0')}.parquet`;
+
+      // Wipe any stale bucket parquets from a prior failed run.
+      for (let b = 0; b < totalBuckets; b++) {
+        const p = bucketParquetPath(b);
+        if (fileExists(p)) {
+          console.log(`[02] removing stale ${p}`);
+          unlinkSync(p);
+        }
+      }
+      // Guarantee no staging table is lying around eating disk.
+      await db.exec(buildStagingDropSql());
+      await db.exec('CHECKPOINT');
+
+      const tB = Date.now();
+      console.log(`[02] phase B: sorting + dedup — ${totalBuckets} buckets (direct from ${sourceRef}) ...`);
+      for (let b = 0; b < totalBuckets; b++) {
+        const bucketPath = bucketParquetPath(b);
+        const tb0 = Date.now();
+
+        await db.exec(
+          buildSortBucketFromParquetToParquetSql(b, totalBuckets, sourceRef, bucketPath, args.limit)
+        );
+        const bucketBytes = statSync(bucketPath).size;
+
+        await db.exec(buildSortedParquetToActivitySql(bucketPath));
+
+        if (fileExists(bucketPath)) unlinkSync(bucketPath);
+        // Checkpoint per bucket so new rows are flushed to disk and we can
+        // report stable row counts + keep WAL bounded.
+        await db.exec('CHECKPOINT');
+
+        const after = (await db.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM discovery_activity_v3'))[0].c;
+        console.log(
+          `[02]   bucket ${b + 1}/${totalBuckets} done in ${Math.round((Date.now() - tb0) / 1000)}s` +
+          ` — parquet ${(bucketBytes / 1e9).toFixed(2)} GB, total activity rows: ${after}`
+        );
+      }
+      console.log(`[02] phase B done in ${Math.round((Date.now() - tB) / 1000)}s`);
+      await db.exec('CHECKPOINT');
     } else {
       // mode=staging: bucketed sort-based ingest
       //   Phase A : parquet → staging_events_v3 (streaming, bounded RAM)
