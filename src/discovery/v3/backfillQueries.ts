@@ -158,6 +158,73 @@ export function buildSortBucketFromParquetToParquetSql(
 }
 
 /**
+ * Phase B2 (BUCKET-LOCAL DEDUP load): INSERT the already-deduplicated rows
+ * from a sorted bucket parquet into discovery_activity_v3. Dedup happens
+ * inside this SELECT, reading only from the parquet; the target table has
+ * NO indexes during backfill so there is no constraint maintenance and no
+ * giant global CTAS.
+ *
+ * Correctness: the upstream 02a sort bucketizes by `abs(hash(tx_hash)) % N`,
+ * so all copies of a given (tx_hash, log_index) key are guaranteed to live
+ * in exactly ONE bucket. Per-bucket dedup is therefore mathematically
+ * equivalent to global dedup. This is the same invariant that justified
+ * per-bucket LAG dedup in the legacy `02b` path (see
+ * `buildSortedParquetToActivitySql` + `CODEBASE_GUIDE.md#backfill`).
+ *
+ * Spill is bounded to ONE bucket's sort state (~1.1 GB parquet → ~14M rows
+ * → a few GB of GROUP BY state on this hardware) instead of the 956M-row
+ * global CTAS that exceeds the 75 GB temp budget.
+ *
+ * Previous single-bucket helper `buildSortedParquetToActivityRawSql` did no
+ * dedup and required a separate global CTAS step in 02d; that CTAS blew the
+ * temp-disk budget at production scale. This function replaces it.
+ */
+export function buildSortedParquetToActivityDedupedSql(sortedParquetPath: string): string {
+  const escaped = sortedParquetPath.replace(/'/g, "''");
+  return `
+    INSERT INTO discovery_activity_v3
+    WITH raw AS (
+      SELECT
+        "user"                                            AS proxy_wallet,
+        market_id                                         AS market_id,
+        condition_id                                      AS condition_id,
+        event_id                                          AS event_id,
+        CAST(timestamp AS UBIGINT)                        AS ts_unix,
+        CAST(block_number AS UBIGINT)                     AS block_number,
+        transaction_hash                                  AS tx_hash,
+        CAST(log_index AS UINTEGER)                       AS log_index,
+        LOWER(role)                                       AS role,
+        CASE WHEN token_amount > 0 THEN 'BUY' ELSE 'SELL' END AS side,
+        CAST(price AS DOUBLE)                             AS price_yes,
+        CAST(usd_amount AS DOUBLE)                        AS usd_notional,
+        CAST(token_amount AS DOUBLE)                      AS signed_size,
+        ABS(CAST(token_amount AS DOUBLE))                 AS abs_size
+      FROM read_parquet('${escaped}')
+    )
+    SELECT
+      arg_min(proxy_wallet, ts_unix) AS proxy_wallet,
+      arg_min(market_id,    ts_unix) AS market_id,
+      arg_min(condition_id, ts_unix) AS condition_id,
+      arg_min(event_id,     ts_unix) AS event_id,
+      MIN(ts_unix)                   AS ts_unix,
+      arg_min(block_number, ts_unix) AS block_number,
+      tx_hash,
+      log_index,
+      arg_min(role,         ts_unix) AS role,
+      arg_min(side,         ts_unix) AS side,
+      arg_min(price_yes,    ts_unix) AS price_yes,
+      arg_min(usd_notional, ts_unix) AS usd_notional,
+      arg_min(signed_size,  ts_unix) AS signed_size,
+      arg_min(abs_size,     ts_unix) AS abs_size
+    FROM raw
+    GROUP BY tx_hash, log_index
+  `;
+}
+
+/**
+ * @deprecated Replaced by buildSortedParquetToActivityDedupedSql which dedupes
+ * bucket-locally during load. Kept only for reference; do not use.
+ *
  * Phase B2 (RAW bucket load): INSERT rows from a sorted bucket parquet into
  * discovery_activity_v3 WITHOUT dedup. Assumes the target table has NO
  * UNIQUE INDEX during the backfill load phase — indexes are rebuilt after
