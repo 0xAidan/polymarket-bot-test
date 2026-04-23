@@ -337,3 +337,39 @@ See `docs/discovery-v3-operations.md` for the full runbook.
   (`buildSortedParquetToActivityDedupedSql` in
   `02c_merge_one_bucket.ts`). This is correct because `02a`'s hash
   bucketing keeps every duplicate key in a single bucket.
+- **Never** create ART indexes on `discovery_activity_v3` during backfill
+  on the Hetzner 8 GB box. DuckDB 1.4.x `CREATE INDEX` / `CREATE UNIQUE
+  INDEX` require the entire index to fit in memory (duckdb.org docs,
+  plus duckdb/duckdb #15420, #16229 — unresolved). For ~800M activity
+  rows this is ~100GB of RAM; non-unique ART uses the same code path and
+  does **not** help. See rev3 below.
+
+### Backfill fix rev3 (2026-04-23) — skip activity indexes
+
+1. `src/discovery/v3/duckdbSchema.ts` keeps `V3_ACTIVITY_INDEX_DDL` (used by
+   live prod `goldskyListener.insertNormalizedRows`, which relies on the
+   UNIQUE constraint to swallow overlap duplicates), but exports
+   `runV3DuckDBMigrationsBackfillNoIndex` for backfill.
+2. All backfill scripts (`03_load_markets`, `04_emit_snapshots`,
+   `05_score_and_publish`) use `runV3DuckDBMigrationsBackfillNoIndex`, so
+   opening the backfill DuckDB never triggers index creation on the
+   populated activity table.
+3. `02d_dedup_and_index.ts` is now a verify-and-CHECKPOINT step only —
+   no index build. Uniqueness is proven by 02c's bucket-local GROUP BY
+   and verified defensively by the 02d dupe scan.
+4. Downstream 04 snapshot SQL is a full-table scan + hash join and does
+   not need activity-table indexes; 05/06 only touch
+   `discovery_feature_snapshots_v3` (native PRIMARY KEY).
+5. The `v3-schema.test.ts` suite pins BOTH invariants: the live DDL still
+   publishes 3 activity indexes (prod), and the no-index migration omits
+   them (backfill).
+
+Runbook:
+```
+DUCKDB_PATH=/mnt/HC_Volume_105468668/discovery_v3.duckdb \
+DUCKDB_MEMORY_LIMIT_GB=6 DUCKDB_THREADS=2 \
+DUCKDB_TEMP_DIR=/mnt/HC_Volume_105468668/duckdb_tmp \
+DUCKDB_MAX_TEMP_DIR_GB=60 \
+SORTED_PARQUET_DIR=/mnt/HC_Volume_105468668/bucket_parquets \
+bash scripts/backfill/finish_backfill.sh
+```
