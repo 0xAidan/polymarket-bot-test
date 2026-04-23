@@ -1,35 +1,42 @@
 /**
- * Phase 1.5 step 2d: build UNIQUE + auxiliary indexes on discovery_activity_v3.
+ * Phase 1.5 step 2d: verify + checkpoint (NO index creation).
  *
  * Must be run AFTER all 64 bucket parquets have been dedup-inserted via
- * 02c_merge_one_bucket.ts. Because 02c now does bucket-local dedup (valid
- * because 02a bucketizes on abs(hash(tx_hash)) % N so all copies of any key
- * live in one bucket), the table is already globally deduplicated on arrival
- * and no CTAS dedup step is needed. This script's sole responsibility is
- * creating the indexes the live query path expects.
+ * 02c_merge_one_bucket.ts. Because 02c does bucket-local dedup (valid
+ * because 02a bucketizes on abs(hash(tx_hash)) % N so all copies of any
+ * key live in one bucket), the table is already globally deduplicated on
+ * arrival.
  *
- * History: an earlier revision of this script did `CREATE TABLE
- * discovery_activity_v3_dedup AS SELECT ... GROUP BY tx_hash, log_index FROM
- * discovery_activity_v3` to globally dedup 956M rows at the end. That CTAS
- * exceeded the 75 GB temp-directory budget on the Hetzner 8 GB box and
- * crashed with "failed to offload data block … max_temp_directory_size".
- * Moving dedup into the per-bucket load bounds spill to ~14M rows/bucket and
- * avoids the issue entirely.
+ * History:
+ *   rev1 (pre-2026-04-22): did a global CTAS dedup at the end. OOM'd the
+ *     75GB temp dir on the 8GB Hetzner box — see #89.
+ *   rev2 (2026-04-22): moved dedup into per-bucket 02c load; 02d built
+ *     UNIQUE + 2 auxiliary ART indexes. That also OOM'd because DuckDB
+ *     1.4.x requires the entire ART index to fit in memory during
+ *     CREATE INDEX. For ~800M rows the required memory is ~100GB;
+ *     we have 6GB. See duckdb.org/docs/current/sql/indexes.html
+ *     and duckdb/duckdb issues #15420, #16229.
+ *   rev3 (2026-04-23, this file): index creation removed entirely. The
+ *     downstream pipeline (04 snapshots, 05 score, 06 validate) does not
+ *     need ART indexes on discovery_activity_v3 — 04 scans the full table
+ *     with hash joins, and 05/06 only touch discovery_feature_snapshots_v3
+ *     which has a native PRIMARY KEY. The UNIQUE constraint on
+ *     (tx_hash, log_index) is enforced mathematically by 02c's bucket-local
+ *     GROUP BY and verified defensively below. Live online dedup uses
+ *     SQLite, not this DuckDB path.
  *
  * Steps:
- *   1. Verify no duplicate (tx_hash, log_index) keys exist (defensive).
- *   2. CREATE UNIQUE INDEX idx_activity_v3_dedup (tx_hash, log_index)
- *   3. CREATE INDEX idx_activity_v3_wallet_ts, idx_activity_v3_market_ts
- *   4. CHECKPOINT
+ *   1. Report total row count.
+ *   2. Verify no duplicate (tx_hash, log_index) pairs exist (defensive).
+ *   3. CHECKPOINT.
  *
  * Flags:
  *   --skip-dupe-check    Skip the upfront duplicate-key scan (faster,
  *                        use only if you trust 02c finished every bucket).
- *   --dry-run            Verify row count + dupe scan, print the index DDL,
- *                        and exit without mutating the DB.
+ *   --dry-run            Verify row count + dupe scan and exit without
+ *                        mutating the DB.
  */
 import { openDuckDB } from '../../src/discovery/v3/duckdbClient.js';
-import { buildActivityIndexSqlList } from '../../src/discovery/v3/duckdbSchema.js';
 import { getDuckDBPath } from '../../src/discovery/v3/featureFlag.js';
 
 function parseArgs(argv: string[]): { dryRun: boolean; skipDupeCheck: boolean } {
@@ -69,7 +76,7 @@ async function main(): Promise<void> {
       );
       if (Number(dupes) > 0) {
         console.error(
-          '[02d] REFUSING to build UNIQUE INDEX: duplicate (tx_hash, log_index) pairs exist. ' +
+          '[02d] FATAL: duplicate (tx_hash, log_index) pairs exist. ' +
             'This should be impossible if 02c (bucket-local dedup) completed on every bucket. ' +
             'Investigate with:  SELECT tx_hash, log_index, COUNT(*) c FROM discovery_activity_v3 ' +
             'GROUP BY 1,2 HAVING c > 1 LIMIT 20;'
@@ -81,24 +88,23 @@ async function main(): Promise<void> {
     }
 
     if (dryRun) {
-      console.log('[02d] --dry-run: would execute the following index DDL:');
-      for (const sql of buildActivityIndexSqlList()) console.log(`   ${sql}`);
-      console.log('[02d] --dry-run: exiting without changes');
+      console.log('[02d] --dry-run: verification complete; exiting without CHECKPOINT');
       return;
     }
 
-    console.log('[02d] building indexes …');
-    for (const sql of buildActivityIndexSqlList()) {
-      const ti = Date.now();
-      await db.exec(sql);
-      console.log(`[02d]   index built in ${Math.round((Date.now() - ti) / 1000)}s: ${sql}`);
-    }
+    console.log('[02d] CHECKPOINT …');
+    const tc = Date.now();
     await db.exec('CHECKPOINT');
+    console.log(`[02d] CHECKPOINT complete in ${Math.round((Date.now() - tc) / 1000)}s`);
 
     const final = (
       await db.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM discovery_activity_v3')
     )[0].c;
     console.log(`[02d] final row count: ${final}`);
+    console.log(
+      '[02d] NOTE: ART indexes intentionally NOT created. See script header ' +
+        'and src/discovery/v3/duckdbSchema.ts for the 2026-04-23 rationale.'
+    );
   } finally {
     await db.close();
   }

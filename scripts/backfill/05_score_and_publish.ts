@@ -7,7 +7,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { openDuckDB } from '../../src/discovery/v3/duckdbClient.js';
-import { runV3DuckDBMigrations } from '../../src/discovery/v3/duckdbSchema.js';
+import { runV3DuckDBMigrationsBackfillNoIndex } from '../../src/discovery/v3/duckdbSchema.js';
 import { runV3SqliteMigrations } from '../../src/discovery/v3/schema.js';
 import { getDuckDBPath } from '../../src/discovery/v3/featureFlag.js';
 import { scoreTiers } from '../../src/discovery/v3/tierScoring.js';
@@ -21,7 +21,10 @@ function getSqlitePath(): string {
 async function main(): Promise<void> {
   const duck = openDuckDB(getDuckDBPath());
   try {
-    await runV3DuckDBMigrations((sql) => duck.exec(sql));
+    // Use the no-index migration — the backfilled discovery_activity_v3
+    // has ~800M rows and DuckDB 1.4.x CREATE INDEX would OOM.
+    // See src/discovery/v3/duckdbSchema.ts for the full rationale.
+    await runV3DuckDBMigrationsBackfillNoIndex((sql) => duck.exec(sql));
     console.log('[05] selecting latest snapshot per wallet…');
     const rows = await duck.query<V3FeatureSnapshot>(
       `SELECT

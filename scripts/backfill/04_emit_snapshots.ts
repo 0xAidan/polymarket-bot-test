@@ -4,14 +4,17 @@
  * for the SQL. Deterministic: running twice produces identical output.
  */
 import { openDuckDB } from '../../src/discovery/v3/duckdbClient.js';
-import { runV3DuckDBMigrations } from '../../src/discovery/v3/duckdbSchema.js';
+import { runV3DuckDBMigrationsBackfillNoIndex } from '../../src/discovery/v3/duckdbSchema.js';
 import { getDuckDBPath } from '../../src/discovery/v3/featureFlag.js';
 import { buildSnapshotEmitSql } from '../../src/discovery/v3/backfillQueries.js';
 
 async function main(): Promise<void> {
   const db = openDuckDB(getDuckDBPath());
   try {
-    await runV3DuckDBMigrations((sql) => db.exec(sql));
+    // Use the no-index migration — the backfilled discovery_activity_v3
+    // has ~800M rows and DuckDB 1.4.x CREATE INDEX would OOM.
+    // See src/discovery/v3/duckdbSchema.ts for the full rationale.
+    await runV3DuckDBMigrationsBackfillNoIndex((sql) => db.exec(sql));
     console.log('[04] clearing old snapshots (determinism requires full rebuild)');
     await db.exec('DELETE FROM discovery_feature_snapshots_v3');
     console.log('[04] emitting snapshots…');

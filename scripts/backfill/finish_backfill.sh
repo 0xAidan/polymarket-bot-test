@@ -14,9 +14,10 @@
 #      bucket). Target table has NO indexes during load. Deletes the parquet
 #      on success.
 #   2. Once all 64 buckets are loaded, run 02d_dedup_and_index.ts once. This
-#      scans for duplicate keys (defensive), then creates the UNIQUE +
-#      auxiliary indexes on the already-deduped table. No global CTAS —
-#      that blew the temp-disk budget at production scale.
+#      scans for duplicate keys (defensive) and CHECKPOINTs. It does NOT
+#      create ART indexes — DuckDB 1.4.x requires the index to fit in
+#      memory (~100GB+ for 800M rows) which the Hetzner 8GB box cannot
+#      provide. See src/discovery/v3/duckdbSchema.ts for rationale.
 #   3. Run 03_load_markets.ts, 04_emit_snapshots.ts, 05_score_and_publish.ts,
 #      06_validate.ts in sequence.
 #
@@ -65,7 +66,7 @@ done
 
 echo
 echo "=============================================="
-echo "=== 02d: build UNIQUE + aux indexes         ==="
+echo "=== 02d: verify + CHECKPOINT (no index build) ==="
 echo "=============================================="
 npx tsx scripts/backfill/02d_dedup_and_index.ts
 
