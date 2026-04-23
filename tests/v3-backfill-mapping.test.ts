@@ -472,10 +472,15 @@ test('03_load_markets: Python-list outcome_prices parsed to JSON, neg_risk colum
   const parquet = join(tmp, 'markets.parquet');
   const db = openDuckDB(':memory:');
   try {
+    // NOTE (2026-04-23): real SII-WANGZJ/Polymarket_data/markets.parquet
+    // uses column `id` (not `market_id`) and `volume` (not `volume_total`).
+    // buildMarketsIngestSql aliases them into markets_v3.{market_id,
+    // volume_total}; the test fixture mirrors the real schema so we
+    // catch future source-schema drift.
     await db.exec(`CREATE TABLE markets_source (
-      market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR, question VARCHAR,
+      id VARCHAR, condition_id VARCHAR, event_id VARCHAR, question VARCHAR,
       slug VARCHAR, token1 VARCHAR, token2 VARCHAR, answer1 VARCHAR, answer2 VARCHAR,
-      closed INTEGER, neg_risk INTEGER, outcome_prices VARCHAR, volume_total DOUBLE,
+      closed INTEGER, neg_risk INTEGER, outcome_prices VARCHAR, volume DOUBLE,
       created_at VARCHAR, end_date VARCHAR, updated_at VARCHAR
     )`);
     await db.exec(`INSERT INTO markets_source VALUES

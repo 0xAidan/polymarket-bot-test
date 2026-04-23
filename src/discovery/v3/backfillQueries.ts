@@ -531,13 +531,21 @@ export interface MarketsIngestOptions {
 /**
  * Parse Polymarket's Python-style outcome_prices string (e.g. "['0.53', '0.47']")
  * into a JSON array, then ingest into markets_v3.
+ *
+ * Source-parquet schema note (SII-WANGZJ/Polymarket_data/markets.parquet,
+ * verified 2026-04-23):
+ *   - Primary key column is `id` (not `market_id`) — we alias it here so
+ *     the activity table's `market_id` (ingested from users.parquet) joins
+ *     cleanly against `markets_v3.market_id`.
+ *   - Volume column is `volume` (not `volume_total`).
+ *   - No native `market_id`/`volume_total` columns exist in this source.
  */
 export function buildMarketsIngestSql({ sourceRef, limit }: MarketsIngestOptions): string {
   const limitClause = typeof limit === 'number' && limit > 0 ? `LIMIT ${limit}` : '';
   return `
     INSERT INTO markets_v3
     SELECT
-      market_id,
+      id                                                        AS market_id,
       condition_id,
       event_id,
       question,
@@ -549,12 +557,12 @@ export function buildMarketsIngestSql({ sourceRef, limit }: MarketsIngestOptions
       CAST(closed AS UTINYINT)                                  AS closed,
       CAST(COALESCE(neg_risk, 0) AS UTINYINT)                   AS neg_risk,
       REPLACE(REPLACE(REPLACE(outcome_prices, '''None''', 'null'), 'None', 'null'), '''', '"') AS outcome_prices,
-      CAST(volume_total AS DOUBLE)                              AS volume_total,
+      CAST(volume AS DOUBLE)                                    AS volume_total,
       TRY_CAST(created_at AS TIMESTAMP)                         AS created_at,
       TRY_CAST(end_date AS TIMESTAMP)                           AS end_date,
       TRY_CAST(updated_at AS TIMESTAMP)                         AS updated_at
     FROM ${sourceRef}
-    WHERE market_id IS NOT NULL
+    WHERE id IS NOT NULL
     ${limitClause}
   `;
 }
@@ -640,6 +648,11 @@ export function buildSnapshotEmitSql(): string {
     LEFT JOIN closed c
       ON c.proxy_wallet = r.proxy_wallet
      AND c.snapshot_day = r.snapshot_day
-    ORDER BY r.proxy_wallet, r.snapshot_day
+    /* ORDER BY intentionally omitted — at 912M activity rows an
+       INSERT…SELECT…ORDER BY forces DuckDB to fully materialize and sort
+       the output, which spilled >55 GiB of temp on the 8GB Hetzner box.
+       The PRIMARY KEY on discovery_feature_snapshots_v3 (proxy_wallet,
+       snapshot_day) makes downstream reads order-agnostic, and 05/06
+       apply their own ORDER BY when needed. */
   `;
 }
