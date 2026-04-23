@@ -75,3 +75,33 @@ log_index)` index.
   and retries on the next tick. Check `pipeline_cursor` for stuck values.
 - **Snapshot determinism**: snapshots are deleted + re-emitted each refresh.
   Hash should be stable across runs for a fixed input dataset.
+
+## Phase B2 dedup: GROUP BY, not ROW_NUMBER (addendum 2026-04-23)
+
+The per-bucket `INSERT INTO discovery_activity_v3` in
+`buildSortedParquetToActivitySql` uses `GROUP BY (transaction_hash,
+log_index)` with `arg_min(col, timestamp)` to pick the winner row.
+
+Do NOT change this to `ROW_NUMBER() OVER (PARTITION BY ...)` or
+`LAG() OVER ()`:
+
+- `LAG() OVER ()` (empty window) has undefined row ordering in DuckDB
+  and produced duplicate primary keys in production
+  (`tx_hash: 000004e9..., log_index: 106`).
+- `ROW_NUMBER() OVER (PARTITION BY tx_hash, log_index ORDER BY timestamp)`
+  was the next attempt. It also produced duplicate rn=1 rows in parallel
+  execution over pre-sorted bucket parquets
+  (`tx_hash: 0001b36e..., log_index: 524`), despite the partition
+  mathematically guaranteeing uniqueness. Root cause is likely the
+  parallel window operator merging streams incorrectly when input is
+  pre-sorted by partition keys.
+- `GROUP BY` + `arg_min` is mathematically guaranteed to emit exactly
+  one row per key. The deprecated staging path used the same pattern
+  successfully.
+- Memory is bounded: each bucket is ~14.5M rows (~1.5GB), well under the
+  6GB `DUCKDB_MEMORY_LIMIT_GB`. The global GROUP BY that failed at 900M
+  rows is not relevant here — buckets cap group count.
+
+Tests in `tests/v3-backfill-mapping.test.ts` assert the SQL uses
+`GROUP BY transaction_hash, log_index` and `arg_min(...)`, and forbid
+`ROW_NUMBER(` / `LAG(`.

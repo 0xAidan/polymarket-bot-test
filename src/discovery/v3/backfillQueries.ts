@@ -158,57 +158,42 @@ export function buildSortBucketFromParquetToParquetSql(
 }
 
 /**
- * Phase B2: streaming INSERT from sorted parquet into discovery_activity_v3.
+ * Phase B2: INSERT from sorted bucket parquet into discovery_activity_v3
+ * with guaranteed dedup via GROUP BY + arg_min.
  *
- * Input parquet is pre-sorted by (transaction_hash, log_index, timestamp).
- * For dedup we use QUALIFY with ROW_NUMBER() partitioned by (tx, log_index).
- * Because the parquet is already sorted, DuckDB recognizes sorted input in
- * the window partition and uses a single-pass streaming window operator —
- * no full hash table build, no out-of-order LAG() bug from an empty OVER ()
- * clause (which produced duplicate primary keys in production).
+ * Why GROUP BY (not ROW_NUMBER):
+ * - ROW_NUMBER() OVER (PARTITION BY ...) has historically produced
+ *   duplicate rn=1 rows in DuckDB when the window operator runs in
+ *   parallel over pre-sorted parquet (observed in production:
+ *   "Duplicate key" errors on 000004e9... log_index 106, then
+ *   0001b36e... log_index 524 after a ROW_NUMBER rewrite).
+ * - GROUP BY transaction_hash, log_index + arg_min(col, timestamp) is
+ *   mathematically guaranteed to emit exactly one row per key, and is
+ *   what the deprecated staging path used successfully at bucket scale.
+ * - Memory is bounded by bucket row count (~14.5M rows), not global
+ *   row count, so the group count stays well under the 6GB memory limit.
  */
 export function buildSortedParquetToActivitySql(sortedParquetPath: string): string {
   const escaped = sortedParquetPath.replace(/'/g, "''");
   return `
     INSERT INTO discovery_activity_v3
     SELECT
-      proxy_wallet,
-      market_id,
-      condition_id,
-      event_id,
-      ts_unix,
-      block_number,
-      tx_hash,
-      log_index,
-      role,
-      side,
-      price_yes,
-      usd_notional,
-      signed_size,
-      abs_size
-    FROM (
-      SELECT
-        "user"                                            AS proxy_wallet,
-        market_id,
-        condition_id,
-        event_id,
-        CAST(timestamp AS UBIGINT)                        AS ts_unix,
-        CAST(block_number AS UBIGINT)                     AS block_number,
-        transaction_hash                                  AS tx_hash,
-        CAST(log_index AS UINTEGER)                       AS log_index,
-        LOWER(role)                                       AS role,
-        CASE WHEN token_amount > 0 THEN 'BUY' ELSE 'SELL' END AS side,
-        CAST(price AS DOUBLE)                             AS price_yes,
-        CAST(usd_amount AS DOUBLE)                        AS usd_notional,
-        CAST(token_amount AS DOUBLE)                      AS signed_size,
-        ABS(CAST(token_amount AS DOUBLE))                 AS abs_size,
-        ROW_NUMBER() OVER (
-          PARTITION BY transaction_hash, log_index
-          ORDER BY timestamp
-        ) AS rn
-      FROM read_parquet('${escaped}')
-    ) q
-    WHERE rn = 1
+      arg_min("user", timestamp)                        AS proxy_wallet,
+      arg_min(market_id, timestamp)                     AS market_id,
+      arg_min(condition_id, timestamp)                  AS condition_id,
+      arg_min(event_id, timestamp)                      AS event_id,
+      CAST(arg_min(timestamp, timestamp) AS UBIGINT)    AS ts_unix,
+      CAST(arg_min(block_number, timestamp) AS UBIGINT) AS block_number,
+      transaction_hash                                  AS tx_hash,
+      CAST(log_index AS UINTEGER)                       AS log_index,
+      LOWER(arg_min(role, timestamp))                   AS role,
+      CASE WHEN arg_min(token_amount, timestamp) > 0 THEN 'BUY' ELSE 'SELL' END AS side,
+      CAST(arg_min(price, timestamp) AS DOUBLE)         AS price_yes,
+      CAST(arg_min(usd_amount, timestamp) AS DOUBLE)    AS usd_notional,
+      CAST(arg_min(token_amount, timestamp) AS DOUBLE)  AS signed_size,
+      ABS(CAST(arg_min(token_amount, timestamp) AS DOUBLE)) AS abs_size
+    FROM read_parquet('${escaped}')
+    GROUP BY transaction_hash, log_index
   `;
 }
 

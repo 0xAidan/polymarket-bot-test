@@ -223,21 +223,19 @@ test('02_load_events sort-based: external-sort-then-LAG dedup matches single-sho
     await db.exec(buildStagingSortToParquetSql(sortedParquet));
     await db.exec(buildStagingDropSql());
 
-    // Verify plan for phase B2: must use parquet scan + ROW_NUMBER PARTITION BY
-    // on (tx_hash, log_index) to dedup deterministically. Empty-OVER LAG() is
-    // incorrect in DuckDB (undefined row ordering) — produced duplicate primary
-    // keys in production. HASH_GROUP_BY is also forbidden (fails on unique keys
-    // at scale).
-    const plan = await db.query<{ explain_value: string }>(
-      `EXPLAIN ${buildSortedParquetToActivitySql(sortedParquet)}`
-    );
-    const planText = plan.map((r) => r.explain_value).join('\n');
-    assert.ok(!planText.includes('HASH_GROUP_BY'), 'phase B2 must NOT use HASH_GROUP_BY');
-    // Partitioned ROW_NUMBER is REQUIRED here — DuckDB uses a single-pass
-    // streaming window operator when input is pre-sorted by the partition keys.
-    assert.ok(planText.includes('WINDOW') || planText.includes('ROW_NUMBER') || planText.includes('PARTITION BY'), 'phase B2 must use partitioned ROW_NUMBER for correct dedup');
+    // Verify plan for phase B2: dedup must GROUP BY (transaction_hash, log_index)
+    // and use arg_min to pick winner row. ROW_NUMBER OVER (PARTITION BY ...) was
+    // tried but produced duplicate rn=1 rows in production DuckDB (parallel
+    // window over pre-sorted parquet). GROUP BY is mathematically guaranteed
+    // to emit one row per key; empty-OVER LAG() is also forbidden (undefined
+    // ordering). Bucket row count (~14.5M) keeps GROUP BY memory bounded.
+    const sql = buildSortedParquetToActivitySql(sortedParquet);
+    assert.ok(/GROUP\s+BY\s+transaction_hash,\s*log_index/i.test(sql), 'phase B2 must GROUP BY (transaction_hash, log_index) for guaranteed dedup');
+    assert.ok(/arg_min\(/i.test(sql), 'phase B2 must use arg_min(col, timestamp) to pick winner row');
+    assert.ok(!/ROW_NUMBER\s*\(/i.test(sql), 'phase B2 must NOT use ROW_NUMBER (known to produce duplicate rn=1 in parallel execution)');
+    assert.ok(!/LAG\s*\(/i.test(sql), 'phase B2 must NOT use LAG (undefined row ordering with empty OVER())');
 
-    await db.exec(buildSortedParquetToActivitySql(sortedParquet));
+    await db.exec(sql);
 
     const rows = await db.query<{
       proxy_wallet: string; role: string; side: string; ts_unix: number; abs_size: number;
