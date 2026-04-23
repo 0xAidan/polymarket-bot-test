@@ -86,6 +86,29 @@ async function main(): Promise<void> {
     await db.exec("INSTALL httpfs; LOAD httpfs;");
     await runV3DuckDBMigrations((sql) => db.exec(sql));
 
+    // --- PARQUET SCHEMA GUARD (rev6) -------------------------------------
+    // Prevent the `"user"` keyword silent-fallback bug that poisoned 912M
+    // rows with proxy_wallet='duckdb'. The REAL users.parquet has columns
+    // `address` + `direction`. If either is missing, fail NOW — don't waste
+    // hours producing garbage that only surfaces in stage 05.
+    {
+      const schema = await db.query<{ column_name: string }>(
+        `DESCRIBE SELECT * FROM ${sourceRef} LIMIT 0`
+      );
+      const cols = new Set(schema.map((r) => r.column_name));
+      const required = ['address', 'direction', 'role', 'timestamp', 'transaction_hash', 'log_index', 'market_id', 'usd_amount', 'token_amount', 'price'];
+      const missing = required.filter((c) => !cols.has(c));
+      if (missing.length > 0) {
+        throw new Error(
+          `[02] FATAL: source parquet is missing required column(s): ${missing.join(', ')}. ` +
+          `Found columns: ${[...cols].join(', ')}. ` +
+          `This would silently corrupt discovery_activity_v3 (see rev6 fix).`
+        );
+      }
+      console.log(`[02] parquet schema guard passed: all ${required.length} required columns present`);
+    }
+    // ---------------------------------------------------------------------
+
     const before = (await db.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM discovery_activity_v3'))[0].c;
     console.log(`[02] existing rows in discovery_activity_v3: ${before}`);
 

@@ -49,19 +49,19 @@ test('02_load_events: parquet → discovery_activity_v3 schema mapping + dedup',
   try {
     // Build a synthetic users.parquet with the real schema quirks.
     await db.exec(`CREATE TABLE users_source (
-      user VARCHAR, market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR,
+      address VARCHAR, market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR,
       timestamp BIGINT, block_number BIGINT, transaction_hash VARCHAR, log_index INTEGER,
-      role VARCHAR, price DOUBLE, usd_amount DOUBLE, token_amount DOUBLE
+      role VARCHAR, direction VARCHAR, price DOUBLE, usd_amount DOUBLE, token_amount DOUBLE
     )`);
     await db.exec(`INSERT INTO users_source VALUES
-      ('0xA','m1','c1','e1',1000,1,'tx1',0,'maker',0.5, 50.0,  100.0),
-      ('0xA','m1','c1','e1',1001,1,'tx1',0,'maker',0.5, 50.0,  100.0),   -- duplicate, should dedupe
-      ('0xB','m2','c2','e2',2000,2,'tx2',0,'taker',0.3, 30.0, -100.0),   -- SELL
-      ('0xC','m3','c3',NULL,3000,3,'tx3',0,'MAKER',0.7, 70.0,  100.0),   -- role upper-cased in source
-      ('0xD','m4','c4','e4',0,   4,'tx4',0,'taker',0.5, 50.0,  100.0),   -- timestamp 0 filtered
-      ('0xE','m5','c5','e5',5000,5,'tx5',0,'taker',0.5, 50.0,    0.0),   -- token_amount 0 filtered
-      ('0xF','m6','c6','e6',6000,6, NULL, 0,'taker',0.5, 50.0,  100.0),  -- tx_hash null filtered
-      ('0xG','m7','c7','e7',7000,7,'tx7',1,'maker',0.9,  9.0,  -50.0)
+      ('0xA','m1','c1','e1',1000,1,'tx1',0,'maker','BUY', 0.5, 50.0,  100.0),
+      ('0xA','m1','c1','e1',1001,1,'tx1',0,'maker','BUY', 0.5, 50.0,  100.0),   -- duplicate, should dedupe
+      ('0xB','m2','c2','e2',2000,2,'tx2',0,'taker','SELL',0.3, 30.0, -100.0),   -- SELL
+      ('0xC','m3','c3',NULL,3000,3,'tx3',0,'MAKER','buy',0.7, 70.0,  100.0),   -- role upper-cased in source
+      ('0xD','m4','c4','e4',0,   4,'tx4',0,'taker','BUY', 0.5, 50.0,  100.0),   -- timestamp 0 filtered
+      ('0xE','m5','c5','e5',5000,5,'tx5',0,'taker','BUY', 0.5, 50.0,    0.0),   -- token_amount 0 filtered
+      ('0xF','m6','c6','e6',6000,6, NULL, 0,'taker','BUY', 0.5, 50.0,  100.0),  -- tx_hash null filtered
+      ('0xG','m7','c7','e7',7000,7,'tx7',1,'maker','SELL',0.9,  9.0,  -50.0)
     `);
     await db.exec(`COPY users_source TO '${parquet}' (FORMAT PARQUET)`);
     await db.exec(`DROP TABLE users_source`);
@@ -98,16 +98,16 @@ test('02_load_events chunked: bucketed ingest matches unchunked result', async (
   const db = openDuckDB(':memory:');
   try {
     await db.exec(`CREATE TABLE users_source (
-      user VARCHAR, market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR,
+      address VARCHAR, market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR,
       timestamp BIGINT, block_number BIGINT, transaction_hash VARCHAR, log_index INTEGER,
-      role VARCHAR, price DOUBLE, usd_amount DOUBLE, token_amount DOUBLE
+      role VARCHAR, direction VARCHAR, price DOUBLE, usd_amount DOUBLE, token_amount DOUBLE
     )`);
     // 20 distinct tx hashes, plus a duplicate on tx5 to exercise dedup within a bucket.
     let values: string[] = [];
     for (let i = 1; i <= 20; i++) {
-      values.push(`('0xW${i}','m${i}','c${i}','e${i}',${1000 + i},${i},'tx${i}',0,'maker',0.5,50.0,100.0)`);
+      values.push(`('0xW${i}','m${i}','c${i}','e${i}',${1000 + i},${i},'tx${i}',0,'maker','BUY',0.5,50.0,100.0)`);
     }
-    values.push(`('0xW5','m5','c5','e5',1006,5,'tx5',0,'maker',0.5,50.0,100.0)`); // dup
+    values.push(`('0xW5','m5','c5','e5',1006,5,'tx5',0,'maker','BUY',0.5,50.0,100.0)`); // dup
     await db.exec(`INSERT INTO users_source VALUES ${values.join(',')}`);
     await db.exec(`COPY users_source TO '${parquet}' (FORMAT PARQUET)`);
     await db.exec(`DROP TABLE users_source`);
@@ -153,19 +153,19 @@ test('02_load_events staging: two-phase streaming ingest equals single-shot resu
   try {
     // Same synthetic fixture as the first test — so the expected output is identical.
     await db.exec(`CREATE TABLE users_source (
-      user VARCHAR, market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR,
+      address VARCHAR, market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR,
       timestamp BIGINT, block_number BIGINT, transaction_hash VARCHAR, log_index INTEGER,
-      role VARCHAR, price DOUBLE, usd_amount DOUBLE, token_amount DOUBLE
+      role VARCHAR, direction VARCHAR, price DOUBLE, usd_amount DOUBLE, token_amount DOUBLE
     )`);
     await db.exec(`INSERT INTO users_source VALUES
-      ('0xA','m1','c1','e1',1000,1,'tx1',0,'maker',0.5, 50.0,  100.0),
-      ('0xA','m1','c1','e1',1001,1,'tx1',0,'maker',0.5, 50.0,  100.0),
-      ('0xB','m2','c2','e2',2000,2,'tx2',0,'taker',0.3, 30.0, -100.0),
-      ('0xC','m3','c3',NULL,3000,3,'tx3',0,'MAKER',0.7, 70.0,  100.0),
-      ('0xD','m4','c4','e4',0,   4,'tx4',0,'taker',0.5, 50.0,  100.0),
-      ('0xE','m5','c5','e5',5000,5,'tx5',0,'taker',0.5, 50.0,    0.0),
-      ('0xF','m6','c6','e6',6000,6, NULL, 0,'taker',0.5, 50.0,  100.0),
-      ('0xG','m7','c7','e7',7000,7,'tx7',1,'maker',0.9,  9.0,  -50.0)
+      ('0xA','m1','c1','e1',1000,1,'tx1',0,'maker','BUY', 0.5, 50.0,  100.0),
+      ('0xA','m1','c1','e1',1001,1,'tx1',0,'maker','BUY', 0.5, 50.0,  100.0),
+      ('0xB','m2','c2','e2',2000,2,'tx2',0,'taker','SELL',0.3, 30.0, -100.0),
+      ('0xC','m3','c3',NULL,3000,3,'tx3',0,'MAKER','buy',0.7, 70.0,  100.0),
+      ('0xD','m4','c4','e4',0,   4,'tx4',0,'taker','BUY', 0.5, 50.0,  100.0),
+      ('0xE','m5','c5','e5',5000,5,'tx5',0,'taker','BUY', 0.5, 50.0,    0.0),
+      ('0xF','m6','c6','e6',6000,6, NULL, 0,'taker','BUY', 0.5, 50.0,  100.0),
+      ('0xG','m7','c7','e7',7000,7,'tx7',1,'maker','SELL',0.9,  9.0,  -50.0)
     `);
     await db.exec(`COPY users_source TO '${parquet}' (FORMAT PARQUET)`);
     await db.exec(`DROP TABLE users_source`);
@@ -220,19 +220,19 @@ test('02_load_events sort-based: external-sort-then-LAG dedup matches single-sho
   const db = openDuckDB(':memory:');
   try {
     await db.exec(`CREATE TABLE users_source (
-      user VARCHAR, market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR,
+      address VARCHAR, market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR,
       timestamp BIGINT, block_number BIGINT, transaction_hash VARCHAR, log_index INTEGER,
-      role VARCHAR, price DOUBLE, usd_amount DOUBLE, token_amount DOUBLE
+      role VARCHAR, direction VARCHAR, price DOUBLE, usd_amount DOUBLE, token_amount DOUBLE
     )`);
     await db.exec(`INSERT INTO users_source VALUES
-      ('0xA','m1','c1','e1',1000,1,'tx1',0,'maker',0.5, 50.0,  100.0),
-      ('0xA','m1','c1','e1',1001,1,'tx1',0,'maker',0.5, 50.0,  100.0),
-      ('0xB','m2','c2','e2',2000,2,'tx2',0,'taker',0.3, 30.0, -100.0),
-      ('0xC','m3','c3',NULL,3000,3,'tx3',0,'MAKER',0.7, 70.0,  100.0),
-      ('0xD','m4','c4','e4',0,   4,'tx4',0,'taker',0.5, 50.0,  100.0),
-      ('0xE','m5','c5','e5',5000,5,'tx5',0,'taker',0.5, 50.0,    0.0),
-      ('0xF','m6','c6','e6',6000,6, NULL, 0,'taker',0.5, 50.0,  100.0),
-      ('0xG','m7','c7','e7',7000,7,'tx7',1,'maker',0.9,  9.0,  -50.0)
+      ('0xA','m1','c1','e1',1000,1,'tx1',0,'maker','BUY', 0.5, 50.0,  100.0),
+      ('0xA','m1','c1','e1',1001,1,'tx1',0,'maker','BUY', 0.5, 50.0,  100.0),
+      ('0xB','m2','c2','e2',2000,2,'tx2',0,'taker','SELL',0.3, 30.0, -100.0),
+      ('0xC','m3','c3',NULL,3000,3,'tx3',0,'MAKER','buy',0.7, 70.0,  100.0),
+      ('0xD','m4','c4','e4',0,   4,'tx4',0,'taker','BUY', 0.5, 50.0,  100.0),
+      ('0xE','m5','c5','e5',5000,5,'tx5',0,'taker','BUY', 0.5, 50.0,    0.0),
+      ('0xF','m6','c6','e6',6000,6, NULL, 0,'taker','BUY', 0.5, 50.0,  100.0),
+      ('0xG','m7','c7','e7',7000,7,'tx7',1,'maker','SELL',0.9,  9.0,  -50.0)
     `);
     await db.exec(`COPY users_source TO '${parquet}' (FORMAT PARQUET)`);
     await db.exec(`DROP TABLE users_source`);
@@ -309,19 +309,19 @@ test('02_load_events bucketed sort: per-bucket dedup matches single-sort dedup',
     const values: string[] = [];
     for (let i = 0; i < 40; i++) {
       const tx = `tx${i.toString().padStart(3, '0')}`;
-      values.push(`('0xW${i % 7}','m${i % 5}','c${i % 5}','e${i}',${1000 + i},${i},'${tx}',0,'maker',0.5,${10 + i}.0, 100.0)`);
+      values.push(`('0xW${i % 7}','m${i % 5}','c${i % 5}','e${i}',${1000 + i},${i},'${tx}',0,'maker','BUY',0.5,${10 + i}.0, 100.0)`);
       // Add a duplicate of half the rows at a later timestamp — dedup must
       // keep the earlier one.
       if (i % 2 === 0) {
-        values.push(`('0xW${i % 7}','m${i % 5}','c${i % 5}','e${i}',${2000 + i},${i},'${tx}',0,'maker',0.5,${10 + i}.0, 100.0)`);
+        values.push(`('0xW${i % 7}','m${i % 5}','c${i % 5}','e${i}',${2000 + i},${i},'${tx}',0,'maker','BUY',0.5,${10 + i}.0, 100.0)`);
       }
     }
 
     for (const db of [dbSingle, dbBucketed]) {
       await db.exec(`CREATE TABLE users_source (
-        user VARCHAR, market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR,
+        address VARCHAR, market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR,
         timestamp BIGINT, block_number BIGINT, transaction_hash VARCHAR, log_index INTEGER,
-        role VARCHAR, price DOUBLE, usd_amount DOUBLE, token_amount DOUBLE
+        role VARCHAR, direction VARCHAR, price DOUBLE, usd_amount DOUBLE, token_amount DOUBLE
       )`);
       await db.exec(`INSERT INTO users_source VALUES ${values.join(', ')}`);
     }
@@ -395,16 +395,16 @@ test('02_load_events parquet-direct: no staging table, result matches staging pa
     const values: string[] = [];
     for (let i = 0; i < 40; i++) {
       const tx = `tx${i.toString().padStart(3, '0')}`;
-      values.push(`('0xW${i % 7}','m${i % 5}','c${i % 5}','e${i}',${1000 + i},${i},'${tx}',0,'maker',0.5,${10 + i}.0, 100.0)`);
+      values.push(`('0xW${i % 7}','m${i % 5}','c${i % 5}','e${i}',${1000 + i},${i},'${tx}',0,'maker','BUY',0.5,${10 + i}.0, 100.0)`);
       if (i % 2 === 0) {
-        values.push(`('0xW${i % 7}','m${i % 5}','c${i % 5}','e${i}',${2000 + i},${i},'${tx}',0,'maker',0.5,${10 + i}.0, 100.0)`);
+        values.push(`('0xW${i % 7}','m${i % 5}','c${i % 5}','e${i}',${2000 + i},${i},'${tx}',0,'maker','BUY',0.5,${10 + i}.0, 100.0)`);
       }
     }
     for (const db of [dbStaging, dbDirect]) {
       await db.exec(`CREATE TABLE users_source (
-        user VARCHAR, market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR,
+        address VARCHAR, market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR,
         timestamp BIGINT, block_number BIGINT, transaction_hash VARCHAR, log_index INTEGER,
-        role VARCHAR, price DOUBLE, usd_amount DOUBLE, token_amount DOUBLE
+        role VARCHAR, direction VARCHAR, price DOUBLE, usd_amount DOUBLE, token_amount DOUBLE
       )`);
       await db.exec(`INSERT INTO users_source VALUES ${values.join(', ')}`);
     }
