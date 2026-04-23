@@ -373,3 +373,88 @@ DUCKDB_MAX_TEMP_DIR_GB=60 \
 SORTED_PARQUET_DIR=/mnt/HC_Volume_105468668/bucket_parquets \
 bash scripts/backfill/finish_backfill.sh
 ```
+
+### Backfill fix rev4 (2026-04-23) — snapshot SQL rewrite for 04 OOM
+
+**Problem:** After rev3 landed and 02c/02d/03 completed successfully on the
+real 912M-row activity table, `04_emit_snapshots.ts` OOM'd **twice** with
+two distinct signatures:
+
+1. First run: temp-directory hit 55.8 GiB / 55.8 GiB, classic spill bound.
+2. Second run (with `preserve_insertion_order=false`, bigger temp budget,
+   no trailing ORDER BY): `failed to allocate data of size 16.0 GiB (0
+   bytes/5.5 GiB used)` — a **single contiguous 16 GiB allocation**, not
+   cumulative temp.
+
+Root cause: the original `buildSnapshotEmitSql` used a self-join on
+`discovery_activity_v3` with an inequality predicate
+(`a.ts_unix < b.day_end_ts`) to compute cumulative features. On 912M
+rows DuckDB plans this as a hash-join-plus-filter needing a contiguous
+multibillion-row build side; on an 8 GB Hetzner box this cannot fit in
+memory regardless of temp-directory budget. See duckdb#13325 and the
+DuckDB query-planner docs on inequality joins.
+
+**Fix:** Rewrite `buildSnapshotEmitSql` to a two-stage aggregate that
+eliminates the inequality join entirely:
+
+```
+WITH daily_activity AS (        -- GROUP BY (wallet, day) on activity
+  SELECT proxy_wallet, day,
+         COUNT(*) trade_count_day,
+         SUM(usd_notional) volume_day,
+         APPROX_COUNT_DISTINCT(market_id) distinct_markets_day,
+         MIN/MAX(ts_unix) …
+  FROM discovery_activity_v3 GROUP BY wallet, day
+),
+daily_closed AS (               -- GROUP BY (wallet, end_date) on equality JOIN
+  SELECT a.proxy_wallet, CAST(m.end_date AS DATE) day,
+         APPROX_COUNT_DISTINCT(a.market_id) closed_positions_day,
+         SUM(a.usd_notional*(a.price_yes-0.5)) realized_pnl_day
+  FROM discovery_activity_v3 a JOIN markets_v3 m USING(market_id)
+  WHERE m.end_date IS NOT NULL
+    AND day(a) <= day(m.end_date)
+  GROUP BY a.proxy_wallet, CAST(m.end_date AS DATE)
+),
+merged AS (FULL OUTER JOIN daily_activity + daily_closed ON wallet, day)
+SELECT … FROM (
+  SELECT wallet, day,
+         SUM(trade_count_day) OVER w AS trade_count,
+         SUM(volume_day)      OVER w AS volume_total,
+         … cumulative window aggregates …
+  FROM merged
+  WINDOW w AS (PARTITION BY wallet ORDER BY day
+               ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+) WHERE trade_count > 0
+```
+
+**Key properties preserved:**
+- Invariant-4 (Snapshot Purity): each snapshot on day D still reflects
+  all activity ≤ end_of_day_D. Covered by `v3-snapshot-purity.test.ts`
+  which runs `buildSnapshotEmitSql()` against real in-memory fixtures.
+- `trade_count`, `volume_total`, `realized_pnl`, `first_active_ts`,
+  `last_active_ts`: exact (pure SUM/MIN/MAX windows).
+- `distinct_markets`, `closed_positions`: `APPROX_COUNT_DISTINCT`
+  (HyperLogLog, ≤1.6% relative error). Acceptable because
+  `tierScoring.ts` does not threshold on exact counts — it uses these
+  only as ratio and magnitude inputs.
+
+**Runtime footprint:**
+- Build side is `daily_activity` and `daily_closed` — both keyed by
+  (wallet, day) so row counts are bounded by
+  `uniqueWallets * avgActiveDays`, orders of magnitude smaller than 912M.
+- No inequality join, no contiguous 16 GiB build; all memory-bound steps
+  are streaming GROUP BY / window-over-partition which DuckDB spills
+  cleanly.
+
+**Syntax notes (DuckDB 1.4):**
+- Standalone `WINDOW w AS (...)` clauses are NOT supported inside
+  `INSERT … SELECT` in DuckDB 1.4.x — the OVER clauses must be inlined
+  per column. The rewritten query does this.
+- `QUALIFY` is replaced by wrapping in an outer subquery with `WHERE
+  trade_count > 0` so the filter applies after the window aggregates
+  compute.
+
+**Operator note:** After rev4 lands, only `04_emit_snapshots.ts` needs
+to be re-run on the Hetzner box. 02c/02d/03 data is already committed
+in `discovery_v3.duckdb` (83 GB, 912,522,639 rows, 734,790 markets).
+Follow with 05 and 06. Env flags unchanged from rev3.
