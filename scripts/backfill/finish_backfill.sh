@@ -7,13 +7,16 @@
 #   - The DuckDB file lives at $DUCKDB_PATH (or the default path resolved by
 #     src/discovery/v3/featureFlag.ts getDuckDBPath).
 #
-# Phase B (no-index-during-load path — final v3 fix 2026-04-22):
+# Phase B (bucket-local dedup path — final v3 fix 2026-04-22 rev2):
 #   1. For each bucket parquet, run 02c_merge_one_bucket.ts in a fresh node
-#      process. Does a RAW INSERT (no GROUP BY, no dedup, no indexes) and
-#      deletes the parquet on success.
+#      process. Does an INSERT that dedups inside the bucket (valid because
+#      02a bucketizes on hash(tx_hash) so duplicate keys all live in ONE
+#      bucket). Target table has NO indexes during load. Deletes the parquet
+#      on success.
 #   2. Once all 64 buckets are loaded, run 02d_dedup_and_index.ts once. This
-#      CTAS-dedupes into a new table, swaps it in, and recreates the unique +
-#      aux indexes.
+#      scans for duplicate keys (defensive), then creates the UNIQUE +
+#      auxiliary indexes on the already-deduped table. No global CTAS —
+#      that blew the temp-disk budget at production scale.
 #   3. Run 03_load_markets.ts, 04_emit_snapshots.ts, 05_score_and_publish.ts,
 #      06_validate.ts in sequence.
 #
@@ -45,14 +48,14 @@ cd "$REPO_ROOT"
 
 echo
 echo "=============================================="
-echo "=== 02c: RAW-insert each bucket (no dedup)  ==="
+echo "=== 02c: dedup-insert each bucket           ==="
 echo "=============================================="
 for f in "$SORTED_PARQUET_DIR"/sorted_events_bucket_*.parquet; do
   [ -e "$f" ] || continue
   b=$(basename "$f" | sed -E 's/sorted_events_bucket_([0-9]+)\.parquet/\1/' | sed 's/^0*//')
   [ -z "$b" ] && b=0
   size=$(du -h "$f" | cut -f1)
-  echo "--- [02c] RAW-inserting bucket $b (size $size) ---"
+  echo "--- [02c] dedup-inserting bucket $b (size $size) ---"
   npx tsx scripts/backfill/02c_merge_one_bucket.ts --bucket "$b" --path "$f" || {
     echo "ERROR: 02c bucket $b failed. Remaining buckets not loaded."
     exit 1
@@ -62,7 +65,7 @@ done
 
 echo
 echo "=============================================="
-echo "=== 02d: CTAS dedup + rebuild indexes       ==="
+echo "=== 02d: build UNIQUE + aux indexes         ==="
 echo "=============================================="
 npx tsx scripts/backfill/02d_dedup_and_index.ts
 

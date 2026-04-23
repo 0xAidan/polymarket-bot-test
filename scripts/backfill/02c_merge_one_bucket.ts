@@ -1,20 +1,27 @@
 /**
  * Phase 1.5 step 2c: load ONE sorted bucket parquet into discovery_activity_v3
- * as RAW rows (no dedup). Dedup is deferred to the separate CTAS step in
- * `02d_dedup_and_index.ts`.
+ * with BUCKET-LOCAL DEDUP. Because 02a bucketizes on `abs(hash(tx_hash)) % N`,
+ * all copies of a given (tx_hash, log_index) live in the same bucket, so
+ * per-bucket dedup is mathematically equivalent to global dedup. This
+ * eliminates the need for a global CTAS dedup at the end, which at
+ * production scale (956M rows) blows the temp-directory budget.
  *
- * Why this exists: DuckDB's INSERT … SELECT … GROUP BY path into a table with
- * a UNIQUE INDEX triggers spurious "Duplicate key" errors at scale (see
- * duckdb#11102, #16520 — fix incomplete for bulk aggregate+index path). Moving
- * dedup out of the INSERT eliminates the failure class entirely.
+ * Why not INSERT with GROUP BY into an INDEXED table: DuckDB's bulk
+ * aggregate-insert + unique-index-maintenance pipeline raises spurious
+ * Duplicate key errors at scale (duckdb#11102 / #16520). We therefore:
+ *   - keep the target table INDEX-FREE during backfill (02a migration variant)
+ *   - INSERT deduped rows per bucket here
+ *   - create the UNIQUE + aux indexes once, AFTER all buckets are loaded
+ *     (02d_dedup_and_index.ts — which is now a "build indexes" step only;
+ *     the CTAS dedup is no longer needed because rows arrive pre-deduped).
  *
  * Preconditions: the target DB schema must have been created via
  * `runV3DuckDBMigrationsBackfillNoIndex` so `discovery_activity_v3` has NO
  * UNIQUE/auxiliary indexes. The orchestrator script guarantees that.
  *
- * One invocation = one bucket RAW-insert + checkpoint + exit. The launcher
+ * One invocation = one bucket dedup-insert + checkpoint + exit. The launcher
  * loops over buckets and calls this per bucket. Fresh buffer manager every
- * iteration.
+ * iteration bounds spill to one bucket's GROUP BY state.
  *
  * Flags:
  *   --bucket B          (required) which bucket index to merge, 0..N-1
@@ -25,7 +32,7 @@ import { existsSync, statSync, unlinkSync } from 'fs';
 import { openDuckDB } from '../../src/discovery/v3/duckdbClient.js';
 import { runV3DuckDBMigrationsBackfillNoIndex } from '../../src/discovery/v3/duckdbSchema.js';
 import { getDuckDBPath } from '../../src/discovery/v3/featureFlag.js';
-import { buildSortedParquetToActivityRawSql } from '../../src/discovery/v3/backfillQueries.js';
+import { buildSortedParquetToActivityDedupedSql } from '../../src/discovery/v3/backfillQueries.js';
 
 function parseArgs(argv: string[]): { bucket: number; path: string; keep: boolean } {
   let bucket: number | undefined;
@@ -67,12 +74,12 @@ async function main(): Promise<void> {
     await db.exec('DROP INDEX IF EXISTS idx_activity_v3_market_ts');
 
     const t0 = Date.now();
-    await db.exec(buildSortedParquetToActivityRawSql(args.path));
+    await db.exec(buildSortedParquetToActivityDedupedSql(args.path));
     await db.exec('CHECKPOINT');
     const after = (await db.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM discovery_activity_v3'))[0].c;
     console.log(
-      `[02c] bucket ${args.bucket} raw-merged in ${Math.round((Date.now() - t0) / 1000)}s` +
-      ` \u2014 parquet ${(sz / 1e9).toFixed(2)} GB, cumulative activity rows (PRE-DEDUP): ${after}`
+      `[02c] bucket ${args.bucket} dedup-merged in ${Math.round((Date.now() - t0) / 1000)}s` +
+      ` \u2014 parquet ${(sz / 1e9).toFixed(2)} GB, cumulative activity rows (DEDUPED): ${after}`
     );
   } finally {
     await db.close();

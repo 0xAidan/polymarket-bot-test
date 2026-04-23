@@ -1,30 +1,27 @@
 /**
- * Larger-scale smoke test of the no-index-during-load path. Not part of the
- * default test run (file name lacks .test.ts) — run manually with:
+ * Larger-scale smoke test of the bucket-local-dedup backfill path. Not part
+ * of the default test run (file name lacks .test.ts) — run manually with:
  *
  *   npx tsx tests/v3-backfill-scale-integration.ts
  *
  * Generates a 2M-row sorted bucket parquet with ~600 duplicate keys, then
- * exercises:
+ * exercises the new production flow:
  *   1. runV3DuckDBMigrationsBackfillNoIndex (creates table, NO indexes)
- *   2. buildSortedParquetToActivityRawSql (RAW insert, no GROUP BY)
- *   3. buildActivityDedupCtasSql (CTAS dedup into _dedup)
- *   4. ACTIVITY_DEDUP_SWAP_SQL (drop + rename)
- *   5. buildActivityIndexSqlList (create UNIQUE + aux indexes)
+ *   2. buildSortedParquetToActivityDedupedSql (dedup-insert from parquet)
+ *   3. buildActivityIndexSqlList (create UNIQUE + aux indexes on
+ *      already-deduped data)
  *
- * At this scale, the old INSERT+GROUP BY path into an indexed table is the
- * exact code path that failed in production with spurious Duplicate key
- * errors. We DO NOT run the old path here (it's @deprecated) but the new
- * path must complete cleanly and produce the correct deduped row count.
+ * At Hetzner scale the old INSERT+GROUP-BY-into-indexed-table path triggers
+ * a spurious Duplicate key error; the old global CTAS dedup at the end
+ * exceeds the temp-directory budget. This new path avoids both: dedup is
+ * per-bucket (bounded spill) and index creation runs on clean data.
  */
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { openDuckDB } from '../src/discovery/v3/duckdbClient.js';
 import {
-  ACTIVITY_DEDUP_SWAP_SQL,
-  buildActivityDedupCtasSql,
-  buildSortedParquetToActivityRawSql,
+  buildSortedParquetToActivityDedupedSql,
 } from '../src/discovery/v3/backfillQueries.js';
 import {
   buildActivityIndexSqlList,
@@ -80,37 +77,22 @@ async function main(): Promise<void> {
       await runV3DuckDBMigrationsBackfillNoIndex((sql) => db.exec(sql));
 
       const t1 = Date.now();
-      await db.exec(buildSortedParquetToActivityRawSql(parquet));
+      await db.exec(buildSortedParquetToActivityDedupedSql(parquet));
       await db.exec('CHECKPOINT');
-      const pre = (
+      const post = (
         await db.query<{ c: number }>(`SELECT COUNT(*)::BIGINT AS c FROM discovery_activity_v3`)
       )[0].c;
       console.log(
-        `[scale] raw insert done in ${Math.round((Date.now() - t1) / 1000)}s, pre-dedup rows=${pre}`
-      );
-
-      const t2 = Date.now();
-      await db.exec('DROP TABLE IF EXISTS discovery_activity_v3_dedup');
-      await db.exec(buildActivityDedupCtasSql());
-      await db.exec('CHECKPOINT');
-      const post = (
-        await db.query<{ c: number }>(
-          `SELECT COUNT(*)::BIGINT AS c FROM discovery_activity_v3_dedup`
-        )
-      )[0].c;
-      console.log(
-        `[scale] dedup CTAS done in ${Math.round((Date.now() - t2) / 1000)}s, post-dedup rows=${post}`
+        `[scale] dedup insert done in ${Math.round((Date.now() - t1) / 1000)}s, rows=${post}`
       );
       if (post !== distinctKeys) {
         throw new Error(`dedup row count ${post} does not match distinct key count ${distinctKeys}`);
       }
 
-      const t3 = Date.now();
-      for (const sql of ACTIVITY_DEDUP_SWAP_SQL) await db.exec(sql);
-      await db.exec('CHECKPOINT');
+      const t2 = Date.now();
       for (const sql of buildActivityIndexSqlList()) await db.exec(sql);
       await db.exec('CHECKPOINT');
-      console.log(`[scale] swap + index rebuild done in ${Math.round((Date.now() - t3) / 1000)}s`);
+      console.log(`[scale] index rebuild done in ${Math.round((Date.now() - t2) / 1000)}s`);
 
       // Sanity: inserting a duplicate row now MUST raise.
       try {

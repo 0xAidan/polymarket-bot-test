@@ -213,10 +213,11 @@ See `docs/discovery-v3-operations.md` for the full runbook.
   successful buckets: DuckDB's buffer manager accumulated enough pinned
   pages across commits that bucket 4's commit hit `failed to pin block
   (7.4 GiB/7.4 GiB used)`. Deprecated in favour of the per-process flow.
-- **Current production (FINAL, 2026-04-22)**: **`02a_sort_bucket.ts` +
-  `02c_merge_one_bucket.ts` + `02d_dedup_and_index.ts`** orchestrated by
+- **Current production (FINAL rev2, 2026-04-22)**: **`02a_sort_bucket.ts`
+  + `02c_merge_one_bucket.ts` + `02d_dedup_and_index.ts`** orchestrated by
   `scripts/backfill/finish_backfill.sh`. See
-  `2026-04-22-discovery-backfill-final-fix.md` for the root-cause write-up.
+  `2026-04-22-discovery-backfill-final-fix-rev2.md` for the full write-up
+  (supersedes the `final-fix.md` addendum).
     1. For each of `DUCKDB_SORT_BUCKETS` (default 64) hash buckets on
        `transaction_hash`, the launcher calls `02a_sort_bucket.ts` in a
        FRESH `tsx` process. Each process opens an in-memory DuckDB, sorts
@@ -231,38 +232,55 @@ See `docs/discovery-v3-operations.md` for the full runbook.
        `runV3DuckDBMigrationsBackfillNoIndex` once (creates the
        `discovery_activity_v3` table with **NO indexes**), then loops over
        every bucket parquet running `02c_merge_one_bucket.ts` in a fresh
-       `tsx` process. Each invocation does a plain
-       `INSERT INTO discovery_activity_v3 SELECT …` with **no GROUP BY and
-       no indexes** (`buildSortedParquetToActivityRawSql`), checkpoints,
-       and deletes the bucket parquet. This trivial load is essentially
-       uncancellable.
+       `tsx` process. Each invocation does
+       `INSERT INTO discovery_activity_v3 WITH raw AS (SELECT … FROM
+       read_parquet(…)) SELECT … arg_min(…, ts_unix) … FROM raw GROUP BY
+       tx_hash, log_index` (`buildSortedParquetToActivityDedupedSql`).
+       Dedup happens **inside the SELECT against the parquet only**, so
+       the SELECT side does an aggregate while the INSERT side writes into
+       an index-free table — neither of the two DuckDB pipelines that
+       combine dangerously at scale is triggered. Checkpoints, then
+       deletes the bucket parquet.
     4. **Phase B2** — after all 64 buckets are loaded,
-       `02d_dedup_and_index.ts` runs a single CTAS dedup
-       (`buildActivityDedupCtasSql`, `arg_min(col, ts_unix)`
-       earliest-winner) into `discovery_activity_v3_dedup`, swaps
-       (`ACTIVITY_DEDUP_SWAP_SQL` drops the raw table + renames the dedup
-       table), and rebuilds the UNIQUE index + auxiliary indexes on
-       already-deduped data (`buildActivityIndexSqlList`). Unique index
-       creation on pre-deduped data is guaranteed correct.
-    5. **Why the split.** The old path (`02b_merge_buckets.ts` — now
-       removed from production; kept on history) inserted each bucket with
-       `GROUP BY tx_hash, log_index` directly into the indexed table. At
-       Hetzner scale (14M rows/bucket, 6 GB RAM, 2 threads) DuckDB's
-       aggregate-insert → unique-index-maintenance pipeline raised
-       **spurious** `Constraint Error: Duplicate key` faults on keys that
-       appeared exactly once in the input — confirmed via diagnostic
-       (`failing_key_rows: 1`). Known DuckDB regressions tracked as
-       duckdb#11102 / duckdb#16520. Separating bulk load from dedup
-       eliminates both triggers.
-    6. Correctness unit-tested in `tests/v3-backfill-mapping.test.ts`
+       `02d_dedup_and_index.ts` runs a defensive
+       `SELECT ... GROUP BY tx_hash, log_index HAVING COUNT(*) > 1` scan
+       (must return zero; if not, refuses to proceed), then builds the
+       UNIQUE + auxiliary indexes on the already-deduped table via
+       `buildActivityIndexSqlList`. No global CTAS dedup — the earlier rev
+       tried that and exceeded the 75 GB temp-directory budget at 956M
+       pre-dedup rows.
+    5. **Why bucket-local dedup is correct.** `02a` bucketizes on
+       `abs(hash(transaction_hash)) % N`, so every duplicate of a given
+       `(tx_hash, log_index)` key lands in exactly ONE bucket. Per-bucket
+       dedup is therefore mathematically equivalent to global dedup — the
+       same invariant that justified the legacy `02b` per-bucket LAG
+       dedup. Tested by the `bucketed path = single-sort path` assertion
+       in `tests/v3-backfill-mapping.test.ts`.
+    6. **Why we no longer do a global CTAS.** At 956M rows + 75 GB free
+       temp, `CREATE TABLE _dedup AS SELECT … GROUP BY tx_hash, log_index
+       FROM discovery_activity_v3` hit
+       `failed to offload data block … max_temp_directory_size`. Per-bucket
+       dedup bounds spill to ~14 M rows/bucket (a few GB of GROUP BY
+       state) and fits inside the memory+temp envelope on the 8 GB box.
+    7. **History of failed intermediate attempts.**
+       - `02b_merge_buckets.ts` (legacy) INSERT with GROUP BY into an
+         indexed table → DuckDB raised spurious Duplicate key errors
+         (duckdb#11102 / #16520) on keys appearing exactly once.
+       - First `final-fix`: raw insert per bucket + global CTAS dedup at
+         the end → CTAS exceeded temp-directory budget at 956 M rows.
+       - **Current**: dedup per bucket during insert into an index-less
+         table, then build indexes on already-deduped data. Sidesteps
+         both failure modes.
+    8. Correctness unit-tested in `tests/v3-backfill-mapping.test.ts`
        (`runNoIndexLoadAndDedup` helper mirrors the production flow);
        scale-tested at 2M rows in
        `tests/v3-backfill-scale-integration.ts` (manual run).
-    7. **`02b_merge_buckets.ts` is DEPRECATED** — it still compiles for
-       reference but must not be used; it triggers the DuckDB bug at
-       production scale. `buildSortedParquetToActivitySql` in
-       `backfillQueries.ts` is marked `@deprecated` for the same reason.
-    8. **Live listener is unaffected.** `goldskyListener.ts` still calls
+    9. **`02b_merge_buckets.ts` and `buildSortedParquetToActivitySql` are
+       DEPRECATED**; likewise `buildSortedParquetToActivityRawSql` and
+       `buildActivityDedupCtasSql` + `ACTIVITY_DEDUP_SWAP_SQL` (the
+       global-CTAS path). They compile for reference but must not be used
+       for new backfill runs.
+   10. **Live listener is unaffected.** `goldskyListener.ts` still calls
        `runV3DuckDBMigrations` which keeps the UNIQUE INDEX from day 1 —
        live writes are small and do not trigger the bulk-insert bug.
        **Never** point the live path at `…NoIndex`.
@@ -310,7 +328,12 @@ See `docs/discovery-v3-operations.md` for the full runbook.
 - **Never** combine `INSERT … GROUP BY` with a UNIQUE INDEX on the target
   at Hetzner scale. DuckDB's aggregate-insert + unique-index pipeline
   raises spurious Duplicate key faults (duckdb#11102 / #16520) on keys
-  that appear exactly once in the source. Always load raw (no GROUP BY,
-  no index), then CTAS-dedup into a fresh table, swap, and only then
-  create the UNIQUE INDEX on already-deduped data. See
-  `02c_merge_one_bucket.ts` → `02d_dedup_and_index.ts`.
+  that appear exactly once in the source. Always load into an index-free
+  table first (either raw or with inline GROUP BY), then create the
+  UNIQUE INDEX afterward on already-deduped data.
+- **Never** do a global `CREATE TABLE _dedup AS SELECT … GROUP BY tx_hash,
+  log_index FROM discovery_activity_v3` at production scale. 956M rows
+  blows the 75 GB temp-directory budget. Dedup per bucket during load
+  (`buildSortedParquetToActivityDedupedSql` in
+  `02c_merge_one_bucket.ts`). This is correct because `02a`'s hash
+  bucketing keeps every duplicate key in a single bucket.

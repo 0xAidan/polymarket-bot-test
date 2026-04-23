@@ -25,21 +25,20 @@ import {
   buildSortBucketFromParquetToParquetSql,
   buildSortedParquetToActivitySql,
   buildSortedParquetToActivityRawSql,
+  buildSortedParquetToActivityDedupedSql,
 } from '../src/discovery/v3/backfillQueries.ts';
 
 async function runNoIndexLoadAndDedup(
   db: ReturnType<typeof openDuckDB>,
   bucketPaths: string[]
 ): Promise<void> {
-  // Mirrors the production path: 02c raw-insert each bucket into an
-  // index-less discovery_activity_v3, then 02d does the CTAS dedup +
-  // index rebuild.
+  // Mirrors the production path: 02c dedup-inserts each bucket into an
+  // index-less discovery_activity_v3 (bucket-local dedup is valid because
+  // hash(tx_hash) bucketing keeps every duplicate key in one bucket), then
+  // 02d creates the UNIQUE + aux indexes on the already-deduped table.
   for (const bp of bucketPaths) {
-    await db.exec(buildSortedParquetToActivityRawSql(bp));
+    await db.exec(buildSortedParquetToActivityDedupedSql(bp));
   }
-  await db.exec('DROP TABLE IF EXISTS discovery_activity_v3_dedup');
-  await db.exec(buildActivityDedupCtasSql());
-  for (const sql of ACTIVITY_DEDUP_SWAP_SQL) await db.exec(sql);
   for (const sql of buildActivityIndexSqlList()) await db.exec(sql);
 }
 
@@ -246,25 +245,28 @@ test('02_load_events sort-based: external-sort-then-LAG dedup matches single-sho
     await db.exec(buildStagingSortToParquetSql(sortedParquet));
     await db.exec(buildStagingDropSql());
 
-    // Verify plan for phase B2 (RAW path): the bucket INSERT MUST be a pure
-    // projection — no GROUP BY, no arg_min, no ROW_NUMBER, no LAG. Dedup is
-    // deferred to the separate CTAS step (buildActivityDedupCtasSql) so that
-    // DuckDB never sees an aggregate-insert into a table with a UNIQUE INDEX
-    // (the path that produced spurious "Duplicate key" errors in production).
+    // Verify plan for phase B2 (bucket-local dedup path): the bucket INSERT
+    // MUST contain GROUP BY + arg_min (dedup happens inline, reading only
+    // from the parquet, targeting an index-less table — so DuckDB never hits
+    // the aggregate-insert + unique-index-maintenance bug that produced
+    // spurious "Duplicate key" errors in production at scale).
+    const dedupInsertSql = buildSortedParquetToActivityDedupedSql(sortedParquet);
+    assert.ok(/GROUP\s+BY\s+tx_hash,\s*log_index/i.test(dedupInsertSql),
+      'phase B2 dedup-insert must GROUP BY (tx_hash, log_index)');
+    assert.ok(/arg_min\(/i.test(dedupInsertSql),
+      'phase B2 dedup-insert must use arg_min to pick winner row');
+    assert.ok(!/ROW_NUMBER\s*\(/i.test(dedupInsertSql),
+      'phase B2 dedup-insert must NOT use ROW_NUMBER (window-function path is the buggy one)');
+    assert.ok(!/LAG\s*\(/i.test(dedupInsertSql),
+      'phase B2 dedup-insert must NOT use LAG');
+    // The raw-only builder must still exist for back-compat but must be
+    // pure projection — it’s deprecated and not used by production.
     const rawSql = buildSortedParquetToActivityRawSql(sortedParquet);
-    assert.ok(!/GROUP\s+BY/i.test(rawSql), 'phase B2 RAW path must NOT contain GROUP BY');
-    assert.ok(!/arg_min\(/i.test(rawSql), 'phase B2 RAW path must NOT use arg_min');
-    assert.ok(!/ROW_NUMBER\s*\(/i.test(rawSql), 'phase B2 RAW path must NOT use ROW_NUMBER');
-    assert.ok(!/LAG\s*\(/i.test(rawSql), 'phase B2 RAW path must NOT use LAG');
-
-    // And the dedup CTAS MUST use GROUP BY + arg_min.
-    const dedupSql = buildActivityDedupCtasSql();
-    assert.ok(/CREATE\s+TABLE\s+discovery_activity_v3_dedup/i.test(dedupSql), 'dedup CTAS must target _dedup table');
-    assert.ok(/GROUP\s+BY\s+tx_hash,\s*log_index/i.test(dedupSql), 'dedup CTAS must GROUP BY (tx_hash, log_index)');
-    assert.ok(/arg_min\(/i.test(dedupSql), 'dedup CTAS must use arg_min to pick winner row');
+    assert.ok(!/GROUP\s+BY/i.test(rawSql), 'deprecated RAW path must NOT contain GROUP BY');
 
     // Emulate the full production flow: drop the indexes (simulating
-    // runV3DuckDBMigrationsBackfillNoIndex), raw-insert, then dedup+reindex.
+    // runV3DuckDBMigrationsBackfillNoIndex), bucket-local dedup-insert, then
+    // rebuild indexes.
     await db.exec('DROP INDEX IF EXISTS idx_activity_v3_dedup');
     await db.exec('DROP INDEX IF EXISTS idx_activity_v3_wallet_ts');
     await db.exec('DROP INDEX IF EXISTS idx_activity_v3_market_ts');
