@@ -19,7 +19,7 @@
 export function buildStagingCreateSql(): string {
   return `
     CREATE TABLE IF NOT EXISTS staging_events_v3 (
-      user             VARCHAR,
+      address          VARCHAR,
       market_id        VARCHAR,
       condition_id     VARCHAR,
       event_id         VARCHAR,
@@ -28,6 +28,7 @@ export function buildStagingCreateSql(): string {
       transaction_hash VARCHAR,
       log_index        INTEGER,
       role             VARCHAR,
+      direction        VARCHAR,
       price            DOUBLE,
       usd_amount       DOUBLE,
       token_amount     DOUBLE
@@ -47,8 +48,8 @@ export function buildStagingIngestSql(sourceRef: string, limit?: number): string
   const limitClause = typeof limit === 'number' && limit > 0 ? `LIMIT ${limit}` : '';
   return `
     INSERT INTO staging_events_v3
-    SELECT user, market_id, condition_id, event_id, timestamp, block_number,
-           transaction_hash, log_index, role, price, usd_amount, token_amount
+    SELECT address, market_id, condition_id, event_id, timestamp, block_number,
+           transaction_hash, log_index, role, direction, price, usd_amount, token_amount
     FROM ${sourceRef}
     WHERE timestamp > 0
       AND usd_amount > 0
@@ -143,13 +144,14 @@ export function buildSortBucketFromParquetToParquetSql(
   const limitClause = typeof limit === 'number' && limit > 0 ? `LIMIT ${limit}` : '';
   return `
     COPY (
-      SELECT "user", market_id, condition_id, event_id, timestamp, block_number,
-             transaction_hash, log_index, role, price, usd_amount, token_amount
+      SELECT address, market_id, condition_id, event_id, timestamp, block_number,
+             transaction_hash, log_index, role, direction, price, usd_amount, token_amount
       FROM ${sourceParquetRef}
       WHERE timestamp > 0
         AND usd_amount > 0
         AND token_amount <> 0
         AND transaction_hash IS NOT NULL
+        AND address IS NOT NULL
         AND (abs(hash(transaction_hash)) % ${totalBuckets}) = ${bucketIdx}
       ORDER BY transaction_hash, log_index, timestamp
       ${limitClause}
@@ -185,7 +187,7 @@ export function buildSortedParquetToActivityDedupedSql(sortedParquetPath: string
     INSERT INTO discovery_activity_v3
     WITH raw AS (
       SELECT
-        "user"                                            AS proxy_wallet,
+        address                                           AS proxy_wallet,
         market_id                                         AS market_id,
         condition_id                                      AS condition_id,
         event_id                                          AS event_id,
@@ -194,7 +196,7 @@ export function buildSortedParquetToActivityDedupedSql(sortedParquetPath: string
         transaction_hash                                  AS tx_hash,
         CAST(log_index AS UINTEGER)                       AS log_index,
         LOWER(role)                                       AS role,
-        CASE WHEN token_amount > 0 THEN 'BUY' ELSE 'SELL' END AS side,
+        UPPER(direction)                                  AS side,
         CAST(price AS DOUBLE)                             AS price_yes,
         CAST(usd_amount AS DOUBLE)                        AS usd_notional,
         CAST(token_amount AS DOUBLE)                      AS signed_size,
@@ -247,7 +249,7 @@ export function buildSortedParquetToActivityRawSql(sortedParquetPath: string): s
   return `
     INSERT INTO discovery_activity_v3
     SELECT
-      "user"                                            AS proxy_wallet,
+      address                                           AS proxy_wallet,
       market_id                                         AS market_id,
       condition_id                                      AS condition_id,
       event_id                                          AS event_id,
@@ -256,7 +258,7 @@ export function buildSortedParquetToActivityRawSql(sortedParquetPath: string): s
       transaction_hash                                  AS tx_hash,
       CAST(log_index AS UINTEGER)                       AS log_index,
       LOWER(role)                                       AS role,
-      CASE WHEN token_amount > 0 THEN 'BUY' ELSE 'SELL' END AS side,
+      UPPER(direction)                                  AS side,
       CAST(price AS DOUBLE)                             AS price_yes,
       CAST(usd_amount AS DOUBLE)                        AS usd_notional,
       CAST(token_amount AS DOUBLE)                      AS signed_size,
@@ -317,7 +319,7 @@ export function buildSortedParquetToActivitySql(sortedParquetPath: string): stri
   return `
     INSERT INTO discovery_activity_v3
     SELECT
-      arg_min("user", timestamp)                        AS proxy_wallet,
+      arg_min(address, timestamp)                       AS proxy_wallet,
       arg_min(market_id, timestamp)                     AS market_id,
       arg_min(condition_id, timestamp)                  AS condition_id,
       arg_min(event_id, timestamp)                      AS event_id,
@@ -345,7 +347,7 @@ export function buildStagingToActivitySql(): string {
   return `
     INSERT INTO discovery_activity_v3
     SELECT
-      arg_min("user", timestamp)                        AS proxy_wallet,
+      arg_min(address, timestamp)                       AS proxy_wallet,
       arg_min(market_id, timestamp)                     AS market_id,
       arg_min(condition_id, timestamp)                  AS condition_id,
       arg_min(event_id, timestamp)                      AS event_id,
@@ -377,7 +379,7 @@ export function buildEventIngestSql(sourceRef: string, limit?: number): string {
   return `
     INSERT OR IGNORE INTO discovery_activity_v3
     SELECT
-      user                                              AS proxy_wallet,
+      address                                           AS proxy_wallet,
       market_id,
       condition_id,
       event_id,
@@ -386,7 +388,7 @@ export function buildEventIngestSql(sourceRef: string, limit?: number): string {
       transaction_hash                                  AS tx_hash,
       CAST(log_index AS UINTEGER)                       AS log_index,
       LOWER(role)                                       AS role,
-      CASE WHEN token_amount > 0 THEN 'BUY' ELSE 'SELL' END AS side,
+      UPPER(direction)                                  AS side,
       CAST(price AS DOUBLE)                             AS price_yes,
       CAST(usd_amount AS DOUBLE)                        AS usd_notional,
       CAST(token_amount AS DOUBLE)                      AS signed_size,
@@ -429,7 +431,7 @@ export function buildEventIngestSqlAntiJoin(sourceRef: string, limit?: number): 
       WHERE rn = 1
     )
     SELECT
-      user                                              AS proxy_wallet,
+      address                                           AS proxy_wallet,
       market_id,
       condition_id,
       event_id,
@@ -438,7 +440,7 @@ export function buildEventIngestSqlAntiJoin(sourceRef: string, limit?: number): 
       transaction_hash                                  AS tx_hash,
       CAST(log_index AS UINTEGER)                       AS log_index,
       LOWER(role)                                       AS role,
-      CASE WHEN token_amount > 0 THEN 'BUY' ELSE 'SELL' END AS side,
+      UPPER(direction)                                  AS side,
       CAST(price AS DOUBLE)                             AS price_yes,
       CAST(usd_amount AS DOUBLE)                        AS usd_notional,
       CAST(token_amount AS DOUBLE)                      AS signed_size,
@@ -500,7 +502,7 @@ export function buildEventIngestSqlAntiJoinChunked(
       WHERE rn = 1
     )
     SELECT
-      user                                              AS proxy_wallet,
+      address                                           AS proxy_wallet,
       market_id,
       condition_id,
       event_id,
@@ -509,7 +511,7 @@ export function buildEventIngestSqlAntiJoinChunked(
       transaction_hash                                  AS tx_hash,
       CAST(log_index AS UINTEGER)                       AS log_index,
       LOWER(role)                                       AS role,
-      CASE WHEN token_amount > 0 THEN 'BUY' ELSE 'SELL' END AS side,
+      UPPER(direction)                                  AS side,
       CAST(price AS DOUBLE)                             AS price_yes,
       CAST(usd_amount AS DOUBLE)                        AS usd_notional,
       CAST(token_amount AS DOUBLE)                      AS signed_size,

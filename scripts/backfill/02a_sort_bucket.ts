@@ -82,6 +82,27 @@ async function main(): Promise<void> {
   const db = openDuckDB(':memory:');
   try {
     await db.exec('INSTALL httpfs; LOAD httpfs;');
+
+    // --- PARQUET SCHEMA GUARD (rev6) -------------------------------------
+    // Prevent the `"user"` keyword silent-fallback bug that poisoned 912M
+    // rows with proxy_wallet='duckdb'. The REAL users.parquet has columns
+    // `address` + `direction`. If either is missing, fail NOW \u2014 don't waste
+    // 3 hours producing garbage.
+    const schema = await db.query<{ column_name: string }>(
+      `DESCRIBE SELECT * FROM ${sourceRef} LIMIT 0`
+    );
+    const cols = new Set(schema.map((r) => r.column_name));
+    const required = ['address', 'direction', 'role', 'timestamp', 'transaction_hash', 'log_index', 'market_id', 'usd_amount', 'token_amount', 'price'];
+    const missing = required.filter((c) => !cols.has(c));
+    if (missing.length > 0) {
+      throw new Error(
+        `[02a] FATAL: source parquet is missing required column(s): ${missing.join(', ')}. ` +
+        `Found columns: ${[...cols].join(', ')}. ` +
+        `This would silently corrupt backfill output (see rev6 fix).`
+      );
+    }
+    // ---------------------------------------------------------------------
+
     const t0 = Date.now();
     console.log(`[02a] bucket ${args.bucket + 1}/${args.total}: sort direct from ${sourceRef} \u2192 ${args.out}`);
     await db.exec(

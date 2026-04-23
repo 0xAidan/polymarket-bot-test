@@ -487,3 +487,102 @@ latent bug that only tripped once 05 ran on real data.
 **Operator note:** Re-running 05 (after pulling rev5) is enough — the
 migration drops and recreates the scores table automatically. 04 does
 not need to re-run.
+
+### Backfill fix rev6 (2026-04-23) — `"user"` keyword silent-fallback bug ⚠️ CRITICAL
+
+**Problem:** After rev5, 05 ran and produced wallet scores — but only
+for ONE wallet: `'duckdb'` (the string literal). Diagnostic query
+showed all 912M rows in `discovery_activity_v3` had
+`proxy_wallet = 'duckdb'`, and `COUNT(DISTINCT proxy_wallet) = 1`.
+
+**Root cause:** The ingest SQL in `backfillQueries.ts` referenced a
+column called `user` (both `"user"` quoted and bare `user`) from the
+source parquet. But the REAL `users.parquet` schema (confirmed by
+`DESCRIBE SELECT * FROM read_parquet('data/users.parquet') LIMIT 0`)
+has:
+
+```
+timestamp UBIGINT, block_number UBIGINT, transaction_hash VARCHAR,
+log_index UINTEGER, address VARCHAR, role VARCHAR, direction VARCHAR,
+usd_amount DOUBLE, token_amount DOUBLE, price DOUBLE,
+market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR,
+nonusdc_side VARCHAR
+```
+
+The column is **`address`**, not `user`. In DuckDB 1.4.4, when a query
+references `"user"` or `user` and no such column exists, the parser
+silently resolves it to the `CURRENT_USER` **reserved keyword**, which
+returns the literal string `'duckdb'` on the Hetzner server. No error
+is raised. Every row gets `proxy_wallet = 'duckdb'`, `side` was also
+wrong (the old code derived BUY/SELL from `token_amount` sign; real
+parquet has an explicit `direction` column with 'BUY'/'SELL').
+
+**Fix — 15 SQL edits in `src/discovery/v3/backfillQueries.ts`:**
+
+1. `staging_events_v3` DDL: `user VARCHAR` → `address VARCHAR`; added
+   `direction VARCHAR` column.
+2. `buildStagingIngestSql`: SELECT projects `address` and `direction`
+   from the source parquet.
+3. `buildSortBucketFromParquetToParquetSql`: passes through `address`
+   and `direction`; added defensive `AND address IS NOT NULL` filter.
+4. All `"user" AS proxy_wallet` and bare `user AS proxy_wallet` (5
+   places) → `address AS proxy_wallet`.
+5. `arg_min("user", timestamp)` (2 places) → `arg_min(address, timestamp)`.
+6. `CASE WHEN token_amount > 0 THEN 'BUY' ELSE 'SELL' END AS side`
+   (5 places) → `UPPER(direction) AS side` — uses the authoritative
+   direction column directly, no sign inference.
+
+**Defensive schema guard added (NEW):**
+
+`02_load_events.ts` and `02a_sort_bucket.ts` now run a `DESCRIBE
+SELECT * FROM read_parquet('...') LIMIT 0` at startup and throw a
+fatal error if any of `address, direction, role, timestamp,
+transaction_hash, log_index, market_id, usd_amount, token_amount,
+price` is missing. Any future column rename fails loudly on second 1,
+not silently after 3 hours.
+
+**Regression tests updated:**
+
+`tests/v3-backfill-mapping.test.ts` fixtures rewritten to use the
+production schema (`address` + `direction`), proving the pipeline
+against the real shape of the data. Previously the test fixtures used
+`user VARCHAR` and inferred side from `token_amount` sign, which is
+why the bug slipped past tests.
+
+**End-to-end verification script:**
+
+`scripts/verify-rev6-fix.ts` builds a synthetic parquet matching the
+EXACT production schema, runs every backfill SQL path
+(`buildEventIngestSqlAntiJoin`, `buildEventIngestSqlAntiJoinChunked`,
+`buildStagingIngestSql`, `buildStagingSortBucketToParquetSql`,
+`buildSortBucketFromParquetToParquetSql`), and asserts:
+
+- `COUNT(DISTINCT proxy_wallet)` equals the real number of wallets
+- zero rows have `proxy_wallet = 'duckdb'`
+- all `proxy_wallet` values are valid 0x-prefixed 42-char addresses
+- `side` contains both `BUY` and `SELL`
+- `activity ⋈ markets_dim` join returns rows (snapshots will work)
+
+Run with: `npx tsx scripts/verify-rev6-fix.ts`
+
+**Operator note:** The 83 GB `discovery_v3.duckdb` and the previous
+912M rows of `discovery_activity_v3` are **garbage** — every row has
+`proxy_wallet='duckdb'`. The database must be wiped and the full
+pipeline re-run from 02a. The raw `users.parquet` (51.5 GB) is
+**intact** — this is only a derived-data rebuild, not a re-fetch.
+
+Full recovery command block (Hetzner):
+
+```bash
+cd /mnt/HC_Volume_105468668/repo-v3
+git pull --ff-only origin discovery-v3-rebuild
+rm -f /mnt/HC_Volume_105468668/discovery_v3.duckdb
+rm -f /mnt/HC_Volume_105468668/bucket_parquets/*.parquet
+export DUCKDB_PATH=/mnt/HC_Volume_105468668/discovery_v3.duckdb
+export DUCKDB_MEMORY_LIMIT_GB=6 DUCKDB_THREADS=2
+export DUCKDB_TEMP_DIR=/mnt/HC_Volume_105468668/duckdb_tmp
+export DUCKDB_MAX_TEMP_DIR_GB=60
+export SORTED_PARQUET_DIR=/mnt/HC_Volume_105468668/bucket_parquets
+export LOG=/tmp/v3-rev6-$(date +%Y%m%dT%H%M%S).log
+bash scripts/backfill/finish_backfill.sh 2>&1 | tee -a "$LOG"
+```
