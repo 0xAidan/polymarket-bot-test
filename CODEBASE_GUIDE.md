@@ -458,3 +458,32 @@ SELECT … FROM (
 to be re-run on the Hetzner box. 02c/02d/03 data is already committed
 in `discovery_v3.duckdb` (83 GB, 912,522,639 rows, 734,790 markets).
 Follow with 05 and 06. Env flags unchanged from rev3.
+
+### Backfill fix rev5 (2026-04-23) — scores table composite PK
+
+**Problem:** After rev4, 04 succeeded (wrote 1,380 snapshots in 344s)
+but 05 failed with `SqliteError: UNIQUE constraint failed:
+discovery_wallet_scores_v3.proxy_wallet`.
+
+Root cause: `src/discovery/v3/schema.ts` declared
+`proxy_wallet TEXT PRIMARY KEY`, but `scoreTiers` in
+`src/discovery/v3/tierScoring.ts` intentionally emits **three rows per
+eligible wallet** (one per tier: alpha, whale, specialist). The API
+(`/:tier`, `/wallet/:address`) reads multiple rows per wallet, so the
+correct PK is **(proxy_wallet, tier)**. The wallet-only PK was a
+latent bug that only tripped once 05 ran on real data.
+
+**Fix:**
+- `schema.ts`: change PK to `PRIMARY KEY (proxy_wallet, tier)`.
+- `runV3SqliteMigrations`: detect the legacy schema via
+  `sqlite_master.sql` regex and `DROP TABLE` before re-creating. Safe
+  because `discovery_wallet_scores_v3` is a cache — 05 and
+  `refreshWorker.ts` rebuild it from DuckDB snapshots on every run.
+- New regression tests in `tests/v3-schema.test.ts`:
+  - asserts one wallet can occupy all three tiers simultaneously
+  - asserts duplicate `(wallet, tier)` is rejected
+  - asserts legacy schema auto-upgrades
+
+**Operator note:** Re-running 05 (after pulling rev5) is enough — the
+migration drops and recreates the scores table automatically. 04 does
+not need to re-run.

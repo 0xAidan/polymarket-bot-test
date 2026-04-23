@@ -89,3 +89,65 @@ test('SQLite v3 DDL idempotent on better-sqlite3', async () => {
     db.close();
   }
 });
+
+test('discovery_wallet_scores_v3 allows one row per (wallet, tier) pair', async () => {
+  // Regression test: rev5 fixed a PK-on-wallet-only bug. The tier scorer
+  // emits each eligible wallet across alpha + whale + specialist, which
+  // requires composite PK (proxy_wallet, tier).
+  const Database = (await import('better-sqlite3')).default;
+  const { runV3SqliteMigrations } = await import('../src/discovery/v3/schema.ts');
+  const db = new Database(':memory:');
+  try {
+    runV3SqliteMigrations(db);
+    const ins = db.prepare(
+      `INSERT INTO discovery_wallet_scores_v3
+         (proxy_wallet, tier, tier_rank, score, volume_total, trade_count,
+          distinct_markets, closed_positions, realized_pnl, hit_rate,
+          last_active_ts, reasons_json, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    );
+    const w = '0xaaaa';
+    ins.run(w, 'alpha', 1, 0.9, 1000, 10, 5, 3, 100, 0.6, 1700000000, '[]', 1700000100);
+    ins.run(w, 'whale', 2, 0.8, 1000, 10, 5, 3, 100, 0.6, 1700000000, '[]', 1700000100);
+    ins.run(w, 'specialist', 3, 0.7, 1000, 10, 5, 3, 100, 0.6, 1700000000, '[]', 1700000100);
+    const count = (db.prepare('SELECT COUNT(*) AS c FROM discovery_wallet_scores_v3 WHERE proxy_wallet = ?').get(w) as { c: number }).c;
+    assert.equal(count, 3, 'wallet should be allowed across 3 tiers');
+    // But (wallet, tier) must still be unique:
+    assert.throws(
+      () => ins.run(w, 'alpha', 99, 0.5, 1000, 10, 5, 3, 100, 0.6, 1700000000, '[]', 1700000100),
+      /UNIQUE|constraint/i,
+      'duplicate (wallet, tier) must be rejected'
+    );
+  } finally {
+    db.close();
+  }
+});
+
+test('runV3SqliteMigrations upgrades legacy (proxy_wallet-only PK) schema', async () => {
+  const Database = (await import('better-sqlite3')).default;
+  const { runV3SqliteMigrations } = await import('../src/discovery/v3/schema.ts');
+  const db = new Database(':memory:');
+  try {
+    // Simulate the pre-rev5 schema
+    db.exec(`CREATE TABLE discovery_wallet_scores_v3 (
+      proxy_wallet        TEXT PRIMARY KEY,
+      tier                TEXT NOT NULL,
+      tier_rank           INTEGER NOT NULL,
+      score               REAL NOT NULL,
+      volume_total        REAL NOT NULL,
+      trade_count         INTEGER NOT NULL,
+      distinct_markets    INTEGER NOT NULL,
+      closed_positions    INTEGER NOT NULL,
+      realized_pnl        REAL NOT NULL,
+      hit_rate            REAL,
+      last_active_ts      INTEGER NOT NULL,
+      reasons_json        TEXT NOT NULL,
+      updated_at          INTEGER NOT NULL
+    )`);
+    runV3SqliteMigrations(db);
+    const sql = (db.prepare("SELECT sql FROM sqlite_master WHERE name='discovery_wallet_scores_v3'").get() as { sql: string }).sql;
+    assert.match(sql, /PRIMARY KEY \(proxy_wallet, tier\)/i, 'schema must be upgraded to composite PK');
+  } finally {
+    db.close();
+  }
+});
