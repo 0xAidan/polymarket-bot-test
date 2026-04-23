@@ -1,4 +1,10 @@
-export const V3_DUCKDB_DDL: string[] = [
+/**
+ * Activity table DDL (no indexes). Indexes live in `V3_ACTIVITY_INDEX_DDL`
+ * so the backfill can load without them and recreate them post-dedup.
+ * See notes on the 2026-04-22 "no-index-during-load" fix in
+ * CODEBASE_GUIDE.md / the backfill addendum.
+ */
+export const V3_ACTIVITY_TABLE_DDL =
   `CREATE TABLE IF NOT EXISTS discovery_activity_v3 (
     proxy_wallet      VARCHAR       NOT NULL,
     market_id         VARCHAR       NOT NULL,
@@ -14,10 +20,17 @@ export const V3_DUCKDB_DDL: string[] = [
     usd_notional      DOUBLE        NOT NULL,
     signed_size       DOUBLE        NOT NULL,
     abs_size          DOUBLE        NOT NULL
-  )`,
+  )`;
+
+export const V3_ACTIVITY_INDEX_DDL: string[] = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_v3_dedup ON discovery_activity_v3 (tx_hash, log_index)`,
   `CREATE INDEX IF NOT EXISTS idx_activity_v3_wallet_ts ON discovery_activity_v3 (proxy_wallet, ts_unix)`,
   `CREATE INDEX IF NOT EXISTS idx_activity_v3_market_ts ON discovery_activity_v3 (market_id, ts_unix)`,
+];
+
+export const V3_DUCKDB_DDL: string[] = [
+  V3_ACTIVITY_TABLE_DDL,
+  ...V3_ACTIVITY_INDEX_DDL,
   `CREATE TABLE IF NOT EXISTS markets_v3 (
     market_id         VARCHAR PRIMARY KEY,
     condition_id      VARCHAR,
@@ -58,4 +71,25 @@ export async function runV3DuckDBMigrations(
   for (const stmt of V3_DUCKDB_DDL) {
     await exec(stmt);
   }
+}
+
+/**
+ * Migrations for the backfill "load-without-index" path. Creates the
+ * activity table and the non-unique/non-index auxiliary tables, but
+ * intentionally skips the three activity-table indexes. Those are applied
+ * at the end of the backfill by `buildActivityIndexSqlList` after the
+ * dedup CTAS so DuckDB never sees an INSERT into a table with a UNIQUE
+ * INDEX during the hot loading phase.
+ */
+export async function runV3DuckDBMigrationsBackfillNoIndex(
+  exec: (sql: string) => Promise<void>
+): Promise<void> {
+  for (const stmt of V3_DUCKDB_DDL) {
+    if (V3_ACTIVITY_INDEX_DDL.includes(stmt)) continue;
+    await exec(stmt);
+  }
+}
+
+export function buildActivityIndexSqlList(): string[] {
+  return [...V3_ACTIVITY_INDEX_DDL];
 }

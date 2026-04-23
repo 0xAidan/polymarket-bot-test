@@ -5,8 +5,14 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { openDuckDB } from '../src/discovery/v3/duckdbClient.ts';
-import { runV3DuckDBMigrations } from '../src/discovery/v3/duckdbSchema.ts';
 import {
+  buildActivityIndexSqlList,
+  runV3DuckDBMigrations,
+  runV3DuckDBMigrationsBackfillNoIndex,
+} from '../src/discovery/v3/duckdbSchema.ts';
+import {
+  ACTIVITY_DEDUP_SWAP_SQL,
+  buildActivityDedupCtasSql,
   buildEventIngestSqlAntiJoin,
   buildEventIngestSqlAntiJoinChunked,
   buildMarketsIngestSql,
@@ -18,7 +24,24 @@ import {
   buildStagingSortBucketToParquetSql,
   buildSortBucketFromParquetToParquetSql,
   buildSortedParquetToActivitySql,
+  buildSortedParquetToActivityRawSql,
 } from '../src/discovery/v3/backfillQueries.ts';
+
+async function runNoIndexLoadAndDedup(
+  db: ReturnType<typeof openDuckDB>,
+  bucketPaths: string[]
+): Promise<void> {
+  // Mirrors the production path: 02c raw-insert each bucket into an
+  // index-less discovery_activity_v3, then 02d does the CTAS dedup +
+  // index rebuild.
+  for (const bp of bucketPaths) {
+    await db.exec(buildSortedParquetToActivityRawSql(bp));
+  }
+  await db.exec('DROP TABLE IF EXISTS discovery_activity_v3_dedup');
+  await db.exec(buildActivityDedupCtasSql());
+  for (const sql of ACTIVITY_DEDUP_SWAP_SQL) await db.exec(sql);
+  for (const sql of buildActivityIndexSqlList()) await db.exec(sql);
+}
 
 test('02_load_events: parquet → discovery_activity_v3 schema mapping + dedup', async () => {
   const tmp = mkdtempSync(join(tmpdir(), 'v3-map-'));
@@ -223,19 +246,29 @@ test('02_load_events sort-based: external-sort-then-LAG dedup matches single-sho
     await db.exec(buildStagingSortToParquetSql(sortedParquet));
     await db.exec(buildStagingDropSql());
 
-    // Verify plan for phase B2: dedup must GROUP BY (transaction_hash, log_index)
-    // and use arg_min to pick winner row. ROW_NUMBER OVER (PARTITION BY ...) was
-    // tried but produced duplicate rn=1 rows in production DuckDB (parallel
-    // window over pre-sorted parquet). GROUP BY is mathematically guaranteed
-    // to emit one row per key; empty-OVER LAG() is also forbidden (undefined
-    // ordering). Bucket row count (~14.5M) keeps GROUP BY memory bounded.
-    const sql = buildSortedParquetToActivitySql(sortedParquet);
-    assert.ok(/GROUP\s+BY\s+transaction_hash,\s*log_index/i.test(sql), 'phase B2 must GROUP BY (transaction_hash, log_index) for guaranteed dedup');
-    assert.ok(/arg_min\(/i.test(sql), 'phase B2 must use arg_min(col, timestamp) to pick winner row');
-    assert.ok(!/ROW_NUMBER\s*\(/i.test(sql), 'phase B2 must NOT use ROW_NUMBER (known to produce duplicate rn=1 in parallel execution)');
-    assert.ok(!/LAG\s*\(/i.test(sql), 'phase B2 must NOT use LAG (undefined row ordering with empty OVER())');
+    // Verify plan for phase B2 (RAW path): the bucket INSERT MUST be a pure
+    // projection — no GROUP BY, no arg_min, no ROW_NUMBER, no LAG. Dedup is
+    // deferred to the separate CTAS step (buildActivityDedupCtasSql) so that
+    // DuckDB never sees an aggregate-insert into a table with a UNIQUE INDEX
+    // (the path that produced spurious "Duplicate key" errors in production).
+    const rawSql = buildSortedParquetToActivityRawSql(sortedParquet);
+    assert.ok(!/GROUP\s+BY/i.test(rawSql), 'phase B2 RAW path must NOT contain GROUP BY');
+    assert.ok(!/arg_min\(/i.test(rawSql), 'phase B2 RAW path must NOT use arg_min');
+    assert.ok(!/ROW_NUMBER\s*\(/i.test(rawSql), 'phase B2 RAW path must NOT use ROW_NUMBER');
+    assert.ok(!/LAG\s*\(/i.test(rawSql), 'phase B2 RAW path must NOT use LAG');
 
-    await db.exec(sql);
+    // And the dedup CTAS MUST use GROUP BY + arg_min.
+    const dedupSql = buildActivityDedupCtasSql();
+    assert.ok(/CREATE\s+TABLE\s+discovery_activity_v3_dedup/i.test(dedupSql), 'dedup CTAS must target _dedup table');
+    assert.ok(/GROUP\s+BY\s+tx_hash,\s*log_index/i.test(dedupSql), 'dedup CTAS must GROUP BY (tx_hash, log_index)');
+    assert.ok(/arg_min\(/i.test(dedupSql), 'dedup CTAS must use arg_min to pick winner row');
+
+    // Emulate the full production flow: drop the indexes (simulating
+    // runV3DuckDBMigrationsBackfillNoIndex), raw-insert, then dedup+reindex.
+    await db.exec('DROP INDEX IF EXISTS idx_activity_v3_dedup');
+    await db.exec('DROP INDEX IF EXISTS idx_activity_v3_wallet_ts');
+    await db.exec('DROP INDEX IF EXISTS idx_activity_v3_market_ts');
+    await runNoIndexLoadAndDedup(db, [sortedParquet]);
 
     const rows = await db.query<{
       proxy_wallet: string; role: string; side: string; ts_unix: number; abs_size: number;
@@ -303,18 +336,26 @@ test('02_load_events bucketed sort: per-bucket dedup matches single-sort dedup',
     await dbSingle.exec(buildStagingIngestSql(`read_parquet('${parquet}')`));
     await dbSingle.exec(buildStagingSortToParquetSql(singleSorted));
     await dbSingle.exec(buildStagingDropSql());
-    await dbSingle.exec(buildSortedParquetToActivitySql(singleSorted));
+    await dbSingle.exec('DROP INDEX IF EXISTS idx_activity_v3_dedup');
+    await dbSingle.exec('DROP INDEX IF EXISTS idx_activity_v3_wallet_ts');
+    await dbSingle.exec('DROP INDEX IF EXISTS idx_activity_v3_market_ts');
+    await runNoIndexLoadAndDedup(dbSingle, [singleSorted]);
 
     // --- Bucketed path ---
     const totalBuckets = 4;
     await dbBucketed.exec(buildStagingDropSql());
     await dbBucketed.exec(buildStagingCreateSql());
     await dbBucketed.exec(buildStagingIngestSql(`read_parquet('${parquet}')`));
+    await dbBucketed.exec('DROP INDEX IF EXISTS idx_activity_v3_dedup');
+    await dbBucketed.exec('DROP INDEX IF EXISTS idx_activity_v3_wallet_ts');
+    await dbBucketed.exec('DROP INDEX IF EXISTS idx_activity_v3_market_ts');
+    const bucketPaths: string[] = [];
     for (let b = 0; b < totalBuckets; b++) {
       const bp = join(tmp, `bucket_${b}.parquet`);
       await dbBucketed.exec(buildStagingSortBucketToParquetSql(b, totalBuckets, bp));
-      await dbBucketed.exec(buildSortedParquetToActivitySql(bp));
+      bucketPaths.push(bp);
     }
+    await runNoIndexLoadAndDedup(dbBucketed, bucketPaths);
     await dbBucketed.exec(buildStagingDropSql());
 
     // --- Compare ---
@@ -377,21 +418,31 @@ test('02_load_events parquet-direct: no staging table, result matches staging pa
     await dbStaging.exec(buildStagingDropSql());
     await dbStaging.exec(buildStagingCreateSql());
     await dbStaging.exec(buildStagingIngestSql(`read_parquet('${parquet}')`));
+    await dbStaging.exec('DROP INDEX IF EXISTS idx_activity_v3_dedup');
+    await dbStaging.exec('DROP INDEX IF EXISTS idx_activity_v3_wallet_ts');
+    await dbStaging.exec('DROP INDEX IF EXISTS idx_activity_v3_market_ts');
+    const stagingBuckets: string[] = [];
     for (let b = 0; b < totalBuckets; b++) {
       const bp = join(tmp, `s_${b}.parquet`);
       await dbStaging.exec(buildStagingSortBucketToParquetSql(b, totalBuckets, bp));
-      await dbStaging.exec(buildSortedParquetToActivitySql(bp));
+      stagingBuckets.push(bp);
     }
+    await runNoIndexLoadAndDedup(dbStaging, stagingBuckets);
     await dbStaging.exec(buildStagingDropSql());
 
     // Parquet-direct path.
+    await dbDirect.exec('DROP INDEX IF EXISTS idx_activity_v3_dedup');
+    await dbDirect.exec('DROP INDEX IF EXISTS idx_activity_v3_wallet_ts');
+    await dbDirect.exec('DROP INDEX IF EXISTS idx_activity_v3_market_ts');
+    const directBuckets: string[] = [];
     for (let b = 0; b < totalBuckets; b++) {
       const bp = join(tmp, `d_${b}.parquet`);
       await dbDirect.exec(
         buildSortBucketFromParquetToParquetSql(b, totalBuckets, `read_parquet('${parquet}')`, bp)
       );
-      await dbDirect.exec(buildSortedParquetToActivitySql(bp));
+      directBuckets.push(bp);
     }
+    await runNoIndexLoadAndDedup(dbDirect, directBuckets);
 
     const asRows = async (db: ReturnType<typeof openDuckDB>) =>
       db.query<{ k: string }>(
