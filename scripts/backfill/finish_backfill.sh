@@ -37,15 +37,48 @@ echo "=== git HEAD ==="
 (cd "$REPO_ROOT" && git log --oneline -1 2>/dev/null || echo "not a git repo")
 echo "=== disk ==="
 df -h "$SORTED_PARQUET_DIR" 2>/dev/null | tail -1 || true
+cd "$REPO_ROOT"
+
+mkdir -p "$SORTED_PARQUET_DIR"
+
 echo "=== bucket parquets ==="
-BUCKET_COUNT=$(ls "$SORTED_PARQUET_DIR"/sorted_events_bucket_*.parquet 2>/dev/null | wc -l || echo 0)
+# Robust bucket count (no pipefail bleed-through; `find` handles empty dirs cleanly).
+BUCKET_COUNT=$(find "$SORTED_PARQUET_DIR" -maxdepth 1 -name 'sorted_events_bucket_*.parquet' -printf '.' 2>/dev/null | wc -c)
+BUCKET_COUNT=${BUCKET_COUNT:-0}
 echo "found $BUCKET_COUNT bucket parquets"
-if [ "$BUCKET_COUNT" -lt 1 ]; then
-  echo "ERROR: no bucket parquets in $SORTED_PARQUET_DIR; run 02a_sort_bucket.ts first."
-  exit 1
+
+TOTAL_BUCKETS="${DUCKDB_SORT_BUCKETS:-64}"
+
+# --- 02a: produce sorted bucket parquets if missing ---------------------
+if [ "$BUCKET_COUNT" -lt "$TOTAL_BUCKETS" ]; then
+  echo
+  echo "=============================================="
+  echo "=== 02a: sort $TOTAL_BUCKETS buckets from users.parquet ==="
+  echo "=============================================="
+  for b in $(seq 0 $((TOTAL_BUCKETS - 1))); do
+    BNAME=$(printf 'sorted_events_bucket_%04d.parquet' "$b")
+    OUT="$SORTED_PARQUET_DIR/$BNAME"
+    if [ -s "$OUT" ]; then
+      echo "--- [02a] bucket $((b+1))/$TOTAL_BUCKETS already exists ($(du -h "$OUT" | cut -f1)), skipping ---"
+      continue
+    fi
+    echo "--- [02a] bucket $((b+1))/$TOTAL_BUCKETS -> $OUT ---"
+    npx tsx scripts/backfill/02a_sort_bucket.ts --bucket "$b" --total "$TOTAL_BUCKETS" --out "$OUT" || {
+      echo "ERROR: 02a bucket $b failed. Aborting."
+      exit 1
+    }
+    df -h "$SORTED_PARQUET_DIR" 2>/dev/null | tail -1 || true
+  done
+  # Re-count
+  BUCKET_COUNT=$(find "$SORTED_PARQUET_DIR" -maxdepth 1 -name 'sorted_events_bucket_*.parquet' -printf '.' 2>/dev/null | wc -c)
+  BUCKET_COUNT=${BUCKET_COUNT:-0}
+  echo "After 02a: $BUCKET_COUNT bucket parquets present."
 fi
 
-cd "$REPO_ROOT"
+if [ "$BUCKET_COUNT" -lt 1 ]; then
+  echo "ERROR: no bucket parquets in $SORTED_PARQUET_DIR after 02a; aborting."
+  exit 1
+fi
 
 echo
 echo "=============================================="
