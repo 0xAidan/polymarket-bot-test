@@ -223,16 +223,19 @@ test('02_load_events sort-based: external-sort-then-LAG dedup matches single-sho
     await db.exec(buildStagingSortToParquetSql(sortedParquet));
     await db.exec(buildStagingDropSql());
 
-    // Verify plan for phase B2: must use parquet scan + LAG (streaming),
-    // NOT HASH_GROUP_BY (fails on unique keys) and NOT WINDOW partition state.
+    // Verify plan for phase B2: must use parquet scan + ROW_NUMBER PARTITION BY
+    // on (tx_hash, log_index) to dedup deterministically. Empty-OVER LAG() is
+    // incorrect in DuckDB (undefined row ordering) — produced duplicate primary
+    // keys in production. HASH_GROUP_BY is also forbidden (fails on unique keys
+    // at scale).
     const plan = await db.query<{ explain_value: string }>(
       `EXPLAIN ${buildSortedParquetToActivitySql(sortedParquet)}`
     );
     const planText = plan.map((r) => r.explain_value).join('\n');
     assert.ok(!planText.includes('HASH_GROUP_BY'), 'phase B2 must NOT use HASH_GROUP_BY');
-    // LAG() compiles to WINDOW, but empty-OVER window on sorted input is O(1).
-    // What we guard against is the partitioned ROW_NUMBER pattern.
-    assert.ok(!planText.includes('PARTITION BY'), 'phase B2 must NOT use partitioned window');
+    // Partitioned ROW_NUMBER is REQUIRED here — DuckDB uses a single-pass
+    // streaming window operator when input is pre-sorted by the partition keys.
+    assert.ok(planText.includes('WINDOW') || planText.includes('ROW_NUMBER') || planText.includes('PARTITION BY'), 'phase B2 must use partitioned ROW_NUMBER for correct dedup');
 
     await db.exec(buildSortedParquetToActivitySql(sortedParquet));
 

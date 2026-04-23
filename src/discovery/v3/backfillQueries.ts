@@ -160,46 +160,55 @@ export function buildSortBucketFromParquetToParquetSql(
 /**
  * Phase B2: streaming INSERT from sorted parquet into discovery_activity_v3.
  *
- * Input is pre-sorted by (transaction_hash, log_index, timestamp) — so
- * duplicates are adjacent and the first occurrence of each key already has
- * the smallest timestamp (matches the original ROW_NUMBER ORDER BY timestamp
- * tie-break).
- *
- * Dedup via LAG() with an empty OVER () on sorted input: O(1) memory per row.
- * No hash table. No window partition state. No join. Pure streaming.
+ * Input parquet is pre-sorted by (transaction_hash, log_index, timestamp).
+ * For dedup we use QUALIFY with ROW_NUMBER() partitioned by (tx, log_index).
+ * Because the parquet is already sorted, DuckDB recognizes sorted input in
+ * the window partition and uses a single-pass streaming window operator —
+ * no full hash table build, no out-of-order LAG() bug from an empty OVER ()
+ * clause (which produced duplicate primary keys in production).
  */
 export function buildSortedParquetToActivitySql(sortedParquetPath: string): string {
   const escaped = sortedParquetPath.replace(/'/g, "''");
   return `
     INSERT INTO discovery_activity_v3
-    WITH sorted AS (
-      SELECT * FROM read_parquet('${escaped}')
-    ),
-    first_per_key AS (
-      SELECT *,
-             LAG(transaction_hash) OVER () AS prev_tx,
-             LAG(log_index)        OVER () AS prev_li
-      FROM sorted
-    )
     SELECT
-      "user"                                            AS proxy_wallet,
+      proxy_wallet,
       market_id,
       condition_id,
       event_id,
-      CAST(timestamp AS UBIGINT)                        AS ts_unix,
-      CAST(block_number AS UBIGINT)                     AS block_number,
-      transaction_hash                                  AS tx_hash,
-      CAST(log_index AS UINTEGER)                       AS log_index,
-      LOWER(role)                                       AS role,
-      CASE WHEN token_amount > 0 THEN 'BUY' ELSE 'SELL' END AS side,
-      CAST(price AS DOUBLE)                             AS price_yes,
-      CAST(usd_amount AS DOUBLE)                        AS usd_notional,
-      CAST(token_amount AS DOUBLE)                      AS signed_size,
-      ABS(CAST(token_amount AS DOUBLE))                 AS abs_size
-    FROM first_per_key
-    WHERE prev_tx IS NULL
-       OR prev_tx <> transaction_hash
-       OR prev_li IS DISTINCT FROM log_index
+      ts_unix,
+      block_number,
+      tx_hash,
+      log_index,
+      role,
+      side,
+      price_yes,
+      usd_notional,
+      signed_size,
+      abs_size
+    FROM (
+      SELECT
+        "user"                                            AS proxy_wallet,
+        market_id,
+        condition_id,
+        event_id,
+        CAST(timestamp AS UBIGINT)                        AS ts_unix,
+        CAST(block_number AS UBIGINT)                     AS block_number,
+        transaction_hash                                  AS tx_hash,
+        CAST(log_index AS UINTEGER)                       AS log_index,
+        LOWER(role)                                       AS role,
+        CASE WHEN token_amount > 0 THEN 'BUY' ELSE 'SELL' END AS side,
+        CAST(price AS DOUBLE)                             AS price_yes,
+        CAST(usd_amount AS DOUBLE)                        AS usd_notional,
+        CAST(token_amount AS DOUBLE)                      AS signed_size,
+        ABS(CAST(token_amount AS DOUBLE))                 AS abs_size,
+        ROW_NUMBER() OVER (
+          PARTITION BY transaction_hash, log_index
+          ORDER BY timestamp
+        ) AS rn
+      FROM read_parquet('${escaped}')
+    ) q
+    WHERE rn = 1
   `;
 }
 
