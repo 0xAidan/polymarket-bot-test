@@ -158,20 +158,92 @@ export function buildSortBucketFromParquetToParquetSql(
 }
 
 /**
- * Phase B2: INSERT from sorted bucket parquet into discovery_activity_v3
- * with guaranteed dedup via GROUP BY + arg_min.
+ * Phase B2 (RAW bucket load): INSERT rows from a sorted bucket parquet into
+ * discovery_activity_v3 WITHOUT dedup. Assumes the target table has NO
+ * UNIQUE INDEX during the backfill load phase — indexes are rebuilt after
+ * `buildActivityDedupCtasSql` in a separate step.
  *
- * Why GROUP BY (not ROW_NUMBER):
- * - ROW_NUMBER() OVER (PARTITION BY ...) has historically produced
- *   duplicate rn=1 rows in DuckDB when the window operator runs in
- *   parallel over pre-sorted parquet (observed in production:
- *   "Duplicate key" errors on 000004e9... log_index 106, then
- *   0001b36e... log_index 524 after a ROW_NUMBER rewrite).
- * - GROUP BY transaction_hash, log_index + arg_min(col, timestamp) is
- *   mathematically guaranteed to emit exactly one row per key, and is
- *   what the deprecated staging path used successfully at bucket scale.
- * - Memory is bounded by bucket row count (~14.5M rows), not global
- *   row count, so the group count stays well under the 6GB memory limit.
+ * This is the "no-index-during-load" path (final v3 fix, 2026-04-22). Prior
+ * attempts tried to dedup during the bucket INSERT with either ROW_NUMBER
+ * or GROUP BY + arg_min, but both paths hit DuckDB's over-eager unique-index
+ * constraint-check bug when the aggregate/window operator streams into a
+ * table with an active UNIQUE INDEX (see duckdb#11102, #16520). The error
+ * fires on keys that only appear ONCE in the input — impossible by the SQL
+ * semantics, but reproducible against DuckDB 1.4.x. Moving the dedup out
+ * of the INSERT path sidesteps it entirely.
+ *
+ * Per-row transforms here are pure projection — no aggregation, no GROUP BY,
+ * no index maintenance, so this runs at raw parquet scan speed.
+ */
+export function buildSortedParquetToActivityRawSql(sortedParquetPath: string): string {
+  const escaped = sortedParquetPath.replace(/'/g, "''");
+  return `
+    INSERT INTO discovery_activity_v3
+    SELECT
+      "user"                                            AS proxy_wallet,
+      market_id                                         AS market_id,
+      condition_id                                      AS condition_id,
+      event_id                                          AS event_id,
+      CAST(timestamp AS UBIGINT)                        AS ts_unix,
+      CAST(block_number AS UBIGINT)                     AS block_number,
+      transaction_hash                                  AS tx_hash,
+      CAST(log_index AS UINTEGER)                       AS log_index,
+      LOWER(role)                                       AS role,
+      CASE WHEN token_amount > 0 THEN 'BUY' ELSE 'SELL' END AS side,
+      CAST(price AS DOUBLE)                             AS price_yes,
+      CAST(usd_amount AS DOUBLE)                        AS usd_notional,
+      CAST(token_amount AS DOUBLE)                      AS signed_size,
+      ABS(CAST(token_amount AS DOUBLE))                 AS abs_size
+    FROM read_parquet('${escaped}')
+  `;
+}
+
+/**
+ * Phase B3 (DEDUP CTAS): build a deduplicated copy of discovery_activity_v3
+ * into a new table. The winner per (tx_hash, log_index) is the row with the
+ * smallest ts_unix — matches the prior arg_min(col, timestamp) semantics.
+ *
+ * Runs into a brand-new table with NO indexes, so DuckDB's upsert / unique
+ * index code paths are never touched. Pure GROUP BY → CTAS, which DuckDB
+ * handles cleanly at scale (proven locally at 14.5M rows with 2GB memory +
+ * tight temp dir).
+ */
+export function buildActivityDedupCtasSql(): string {
+  return `
+    CREATE TABLE discovery_activity_v3_dedup AS
+    SELECT
+      arg_min(proxy_wallet, ts_unix) AS proxy_wallet,
+      arg_min(market_id,    ts_unix) AS market_id,
+      arg_min(condition_id, ts_unix) AS condition_id,
+      arg_min(event_id,     ts_unix) AS event_id,
+      MIN(ts_unix)                   AS ts_unix,
+      arg_min(block_number, ts_unix) AS block_number,
+      tx_hash,
+      log_index,
+      arg_min(role,         ts_unix) AS role,
+      arg_min(side,         ts_unix) AS side,
+      arg_min(price_yes,    ts_unix) AS price_yes,
+      arg_min(usd_notional, ts_unix) AS usd_notional,
+      arg_min(signed_size,  ts_unix) AS signed_size,
+      arg_min(abs_size,     ts_unix) AS abs_size
+    FROM discovery_activity_v3
+    GROUP BY tx_hash, log_index
+  `;
+}
+
+/**
+ * Phase B4: atomically swap the dedup CTAS result over the raw table.
+ */
+export const ACTIVITY_DEDUP_SWAP_SQL: string[] = [
+  `DROP TABLE discovery_activity_v3`,
+  `ALTER TABLE discovery_activity_v3_dedup RENAME TO discovery_activity_v3`,
+];
+
+/**
+ * @deprecated Replaced by buildSortedParquetToActivityRawSql +
+ * buildActivityDedupCtasSql. Kept temporarily for reference and for the
+ * v3-backfill-mapping test. Do NOT use for new backfill runs: fails with
+ * spurious "Duplicate key" errors when target table has UNIQUE INDEX.
  */
 export function buildSortedParquetToActivitySql(sortedParquetPath: string): string {
   const escaped = sortedParquetPath.replace(/'/g, "''");

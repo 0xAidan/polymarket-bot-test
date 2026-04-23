@@ -213,8 +213,10 @@ See `docs/discovery-v3-operations.md` for the full runbook.
   successful buckets: DuckDB's buffer manager accumulated enough pinned
   pages across commits that bucket 4's commit hit `failed to pin block
   (7.4 GiB/7.4 GiB used)`. Deprecated in favour of the per-process flow.
-- **Current production**: **`02a_sort_bucket.ts` + `02b_merge_buckets.ts`**
-  run from `run_backfill_FINAL.sh`.
+- **Current production (FINAL, 2026-04-22)**: **`02a_sort_bucket.ts` +
+  `02c_merge_one_bucket.ts` + `02d_dedup_and_index.ts`** orchestrated by
+  `scripts/backfill/finish_backfill.sh`. See
+  `2026-04-22-discovery-backfill-final-fix.md` for the root-cause write-up.
     1. For each of `DUCKDB_SORT_BUCKETS` (default 64) hash buckets on
        `transaction_hash`, the launcher calls `02a_sort_bucket.ts` in a
        FRESH `tsx` process. Each process opens an in-memory DuckDB, sorts
@@ -225,12 +227,45 @@ See `docs/discovery-v3-operations.md` for the full runbook.
     2. `02a` is idempotent: it skips buckets whose output parquet already
        exists (pass `--force` to overwrite). If a bucket fails, re-running
        the launcher resumes from that bucket.
-    3. After all buckets exist, `02b_merge_buckets.ts` opens the persistent
-       DuckDB, streams each bucket parquet through LAG-dedup into
-       `discovery_activity_v3`, checkpoints, and deletes the bucket
-       parquet. Single process, single table, one CHECKPOINT per bucket.
-    4. Correctness is the same as `parquet-direct` and unit-tested against
-       the staging path.
+    3. **Phase B1** — `finish_backfill.sh` invokes
+       `runV3DuckDBMigrationsBackfillNoIndex` once (creates the
+       `discovery_activity_v3` table with **NO indexes**), then loops over
+       every bucket parquet running `02c_merge_one_bucket.ts` in a fresh
+       `tsx` process. Each invocation does a plain
+       `INSERT INTO discovery_activity_v3 SELECT …` with **no GROUP BY and
+       no indexes** (`buildSortedParquetToActivityRawSql`), checkpoints,
+       and deletes the bucket parquet. This trivial load is essentially
+       uncancellable.
+    4. **Phase B2** — after all 64 buckets are loaded,
+       `02d_dedup_and_index.ts` runs a single CTAS dedup
+       (`buildActivityDedupCtasSql`, `arg_min(col, ts_unix)`
+       earliest-winner) into `discovery_activity_v3_dedup`, swaps
+       (`ACTIVITY_DEDUP_SWAP_SQL` drops the raw table + renames the dedup
+       table), and rebuilds the UNIQUE index + auxiliary indexes on
+       already-deduped data (`buildActivityIndexSqlList`). Unique index
+       creation on pre-deduped data is guaranteed correct.
+    5. **Why the split.** The old path (`02b_merge_buckets.ts` — now
+       removed from production; kept on history) inserted each bucket with
+       `GROUP BY tx_hash, log_index` directly into the indexed table. At
+       Hetzner scale (14M rows/bucket, 6 GB RAM, 2 threads) DuckDB's
+       aggregate-insert → unique-index-maintenance pipeline raised
+       **spurious** `Constraint Error: Duplicate key` faults on keys that
+       appeared exactly once in the input — confirmed via diagnostic
+       (`failing_key_rows: 1`). Known DuckDB regressions tracked as
+       duckdb#11102 / duckdb#16520. Separating bulk load from dedup
+       eliminates both triggers.
+    6. Correctness unit-tested in `tests/v3-backfill-mapping.test.ts`
+       (`runNoIndexLoadAndDedup` helper mirrors the production flow);
+       scale-tested at 2M rows in
+       `tests/v3-backfill-scale-integration.ts` (manual run).
+    7. **`02b_merge_buckets.ts` is DEPRECATED** — it still compiles for
+       reference but must not be used; it triggers the DuckDB bug at
+       production scale. `buildSortedParquetToActivitySql` in
+       `backfillQueries.ts` is marked `@deprecated` for the same reason.
+    8. **Live listener is unaffected.** `goldskyListener.ts` still calls
+       `runV3DuckDBMigrations` which keeps the UNIQUE INDEX from day 1 —
+       live writes are small and do not trigger the bulk-insert bug.
+       **Never** point the live path at `…NoIndex`.
 - `staging` — bucketed external sort with intermediate staging table:
     1. Phase A: stream parquet → `staging_events_v3` (bounded RAM).
     2. Phase B: for each of `DUCKDB_SORT_BUCKETS` (default 64) hash buckets on
@@ -272,3 +307,10 @@ See `docs/discovery-v3-operations.md` for the full runbook.
 - ROW_NUMBER OVER (PARTITION BY ...) across the full parquet materializes
   the whole sort state in temp and does not bucket cleanly. Use the
   bucketed external sort (`buildStagingSortBucketToParquetSql`) instead.
+- **Never** combine `INSERT … GROUP BY` with a UNIQUE INDEX on the target
+  at Hetzner scale. DuckDB's aggregate-insert + unique-index pipeline
+  raises spurious Duplicate key faults (duckdb#11102 / #16520) on keys
+  that appear exactly once in the source. Always load raw (no GROUP BY,
+  no index), then CTAS-dedup into a fresh table, swap, and only then
+  create the UNIQUE INDEX on already-deduped data. See
+  `02c_merge_one_bucket.ts` → `02d_dedup_and_index.ts`.
