@@ -694,3 +694,92 @@ respond with JSON, not plain text — the frontend's fetch wrappers
 assume JSON and will crash on HTML or text bodies. If a reverse proxy
 (Caddy / nginx) ever gets a rate-limit rule added, set its error
 response to return JSON too.
+
+### Rev 8 (2026-04-24): staging `HTTP 401: Authentication required` fix
+
+**Symptom.** Anyone opening `staging.ditto.jungle.win/discovery-v3/`
+*without* an Auth0 session — i.e. everyone the link is shared with —
+saw a blocking red banner:
+
+```
+HTTP 401: {"success":false,"error":"Authentication required"}
+```
+
+The page rendered the header (Alpha/Whale/Specialist tabs) but every
+tier fetch failed. Reported verbatim as "still not working, everyone
+I send it to sees garbage."
+
+**Root cause.** `src/server.ts` mounts the global OIDC gate with
+
+```ts
+app.use('/api', apiLimiter, requireOidcAuth, …);
+```
+
+and then mounts the v3 router behind it:
+
+```ts
+app.use('/api/discovery/v3', createDiscoveryV3Router(…));
+```
+
+So every `/api/discovery/v3/*` request — including anonymous GETs that
+have no session yet — hit `requireOidcAuth` and returned 401 with
+`"Authentication required"`. The Rev 7 fix skipped v3 only from the
+*rate limiter*, not from the *auth gate*. The v3 page's `safeFetch`
+surfaced the 401 body as a generic HTTP error ("HTTP 401: {...}") and
+never redirected to `/auth/login`.
+
+**Fix.**
+- `src/api/discoveryRoutesV3.ts`: export `requireAuthForMutations`.
+  It returns 401 JSON with `loginUrl: '/auth/login'` when
+  `req.oidc?.isAuthenticated()` is false, and falls through when
+  `req.oidc` is absent (legacy / open-dev / already-gated upstream).
+  Apply it as per-route middleware on the four mutators only:
+  `POST /track`, `POST /watchlist`, `DELETE /watchlist/:addr`,
+  `POST /dismiss`. Read endpoints (`/tier/:tier`, `/wallet/:address`,
+  `/compare`, `/health`, `/cutover-status`) have NO auth middleware.
+- `src/server.ts`: mount the v3 router **before** the global
+  `requireOidcAuth` in all three auth modes (OIDC / legacy-secret /
+  open-dev) via a new `mountDiscoveryV3Public()` helper. The v3 mount
+  sits **after** the Auth0 middleware in OIDC mode so `req.oidc` is
+  populated and the per-route gate can distinguish logged-in vs
+  anonymous. A belt-and-suspenders early-return skips the tenant
+  resolver for any `/discovery/v3/*` path that slips through the
+  outer matcher.
+- `public/discovery-v3/app.js`:
+  - `safeFetch` now passes `credentials: 'same-origin'` so the Auth0
+    session cookie reaches the server on mutations.
+  - 401 responses are surfaced as a structured
+    `{ kind: 'auth_required', loginUrl }` result — never as "HTTP 401"
+    red banner text.
+  - `refreshAuthStatus()` calls `/api/auth/me` at boot to determine
+    `state.authed`, then renders an auth bar in the header:
+    "Viewing as guest — sign in to copy trade" + **Sign in** button
+    when anonymous; "Signed in" + **Log out** when authed.
+  - Copy-trade CTA relabels to **"Sign in to Copy"** for guests and
+    redirects to `/auth/login?returnTo=…` on click instead of firing
+    a mutation that will 401.
+- `tests/discoveryV3PublicAuth.test.ts`: four tests —
+  1. anonymous GETs on all five read endpoints return 200 JSON;
+  2. anonymous POSTs/DELETEs on all four mutators return 401 JSON
+     with `loginUrl`;
+  3. mutators succeed when `req.oidc.isAuthenticated()` is true;
+  4. `requireAuthForMutations` lets requests through when
+     `req.oidc` is absent (legacy / dev fallthrough).
+
+**Deploy.** Checkout `fix/discovery-v3-public-read` (PR opened,
+**NOT merged** — awaiting manual merge per Space instructions) at
+`/opt/polymarket-bot-staging`, rebuild, restart
+`polymarket-app-staging`. v3 worker does not need restart (no
+discovery-worker changes).
+
+**Invariants going forward.**
+1. The v3 read surface (`/tier`, `/wallet`, `/compare`, `/health`,
+   `/cutover-status`) is **public**. Do not add auth middleware to
+   it. If you need a private read endpoint, add a new path under
+   a different mount point — do not quietly gate an existing v3 read.
+2. Every v3 **mutation** route MUST include `requireAuthForMutations`
+   as per-route middleware. Do not rely on global `requireOidcAuth`
+   because the v3 router is mounted above it.
+3. The v3 frontend must always set `credentials: 'same-origin'` so
+   Auth0 cookies reach mutators. Never show the raw 401 body — route
+   the user to `/auth/login?returnTo=…` instead.

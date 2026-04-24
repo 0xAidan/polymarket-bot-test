@@ -1,9 +1,45 @@
 const API = '/api/discovery/v3';
 
-const state = { tier: 'alpha', retryTimer: null, lastWallets: [] };
+const state = {
+  tier: 'alpha',
+  retryTimer: null,
+  lastWallets: [],
+  authed: false, // filled in by refreshAuthStatus()
+};
 
 const statusEl = document.getElementById('status');
 const listEl = document.getElementById('wallet-list');
+
+// Build the auth bar once. We keep the reference so we can re-render when
+// auth state changes (e.g. after a 401 on a mutation).
+const authBarEl = document.createElement('div');
+authBarEl.className = 'auth-bar';
+document.querySelector('.v3-header')?.appendChild(authBarEl);
+
+function renderAuthBar() {
+  if (state.authed) {
+    authBarEl.innerHTML = `
+      <span class="auth-status">Signed in</span>
+      <a class="auth-link" href="/auth/logout">Log out</a>
+    `;
+  } else {
+    const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
+    authBarEl.innerHTML = `
+      <span class="auth-status">Viewing as guest — sign in to copy trade</span>
+      <a class="auth-link primary" href="/auth/login?returnTo=${returnTo}">Sign in</a>
+    `;
+  }
+}
+
+async function refreshAuthStatus() {
+  try {
+    const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
+    state.authed = res.ok;
+  } catch (_e) {
+    state.authed = false;
+  }
+  renderAuthBar();
+}
 
 function fmtNum(n) {
   if (n == null) return '—';
@@ -48,7 +84,17 @@ function walletCard(w) {
     </div>
     <button class="cta-copy" data-address="${w.address}">Copy Trade</button>
   `;
-  card.querySelector('.cta-copy').addEventListener('click', async () => {
+  const copyBtn = card.querySelector('.cta-copy');
+  if (!state.authed) {
+    copyBtn.textContent = 'Sign in to Copy';
+    copyBtn.classList.add('needs-auth');
+  }
+  copyBtn.addEventListener('click', async () => {
+    if (!state.authed) {
+      const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
+      window.location.href = `/auth/login?returnTo=${returnTo}`;
+      return;
+    }
     try {
       const result = await safeFetch(`${API}/track`, {
         method: 'POST',
@@ -58,6 +104,9 @@ function walletCard(w) {
       if (result.ok) {
         const j = result.data;
         statusEl.textContent = j.success ? `Tracking ${w.alias}` : `Error: ${j.error}`;
+      } else if (result.kind === 'auth_required') {
+        const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
+        window.location.href = `${result.loginUrl}?returnTo=${returnTo}`;
       } else {
         statusEl.textContent = result.message || 'Error tracking wallet';
       }
@@ -74,12 +123,28 @@ function walletCard(w) {
  * - Returns a discriminated result instead of throwing on HTTP errors
  * - Surfaces 429 as a structured result so callers can show a retry banner
  */
-async function safeFetch(url, options) {
+async function safeFetch(url, options = {}) {
   let res;
   try {
-    res = await fetch(url, options);
+    // Always include cookies so the Auth0 session is seen by the server when
+    // the user is signed in. Read endpoints don't need it, but mutations do.
+    res = await fetch(url, { credentials: 'same-origin', ...options });
   } catch (e) {
     return { ok: false, kind: 'network', message: `Network error: ${e.message}` };
+  }
+
+  // 401 → auth needed. For reads this should never happen (public). For
+  // mutations, surface a structured result so the caller can prompt login
+  // instead of the raw server message.
+  if (res.status === 401) {
+    let loginUrl = '/auth/login';
+    try {
+      const body = await res.json();
+      if (body && typeof body.loginUrl === 'string') loginUrl = body.loginUrl;
+    } catch (_) { /* swallow */ }
+    state.authed = false;
+    renderAuthBar();
+    return { ok: false, kind: 'auth_required', loginUrl, message: 'Sign in to continue' };
   }
 
   const contentType = res.headers.get('content-type') || '';
@@ -204,4 +269,6 @@ document.querySelectorAll('.tier-btn').forEach((btn) => {
   });
 });
 
-loadTier(state.tier);
+// Render the auth bar immediately (as guest), then refresh from the server.
+renderAuthBar();
+refreshAuthStatus().finally(() => loadTier(state.tier));

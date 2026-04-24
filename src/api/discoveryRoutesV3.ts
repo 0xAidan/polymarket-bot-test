@@ -63,6 +63,41 @@ export interface V3RouterDeps {
   getDb: () => Database.Database;
 }
 
+/**
+ * Gate for endpoints that MUTATE user state (track, watchlist, dismiss).
+ *
+ * Read-only discovery endpoints (tier lists, wallet lookups, health, cutover
+ * status) are intentionally public so anyone with the link can see the
+ * leaderboard without an Auth0 session. Any route that changes server-side
+ * state on behalf of a user MUST use this gate so we never silently accept
+ * an anonymous mutation.
+ *
+ * In OIDC mode we require `req.oidc.isAuthenticated()`. In legacy API-secret
+ * mode the upstream `/api` middleware has already checked the bearer token
+ * before we reach this router, so we let the request through. In fully-open
+ * dev mode (`AUTH_MODE=legacy` with no `API_SECRET`) we also let it through,
+ * matching existing behaviour for legacy routes.
+ */
+export const requireAuthForMutations = (req: Request, res: Response, next: NextFunction): void => {
+  // Auth0 OIDC mode: express-openid-connect attaches `req.oidc`.
+  // When the session is missing, block mutation; read routes remain open.
+  const oidc = (req as any).oidc;
+  if (oidc && typeof oidc.isAuthenticated === 'function') {
+    if (oidc.isAuthenticated()) {
+      next();
+      return;
+    }
+    res.status(401).json({
+      success: false,
+      error: 'Authentication required',
+      loginUrl: '/auth/login'
+    });
+    return;
+  }
+  // Non-OIDC mode: upstream middleware has already vetted the request.
+  next();
+};
+
 export function createDiscoveryV3Router(deps: V3RouterDeps): Router {
   const router = Router();
 
@@ -138,8 +173,8 @@ export function createDiscoveryV3Router(deps: V3RouterDeps): Router {
     }
   });
 
-  // 5. POST /watchlist
-  router.post('/watchlist', (req: Request, res: Response) => {
+  // 5. POST /watchlist (AUTH REQUIRED — mutation)
+  router.post('/watchlist', requireAuthForMutations, (req: Request, res: Response) => {
     const address = String(req.body?.address ?? '').toLowerCase();
     if (!/^0x[0-9a-f]{40}$/.test(address)) {
       res.status(400).json({ success: false, error: 'address must be 0x + 40 hex chars' });
@@ -148,19 +183,19 @@ export function createDiscoveryV3Router(deps: V3RouterDeps): Router {
     res.json({ success: true, address, action: 'watch' });
   });
 
-  // 6. DELETE /watchlist/:addr
-  router.delete('/watchlist/:addr', (req: Request, res: Response) => {
+  // 6. DELETE /watchlist/:addr (AUTH REQUIRED — mutation)
+  router.delete('/watchlist/:addr', requireAuthForMutations, (req: Request, res: Response) => {
     res.json({ success: true, address: req.params.addr.toLowerCase(), action: 'unwatch' });
   });
 
-  // 7. POST /dismiss
-  router.post('/dismiss', (req: Request, res: Response) => {
+  // 7. POST /dismiss (AUTH REQUIRED — mutation)
+  router.post('/dismiss', requireAuthForMutations, (req: Request, res: Response) => {
     const address = String(req.body?.address ?? '').toLowerCase();
     res.json({ success: true, address, action: 'dismiss', until: req.body?.until ?? null });
   });
 
-  // 8. POST /track
-  router.post('/track', (req: Request, res: Response) => {
+  // 8. POST /track (AUTH REQUIRED — mutation)
+  router.post('/track', requireAuthForMutations, (req: Request, res: Response) => {
     const address = String(req.body?.address ?? '').toLowerCase();
     res.json({ success: true, address, action: 'track' });
   });
