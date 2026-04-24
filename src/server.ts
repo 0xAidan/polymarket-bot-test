@@ -6,8 +6,10 @@ import { auth, type ConfigParams } from 'express-openid-connect';
 import { config } from './config.js';
 import { createRoutes } from './api/routes.js';
 import { CopyTrader } from './copyTrader.js';
-import { initDatabase } from './database.js';
 import { createDiscoveryRoutes } from './api/discoveryRoutes.js';
+import { createDiscoveryV3Router } from './api/discoveryRoutesV3.js';
+import { isDiscoveryV3Enabled } from './discovery/v3/featureFlag.js';
+import { initDatabase, getDatabase } from './database.js';
 import { DiscoveryManager } from './discovery/discoveryManager.js';
 import { DiscoveryControlPlane } from './discovery/discoveryControlPlane.js';
 import { createComponentLogger } from './logger.js';
@@ -43,23 +45,69 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   // Serve static files from public directory
   // Note: Using process.cwd() since the app runs from project root
   const publicPath = path.join(process.cwd(), 'public');
+  app.use('/discovery-v3', (req, res, next) => {
+    if (!isDiscoveryV3Enabled()) {
+      res.status(404).send('Discovery v3 is not enabled');
+      return;
+    }
+    next();
+  });
   app.use(express.static(publicPath));
 
   discoveryManagerInstance = new DiscoveryManager('passive');
   const discoveryControlPlane = new DiscoveryControlPlane();
 
+  // JSON 429 handler — never return plain-text so the UI can parse errors.
+  const jsonRateLimitHandler = (req: express.Request, res: express.Response, _next: express.NextFunction, options: any) => {
+    const retryAfterSec = Math.ceil((options?.windowMs ?? 60_000) / 1000);
+    res.setHeader('Retry-After', String(retryAfterSec));
+    res.status(429).json({
+      success: false,
+      error: 'rate_limited',
+      message: 'Too many requests — please slow down.',
+      retryAfterSec
+    });
+  };
+
+  // Read-only dashboard endpoints (discovery v3) are exempt from the global API
+  // limiter — they are GET-heavy and a per-IP limiter causes plain-text 429s that
+  // crash the UI. Mutating v3 endpoints (e.g. /track POSTs) still pass through
+  // the per-route auth handler in discoveryRoutesV3, so abuse is bounded by
+  // session auth.
+  const isRateLimitExempt = (req: express.Request): boolean => {
+    const p = req.path || '';
+    return p.startsWith('/discovery/v3/');
+  };
+
   const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 1200,
+    max: 3000,
     standardHeaders: true,
-    legacyHeaders: false
+    legacyHeaders: false,
+    skip: isRateLimitExempt,
+    handler: jsonRateLimitHandler
   });
+
+  // v3 discovery is a public read surface. Mount the router ABOVE the global
+  // /api auth gate so anonymous visitors can load Alpha/Whale/Specialist
+  // leaderboards. The router itself gates every mutating endpoint with
+  // requireAuthForMutations, which uses req.oidc when available.
+  const mountDiscoveryV3Public = (): void => {
+    if (!isDiscoveryV3Enabled()) return;
+    app.use(
+      '/api/discovery/v3',
+      apiLimiter, // skip() above already exempts /discovery/v3/* from the window
+      createDiscoveryV3Router({ getDb: () => getDatabase() })
+    );
+    log.info('🌐 Discovery v3 read endpoints mounted as public (mutations gated)');
+  };
 
   const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 80,
     standardHeaders: true,
-    legacyHeaders: false
+    legacyHeaders: false,
+    handler: jsonRateLimitHandler
   });
 
   const requireOidcAuth: express.RequestHandler = (req, res, next) => {
@@ -95,6 +143,12 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     res.json({ required: !!config.apiSecret, mode: 'legacy', hostedMultiTenant });
   });
 
+  // In OIDC mode we need req.oidc populated on v3 requests so the
+  // per-route mutation gate can distinguish logged-in vs anonymous. Mounting
+  // order below:
+  //   1. oidc middleware          (populates req.oidc for EVERY request)
+  //   2. v3 router                (public reads, per-route mutation gate)
+  //   3. global requireOidcAuth   (protects all other /api/*)
   if (config.authMode === 'oidc') {
     if (!config.authSessionSecret || !config.auth0IssuerBaseUrl || !config.auth0BaseUrl || !config.auth0ClientId || !config.auth0ClientSecret) {
       throw new Error('OIDC mode is enabled but Auth0 configuration is incomplete. Check AUTH_* and AUTH0_* variables.');
@@ -128,6 +182,9 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 
     app.use('/auth', authLimiter);
     app.use(auth(oidcConfig));
+
+    // Mount v3 BEFORE the global /api auth gate so reads are public.
+    mountDiscoveryV3Public();
 
     app.get('/api/auth/check', (_req, res) => {
       res.status(410).json({
@@ -200,6 +257,11 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     });
 
     app.use('/api', apiLimiter, requireOidcAuth, (req, _res, next) => {
+      // v3 router was mounted above and handled already; this guard is a
+      // belt-and-suspenders no-op for the tenant resolver.
+      if ((req.path || '').startsWith('/discovery/v3/')) {
+        return next();
+      }
       try {
         const { user, memberships } = resolveOidcUserContext(req);
         if (memberships.length === 0) {
@@ -235,7 +297,16 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
       }
     });
 
+    // Legacy API-secret mode: v3 is still a public read surface — expose it
+    // BEFORE the bearer-token gate so unauthenticated dashboards work.
+    mountDiscoveryV3Public();
+
     app.use('/api', apiLimiter, (req, res, next) => {
+      // Public v3 was mounted above; skip bearer check for it.
+      if ((req.path || '').startsWith('/discovery/v3/')) {
+        enterWithTenant(DEFAULT_TENANT_ID);
+        return next();
+      }
       const token = req.headers.authorization?.replace('Bearer ', '');
       if (token !== config.apiSecret) {
         return res.status(401).json({
@@ -254,6 +325,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
       throw new Error(message);
     }
     log.warn('⚠️  WARNING: API authentication is open in legacy mode.');
+    mountDiscoveryV3Public();
     app.use('/api', apiLimiter, (_req, _res, next) => {
       enterWithTenant(DEFAULT_TENANT_ID);
       next();
@@ -263,6 +335,9 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   // API routes
   app.use('/api', createRoutes(copyTrader));
   app.use('/api/discovery', createDiscoveryRoutes(discoveryControlPlane as any));
+
+  // NOTE: v3 router is mounted earlier (public read surface) so we do not
+  // remount it here. See mountDiscoveryV3Public() above.
 
   // API 404 handler - catch any unmatched /api routes and return JSON
   app.use('/api/*', (req, res) => {

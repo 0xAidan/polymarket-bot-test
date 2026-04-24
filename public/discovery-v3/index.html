@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Discovery v3 — Polymarket Copy Trader</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="v3-header">
+    <h1>Discovery v3</h1>
+    <p class="subtitle">Tiered wallet discovery with point-in-time purity</p>
+    <nav class="tier-nav">
+      <button data-tier="alpha" class="tier-btn active">Alpha</button>
+      <button data-tier="whale" class="tier-btn">Whale</button>
+      <button data-tier="specialist" class="tier-btn">Specialist</button>
+    </nav>
+  </header>
+  <main>
+    <section id="status" class="status-bar"></section>
+    <section id="wallet-list"></section>
+  </main>
+  <script src="./app.js" type="module"></script>
+</body>
+</html>

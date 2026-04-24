@@ -39,6 +39,8 @@ import {
   insertDiscoveryEvaluationSnapshot,
 } from './evaluationEngine.js';
 import { insertDiscoveryRunLog } from './runLog.js';
+import { isDiscoveryV3Enabled } from './v3/featureFlag.js';
+import { startDiscoveryV3Worker } from './v3/workerIntegration.js';
 import { getDiscoveryConfig } from './statsStore.js';
 import { DiscoveryStrategyClass, DiscoveryWalletScoreRow } from './types.js';
 import { upsertWalletFeatureSnapshotV2 } from './v2DataStore.js';
@@ -670,10 +672,22 @@ export const startDiscoveryWorker = async (
 const main = async (): Promise<void> => {
   const runner = await startDiscoveryWorker(new DiscoveryWorkerRuntime());
 
+  // Discovery v3 — flag-gated, additive. Legacy v1/v2 pipeline above keeps running.
+  let v3Handle: Awaited<ReturnType<typeof startDiscoveryV3Worker>> = null;
+  if (isDiscoveryV3Enabled()) {
+    try {
+      const sqlite = await initDatabase();
+      v3Handle = await startDiscoveryV3Worker({ sqlite });
+    } catch (err) {
+      console.error('[DiscoveryWorker] v3 bootstrap failed:', (err as Error).message);
+    }
+  }
+
   const handleShutdown = async () => {
     if ('stop' in runner && typeof runner.stop === 'function') {
       await runner.stop();
     }
+    if (v3Handle) await v3Handle.stop();
     process.exit(0);
   };
 
