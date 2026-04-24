@@ -646,3 +646,51 @@ Summary of the bug:
 - Never gate correctness on `trade_count` when fill-level vs
   trade-level granularity differ between sources. Volume in USDC is
   the invariant.
+
+### Rev 7 (2026-04-24): staging UI `Too many requests` crash fix
+
+**Symptom.** After login, `staging.ditto.jungle.win/discovery-v3/`
+crashed with `Fetch failed: Unexpected token 'T', "Too many r"... is
+not valid JSON`. Anonymous curl still returned JSON
+`{"success":false,"error":"Authentication required"}` — so the 429
+only fired when an authenticated session was present and only against
+`/api/discovery/v3/*`.
+
+**Root cause.** `src/server.ts` mounts `express-rate-limit` at
+`app.use('/api', apiLimiter, requireOidcAuth, ...)` with
+`max: 1200 / 15 min` (≈80 req/min per IP). Discovery v3 is a
+read-heavy dashboard (tier refresh, per-wallet drill-ins, polling)
+and trivially exceeds that. The default `express-rate-limit`
+handler responds with plain text `"Too many requests, please try
+again later."`, so the UI's `res.json()` threw immediately and blanked
+the wallet list.
+
+**Fix (both sides):**
+- `src/server.ts`: add a JSON `handler` that returns
+  `{ success: false, error: "rate_limited", message, retryAfterSec }`
+  with `Content-Type: application/json` and a `Retry-After` header.
+  Add a `skip` predicate that exempts `/discovery/v3/*` paths from the
+  global limiter (read-only, authenticated dashboard surface — abuse
+  is already bounded by session auth). Raise the non-v3 limit from
+  1200 → 3000 per 15 min for general dashboard ergonomics.
+- `public/discovery-v3/app.js`: new `safeFetch` wrapper inspects
+  `res.status` and `content-type` before calling `res.json()`, returns
+  a discriminated result. On 429, the UI shows a non-blocking
+  "Rate-limited, retrying in Ns…" banner, auto-retries with the
+  server-provided `retryAfterSec`, and **keeps previously-loaded
+  wallets visible** so the UI never goes blank.
+- `tests/apiRateLimiter.test.ts`: three tests — 429 returns JSON,
+  `/api/discovery/v3/*` is exempt, v3 traffic does not burn the
+  non-v3 quota.
+
+**Deploy.** Checkout `discovery-v3-rebuild` at
+`/opt/polymarket-bot-staging` (detached HEAD — repo-v3 at
+`/mnt/HC_Volume_105468668/repo-v3` holds the worktree lock), rebuild,
+and restart `polymarket-app-staging` +
+`polymarket-discovery-worker-staging`.
+
+**Invariant going forward.** Any new API limiter / middleware MUST
+respond with JSON, not plain text — the frontend's fetch wrappers
+assume JSON and will crash on HTML or text bodies. If a reverse proxy
+(Caddy / nginx) ever gets a rate-limit rule added, set its error
+response to return JSON too.

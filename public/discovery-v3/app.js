@@ -1,6 +1,6 @@
 const API = '/api/discovery/v3';
 
-const state = { tier: 'alpha' };
+const state = { tier: 'alpha', retryTimer: null, lastWallets: [] };
 
 const statusEl = document.getElementById('status');
 const listEl = document.getElementById('wallet-list');
@@ -50,13 +50,17 @@ function walletCard(w) {
   `;
   card.querySelector('.cta-copy').addEventListener('click', async () => {
     try {
-      const res = await fetch(`${API}/track`, {
+      const result = await safeFetch(`${API}/track`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ address: w.address }),
       });
-      const j = await res.json();
-      statusEl.textContent = j.success ? `Tracking ${w.alias}` : `Error: ${j.error}`;
+      if (result.ok) {
+        const j = result.data;
+        statusEl.textContent = j.success ? `Tracking ${w.alias}` : `Error: ${j.error}`;
+      } else {
+        statusEl.textContent = result.message || 'Error tracking wallet';
+      }
     } catch (e) {
       statusEl.textContent = `Error: ${e.message}`;
     }
@@ -64,30 +68,130 @@ function walletCard(w) {
   return card;
 }
 
-async function loadTier(tier) {
-  listEl.innerHTML = '';
-  statusEl.textContent = `Loading ${tier}...`;
+/**
+ * Fetch wrapper that:
+ * - Always inspects status + content-type BEFORE trying JSON parse
+ * - Returns a discriminated result instead of throwing on HTTP errors
+ * - Surfaces 429 as a structured result so callers can show a retry banner
+ */
+async function safeFetch(url, options) {
+  let res;
   try {
-    const res = await fetch(`${API}/tier/${tier}?limit=50`);
-    if (res.status === 404) {
-      statusEl.innerHTML = '<span class="error">Discovery v3 is not enabled on this server.</span>';
+    res = await fetch(url, options);
+  } catch (e) {
+    return { ok: false, kind: 'network', message: `Network error: ${e.message}` };
+  }
+
+  const contentType = res.headers.get('content-type') || '';
+  const isJson = contentType.includes('application/json');
+
+  if (res.status === 429) {
+    let retryAfterSec = Number(res.headers.get('Retry-After')) || 0;
+    let message = 'Rate-limited by server';
+    if (isJson) {
+      try {
+        const body = await res.json();
+        retryAfterSec = Number(body.retryAfterSec) || retryAfterSec;
+        message = body.message || body.error || message;
+      } catch (_) {
+        // non-fatal — use defaults
+      }
+    } else {
+      try { await res.text(); } catch (_) { /* swallow */ }
+    }
+    if (!retryAfterSec || retryAfterSec < 1) retryAfterSec = 15;
+    return { ok: false, kind: 'rate_limited', retryAfterSec, message };
+  }
+
+  if (!res.ok) {
+    let bodyText = '';
+    try { bodyText = isJson ? JSON.stringify(await res.json()) : await res.text(); } catch (_) { /* swallow */ }
+    return {
+      ok: false,
+      kind: 'http_error',
+      status: res.status,
+      message: `HTTP ${res.status}${bodyText ? `: ${bodyText.slice(0, 200)}` : ''}`
+    };
+  }
+
+  if (!isJson) {
+    const text = await res.text().catch(() => '');
+    return { ok: false, kind: 'bad_content_type', message: `Unexpected response: ${text.slice(0, 120)}` };
+  }
+
+  try {
+    const data = await res.json();
+    return { ok: true, data };
+  } catch (e) {
+    return { ok: false, kind: 'parse_error', message: `Invalid JSON: ${e.message}` };
+  }
+}
+
+function renderWallets(wallets) {
+  listEl.innerHTML = '';
+  for (const w of wallets) listEl.appendChild(walletCard(w));
+}
+
+function scheduleRetry(tier, delaySec) {
+  if (state.retryTimer) clearTimeout(state.retryTimer);
+  let remaining = delaySec;
+  const tick = () => {
+    if (remaining <= 0) {
+      loadTier(tier);
       return;
     }
-    const data = await res.json();
+    // Preserve previously-loaded wallets so the UI never goes blank.
+    statusEl.innerHTML = `<span class="warn">Rate-limited, retrying in ${remaining}s...</span>`;
+    remaining -= 1;
+    state.retryTimer = setTimeout(tick, 1000);
+  };
+  tick();
+}
+
+async function loadTier(tier) {
+  if (state.retryTimer) {
+    clearTimeout(state.retryTimer);
+    state.retryTimer = null;
+  }
+  // Only clear the list on first load — if we already have wallets, keep them
+  // visible while we re-fetch, so transient errors don't produce a blank UI.
+  if (state.lastWallets.length === 0) {
+    listEl.innerHTML = '';
+  }
+  statusEl.textContent = `Loading ${tier}...`;
+
+  const result = await safeFetch(`${API}/tier/${tier}?limit=50`);
+
+  if (result.ok) {
+    const data = result.data;
     if (!data.success) {
       statusEl.innerHTML = `<span class="error">${data.error || 'unknown error'}</span>`;
       return;
     }
-    if (data.data.length === 0) {
+    if (!Array.isArray(data.data) || data.data.length === 0) {
+      state.lastWallets = [];
       listEl.innerHTML = '<div class="empty">No wallets scored yet. Run the backfill pipeline.</div>';
       statusEl.textContent = `${tier}: 0 wallets`;
       return;
     }
-    for (const w of data.data) listEl.appendChild(walletCard(w));
+    state.lastWallets = data.data;
+    renderWallets(data.data);
     statusEl.textContent = `${tier}: ${data.count} wallets`;
-  } catch (e) {
-    statusEl.innerHTML = `<span class="error">Fetch failed: ${e.message}</span>`;
+    return;
   }
+
+  if (result.kind === 'rate_limited') {
+    scheduleRetry(tier, result.retryAfterSec);
+    return;
+  }
+
+  if (result.kind === 'http_error' && result.status === 404) {
+    statusEl.innerHTML = '<span class="error">Discovery v3 is not enabled on this server.</span>';
+    return;
+  }
+
+  // Any other error: keep prior wallets visible if we have them.
+  statusEl.innerHTML = `<span class="error">${result.message || 'Fetch failed'}</span>`;
 }
 
 document.querySelectorAll('.tier-btn').forEach((btn) => {
@@ -95,6 +199,7 @@ document.querySelectorAll('.tier-btn').forEach((btn) => {
     document.querySelectorAll('.tier-btn').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     state.tier = btn.dataset.tier;
+    state.lastWallets = [];
     loadTier(state.tier);
   });
 });

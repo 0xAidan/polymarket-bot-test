@@ -57,18 +57,42 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   discoveryManagerInstance = new DiscoveryManager('passive');
   const discoveryControlPlane = new DiscoveryControlPlane();
 
+  // JSON 429 handler — never return plain-text so the UI can parse errors.
+  const jsonRateLimitHandler = (req: express.Request, res: express.Response, _next: express.NextFunction, options: any) => {
+    const retryAfterSec = Math.ceil((options?.windowMs ?? 60_000) / 1000);
+    res.setHeader('Retry-After', String(retryAfterSec));
+    res.status(429).json({
+      success: false,
+      error: 'rate_limited',
+      message: 'Too many requests — please slow down.',
+      retryAfterSec
+    });
+  };
+
+  // Read-only dashboard endpoints (discovery v3) are exempt from the global API
+  // limiter — they are GET-heavy and a per-IP limiter causes plain-text 429s that
+  // crash the UI. Mutating v3 endpoints (e.g. /track POSTs) still pass through
+  // the authenticated request handler below, so abuse is bounded by session auth.
+  const isRateLimitExempt = (req: express.Request): boolean => {
+    const p = req.path || '';
+    return p.startsWith('/discovery/v3/');
+  };
+
   const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 1200,
+    max: 3000,
     standardHeaders: true,
-    legacyHeaders: false
+    legacyHeaders: false,
+    skip: isRateLimitExempt,
+    handler: jsonRateLimitHandler
   });
 
   const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 80,
     standardHeaders: true,
-    legacyHeaders: false
+    legacyHeaders: false,
+    handler: jsonRateLimitHandler
   });
 
   const requireOidcAuth: express.RequestHandler = (req, res, next) => {
