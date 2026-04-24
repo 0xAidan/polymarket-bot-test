@@ -6,6 +6,17 @@
  * `/v1/activity?user={W}` and `/v1/positions?user={W}` endpoints. Prints a
  * per-wallet diff and a summary. See `src/discovery/v3/dataApiValidator.ts`
  * for the actual comparison logic.
+ *
+ * ## Rev 2 (2026-04-24)
+ *
+ * The validator now paginates (no 500-row cap) and filters to `type=TRADE`
+ * before counting — see `docs/2026-04-24-post-backfill-validator-triage.md`
+ * for why the v1 implementation produced 17/20 false FAILs.
+ *
+ * The per-wallet log line now reports the API pagination state and the
+ * summary counts PASS/FAIL with a breakdown of fully-paginated vs capped
+ * wallets so operators can tell a genuine backfill issue apart from a
+ * mega-wallet hitting the deep-offset cap.
  */
 import { openDuckDB } from '../../src/discovery/v3/duckdbClient.js';
 import { getDuckDBPath } from '../../src/discovery/v3/featureFlag.js';
@@ -42,16 +53,21 @@ async function main(): Promise<void> {
     }
 
     let pass = 0;
+    let capped = 0;
     for (const w of wallets) {
       const res = await validateWalletAgainstDataApi(w.proxy_wallet, {
         trade_count: Number(w.trade_count),
         volume_total: Number(w.volume_total),
       });
       const status = res.ok ? 'PASS' : 'FAIL';
-      console.log(`[06] ${w.proxy_wallet}  ${status}  ${res.reason ?? ''}`);
+      const pag = res.apiFullyPaginated === false ? ' [api-capped]' : '';
+      console.log(`[06] ${w.proxy_wallet}  ${status}${pag}  ${res.reason ?? ''}`);
       if (res.ok) pass++;
+      if (res.apiFullyPaginated === false) capped++;
     }
-    console.log(`[06] summary: ${pass}/${wallets.length} within tolerance`);
+    console.log(
+      `[06] summary: ${pass}/${wallets.length} within tolerance  (api-capped on ${capped} mega-wallets)`
+    );
     if (pass < wallets.length) process.exitCode = 3;
   } finally {
     await db.close();

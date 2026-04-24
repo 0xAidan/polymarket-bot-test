@@ -586,3 +586,63 @@ export SORTED_PARQUET_DIR=/mnt/HC_Volume_105468668/bucket_parquets
 export LOG=/tmp/v3-rev6-$(date +%Y%m%dT%H%M%S).log
 bash scripts/backfill/finish_backfill.sh 2>&1 | tee -a "$LOG"
 ```
+
+## Part 13: Post-backfill cutover status (2026-04-24)
+
+**Current state:** Backfill finished end-to-end on the Hetzner box ~05:30
+UTC on 2026-04-24. Scripts 03 (markets) → 04 (snapshots) → 05 (score &
+publish) all completed cleanly. `05` reported **335,826 / 2,486,208
+wallets eligible** (13.5%) and wrote 1,500 tier-ranked rows to the
+SQLite hot read model.
+
+**Cutover is paused pending validator rerun.** The initial `06_validate.ts`
+run reported 3/20 PASS — a validator bug, not a backfill bug. Diagnosis
+and fix are in `docs/2026-04-24-post-backfill-validator-triage.md`.
+Summary of the bug:
+
+1. `dataApiValidator.ts` did not paginate `/v1/activity` — for any
+   wallet with >500 lifetime events the API was silently capped at 500
+   rows, producing guaranteed FAILs with ~99% volume delta.
+2. The validator did not filter events to `type=TRADE`, so REDEEM /
+   SPLIT / MERGE activity inflated the API-side volume on wallets with
+   redemption history.
+3. Comparing `trade_count` directly was fundamentally wrong: our
+   derived count is `OrderFilled` events (maker + taker row per fill)
+   while the API reports user-initiated trades (one row per order).
+   Volume is fill-level-invariant; trade_count is not.
+
+**Fix in branch `fix/validator-pagination-and-trade-type`:**
+- Rewrote `src/discovery/v3/dataApiValidator.ts` to paginate with
+  offset, filter to TRADE only, gate PASS/FAIL on volume delta (5%
+  tolerance), and handle deep-offset 500s as end-of-pagination.
+- Added 10 unit tests in `tests/v3-data-api-validator.test.ts`.
+- Updated `scripts/backfill/06_validate.ts` to surface
+  `[api-capped]` marker and count it separately in the summary.
+
+**Known residual issues (NOT blocking cutover):**
+- `trade_count` is events not trades → eligibility gate
+  (`MIN_TRADE_COUNT=20`) is weaker than intended. File as follow-up
+  after cutover.
+- Mega-wallets (>100k events) cannot be fully paginated against API
+  (deep-offset 500 from Polymarket). Validator treats this as lower
+  bound. Tier rankings are volume-driven so this doesn't affect
+  output correctness.
+
+**Next steps (post-rerun, only if 18+/20 PASS):**
+1. Deploy `discovery-v3-rebuild` branch to staging at
+   `/opt/polymarket-bot-staging` via `scripts/deploy-staging.sh`.
+2. Set `DISCOVERY_V3=true` in the staging `.env` only.
+3. Smoke test all nine `/api/discovery/v3/*` endpoints + the UI at
+   `staging.ditto.jungle.win/discovery-v3/`.
+4. Soak 24–48h, then deploy to prod via `scripts/deploy-production.sh`
+   after merging PR #88 into main.
+
+**Never (learned from this session):**
+- Never trust a single-call API comparison against full-lifetime
+  derived totals. Always paginate OR compare sum-of-values (which
+  converge regardless of pagination if you paginate the API).
+- Never count mixed-type activity against event-specific derivations.
+  `/v1/activity` is NOT the same shape as `discovery_activity_v3`.
+- Never gate correctness on `trade_count` when fill-level vs
+  trade-level granularity differ between sources. Volume in USDC is
+  the invariant.
