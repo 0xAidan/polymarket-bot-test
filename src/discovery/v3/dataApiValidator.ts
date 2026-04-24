@@ -48,6 +48,14 @@ export interface ValidatorResult {
 
 const DATA_API = 'https://data-api.polymarket.com';
 const DEFAULT_VOLUME_TOLERANCE_PCT = 0.05;
+/**
+ * For wallets with very low lifetime volume, a single post-cutoff trade
+ * can move the delta several percent. Below this volume threshold, we
+ * apply a looser tolerance so we don't flag tiny wallets as FAIL for
+ * a delta that's statistically insignificant in absolute terms.
+ */
+const LOW_VOLUME_THRESHOLD_USD = 10_000;
+const LOW_VOLUME_TOLERANCE_PCT = 0.15;
 const DEFAULT_PAGE_SIZE = 500;
 /**
  * Safety cap: Polymarket's API starts returning HTTP 500 at very deep
@@ -95,9 +103,17 @@ async function fetchAllActivity(
     const url = `${DATA_API}/v1/activity?user=${encodeURIComponent(address)}&limit=${pageSize}&offset=${offset}`;
     const res = await f(url);
     if (!res.ok) {
-      // Deep-offset requests on mega-wallets return 500. Treat as "end of
-      // pagination" rather than error if we already have some data.
-      if (res.status >= 500 && all.length > 0) {
+      // Polymarket caps /v1/activity pagination somewhere past offset=500.
+      // Above the cap, the API returns either HTTP 400 (bad offset) or
+      // HTTP 500 (server-side reject) depending on wallet size. Both mean
+      // "you've reached the end of what we'll serve" — not a real error,
+      // provided we already have at least one page of data on hand.
+      //
+      // The zero-page case (wallet returns 400/500 on first call) is still
+      // treated as a hard error; those are genuinely broken requests.
+      const isPaginationCap =
+        (res.status === 400 || res.status >= 500) && all.length > 0;
+      if (isPaginationCap) {
         fullyPaginated = false;
         break;
       }
@@ -173,7 +189,11 @@ export async function validateWalletAgainstDataApi(
         reason = `derived volume ${derived.volume_total.toFixed(2)} < api-lower-bound ${apiVolume.toFixed(2)} (api paginated to ${apiTradeCount} trades, more exist)`;
       }
     } else {
-      ok = volumeDelta <= volumeTolerance && apiTradeCount > 0;
+      const effectiveTolerance =
+        Math.max(derived.volume_total, apiVolume) < LOW_VOLUME_THRESHOLD_USD
+          ? Math.max(volumeTolerance, LOW_VOLUME_TOLERANCE_PCT)
+          : volumeTolerance;
+      ok = volumeDelta <= effectiveTolerance && apiTradeCount > 0;
       if (!ok) {
         if (apiTradeCount === 0) {
           reason = `api returned 0 trades (wallet may be non-tradable or API miss)`;
