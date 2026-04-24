@@ -128,6 +128,36 @@ test('validator: deep-offset 500 error treated as end-of-pagination, not failure
   assert.equal(r.ok, true, r.reason);
 });
 
+test('validator: deep-offset 400 error treated as end-of-pagination (mega-wallets)', async () => {
+  // Polymarket returns HTTP 400 past its offset cap on some mega-wallets.
+  // Same semantics as 500: not a failure if we already have data.
+  const fetchImpl = mockFetch((url) => {
+    if (url.includes('offset=0')) return { body: Array.from({ length: 500 }, () => trade(10)) };
+    if (url.includes('offset=500')) return { status: 400, body: null };
+    return { body: [] };
+  });
+  const r = await validateWalletAgainstDataApi(
+    '0xmega',
+    { trade_count: 5000, volume_total: 50_000_000 },
+    { fetchImpl }
+  );
+  assert.equal(r.apiFullyPaginated, false);
+  assert.equal(r.apiVolume, 5000);
+  // derived volume 50M >> api lower bound 5k → PASS
+  assert.equal(r.ok, true, r.reason);
+});
+
+test('validator: 0-page 400 error → FAIL with http reason (no data to anchor on)', async () => {
+  const fetchImpl = mockFetch(() => ({ status: 400, body: null }));
+  const r = await validateWalletAgainstDataApi(
+    '0xabc',
+    { trade_count: 100, volume_total: 100 },
+    { fetchImpl }
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason ?? '', /http 400/);
+});
+
 test('validator: 0-page 500 error → FAIL with http reason', async () => {
   const fetchImpl = mockFetch(() => ({ status: 500, body: null }));
   const r = await validateWalletAgainstDataApi(
@@ -141,6 +171,8 @@ test('validator: 0-page 500 error → FAIL with http reason', async () => {
 
 test('validator: volume delta inside tolerance → PASS', async () => {
   // API says 100, derived says 103 → 3% delta, within default 5%
+  // NOTE: both values are under the $10k low-volume threshold, so the
+  // looser 15% tolerance applies — still PASS.
   const fetchImpl = mockFetch(() => ({ body: [trade(100)] }));
   const r = await validateWalletAgainstDataApi(
     '0xabc',
@@ -148,6 +180,32 @@ test('validator: volume delta inside tolerance → PASS', async () => {
     { fetchImpl }
   );
   assert.equal(r.ok, true, r.reason);
+});
+
+test('validator: low-volume wallet with 10% delta → PASS (loose tolerance)', async () => {
+  // Sub-$10k wallet: derived 1925, api 2073 → 7.1% delta. Default 5% would
+  // FAIL, but low-volume tolerance of 15% should PASS. Mirrors the real
+  // 0xf15065a... case from 2026-04-24.
+  const fetchImpl = mockFetch(() => ({ body: Array.from({ length: 34 }, () => trade(60.97)) }));
+  const r = await validateWalletAgainstDataApi(
+    '0xlowvol',
+    { trade_count: 29, volume_total: 1925.94 },
+    { fetchImpl }
+  );
+  assert.equal(r.ok, true, r.reason);
+});
+
+test('validator: high-volume wallet with 7% delta → FAIL (strict tolerance)', async () => {
+  // Over $10k: the default 5% tolerance applies (not loosened).
+  // Simulates a real discrepancy in a mature wallet.
+  const fetchImpl = mockFetch(() => ({ body: Array.from({ length: 100 }, () => trade(1000)) }));
+  const r = await validateWalletAgainstDataApi(
+    '0xhighvol',
+    { trade_count: 100, volume_total: 93_000 },
+    { fetchImpl }
+  );
+  assert.equal(r.ok, false, 'large wallet should use strict tolerance');
+  assert.match(r.reason ?? '', /volume delta/);
 });
 
 test('validator: volume delta exceeds tolerance → FAIL', async () => {
