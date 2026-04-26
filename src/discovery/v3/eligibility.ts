@@ -6,6 +6,8 @@ export const ELIGIBILITY_THRESHOLDS = {
   MIN_TRADE_COUNT: 20,
   MIN_CLOSED_POSITIONS: 5,
   MAX_DORMANCY_DAYS: 45,
+  MIN_REALIZED_PNL: 0,
+  MIN_PNL_PER_TRADE: 0,
 } as const;
 
 export function isEligible(input: EligibilityInput): EligibilityResult {
@@ -27,6 +29,16 @@ export function isEligible(input: EligibilityInput): EligibilityResult {
   const dormancyCutoff = now - ELIGIBILITY_THRESHOLDS.MAX_DORMANCY_DAYS * 86400;
   if (input.last_active_ts < dormancyCutoff) {
     reasons.push('DORMANT');
+  }
+
+  if (input.realized_pnl < ELIGIBILITY_THRESHOLDS.MIN_REALIZED_PNL) {
+    reasons.push('REALIZED_PNL_TOO_LOW');
+  }
+  if (input.closed_positions > 0) {
+    const pnlPerClosed = input.realized_pnl / input.closed_positions;
+    if (pnlPerClosed < ELIGIBILITY_THRESHOLDS.MIN_PNL_PER_TRADE) {
+      reasons.push('PNL_PER_TRADE_TOO_LOW');
+    }
   }
 
   return { eligible: reasons.length === 0, reasons };

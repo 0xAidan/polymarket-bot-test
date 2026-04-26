@@ -289,6 +289,7 @@ async function main(): Promise<void> {
           trade_count: Number(w.trade_count),
           closed_positions: 5, // not computable without markets — optimistic assumption for dry run
           last_active_ts: Number(w.last_ts),
+          realized_pnl: 0, // not in this SQL aggregate; dry run neutral
           now_ts: now,
         });
         if (r.eligible) eligibleCount++;

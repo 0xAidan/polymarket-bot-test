@@ -72,6 +72,8 @@ export interface EligibilityInput {
   trade_count: number;
   closed_positions: number;
   last_active_ts: number;
+  /** Total realized PnL (same units as v3 feature snapshots). */
+  realized_pnl: number;
   now_ts?: number;
 }
 

@@ -13,6 +13,7 @@ function base() {
     trade_count: 50,
     closed_positions: 10,
     last_active_ts: NOW - 5 * DAY,
+    realized_pnl: 100,
     now_ts: NOW,
   };
 }
@@ -69,6 +70,20 @@ test('eligibility: last active exactly at dormancy edge → pass', () => {
   assert.equal(r.eligible, true);
 });
 
+test('eligibility: realized PnL under minimum → rejected', () => {
+  const r = isEligible({ ...base(), realized_pnl: ELIGIBILITY_THRESHOLDS.MIN_REALIZED_PNL - 1 });
+  assert.equal(r.eligible, false);
+  assert.ok(r.reasons.includes('REALIZED_PNL_TOO_LOW'));
+});
+
+test('eligibility: PnL per closed position under minimum (with closed > 0) → rejected', () => {
+  const closed = 10;
+  const pnl = ELIGIBILITY_THRESHOLDS.MIN_PNL_PER_TRADE * closed - 0.01;
+  const r = isEligible({ ...base(), closed_positions: closed, realized_pnl: pnl });
+  assert.equal(r.eligible, false);
+  assert.ok(r.reasons.includes('PNL_PER_TRADE_TOO_LOW'));
+});
+
 test('eligibility: multiple failures aggregate reasons', () => {
   const r = isEligible({
     observation_span_days: 5,
@@ -76,8 +91,10 @@ test('eligibility: multiple failures aggregate reasons', () => {
     trade_count: 2,
     closed_positions: 0,
     last_active_ts: NOW - 100 * DAY,
+    realized_pnl: -1,
     now_ts: NOW,
   });
   assert.equal(r.eligible, false);
-  assert.equal(r.reasons.length, 5);
+  assert.equal(r.reasons.length, 6);
+  assert.ok(r.reasons.includes('REALIZED_PNL_TOO_LOW'));
 });

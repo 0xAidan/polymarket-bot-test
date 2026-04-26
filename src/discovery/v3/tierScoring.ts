@@ -83,6 +83,7 @@ export function scoreTiers(
       trade_count: snap.trade_count,
       closed_positions: snap.closed_positions,
       last_active_ts: snap.last_active_ts,
+      realized_pnl: snap.realized_pnl,
       now_ts: now,
     });
     return { wallet: snap.proxy_wallet, eligible, snapshot: snap, reasons };
