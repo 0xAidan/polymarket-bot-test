@@ -156,9 +156,9 @@ export function scoreTiers(
         distinct_markets: r.snapshot.distinct_markets,
         closed_positions: r.snapshot.closed_positions,
         realized_pnl: r.snapshot.realized_pnl,
-        hit_rate: r.snapshot.closed_positions > 0
-        ? Math.min(1, Math.max(0, 
-            0.5 + (r.snapshot.realized_pnl / r.snapshot.closed_positions) / 200
+        hit_rate:r.snapshot.closed_positions > 0
+        ? Math.min(1, Math.max(0,
+            0.5 + (r.snapshot.realized_pnl / r.snapshot.volume_total) * 2
           ))
         : null,
         last_active_ts: r.snapshot.last_active_ts,
