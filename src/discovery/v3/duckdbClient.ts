@@ -90,7 +90,22 @@ function applyRuntimeSettings(conn: DuckDBConnection): void {
 
 export function openDuckDB(path: string): DuckDBClient {
   const duckdb = loadDuckDB();
-  const db = new duckdb.Database(path);
+  const config = {
+    memory_limit: process.env.DUCKDB_MEMORY_LIMIT_GB 
+      ? `${process.env.DUCKDB_MEMORY_LIMIT_GB}GB` 
+      : undefined,
+    threads: process.env.DUCKDB_THREADS 
+      ? Number(process.env.DUCKDB_THREADS)
+      : undefined,
+  };
+  const db = new (duckdb.Database as any)(path, {
+    memory_limit: process.env.DUCKDB_MEMORY_LIMIT_GB 
+      ? `${process.env.DUCKDB_MEMORY_LIMIT_GB}GB` 
+      : '6GB',
+    threads: process.env.DUCKDB_THREADS 
+      ? Number(process.env.DUCKDB_THREADS)
+      : 2,
+  });
   const conn = db.connect();
   applyRuntimeSettings(conn);
 
