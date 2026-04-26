@@ -2,10 +2,11 @@ import { EligibilityInput, EligibilityResult } from './types.js';
 
 export const ELIGIBILITY_THRESHOLDS = {
   MIN_OBSERVATION_SPAN_DAYS: 30,
-  MIN_DISTINCT_MARKETS: 10,
-  MIN_TRADE_COUNT: 20,
-  MIN_CLOSED_POSITIONS: 5,
-  MAX_DORMANCY_DAYS: 45,
+  MIN_DISTINCT_MARKETS: 15,
+  MIN_TRADE_COUNT: 50,
+  MIN_CLOSED_POSITIONS: 10,
+  MAX_DORMANCY_DAYS: 30,
+  MIN_VOLUME_TOTAL: 10000,
   MIN_REALIZED_PNL: 0,
   MIN_PNL_PER_TRADE: 0,
 } as const;
@@ -39,6 +40,9 @@ export function isEligible(input: EligibilityInput): EligibilityResult {
     if (pnlPerClosed < ELIGIBILITY_THRESHOLDS.MIN_PNL_PER_TRADE) {
       reasons.push('PNL_PER_TRADE_TOO_LOW');
     }
+  }
+  if (input.volume_total < ELIGIBILITY_THRESHOLDS.MIN_VOLUME_TOTAL) {
+    reasons.push('VOLUME_TOTAL_TOO_LOW');
   }
 
   return { eligible: reasons.length === 0, reasons };

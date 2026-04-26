@@ -14,6 +14,7 @@ function base() {
     closed_positions: 10,
     last_active_ts: NOW - 5 * DAY,
     realized_pnl: 100,
+    volume_total: 20_000,
     now_ts: NOW,
   };
 }
@@ -53,10 +54,10 @@ test('eligibility: closed positions just under → rejected', () => {
   assert.ok(r.reasons.includes('TOO_FEW_CLOSED_POSITIONS'));
 });
 
-test('eligibility: dormant wallet (46 days idle) rejected', () => {
+test('eligibility: dormant wallet (31+ days idle) rejected', () => {
   const r = isEligible({
     ...base(),
-    last_active_ts: NOW - 46 * DAY,
+    last_active_ts: NOW - 31 * DAY,
   });
   assert.equal(r.eligible, false);
   assert.ok(r.reasons.includes('DORMANT'));
@@ -92,9 +93,11 @@ test('eligibility: multiple failures aggregate reasons', () => {
     closed_positions: 0,
     last_active_ts: NOW - 100 * DAY,
     realized_pnl: -1,
+    volume_total: 0,
     now_ts: NOW,
   });
   assert.equal(r.eligible, false);
-  assert.equal(r.reasons.length, 6);
+  assert.equal(r.reasons.length, 7);
   assert.ok(r.reasons.includes('REALIZED_PNL_TOO_LOW'));
+  assert.ok(r.reasons.includes('VOLUME_TOTAL_TOO_LOW'));
 });

@@ -84,7 +84,7 @@ export function scoreTiers(
       closed_positions: snap.closed_positions,
       last_active_ts: snap.last_active_ts,
       realized_pnl: snap.realized_pnl,
-      now_ts: now,
+      volume_total: snap.volume_total,
     });
     return { wallet: snap.proxy_wallet, eligible, snapshot: snap, reasons };
   });

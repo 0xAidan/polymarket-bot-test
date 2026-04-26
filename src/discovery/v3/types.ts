@@ -74,6 +74,8 @@ export interface EligibilityInput {
   last_active_ts: number;
   /** Total realized PnL (same units as v3 feature snapshots). */
   realized_pnl: number;
+  /** Cumulative notional volume (eligibility: MIN_VOLUME_TOTAL). Not the same as `hit_rate` (scoring only). */
+  volume_total: number;
   now_ts?: number;
 }
 
