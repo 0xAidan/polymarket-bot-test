@@ -20,6 +20,8 @@ function getSqlitePath(): string {
 
 async function main(): Promise<void> {
   const duck = openDuckDB(getDuckDBPath());
+  await duck.exec(`SET memory_limit = '6GB'; SET threads = 2; SET temp_directory = '/mnt/HC_Volume_105468668/duckdb_tmp'; SET max_temp_directory_size = '60GB'; SET preserve_insertion_order = false;`);
+
   try {
     // Use the no-index migration — the backfilled discovery_activity_v3
     // has ~800M rows and DuckDB 1.4.x CREATE INDEX would OOM.
@@ -34,8 +36,8 @@ async function main(): Promise<void> {
          volume_total,
          CAST(distinct_markets AS BIGINT)             AS distinct_markets,
          CAST(closed_positions AS BIGINT)             AS closed_positions,
-         realized_pnl,
-         unrealized_pnl,
+         CAST(realized_pnl AS DOUBLE)                 AS realized_pnl,
+         CAST(unrealized_pnl AS DOUBLE)               AS unrealized_pnl,
          CAST(first_active_ts AS BIGINT)              AS first_active_ts,
          CAST(last_active_ts AS BIGINT)               AS last_active_ts,
          CAST(observation_span_days AS INTEGER)       AS observation_span_days
