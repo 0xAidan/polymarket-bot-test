@@ -20,7 +20,6 @@ function getSqlitePath(): string {
 
 async function main(): Promise<void> {
   const duck = openDuckDB(getDuckDBPath());
-  await duck.exec(`SET memory_limit = '6GB'; SET threads = 2; SET temp_directory = '/mnt/HC_Volume_105468668/duckdb_tmp'; SET max_temp_directory_size = '60GB'; SET preserve_insertion_order = false;`);
 
   try {
     // Use the no-index migration — the backfilled discovery_activity_v3
