@@ -1,3 +1,20 @@
+/**
+ * pUSD auto-wrap helper for hosted multi-tenant trading.
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * Polymarket's web UI runs a one-time "convert balance to pUSD + approve new
+ * exchange contracts" flow on first load after the V2 cutover (Apr 28 2026).
+ * Hosted bot users may NEVER touch polymarket.com — they only interact through
+ * our app. Without this auto-wrap, their first post-cutover trade would fail
+ * with "insufficient pUSD balance" even though they have plenty of USDC.e.
+ *
+ * This helper runs once per signer per process (right after the V2 CLOB client
+ * initializes) and silently approves the CollateralOnramp + wraps any USDC.e
+ * ≥ $1 sitting on the EOA into pUSD. It is idempotent and never throws —
+ * failures are logged at warn level and ignored, because users may already
+ * have pUSD via another path (Bridge auto-wrap on deposit, manual wrap, etc.).
+ */
 import * as ethers from 'ethers';
 import { createComponentLogger } from './logger.js';
 

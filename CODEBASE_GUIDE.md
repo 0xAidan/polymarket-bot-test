@@ -58,6 +58,26 @@ Get it from [polymarket.com/settings → Builder Profile](https://polymarket.com
 - ✅ **Do** include `builderCode` on every order body when set, so attribution flows.
 - ✅ **Do** keep both V1 and V2 exchange addresses in the chain listener filter for at least the cutover week.
 
+### Cutover-day operations (Apr 28, 2026)
+
+- **Maintenance window**: ~11:00 UTC → ~12:00 UTC (about 1 hour). Trading paused, all open order books cleared by Polymarket.
+- **Pre-cutover hygiene**: cancel all open GTC orders before **07:00 UTC** to avoid mid-window cancel artifacts (per Polymarket's market-maker guidance). Polymarket also auto-clears the books at 11:00 UTC — so this is belt-and-suspenders, not strictly required.
+- **Open positions carry over**: outstanding outcome tokens resolve normally on the V2 contracts. No special handling needed in `positionLifecycle.ts` for pre-cutover positions — redeem still works (just point `collateralToken` at pUSD, which this PR already does).
+- **Deposit addresses are unchanged**: the Bridge / onramp deposit addresses keep working. No code changes needed for any deposit flow.
+- **Hot-swap behavior**: the V2 SDK polls a version endpoint and refreshes itself when V2 goes live. As long as we're on `clob-client-v2`, no manual restart is required during the maintenance window.
+
+### Fees in V2 (read before touching PnL code)
+
+- Fees are **charged in USDC at match time** (not embedded in the signed order, not paid in shares).
+- Fees appear in trade history per fill and on `last_trade_price` WS events as `fee_rate_bps`.
+- **Nonce-related order failures are explicitly eliminated** in V2 — V2 uses millisecond timestamps for per-address uniqueness instead of a nonce counter. There is **no remaining nonce-tracking logic** in `tradeExecutor.ts`, `polymarketApi.ts`, or `clobClient.ts`; the subagent verified this during migration.
+- **Follow-up audit needed (post-merge, separate PR)**: the following files compute cost-basis or PnL and may have V1-era assumptions about fees being deducted in shares rather than USDC. Audit and adjust before relying on dashboard PnL post-cutover:
+  - `src/crossPlatformPnl.ts`
+  - `src/performanceTracker.ts`
+  - `src/tradeExecutionDiagnostics.ts`
+
+  This is **not blocking the cutover** — trades will execute correctly. Only the reported PnL/cost-basis numbers might be slightly off until reviewed.
+
 ---
 
 ## Part 1: The Core Technologies (Prerequisites)
