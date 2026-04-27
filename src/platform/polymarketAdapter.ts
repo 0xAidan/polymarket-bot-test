@@ -52,8 +52,8 @@ export class PolymarketAdapter implements PlatformAdapter {
     await executor.authenticate();
 
     const side = order.action === 'BUY'
-      ? (await import('@polymarket/clob-client')).Side.BUY
-      : (await import('@polymarket/clob-client')).Side.SELL;
+      ? (await import('@polymarket/clob-client-v2')).Side.BUY
+      : (await import('@polymarket/clob-client-v2')).Side.SELL;
 
     try {
       const result = await executor.executeTrade({

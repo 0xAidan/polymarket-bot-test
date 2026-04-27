@@ -4,6 +4,62 @@
 
 ---
 
+## Polymarket CLOB V2 Migration (April 28, 2026)
+
+Polymarket switched its CLOB API and on-chain Exchange contracts to V2 at ~11:00 UTC on **2026-04-28**. V1 stops accepting orders. There is **no backwards compatibility**: this codebase no longer talks to V1 at all. Key changes (read this before touching the trading path):
+
+### What changed at the protocol level
+
+- **SDK package**: `@polymarket/clob-client` (V1) → **`@polymarket/clob-client-v2`**.
+- **Constructor**: positional args → **options object** (`{ host, chain, signer, creds, signatureType, funderAddress, builderConfig }`). Note: `chainId` was renamed to `chain`. `tickSizeTtlMs` is gone.
+- **Builder auth**: HMAC creds (`POLYMARKET_BUILDER_API_KEY/SECRET/PASSPHRASE`) → **single `builderCode` string** read from `POLYMARKET_BUILDER_CODE`. The V2 backend ignores `POLY_BUILDER_*` HMAC headers entirely. Missing builderCode is **non-fatal in V2** — orders place fine, you just lose attribution.
+- **Order body**: `feeRateBps`, `nonce`, and `taker` are removed. `builderCode` is added. Market BUY orders may include `userUSDCBalance` for fee-aware fill calc.
+- **Collateral token**: USDC.e (`0x2791…84174`) → **pUSD** (`0xC011…2DFB`). Same 6 decimals. CTF redeem/merge calls now pass pUSD as `collateralToken`.
+- **Exchange contracts**: New addresses on Polygon — `0xE111180000d2663C0091e4f400237545B87B996B` (CTF) and `0xe2222d279d744050d28e00520010520000310F59` (NegRisk).
+
+### What this PR did (file-by-file summary)
+
+- `package.json` — replaced `@polymarket/clob-client` + `@polymarket/builder-signing-sdk` with `@polymarket/clob-client-v2@1.0.0`. Kept `@polymarket/builder-relayer-client` (still used for gasless redeem/merge).
+- `src/types/clob-client.d.ts` — rewrote shim to declare `@polymarket/clob-client-v2`. Deleted `src/types/builder-signing-sdk.d.ts` (we no longer import it directly; the relayer brings its own types transitively).
+- `src/clobClient.ts` — full rewrite of constructor to use the V2 options object. Replaced HMAC builder shape with `{ builderCode }`. Added `userUSDCBalance` plumbing on `createAndPostOrder`. Downgraded the missing-builder error to a warn.
+- `src/clobClientFactory.ts` — dropped the HMAC builder-creds gate. Reads `POLYMARKET_BUILDER_CODE` (or per-tenant `TradingWallet.polymarketBuilderCode`), warns if missing instead of throwing. After init, calls `ensurePusdReady()` to silently auto-wrap USDC.e → pUSD on the EOA. Failures there are non-fatal.
+- `src/pusdWrapper.ts` *(new)* — idempotent helper that approves and wraps any USDC.e ≥ $1 sitting on the EOA into pUSD via the CollateralOnramp (`0x9307…B8ee`). Deduped per-signer per-process. Never throws.
+- `src/discovery/types.ts` — added `_V1` and `_V2` suffixed addresses, `ALL_EXCHANGE_ADDRESSES` list. The unsuffixed `CTF_EXCHANGE_ADDRESS` / `NEG_RISK_CTF_EXCHANGE_ADDRESS` now alias V2.
+- `src/discovery/chainListener.ts` — eth_subscribe now filters on **both V1 and V2** exchange contracts so we capture fills across the cutover hour.
+- `src/positionLifecycle.ts` — CTF `redeemPositions` / `mergePositions` collateralToken is now pUSD. Relayer client still uses HMAC creds (per docs the relayer auth path is unchanged).
+- `src/balanceTracker.ts` — added a third on-chain balance source (pUSD) alongside native + bridged USDC. Total balance = native + bridged + pUSD.
+- `src/polymarketApi.ts` — deleted `generateBuilderSignature` and `getBuilderAuthHeaders`. Stripped the HMAC validation from `placeOrder`. The `placeOrder` path is fallback-only; primary order placement goes through the V2 SDK.
+- `src/tradeExecutor.ts` — `Side` import switched to V2; for BUY orders, now opportunistically forwards the wallet's pUSD balance as `userUSDCBalance` for fee-aware fill calc.
+- `src/config.ts`, `ENV_EXAMPLE.txt` — added `POLYMARKET_BUILDER_CODE`. Old HMAC env vars retained — they're still used by the relayer.
+- `src/types.ts` — `TradingWallet.polymarketBuilderCode?: string` for per-tenant override.
+
+### New env var
+
+```
+POLYMARKET_BUILDER_CODE=your_builder_code_from_polymarket_settings_here
+```
+
+Get it from [polymarket.com/settings → Builder Profile](https://polymarket.com/settings). Optional (orders work without it) but strongly recommended.
+
+### pUSD auto-wrap on first wallet init
+
+`getClobClientForTradingWallet` in `clobClientFactory.ts` calls `ensurePusdReady(signer, funderAddress, log)` after the SDK initializes. That helper approves the CollateralOnramp and wraps any USDC.e ≥ $1 sitting on the EOA into pUSD. It's idempotent (per-signer Set), runs at most once per process per wallet, and **never throws** — failures are logged at warn and ignored, since users may have pUSD via another path.
+
+### Old V1 references retained
+
+`src/discovery/types.ts` still exports `CTF_EXCHANGE_ADDRESS_V1` and `NEG_RISK_CTF_EXCHANGE_ADDRESS_V1` — these are kept solely so we can backfill historical OrderFilled events from the V1 contracts during the cutover hour. The unsuffixed `CTF_EXCHANGE_ADDRESS` / `NEG_RISK_CTF_EXCHANGE_ADDRESS` aliases now point at V2.
+
+### Dos and don'ts going forward
+
+- ❌ **Do not** import `@polymarket/clob-client` (V1) anywhere — it's been removed from `package.json`.
+- ❌ **Do not** pass `feeRateBps`, `nonce`, or `taker` on order bodies — V2 rejects them.
+- ❌ **Do not** use `POLY_BUILDER_*` HMAC headers for order placement — V2 ignores them. They're still valid for the gasless relayer (redeem/merge).
+- ✅ **Do** auto-wrap USDC.e → pUSD on first init (already wired up in `clobClientFactory.ts`).
+- ✅ **Do** include `builderCode` on every order body when set, so attribution flows.
+- ✅ **Do** keep both V1 and V2 exchange addresses in the chain listener filter for at least the cutover week.
+
+---
+
 ## Part 1: The Core Technologies (Prerequisites)
 
 Before looking at the code, you need to understand the tools we are using.
@@ -103,7 +159,7 @@ This is the Controller. It receives signals from `walletMonitor` and decides wha
 ### 4. The Hands: `tradeExecutor.ts` & `clobClient.ts`
 This is the hardest part technically because of Authentication.
 
-*   **`clobClient.ts`**: This wraps the official `@polymarket/clob-client`.
+*   **`clobClient.ts`**: This wraps `@polymarket/clob-client-v2`.
     *   **L1 vs L2 Headers:** Polymarket Cloudflare blocks simple scripts. We use "L2 Headers" (Level 2). This involves using a standard `eoa` (Externally Owned Account) key to derive specific API credentials.
     *   **The Proxy Worker:** If running on a cloud (like Railway), our IP gets blocked. The code supports sending requests through a `cloudflare-worker` (a tiny script in the repo) to mask our IP.
 *   **`tradeExecutor.ts`**:

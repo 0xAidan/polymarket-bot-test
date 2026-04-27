@@ -10,8 +10,24 @@
 // Contract addresses (Polygon mainnet)
 // ---------------------------------------------------------------------------
 
-export const CTF_EXCHANGE_ADDRESS = '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E';
-export const NEG_RISK_CTF_EXCHANGE_ADDRESS = '0xC5d563A36AE78145C45a50134d48A1215220f80a';
+// V1 (pre-Apr 28 2026 cutover)
+export const CTF_EXCHANGE_ADDRESS_V1 = '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E';
+export const NEG_RISK_CTF_EXCHANGE_ADDRESS_V1 = '0xC5d563A36AE78145C45a50134d48A1215220f80a';
+// V2 (post-Apr 28 2026 cutover)
+export const CTF_EXCHANGE_ADDRESS_V2 = '0xE111180000d2663C0091e4f400237545B87B996B';
+export const NEG_RISK_CTF_EXCHANGE_ADDRESS_V2 = '0xe2222d279d744050d28e00520010520000310F59';
+
+// Aliases pointing at V2 going forward (so existing imports keep working post-cutover)
+export const CTF_EXCHANGE_ADDRESS = CTF_EXCHANGE_ADDRESS_V2;
+export const NEG_RISK_CTF_EXCHANGE_ADDRESS = NEG_RISK_CTF_EXCHANGE_ADDRESS_V2;
+
+// Convenience array for log subscriptions across both versions
+export const ALL_EXCHANGE_ADDRESSES = [
+  CTF_EXCHANGE_ADDRESS_V1,
+  NEG_RISK_CTF_EXCHANGE_ADDRESS_V1,
+  CTF_EXCHANGE_ADDRESS_V2,
+  NEG_RISK_CTF_EXCHANGE_ADDRESS_V2,
+];
 
 // keccak256("OrderFilled(bytes32,address,address,uint256,uint256,uint256,uint256,uint256)")
 export const ORDER_FILLED_TOPIC0 =

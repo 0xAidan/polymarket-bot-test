@@ -1,6 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
 import * as ethers from 'ethers';
-import crypto from 'crypto';
 import { config } from './config.js';
 import { isHostedMultiTenantMode } from './hostedMode.js';
 import { DetectedTrade } from './types.js';
@@ -578,105 +577,46 @@ export class PolymarketApi {
   }
 
   /**
-   * Generate HMAC signature for Builder API authentication
-   */
-  private generateBuilderSignature(
-    timestamp: string,
-    method: string,
-    path: string,
-    body: string = ''
-  ): string {
-    if (!config.polymarketBuilderSecret) {
-      throw new Error('Builder API secret not configured');
-    }
-
-    // Create the message to sign: timestamp + method + path + body
-    const message = timestamp + method.toUpperCase() + path + body;
-    
-    // Create HMAC signature using the secret
-    const signature = crypto
-      .createHmac('sha256', Buffer.from(config.polymarketBuilderSecret, 'base64'))
-      .update(message)
-      .digest('base64');
-
-    return signature;
-  }
-
-  /**
-   * Get Builder API authentication headers
-   */
-  private getBuilderAuthHeaders(method: string, path: string, body: string = ''): Record<string, string> {
-    if (!config.polymarketBuilderApiKey || !config.polymarketBuilderSecret || !config.polymarketBuilderPassphrase) {
-      throw new Error('Builder API credentials not configured. Please set POLYMARKET_BUILDER_API_KEY, POLYMARKET_BUILDER_SECRET, and POLYMARKET_BUILDER_PASSPHRASE in your .env file.');
-    }
-
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const signature = this.generateBuilderSignature(timestamp, method, path, body);
-
-    return {
-      'POLY_BUILDER_API_KEY': config.polymarketBuilderApiKey,
-      'POLY_BUILDER_TIMESTAMP': timestamp,
-      'POLY_BUILDER_PASSPHRASE': config.polymarketBuilderPassphrase,
-      'POLY_BUILDER_SIGNATURE': signature,
-    };
-  }
-
-  /**
-   * Place an order via CLOB API
-   * Note: Order placement is NOT retried to avoid duplicate orders
+   * Place an order via CLOB API.
+   * NOTE: this is a fallback path; the primary order path is via the V2 SDK in clobClient.ts.
+   * V2 ignores POLY_BUILDER_* HMAC headers — builder attribution is now via builderCode field.
    */
   async placeOrder(orderParams: {
     tokenId: string;
     side: 'BUY' | 'SELL';
     size: string;
     price: string;
-    nonce?: number;
   }): Promise<any> {
     if (!this.signer) {
       await this.initialize();
     }
 
     try {
-      // Validate Builder API credentials
-      if (!config.polymarketBuilderApiKey || !config.polymarketBuilderSecret || !config.polymarketBuilderPassphrase) {
-        throw new Error('Builder API credentials not configured. Trading requires POLYMARKET_BUILDER_API_KEY, POLYMARKET_BUILDER_SECRET, and POLYMARKET_BUILDER_PASSPHRASE.');
-      }
-
       // CLOB API order format
       const order = {
         token_id: orderParams.tokenId,
         side: orderParams.side.toLowerCase(),
         size: orderParams.size,
         price: orderParams.price,
-        nonce: orderParams.nonce || Date.now(),
       };
 
       if (!this.signer) {
         throw new Error('Signer not initialized');
       }
 
-      // Prepare request body
-      const requestBody = JSON.stringify(order);
-      // Try both endpoints - /order (singular) is the correct one based on docs
       const path = '/order';
-      
-      // Get Builder API authentication headers
-      const authHeaders = this.getBuilderAuthHeaders('POST', path, requestBody);
-      
-      log.info(`Placing order with Builder API authentication...`);
-      log.info({ detail: JSON.stringify(order, null, 2) }, `Order details`)
+
+      log.info(`Placing order via CLOB API (fallback path; primary path is the SDK)...`);
+      log.info({ detail: JSON.stringify(order, null, 2) }, `Order details`);
       log.info(`Using endpoint: ${path}`);
-      log.info(`Builder API Key: ${config.polymarketBuilderApiKey.substring(0, 10)}...`);
-      
-      // Make the request with Builder API headers
+
       const response = await this.clobApiClient.post(path, order, {
         headers: {
-          ...authHeaders,
           'Content-Type': 'application/json',
-        }
+        },
       });
 
-      log.info({ detail: JSON.stringify(response.data, null, 2) }, `Order placed successfully! Response`)
+      log.info({ detail: JSON.stringify(response.data, null, 2) }, `Order placed successfully! Response`);
       return response.data;
     } catch (error: any) {
       // Provide more detailed error information

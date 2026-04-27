@@ -30,8 +30,13 @@ export const config = {
   polymarketDataApiUrl: ensureProtocol(process.env.POLYMARKET_DATA_API_URL || '', 'https://data-api.polymarket.com'),
   polymarketGammaApiUrl: ensureProtocol(process.env.POLYMARKET_GAMMA_API_URL || '', 'https://gamma-api.polymarket.com'),
 
-  // Polymarket Builder API credentials (OPTIONAL - only for order attribution)
-  // These are NOT required for trading, only for getting credit on Builder Leaderboard
+  // Polymarket V2 Builder code (OPTIONAL — short string from polymarket.com/settings → Builder Profile).
+  // Used by the V2 CLOB SDK for order attribution. Missing builderCode is non-fatal in V2;
+  // orders place successfully without attribution.
+  polymarketBuilderCode: process.env.POLYMARKET_BUILDER_CODE || '',
+
+  // Legacy HMAC Builder credentials — STILL USED BY THE GASLESS RELAYER (redeem/merge),
+  // but no longer required for order placement under V2.
   polymarketBuilderApiKey: process.env.POLYMARKET_BUILDER_API_KEY || '',
   polymarketBuilderSecret: process.env.POLYMARKET_BUILDER_SECRET || '',
   polymarketBuilderPassphrase: process.env.POLYMARKET_BUILDER_PASSPHRASE || '',
@@ -114,12 +119,12 @@ export const config = {
       throw new Error('PRIVATE_KEY is required. Restart the bot to configure.');
     }
 
-    // Builder API credentials are REQUIRED for trading from cloud servers
-    // Without Builder authentication, requests will be blocked by Cloudflare
-    if (!this.polymarketBuilderApiKey || !this.polymarketBuilderSecret || !this.polymarketBuilderPassphrase) {
-      log.warn('Builder API credentials not configured — order requests WILL be blocked by Cloudflare. Add POLYMARKET_BUILDER_API_KEY, POLYMARKET_BUILDER_SECRET, and POLYMARKET_BUILDER_PASSPHRASE to your .env file. Get them from https://polymarket.com/settings?tab=builder');
+    // V2 builder attribution: optional. Without POLYMARKET_BUILDER_CODE, orders work but
+    // no attribution is recorded.
+    if (!this.polymarketBuilderCode) {
+      log.warn('Builder attribution requires POLYMARKET_BUILDER_CODE — without it orders work but no attribution is recorded. Get a code at https://polymarket.com/settings → Builder Profile.');
     } else {
-      log.info('Builder API credentials configured');
+      log.info('Builder code configured for V2 attribution');
     }
   }
 };

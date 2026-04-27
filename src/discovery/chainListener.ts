@@ -13,8 +13,7 @@ import { EventEmitter } from 'events';
 import WebSocket from 'ws';
 import { ethers } from 'ethers';
 import {
-  CTF_EXCHANGE_ADDRESS,
-  NEG_RISK_CTF_EXCHANGE_ADDRESS,
+  ALL_EXCHANGE_ADDRESSES,
   ORDER_FILLED_TOPIC0,
   ORDER_FILLED_DATA_TYPES,
   DiscoveredTrade,
@@ -127,10 +126,7 @@ export class ChainListener extends EventEmitter {
       params: [
         'logs',
         {
-          address: [
-            CTF_EXCHANGE_ADDRESS.toLowerCase(),
-            NEG_RISK_CTF_EXCHANGE_ADDRESS.toLowerCase(),
-          ],
+          address: ALL_EXCHANGE_ADDRESSES.map((a) => a.toLowerCase()),
           topics: [ORDER_FILLED_TOPIC0],
         },
       ],

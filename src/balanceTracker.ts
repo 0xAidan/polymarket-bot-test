@@ -13,7 +13,9 @@ const log = createComponentLogger('BalanceTracker');
 const USDC_NATIVE_ADDRESS = '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359';
 // Bridged USDC (old, legacy)
 const USDC_BRIDGED_ADDRESS = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
-// USDC has 6 decimals
+// pUSD — V2 Polymarket collateral (post-Apr 28 2026 cutover)
+const PUSD_ADDRESS = '0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB';
+// All three share 6 decimals
 const USDC_DECIMALS = 6;
 
 // ABI for ERC20 balanceOf function
@@ -47,6 +49,7 @@ export class BalanceTracker {
   private provider: any | null = null;
   private usdcNativeContract: Contract | null = null;
   private usdcBridgedContract: Contract | null = null;
+  private pusdContract: Contract | null = null;
   private historyByTenant: Map<string, Map<string, WalletBalanceHistory>> = new Map();
   private pollingInterval: NodeJS.Timeout | null = null;
   private isTracking = false;
@@ -141,9 +144,15 @@ export class BalanceTracker {
         this.provider
       );
 
+      this.pusdContract = new Contract(
+        PUSD_ADDRESS,
+        ERC20_ABI,
+        this.provider
+      );
+
       // Load existing history
       await this.loadHistory();
-      log.info('[Balance] Balance tracker initialized with both USDC variants');
+      log.info('[Balance] Balance tracker initialized with USDC native + bridged + pUSD');
     } catch (error: any) {
       log.error({ err: error }, '[Balance] Failed to initialize balance tracker')
       throw error;
@@ -286,7 +295,7 @@ export class BalanceTracker {
    */
   async getBalance(address: string): Promise<number> {
     // Ensure initialized
-    if (!this.usdcNativeContract || !this.usdcBridgedContract || !this.provider) {
+    if (!this.usdcNativeContract || !this.usdcBridgedContract || !this.pusdContract || !this.provider) {
       await this.initialize();
     }
 
@@ -305,6 +314,7 @@ export class BalanceTracker {
       let totalBalance = 0;
       let nativeBalanceNumber = 0;
       let bridgedBalanceNumber = 0;
+      let pusdBalanceNumber = 0;
       
       // Check cached balance first
       const cacheKey = this.getCacheKey(normalizedAddress, tenantId);
@@ -359,12 +369,31 @@ export class BalanceTracker {
           log.warn(`[Balance] ✗ Bridged USDC failed: ${error.message}`);
         }
       }
-      
+
+      // Small delay between contract calls to avoid rate limits
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Check pUSD (V2 collateral) with retry logic
+      try {
+        pusdBalanceNumber = await this.getBalanceWithRetry(
+          () => this.pusdContract!.balanceOf(normalizedAddress),
+          'pUSD',
+          normalizedAddress
+        );
+        totalBalance += pusdBalanceNumber;
+      } catch (error: any) {
+        if (error.message?.includes('rate limit') || error.message?.includes('Too many requests')) {
+          log.warn(`[Balance] ⚠️ Rate limited for pUSD. Continuing with partial balance.`);
+        } else {
+          log.warn(`[Balance] ✗ pUSD failed: ${error.message}`);
+        }
+      }
+
       // Update cache
       this.balanceCache.set(cacheKey, { balance: totalBalance, timestamp: Date.now() });
       this.lastRpcCallTime = Date.now();
-      
-      log.info(`[Balance] Total for ${normalizedAddress}: ${totalBalance} USDC (Native: ${nativeBalanceNumber}, Bridged: ${bridgedBalanceNumber})`);
+
+      log.info(`[Balance] Total for ${normalizedAddress}: ${totalBalance} (Native USDC: ${nativeBalanceNumber}, Bridged USDC: ${bridgedBalanceNumber}, pUSD: ${pusdBalanceNumber})`);
       
       // If both queries succeeded but balance is 0, that's valid - return 0
       // But if there were errors, we should know about them (they're already logged)
@@ -434,7 +463,7 @@ export class BalanceTracker {
     balance24hAgo: number | null;
   }> {
     // Ensure initialized before fetching
-    if (!this.usdcNativeContract || !this.usdcBridgedContract || !this.provider) {
+    if (!this.usdcNativeContract || !this.usdcBridgedContract || !this.pusdContract || !this.provider) {
       await this.initialize();
     }
 

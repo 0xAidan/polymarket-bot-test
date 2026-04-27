@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Side } from '@polymarket/clob-client';
+import { Side } from '@polymarket/clob-client-v2';
 
 import {
   buildTradeExecutionDiagnosticContext,

@@ -16,7 +16,8 @@ const POLYGON_CHAIN_ID = 137;
 // Polymarket contract addresses on Polygon
 const CTF_ADDRESS = '0x4D97DCd97eC945f40cF65F87097ACe5EA0476045';
 const NEG_RISK_ADAPTER_ADDRESS = '0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296';
-const USDC_ADDRESS = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
+// pUSD — V2 collateral (replaces USDC.e for redeem/merge after Apr 28 2026 cutover)
+const PUSD_ADDRESS = '0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB';
 
 const CTF_ABI = [
   'function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets) external',
@@ -357,7 +358,7 @@ export class PositionLifecycleManager {
       } else {
         const iface = new ethers.utils.Interface(CTF_ABI);
         callData = iface.encodeFunctionData('redeemPositions', [
-          USDC_ADDRESS,
+          PUSD_ADDRESS,
           ethers.constants.HashZero,
           pos.conditionId,
           [1, 2],
@@ -421,7 +422,7 @@ export class PositionLifecycleManager {
       const iface = new ethers.utils.Interface(CTF_ABI);
       const mergeAmount = ethers.utils.parseUnits(pos.size.toString(), 6);
       const callData = iface.encodeFunctionData('mergePositions', [
-        USDC_ADDRESS,
+        PUSD_ADDRESS,
         ethers.constants.HashZero,
         pos.conditionId,
         [1, 2],
