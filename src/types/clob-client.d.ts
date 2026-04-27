@@ -64,7 +64,7 @@ declare module '@polymarket/clob-client-v2' {
       orderType?: OrderType,
     ): Promise<any>;
     getOpenOrders(): Promise<any[]>;
-    cancelOrder(orderId: string): Promise<any>;
+    cancelOrder(payload: { orderID: string }): Promise<any>;
     cancelOrders(orderIds: string[]): Promise<any>;
     cancelAll(): Promise<any>;
     getBalanceAllowance(params: { asset_type: string }): Promise<any>;

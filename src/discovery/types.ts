@@ -29,26 +29,61 @@ export const ALL_EXCHANGE_ADDRESSES = [
   NEG_RISK_CTF_EXCHANGE_ADDRESS_V2,
 ];
 
+// V1 (pre-Apr 28 2026 cutover) — kept until V1 contracts are fully retired
 // keccak256("OrderFilled(bytes32,address,address,uint256,uint256,uint256,uint256,uint256)")
-export const ORDER_FILLED_TOPIC0 =
+export const ORDER_FILLED_TOPIC0_V1 =
   '0xd0a08e8c493f9c94f29311604c9de1b4e8c8d4c06bd0c789af57f2d65bfec0f6';
 
+// V2 (post-Apr 28 2026 cutover) — emitted by 0xE111…996B and 0xe222…0F59
+// keccak256("OrderFilled(bytes32,address,address,uint8,uint256,uint256,uint256,uint256,bytes32,bytes32)")
+export const ORDER_FILLED_TOPIC0_V2 =
+  '0xd543adfd945773f1a62f74f0ee55a5e3b9b1a28262980ba90b1a89f2ea84d8ee';
+
+// Backwards-compat alias — historically pointed at V1. Prefer the explicit _V1/_V2 constants.
+export const ORDER_FILLED_TOPIC0 = ORDER_FILLED_TOPIC0_V1;
+
+// All topic0s the chain listener should subscribe to during the cutover and after.
+// eth_subscribe topic filters use a nested-array OR, e.g. topics: [[v1, v2]].
+export const ORDER_FILLED_TOPIC0_ALL = [ORDER_FILLED_TOPIC0_V1, ORDER_FILLED_TOPIC0_V2];
+
 // ---------------------------------------------------------------------------
-// ABI fragment for decoding OrderFilled events
+// ABI fragments for decoding OrderFilled events
 // ---------------------------------------------------------------------------
 
-export const ORDER_FILLED_ABI_FRAGMENT = [
+export const ORDER_FILLED_ABI_FRAGMENT_V1 = [
   'event OrderFilled(bytes32 indexed orderHash, address indexed maker, address indexed taker, uint256 makerAssetId, uint256 takerAssetId, uint256 makerAmountFilled, uint256 takerAmountFilled, uint256 fee)',
 ];
 
+export const ORDER_FILLED_ABI_FRAGMENT_V2 = [
+  'event OrderFilled(bytes32 indexed orderHash, address indexed maker, address indexed taker, uint8 side, uint256 tokenId, uint256 makerAmountFilled, uint256 takerAmountFilled, uint256 fee, bytes32 builder, bytes32 metadata)',
+];
+
+// Backwards-compat alias.
+export const ORDER_FILLED_ABI_FRAGMENT = ORDER_FILLED_ABI_FRAGMENT_V1;
+
 // Non-indexed params in the order they appear in `data`
-export const ORDER_FILLED_DATA_TYPES = [
+// V1: (makerAssetId, takerAssetId, makerAmountFilled, takerAmountFilled, fee)
+export const ORDER_FILLED_DATA_TYPES_V1 = [
   'uint256', // makerAssetId
   'uint256', // takerAssetId
   'uint256', // makerAmountFilled
   'uint256', // takerAmountFilled
   'uint256', // fee
 ];
+
+// V2: (side, tokenId, makerAmountFilled, takerAmountFilled, fee, builder, metadata)
+export const ORDER_FILLED_DATA_TYPES_V2 = [
+  'uint8',   // side (0 = BUY, 1 = SELL)
+  'uint256', // tokenId
+  'uint256', // makerAmountFilled
+  'uint256', // takerAmountFilled
+  'uint256', // fee
+  'bytes32', // builder
+  'bytes32', // metadata
+];
+
+// Backwards-compat alias — points at V1.
+export const ORDER_FILLED_DATA_TYPES = ORDER_FILLED_DATA_TYPES_V1;
 
 // ---------------------------------------------------------------------------
 // Core types
@@ -332,12 +367,29 @@ export const DEFAULT_DISCOVERY_CONFIG: DiscoveryConfig = {
 // On-chain event (parsed from log)
 // ---------------------------------------------------------------------------
 
+/**
+ * Normalized OrderFilled event. V1 and V2 contracts emit structurally
+ * different events (V2 carries a single tokenId + side flag, V1 carries
+ * makerAssetId/takerAssetId where "0" indicates the collateral side).
+ *
+ * The decoder fills in V1- or V2-shaped fields depending on which topic0
+ * matched; downstream consumers should branch on `version`.
+ */
 export interface OrderFilledEvent {
+  version: 'v1' | 'v2';
   orderHash: string;
   maker: string;
   taker: string;
-  makerAssetId: string;
-  takerAssetId: string;
+  // V1-only: maker/taker asset IDs ("0" denotes collateral)
+  makerAssetId?: string;
+  takerAssetId?: string;
+  // V2-only: explicit side flag (0 = BUY, 1 = SELL) and the conditional token ID
+  side?: 0 | 1;
+  tokenId?: string;
+  // V2-only: builder + metadata bytes32 (kept as hex for forensic logging)
+  builder?: string;
+  metadata?: string;
+  // Common
   makerAmountFilled: string;
   takerAmountFilled: string;
   fee: string;

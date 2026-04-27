@@ -14,8 +14,11 @@ import WebSocket from 'ws';
 import { ethers } from 'ethers';
 import {
   ALL_EXCHANGE_ADDRESSES,
-  ORDER_FILLED_TOPIC0,
-  ORDER_FILLED_DATA_TYPES,
+  ORDER_FILLED_TOPIC0_V1,
+  ORDER_FILLED_TOPIC0_V2,
+  ORDER_FILLED_TOPIC0_ALL,
+  ORDER_FILLED_DATA_TYPES_V1,
+  ORDER_FILLED_DATA_TYPES_V2,
   DiscoveredTrade,
   OrderFilledEvent,
 } from './types.js';
@@ -119,6 +122,10 @@ export class ChainListener extends EventEmitter {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
     const id = this.rpcId++;
+    // Subscribe to BOTH V1 and V2 OrderFilled topic0s on ALL four exchange
+    // addresses. The nested-array topics syntax is a logical OR per JSON-RPC
+    // eth_subscribe filter spec — V1 contracts emit V1 topic0, V2 contracts
+    // emit V2 topic0, and we want every fill regardless of source.
     const payload = {
       jsonrpc: '2.0',
       id,
@@ -127,7 +134,7 @@ export class ChainListener extends EventEmitter {
         'logs',
         {
           address: ALL_EXCHANGE_ADDRESSES.map((a) => a.toLowerCase()),
-          topics: [ORDER_FILLED_TOPIC0],
+          topics: [ORDER_FILLED_TOPIC0_ALL],
         },
       ],
     };
@@ -161,17 +168,33 @@ export class ChainListener extends EventEmitter {
       const makerAmountRaw = parseFloat(event.makerAmountFilled);
       const takerAmountRaw = parseFloat(event.takerAmountFilled);
 
-      // makerAssetId "0" means the maker is providing USDC (collateral) = BUY
-      // Otherwise the maker is providing conditional tokens = SELL
-      const makerIsUsdcSide = event.makerAssetId === '0';
+      // Normalize to (side, conditionalTokenId, usdcAmount, tokenAmount).
+      // V1 and V2 events carry the same information in different shapes:
+      //   V1: makerAssetId == "0" → maker is providing collateral (BUY)
+      //   V2: explicit `side` flag (0 = BUY, 1 = SELL) + single `tokenId`
+      let side: 'BUY' | 'SELL';
+      let conditionalTokenId: string;
+      let usdcAmount: number;
+      let tokenAmount: number;
 
-      const usdcAmount = makerIsUsdcSide ? makerAmountRaw : takerAmountRaw;
-      const tokenAmount = makerIsUsdcSide ? takerAmountRaw : makerAmountRaw;
-      const conditionalTokenId = makerIsUsdcSide ? event.takerAssetId : event.makerAssetId;
+      if (event.version === 'v2') {
+        // V2: maker pays in pUSD on BUY, in conditional tokens on SELL.
+        // makerAmountFilled is always the maker-side amount, taker the inverse.
+        const isBuy = event.side === 0;
+        side = isBuy ? 'BUY' : 'SELL';
+        conditionalTokenId = event.tokenId ?? '0';
+        usdcAmount = isBuy ? makerAmountRaw : takerAmountRaw;
+        tokenAmount = isBuy ? takerAmountRaw : makerAmountRaw;
+      } else {
+        const makerIsUsdcSide = event.makerAssetId === '0';
+        side = makerIsUsdcSide ? 'BUY' : 'SELL';
+        conditionalTokenId = (makerIsUsdcSide ? event.takerAssetId : event.makerAssetId) ?? '0';
+        usdcAmount = makerIsUsdcSide ? makerAmountRaw : takerAmountRaw;
+        tokenAmount = makerIsUsdcSide ? takerAmountRaw : makerAmountRaw;
+      }
 
-      const side = makerIsUsdcSide ? 'BUY' : 'SELL';
       const shares = tokenAmount / 1e6;
-      const notionalUsd = usdcAmount / 1e6; // USDC has 6 decimals
+      const notionalUsd = usdcAmount / 1e6; // USDC/pUSD both 6 decimals
       const price = tokenAmount > 0 ? usdcAmount / tokenAmount : undefined;
       const logSuffix = log.logIndex || log.transactionIndex || '0';
       const eventKey = `${event.transactionHash}:${logSuffix}`;
@@ -203,27 +226,7 @@ export class ChainListener extends EventEmitter {
   }
 
   private parseOrderFilledLog(log: any): OrderFilledEvent | null {
-    if (!log.topics || log.topics.length < 4) return null;
-
-    const orderHash = log.topics[1];
-    const maker = '0x' + log.topics[2].slice(26);
-    const taker = '0x' + log.topics[3].slice(26);
-
-    const decoded = ethers.utils.defaultAbiCoder.decode(ORDER_FILLED_DATA_TYPES, log.data);
-
-    return {
-      orderHash,
-      maker,
-      taker,
-      makerAssetId: decoded[0].toString(),
-      takerAssetId: decoded[1].toString(),
-      makerAmountFilled: decoded[2].toString(),
-      takerAmountFilled: decoded[3].toString(),
-      fee: decoded[4].toString(),
-      blockNumber: parseInt(log.blockNumber, 16),
-      transactionHash: log.transactionHash,
-      contractAddress: log.address,
-    };
+    return parseOrderFilledLog(log);
   }
 
   private startPing(): void {
@@ -264,4 +267,61 @@ export class ChainListener extends EventEmitter {
     }
     this.subscriptionId = null;
   }
+}
+
+/**
+ * Decode a raw eth_getLogs / eth_subscription log into a normalized
+ * OrderFilledEvent. Pure function, exported for unit testing. Returns null
+ * for logs whose topic0 doesn't match either V1 or V2 OrderFilled.
+ */
+export function parseOrderFilledLog(log: any): OrderFilledEvent | null {
+  if (!log.topics || log.topics.length < 4) return null;
+
+  const topic0 = (log.topics[0] || '').toLowerCase();
+  const orderHash = log.topics[1];
+  const maker = '0x' + log.topics[2].slice(26);
+  const taker = '0x' + log.topics[3].slice(26);
+
+  const baseFields = {
+    orderHash,
+    maker,
+    taker,
+    blockNumber: parseInt(log.blockNumber, 16),
+    transactionHash: log.transactionHash,
+    contractAddress: log.address,
+  };
+
+  if (topic0 === ORDER_FILLED_TOPIC0_V2.toLowerCase()) {
+    const decoded = ethers.utils.defaultAbiCoder.decode(ORDER_FILLED_DATA_TYPES_V2, log.data);
+    const sideRaw = Number(decoded[0]);
+    const side: 0 | 1 = sideRaw === 0 ? 0 : 1;
+    return {
+      version: 'v2',
+      ...baseFields,
+      side,
+      tokenId: decoded[1].toString(),
+      makerAmountFilled: decoded[2].toString(),
+      takerAmountFilled: decoded[3].toString(),
+      fee: decoded[4].toString(),
+      builder: decoded[5],
+      metadata: decoded[6],
+    };
+  }
+
+  if (topic0 === ORDER_FILLED_TOPIC0_V1.toLowerCase()) {
+    const decoded = ethers.utils.defaultAbiCoder.decode(ORDER_FILLED_DATA_TYPES_V1, log.data);
+    return {
+      version: 'v1',
+      ...baseFields,
+      makerAssetId: decoded[0].toString(),
+      takerAssetId: decoded[1].toString(),
+      makerAmountFilled: decoded[2].toString(),
+      takerAmountFilled: decoded[3].toString(),
+      fee: decoded[4].toString(),
+    };
+  }
+
+  // Unknown topic0 — drop silently rather than crash; a stray subscription
+  // hit on an event we don't model is a non-fatal upstream provider quirk.
+  return null;
 }

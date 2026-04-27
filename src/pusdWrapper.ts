@@ -49,11 +49,16 @@ export async function ensurePusdReady(
   const eoa = signer.address;
   const key = eoa.toLowerCase();
   if (attempted.has(key)) return;
-  attempted.add(key);
 
   try {
     const provider = signer.provider as ethers.providers.Provider;
-    if (!provider) { log.warn('[pUSD] No provider on signer; skipping auto-wrap'); return; }
+    if (!provider) {
+      log.warn('[pUSD] No provider on signer; skipping auto-wrap');
+      // No provider is a structural condition that won't change for the
+      // lifetime of this signer — record so we don't keep re-checking.
+      attempted.add(key);
+      return;
+    }
 
     const usdce = new ethers.Contract(USDCE_ADDRESS, ERC20_ABI, signer);
     const pusd = new ethers.Contract(PUSD_ADDRESS, ERC20_ABI, provider);
@@ -68,6 +73,8 @@ export async function ensurePusdReady(
     const minWrap = ethers.utils.parseUnits('1', 6);
     if (usdceBalRaw.lt(minWrap)) {
       log.info(`[pUSD] EOA ${eoa.substring(0, 10)}… holds <$1 USDC.e — no auto-wrap needed (pUSD bal=${pusdBalRaw.toString()})`);
+      // Below threshold counts as "done" — mark attempted so we don't poll again.
+      attempted.add(key);
       return;
     }
 
@@ -83,7 +90,12 @@ export async function ensurePusdReady(
     const wrapTx = await onramp.wrap(USDCE_ADDRESS, eoa, usdceBalRaw);
     await wrapTx.wait(1);
     log.info(`[pUSD] ✓ Wrapped — tx ${wrapTx.hash}`);
+    // Only mark attempted AFTER the wrap succeeds. Transient failures (RPC
+    // blip, gas estimation, revert) leave the wallet retryable on next init.
+    attempted.add(key);
   } catch (err: any) {
     log.warn(`[pUSD] Auto-wrap skipped/failed (non-fatal): ${err?.message ?? err}`);
+    // Do NOT mark attempted on failure — the next ensurePusdReady() call
+    // (e.g. on next process start, or a subsequent tenant init) should retry.
   }
 }
