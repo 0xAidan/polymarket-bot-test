@@ -1103,3 +1103,23 @@ ad-hoc script:
 6. **Print progress at every step.** A silent script on a slow box looks the
    same as a hung script; explicit `[hh:mm:ss] Step N/M: ...` log lines let an
    operator distinguish them.
+
+---
+
+### Data freshness reality (must read before trusting any PnL/volume number)
+
+**The `discovery_activity_v3` table is incomplete from 2026-03-05 onward.**
+
+- The backfill source is the [`SII-WANGZJ/Polymarket_data` HuggingFace dataset](https://huggingface.co/datasets/SII-WANGZJ/Polymarket_data).
+- That dataset's coverage **ends at 2026-03-04** (last updated 2026-03-05).
+- Anything after that date depends on the chain/Goldsky listener catching up. As of 2026-04-28 a sizeable gap exists between the parquet's cutoff and when continuous listening began. A `verify:pnl:full` run on this date showed 11/20 wallets PASS — the 9 FAILs were all data-gap, not math-error.
+- Fix tracked in **issue #103** (gap-backfill).
+
+**Until #103 is closed:** treat any wallet whose last trade is < 24h old as
+suspect for completeness. The PnL math (PR #102) is correct; the inputs to
+that math are stale. Run `scripts/triage-wallet.ts <wallet>` on any
+discrepancy before assuming it's a code bug.
+
+**Before regression-testing:** check `MAX(ts_unix)` from `discovery_activity_v3`
+and report it loudly. If it's > 24h stale, the data-freshness gap will
+dominate any other signal you're trying to measure.
