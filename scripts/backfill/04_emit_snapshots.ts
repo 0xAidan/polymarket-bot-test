@@ -2,31 +2,36 @@
  * Phase 1.5 step 4: emit point-in-time daily snapshots into
  * discovery_feature_snapshots_v3.
  *
- * 2026-04-28 STAGED REWRITE
- * ─────────────────────────
- * The prior version ran one giant SQL with three full GROUP BY scans of
- * discovery_activity_v3 (912M rows) plus a FULL OUTER JOIN plus a window
- * function — all in one query graph. DuckDB tried to materialize all three
- * hash tables concurrently and blew past any memory_limit, hitting 14.7 GB
- * RSS on a 16 GB box and triggering swap thrash + 55 GB of spill that
- * filled the data volume.
+ * 2026-04-28 CHUNKED-STAGED REWRITE (v3)
+ * ──────────────────────────────────────
+ * History:
+ *  v1 (original): single giant SQL with 3 concurrent activity-table GROUP BY
+ *      scans + FULL OUTER JOIN + window. Hit 14.7 GB RSS on the 16 GB Hetzner
+ *      box, 55 GB spill, OOM-thrashed.
+ *  v2 (staged):   split into 6 sequential stages with DROP TABLE between
+ *      them. Reduced peak memory but stage A's GROUP BY over 912M rows still
+ *      spilled ~75 GB on its own — too much for the 127 GB-free volume once
+ *      the live db is also there.
+ *  v3 (this version): for the three full-activity-table stages (A, B, E),
+ *      chunk the input by hash buckets so no single GROUP BY is more than
+ *      ~1/N of the table. Per-chunk spill stays small (~3–5 GB), and each
+ *      chunk's hash table is freed before the next. Total wall time ~= same
+ *      as v2 (we still scan the table N times per stage, but each scan is
+ *      filter-pushed-down to that bucket's rows — DuckDB still reads the
+ *      whole table physically, but only hashes 1/N of it).
  *
- * This rewrite executes the same logic as a sequence of stages, each one
- * materialized to a temp table and dropped before the next stage runs:
+ *      Wallet-based stages (A, E): bucket = hash(proxy_wallet) % N
+ *      Market-based stage (B):     bucket = hash(market_id)    % N
  *
- *   Stage A: wallet_market_agg          ← scan #1 of activity (GROUP BY wallet, market)
- *   Stage B: market_last_price          ← scan #2 of activity (GROUP BY market)
- *   Stage C: wallet_market_pnl          ← join A + markets_v3 + B (no activity scan)
- *   Stage D: daily_pnl                  ← scan of C only
- *   Stage E: daily_activity             ← scan #3 of activity (GROUP BY wallet, day)
- *   Stage F: merged + window + INSERT   ← scan of D + E only
+ *      Results from each chunk INSERT into a single accumulator table per
+ *      stage (_emit_wma, _emit_mlp, _emit_da). Final stages (C, D, F)
+ *      operate on those accumulators only — no activity scan.
  *
- * Each stage's hash table is freed (DROP TABLE) before the next runs, so
- * peak memory = max(individual stage size), not sum. On the Hetzner box this
- * translates to ~6-8 GB peak instead of 14+.
- *
- * No correctness change — same final rows, byte-identical output to the
- * old single-query version (validated by tests/v3-snapshot-purity.test.ts).
+ * Knobs (env, all optional):
+ *   DUCKDB_MEMORY_LIMIT_GB   default 6
+ *   DUCKDB_THREADS           default 2
+ *   DUCKDB_MAX_TEMP_DIR_GB   default 40
+ *   EMIT_CHUNKS              default 16   (number of hash buckets per stage)
  */
 import { openDuckDB } from '../../src/discovery/v3/duckdbClient.js';
 import { runV3DuckDBMigrationsBackfillNoIndex } from '../../src/discovery/v3/duckdbSchema.js';
@@ -40,71 +45,98 @@ function logStage(label: string, t0: number): void {
 async function main(): Promise<void> {
   const db = openDuckDB(getDuckDBPath());
   try {
-    // No-index migration: the backfilled discovery_activity_v3 has ~912M rows
-    // and DuckDB 1.4.x CREATE INDEX would OOM. See duckdbSchema.ts.
     await runV3DuckDBMigrationsBackfillNoIndex((sql) => db.exec(sql));
 
     // ─── Memory tuning ──────────────────────────────────────────────────────
-    // Honor env overrides but apply hard defaults that have been verified to
-    // work on the 16 GB Hetzner box.
-    const memLimit = process.env.DUCKDB_MEMORY_LIMIT_GB || '8';
+    const memLimit = process.env.DUCKDB_MEMORY_LIMIT_GB || '6';
     const threads = process.env.DUCKDB_THREADS || '2';
-    const tempCap = process.env.DUCKDB_MAX_TEMP_DIR_GB || '60';
+    const tempCap = process.env.DUCKDB_MAX_TEMP_DIR_GB || '40';
+    const N = Math.max(2, parseInt(process.env.EMIT_CHUNKS || '16', 10));
     await db.exec(`SET memory_limit = '${memLimit}GB'`);
     await db.exec(`SET threads = ${threads}`);
     await db.exec(`SET max_temp_directory_size = '${tempCap}GiB'`);
     await db.exec(`SET preserve_insertion_order = false`);
-    console.log(`[04] tuned: memory_limit=${memLimit}GB threads=${threads} temp_cap=${tempCap}GiB`);
+    console.log(
+      `[04] tuned: memory_limit=${memLimit}GB threads=${threads} ` +
+        `temp_cap=${tempCap}GiB chunks=${N}`,
+    );
 
     // ─── Wipe target table for deterministic rebuild ────────────────────────
     console.log('[04] clearing old snapshots (determinism requires full rebuild)');
     await db.exec('DELETE FROM discovery_feature_snapshots_v3');
 
     // ─── Drop any stale staging tables from a prior crashed run ─────────────
-    for (const t of ['_emit_wma', '_emit_mlp', '_emit_wmp', '_emit_dp', '_emit_da', '_emit_merged']) {
+    for (const t of ['_emit_wma', '_emit_mlp', '_emit_wmp', '_emit_dp', '_emit_da']) {
       await db.exec(`DROP TABLE IF EXISTS ${t}`);
     }
 
     const tWall = Date.now();
 
     // ─── Stage A: per-(wallet, market) cash flow + token balance ───────────
-    // First scan of discovery_activity_v3. Output rows ≈ unique (wallet, market)
-    // pairs ≈ tens of millions. Hash GROUP BY, equality only — spillable.
+    // Chunked by hash(proxy_wallet) % N. Each chunk does its own GROUP BY,
+    // INSERTs into _emit_wma, then frees its hash table before the next
+    // chunk runs. Per-chunk spill stays bounded.
     {
-      const t0 = Date.now();
-      console.log('[04] stage A/F: wallet_market_agg (scan 1 of 3)');
+      const tStage = Date.now();
+      console.log(`[04] stage A/F: wallet_market_agg in ${N} chunks`);
       await db.exec(`
-        CREATE TABLE _emit_wma AS
-        SELECT
-          proxy_wallet,
-          market_id,
-          SUM(CASE WHEN side = 'SELL' THEN usd_notional ELSE -usd_notional END) AS cash_flow,
-          SUM(signed_size)                                                        AS token_balance,
-          MIN(ts_unix)                                                            AS first_trade_ts,
-          MAX(ts_unix)                                                            AS last_trade_ts
-        FROM discovery_activity_v3
-        GROUP BY proxy_wallet, market_id
+        CREATE TABLE _emit_wma (
+          proxy_wallet     VARCHAR,
+          market_id        VARCHAR,
+          cash_flow        DOUBLE,
+          token_balance    DOUBLE,
+          first_trade_ts   UBIGINT,
+          last_trade_ts    UBIGINT
+        )
       `);
+      for (let i = 0; i < N; i++) {
+        const t0 = Date.now();
+        await db.exec(`
+          INSERT INTO _emit_wma
+          SELECT
+            proxy_wallet,
+            market_id,
+            SUM(CASE WHEN side = 'SELL' THEN usd_notional ELSE -usd_notional END) AS cash_flow,
+            SUM(signed_size)                                                        AS token_balance,
+            MIN(ts_unix)                                                            AS first_trade_ts,
+            MAX(ts_unix)                                                            AS last_trade_ts
+          FROM discovery_activity_v3
+          WHERE hash(proxy_wallet) % ${N} = ${i}
+          GROUP BY proxy_wallet, market_id
+        `);
+        logStage(`  A chunk ${i + 1}/${N}`, t0);
+      }
       const c = (await db.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM _emit_wma'))[0].c;
-      logStage(`stage A done: ${c} (wallet, market) rows`, t0);
+      logStage(`stage A done: ${c} (wallet, market) rows`, tStage);
     }
 
     // ─── Stage B: per-market last observed price ────────────────────────────
-    // Second scan of activity. Output rows = distinct markets ≈ hundreds of
-    // thousands. Tiny output but still touches all 912M rows.
+    // Chunked by hash(market_id) % N. Output is small (~hundreds of
+    // thousands of markets total) but hash table during build can be large.
     {
-      const t0 = Date.now();
-      console.log('[04] stage B/F: market_last_price (scan 2 of 3)');
+      const tStage = Date.now();
+      console.log(`[04] stage B/F: market_last_price in ${N} chunks`);
       await db.exec(`
-        CREATE TABLE _emit_mlp AS
-        SELECT
-          market_id,
-          arg_max(price_yes, ts_unix) AS last_price_yes
-        FROM discovery_activity_v3
-        GROUP BY market_id
+        CREATE TABLE _emit_mlp (
+          market_id      VARCHAR,
+          last_price_yes DOUBLE
+        )
       `);
+      for (let i = 0; i < N; i++) {
+        const t0 = Date.now();
+        await db.exec(`
+          INSERT INTO _emit_mlp
+          SELECT
+            market_id,
+            arg_max(price_yes, ts_unix) AS last_price_yes
+          FROM discovery_activity_v3
+          WHERE hash(market_id) % ${N} = ${i}
+          GROUP BY market_id
+        `);
+        logStage(`  B chunk ${i + 1}/${N}`, t0);
+      }
       const c = (await db.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM _emit_mlp'))[0].c;
-      logStage(`stage B done: ${c} markets`, t0);
+      logStage(`stage B done: ${c} markets`, tStage);
     }
 
     // ─── Stage C: per-(wallet, market) PnL with resolution + unrealized ────
@@ -145,13 +177,11 @@ async function main(): Promise<void> {
       `);
       const c = (await db.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM _emit_wmp'))[0].c;
       logStage(`stage C done: ${c} rows`, t0);
-      // Free A and B — no longer needed.
       await db.exec('DROP TABLE _emit_wma');
       await db.exec('DROP TABLE _emit_mlp');
     }
 
     // ─── Stage D: per-(wallet, day) PnL roll-up ─────────────────────────────
-    // Operates only on _emit_wmp (small).
     {
       const t0 = Date.now();
       console.log('[04] stage D/F: daily_pnl');
@@ -179,29 +209,44 @@ async function main(): Promise<void> {
     }
 
     // ─── Stage E: per-(wallet, day) activity stats ──────────────────────────
-    // Third (and last) scan of discovery_activity_v3.
+    // Chunked by hash(proxy_wallet) % N.
     {
-      const t0 = Date.now();
-      console.log('[04] stage E/F: daily_activity (scan 3 of 3)');
+      const tStage = Date.now();
+      console.log(`[04] stage E/F: daily_activity in ${N} chunks`);
       await db.exec(`
-        CREATE TABLE _emit_da AS
-        SELECT
-          proxy_wallet,
-          CAST(TO_TIMESTAMP(ts_unix) AS DATE)   AS snapshot_day,
-          COUNT(*)                              AS trade_count_day,
-          SUM(usd_notional)                     AS volume_day,
-          APPROX_COUNT_DISTINCT(market_id)      AS distinct_markets_day,
-          MIN(ts_unix)                          AS first_active_ts_day,
-          MAX(ts_unix)                          AS last_active_ts_day
-        FROM discovery_activity_v3
-        GROUP BY proxy_wallet, CAST(TO_TIMESTAMP(ts_unix) AS DATE)
+        CREATE TABLE _emit_da (
+          proxy_wallet         VARCHAR,
+          snapshot_day         DATE,
+          trade_count_day      BIGINT,
+          volume_day           DOUBLE,
+          distinct_markets_day BIGINT,
+          first_active_ts_day  UBIGINT,
+          last_active_ts_day   UBIGINT
+        )
       `);
+      for (let i = 0; i < N; i++) {
+        const t0 = Date.now();
+        await db.exec(`
+          INSERT INTO _emit_da
+          SELECT
+            proxy_wallet,
+            CAST(TO_TIMESTAMP(ts_unix) AS DATE)   AS snapshot_day,
+            COUNT(*)                              AS trade_count_day,
+            SUM(usd_notional)                     AS volume_day,
+            APPROX_COUNT_DISTINCT(market_id)      AS distinct_markets_day,
+            MIN(ts_unix)                          AS first_active_ts_day,
+            MAX(ts_unix)                          AS last_active_ts_day
+          FROM discovery_activity_v3
+          WHERE hash(proxy_wallet) % ${N} = ${i}
+          GROUP BY proxy_wallet, CAST(TO_TIMESTAMP(ts_unix) AS DATE)
+        `);
+        logStage(`  E chunk ${i + 1}/${N}`, t0);
+      }
       const c = (await db.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM _emit_da'))[0].c;
-      logStage(`stage E done: ${c} (wallet, day) activity rows`, t0);
+      logStage(`stage E done: ${c} (wallet, day) activity rows`, tStage);
     }
 
     // ─── Stage F: merge + cumulative window + INSERT into target ────────────
-    // Operates on _emit_da and _emit_dp only (both small).
     {
       const t0 = Date.now();
       console.log('[04] stage F/F: merge + window + INSERT');
