@@ -1,5 +1,5 @@
 import { V3FeatureSnapshot, V3WalletScore, TierName } from './types.js';
-import { isEligible } from './eligibility.js';
+import { isEligible, ELIGIBILITY_THRESHOLDS } from './eligibility.js';
 
 /**
  * Latest-per-wallet reduction over a set of snapshots. The snapshots already
@@ -41,6 +41,54 @@ function percentileRank(values: number[]): number[] {
   const ranks = new Array<number>(n);
   for (let k = 0; k < n; k++) ranks[sorted[k].i] = (k + 0.5) / n;
   return ranks;
+}
+
+/**
+ * Soft gate for lower-bound thresholds (larger-is-better dimensions).
+ *
+ *   value >= min          → 1.0  (full score, no penalty)
+ *   min*0.5 <= value < min → linear ramp from 0 → 1  (partial score)
+ *   value < min*0.5        → 0    (hard exclude — caller already filtered these out
+ *                                  via isEligible, but 0 is returned defensively)
+ *
+ * Linear ramp: (value − min×0.5) / (min×0.5)
+ *   At value = min×0.5 → 0   At value = min → 1
+ */
+function softGateMultiplier(value: number, min: number): number {
+  if (value >= min) return 1.0;
+  if (value < min * 0.5) return 0;
+  return (value - min * 0.5) / (min * 0.5);
+}
+
+/**
+ * Soft gate for upper-bound thresholds (smaller-is-better dimensions, e.g. dormancy).
+ *
+ *   value <= max          → 1.0
+ *   max < value <= max*2  → linear ramp from 1 → 0
+ *   value > max*2          → 0  (hard exclude)
+ */
+function softGateMultiplierMax(value: number, max: number): number {
+  if (value <= max) return 1.0;
+  if (value > max * 2) return 0;
+  return (max * 2 - value) / max;
+}
+
+/**
+ * Combined soft multiplier for a single snapshot.
+ * Takes the minimum across all dimensions so the tightest constraint governs.
+ * Wallets fully above every threshold return 1.0; wallets in the soft zone
+ * on any dimension are penalised proportionally on their final score.
+ */
+function computeSoftMultiplier(snap: V3FeatureSnapshot, nowTs: number): number {
+  const dormancyDays = (nowTs - snap.last_active_ts) / 86400;
+  return Math.min(
+    softGateMultiplier(snap.trade_count,           ELIGIBILITY_THRESHOLDS.MIN_TRADE_COUNT),
+    softGateMultiplier(snap.distinct_markets,      ELIGIBILITY_THRESHOLDS.MIN_DISTINCT_MARKETS),
+    softGateMultiplier(snap.closed_positions,      ELIGIBILITY_THRESHOLDS.MIN_CLOSED_POSITIONS),
+    softGateMultiplier(snap.volume_total,          ELIGIBILITY_THRESHOLDS.MIN_VOLUME_TOTAL),
+    softGateMultiplier(snap.observation_span_days, ELIGIBILITY_THRESHOLDS.MIN_OBSERVATION_SPAN_DAYS),
+    softGateMultiplierMax(dormancyDays,            ELIGIBILITY_THRESHOLDS.MAX_DORMANCY_DAYS),
+  );
 }
 
 export interface TierScoringInput {
@@ -133,10 +181,11 @@ export function scoreTiers(
 
   for (let i = 0; i < eligible.length; i++) {
     const s = eligible[i].snapshot;
+    const softM = computeSoftMultiplier(s, now);
     allRanked.push(
-      { wallet: s.proxy_wallet, snapshot: s, tier: 'alpha',       score: alphaPct[i] * 100,      reasons: ['edge_rate', 'market_breadth', 'trade_count'] },
-      { wallet: s.proxy_wallet, snapshot: s, tier: 'whale',       score: whalePct[i] * 100,      reasons: ['volume_total', 'trade_count', 'observation_span'] },
-      { wallet: s.proxy_wallet, snapshot: s, tier: 'specialist',  score: specialistPct[i] * 100, reasons: ['edge_rate', 'market_breadth', 'volume_total'] },
+      { wallet: s.proxy_wallet, snapshot: s, tier: 'alpha',      score: alphaPct[i]     * 100 * softM, reasons: ['edge_rate', 'market_breadth', 'trade_count'] },
+      { wallet: s.proxy_wallet, snapshot: s, tier: 'whale',      score: whalePct[i]     * 100 * softM, reasons: ['volume_total', 'trade_count', 'observation_span'] },
+      { wallet: s.proxy_wallet, snapshot: s, tier: 'specialist', score: specialistPct[i] * 100 * softM, reasons: ['edge_rate', 'market_breadth', 'volume_total'] },
     );
   }
 
