@@ -50,10 +50,13 @@ while (offset < 5000) {
   offset += 500;
 }
 console.log(`  ${apiCount} trades, total usdcSize=$${apiVol.toFixed(2)}`);
+function eraOf(ts: number): string {
+  return ts >= V2_CUTOVER_TS ? 'V2' : 'V1';
+}
 for (const t of apiRows) {
-  const ts = new Date(Number(t.timestamp) * 1000).toISOString();
-  const era = Number(t.timestamp) >= V2_CUTOVER_TS ? 'V2' : 'V1';
-  console.log(`  ${era} ${ts} ${String(t.side).padEnd(4)} px=${Number(t.price ?? 0).toFixed(4)} usd=${Number(t.usdcSize ?? 0).toFixed(2)} cond=${String(t.conditionId ?? '').slice(0,16)}... tx=${String(t.transactionHash ?? '').slice(0,10)}`);
+  const tsNum = Number(t.timestamp);
+  const ts = new Date(tsNum * 1000).toISOString();
+  console.log(`  ${eraOf(tsNum)} ${ts} ${String(t.side).padEnd(4)} px=${Number(t.price ?? 0).toFixed(4)} usd=${Number(t.usdcSize ?? 0).toFixed(2)} cond=${String(t.conditionId ?? '').slice(0,16)}... tx=${String(t.transactionHash ?? '').slice(0,10)}`);
 }
 
 console.log(`\n── Diff ─────────────────────────────────────────────────────────────`);
@@ -62,6 +65,19 @@ const ourTxOnlySet = new Set(rows.map(r => String(r.tx_hash).toLowerCase()));
 const missing = apiRows.filter(t => !ourTxOnlySet.has(String(t.transactionHash ?? '').toLowerCase()));
 console.log(`  trades in API but not in our DB (by tx_hash): ${missing.length}`);
 for (const t of missing) {
-  const era = Number(t.timestamp) >= V2_CUTOVER_TS ? 'V2' : 'V1';
-  console.log(`    ${era} ${new Date(Number(t.timestamp) * 1000).toISOString()} ${t.side} usd=${Number(t.usdcSize).toFixed(2)} tx=${t.transactionHash}`);
+  const tsNum = Number(t.timestamp);
+  const era = tsNum >= V2_CUTOVER_TS ? 'V2' : 'V1';
+  console.log(`    ${era} ${new Date(tsNum * 1000).toISOString()} ${t.side} usd=${Number(t.usdcSize).toFixed(2)} tx=${t.transactionHash}`);
+}
+if (missing.length > 0) {
+  const v1Missing = missing.filter(t => Number(t.timestamp) < V2_CUTOVER_TS);
+  const v2Missing = missing.filter(t => Number(t.timestamp) >= V2_CUTOVER_TS);
+  const v1MissingVol = v1Missing.reduce((s, t) => s + Number(t.usdcSize ?? 0), 0);
+  const v2MissingVol = v2Missing.reduce((s, t) => s + Number(t.usdcSize ?? 0), 0);
+  console.log(`\n  By era: V1 missing=${v1Missing.length} ($${v1MissingVol.toFixed(2)}), V2 missing=${v2Missing.length} ($${v2MissingVol.toFixed(2)})`);
+  if (v2Missing.length > 0) {
+    console.log(`  ⚠️  V2 trades missing — possible chain listener bug. Check src/discovery/v3/chainListener.ts`);
+  } else if (v1Missing.length > 0) {
+    console.log(`  ℹ️  Only V1 trades missing — likely incomplete users.parquet snapshot, not a listener bug.`);
+  }
 }
