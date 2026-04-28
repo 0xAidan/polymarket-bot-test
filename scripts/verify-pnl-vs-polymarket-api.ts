@@ -1,33 +1,34 @@
 #!/usr/bin/env tsx
 /**
- * PnL Verification Harness: compare our DuckDB-derived PnL against Polymarket's Data API.
+ * PnL Verification Harness — cross-check our PnL math vs. Polymarket Data API.
+ *
+ * 2026-04-28 rewrite: 8GB-RAM-friendly. The previous version ran 5 full
+ * GROUP BY scans over the 912M-row discovery_activity_v3 table during the
+ * sampling phase, which OOM-thrashed the Hetzner host and never finished.
+ *
+ * New strategy:
+ *   - Sample candidate wallets from discovery_feature_snapshots_v3 (small,
+ *     pre-aggregated), NOT from discovery_activity_v3.
+ *   - Compute PnL only for the small WHERE proxy_wallet IN (...) slice.
+ *   - Set DUCKDB_MEMORY_LIMIT_GB defensively so a stray query can't OOM the box.
+ *   - Default to 5 wallets for fast smoke-test; --wallets 20 after smoke passes.
+ *   - Log progress at every step so we know where it is.
  *
  * Usage:
- *   npx tsx scripts/verify-pnl-vs-polymarket-api.ts [--duckdb-path /path/to/discovery.duckdb]
+ *   npx tsx scripts/verify-pnl-vs-polymarket-api.ts                 # 5 wallets
+ *   npx tsx scripts/verify-pnl-vs-polymarket-api.ts --wallets 20    # full 20
+ *   npx tsx scripts/verify-pnl-vs-polymarket-api.ts --dry-run       # skip API
  *
- * What it does:
- *   1. Samples 20 wallets from discovery_activity_v3 covering 5 wallet types.
- *   2. For each wallet, computes our PnL using the new cash-flow SQL.
- *   3. Fetches volume from Polymarket Data API (/v1/activity, paginated).
- *   4. Cross-checks volume (PnL cross-check against API requires closed-position
- *      API endpoint which is not publicly paginated — see Notes below).
- *   5. Prints a pass/fail table. Exits non-zero on any mismatch.
+ * Tolerance: volume delta <= 1.0 USDC OR <= 0.5% relative.
  *
- * Tolerance: volume delta <= 1.0 USDC OR <= 0.5% relative (whichever is larger).
- * For wallets where the API pagination caps out (mega-wallets), we require
- * derived >= api-lower-bound only.
+ * V1/V2 coverage: wallets with last trade ts >= 1745827200
+ * (Apr 28 2026 07:00 UTC) trade on V2. We bias the sample toward including
+ * at least 1 V2-era wallet (or as many as exist, if smoke-test size).
  *
- * V1/V2 coverage: wallets with last_trade_ts >= 1745827200 (Apr 28 2026 07:00 UTC)
- * have V2 trades. The harness explicitly selects >= 3 such wallets.
- *
- * Notes on PnL vs. volume cross-check:
- *   The Polymarket Data API /v1/activity endpoint returns per-trade volume (usdcSize)
- *   and type=TRADE events. It does NOT return a realized PnL field. Our PnL cross-check
- *   therefore compares VOLUME (which we can verify independently) rather than PnL dollar
- *   values directly. For resolved markets, resolution payouts are captured through
- *   our cash-flow formula — the API does not expose them separately.
- *
- *   This is the same approach used in 06_validate.ts. See docs/2026-04-24-post-backfill-validator-triage.md.
+ * Notes on PnL vs. volume cross-check: the public Data API exposes per-trade
+ * volume (usdcSize) but no realized-PnL field, so we cross-check VOLUME (which
+ * we can verify independently). PnL math is exercised end-to-end and printed,
+ * but only volume is asserted against the API. Same approach as 06_validate.ts.
  */
 
 import { parseArgs } from 'node:util';
@@ -37,166 +38,164 @@ import { validateWalletAgainstDataApi } from '../src/discovery/v3/dataApiValidat
 // ─── Constants ───────────────────────────────────────────────────────────────
 const V2_CUTOVER_TS = 1745827200; // 2026-04-28 07:00:00 UTC
 
-// Tolerance: pass if delta <= 1 USDC OR <= 0.5% (whichever lets through more)
+// Tolerance: pass if abs delta <= 1 USDC OR rel delta <= 0.5%
 const ABS_TOLERANCE_USD = 1.0;
 const REL_TOLERANCE = 0.005;
 
-const TARGET_WALLET_COUNT = 20;
-const MIN_V2_WALLETS = 3; // must have at least 3 wallets with V2 trades
+// Default smoke-test size. CLI --wallets overrides.
+const DEFAULT_WALLET_COUNT = 5;
+const MAX_WALLET_COUNT = 50;
+
+// Defensive memory cap if caller didn't already set DUCKDB_MEMORY_LIMIT_GB.
+// 5 GB leaves ~3 GB for the OS, listener, and Node on an 8 GB Hetzner box.
+const DEFAULT_MEMORY_LIMIT_GB = 5;
 
 // ─── Wallet type definitions (used for sampling) ─────────────────────────────
 type WalletType = 'buy_and_hold' | 'swing' | 'market_maker' | 'arb' | 'mixed';
+const WALLET_TYPES: WalletType[] = ['buy_and_hold', 'swing', 'market_maker', 'arb', 'mixed'];
 
-interface WalletSample {
+interface WalletMeta {
+  walletType: WalletType;
+  hasV2Trades: boolean;
+  tradeCount: number;
+  marketCount: number;
+  volume: number;
+}
+
+interface PnlRow {
   proxy_wallet: string;
-  wallet_type: WalletType;
-  has_v2_trades: boolean;
-  trade_count: number;
-  market_count: number;
-  volume_total: number;
-  our_pnl: number;
   our_volume: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  total_pnl: number;
 }
 
-// ─── Sampling SQL per wallet type ────────────────────────────────────────────
-
-function buildSampleSql(walletType: WalletType, limit: number, nowTs: number): string {
-  const v2Cutoff = V2_CUTOVER_TS;
-  switch (walletType) {
-    case 'buy_and_hold':
-      // Low trade count per market, many markets, high closed_ratio
-      return `
-        WITH wm AS (
-          SELECT proxy_wallet,
-            COUNT(*) AS trade_count,
-            COUNT(DISTINCT market_id) AS market_count,
-            SUM(usd_notional) AS volume,
-            MAX(ts_unix) AS last_ts,
-            COUNT(*) * 1.0 / NULLIF(COUNT(DISTINCT market_id), 0) AS trades_per_market
-          FROM discovery_activity_v3
-          GROUP BY proxy_wallet
-        )
-        SELECT proxy_wallet, trade_count, market_count, volume,
-          trade_count < 200 AND trades_per_market < 3.0 AS is_hold,
-          last_ts >= ${v2Cutoff} AS has_v2_trades
-        FROM wm
-        WHERE trade_count BETWEEN 10 AND 200
-          AND market_count >= 5
-          AND trades_per_market < 3.0
-        ORDER BY RANDOM()
-        LIMIT ${limit}
-      `;
-    case 'swing':
-      // High trade count per market (many round-trips in same market)
-      return `
-        WITH wm AS (
-          SELECT proxy_wallet,
-            COUNT(*) AS trade_count,
-            COUNT(DISTINCT market_id) AS market_count,
-            SUM(usd_notional) AS volume,
-            MAX(ts_unix) AS last_ts,
-            COUNT(*) * 1.0 / NULLIF(COUNT(DISTINCT market_id), 0) AS trades_per_market
-          FROM discovery_activity_v3
-          GROUP BY proxy_wallet
-        )
-        SELECT proxy_wallet, trade_count, market_count, volume,
-          trades_per_market >= 8.0 AS is_swing,
-          last_ts >= ${v2Cutoff} AS has_v2_trades
-        FROM wm
-        WHERE trade_count BETWEEN 30 AND 5000
-          AND market_count >= 3
-          AND trades_per_market >= 8.0
-        ORDER BY RANDOM()
-        LIMIT ${limit}
-      `;
-    case 'market_maker':
-      // Very high trade count, maker role ratio > 0.7, many small fills
-      return `
-        WITH wm AS (
-          SELECT proxy_wallet,
-            COUNT(*) AS trade_count,
-            COUNT(DISTINCT market_id) AS market_count,
-            SUM(usd_notional) AS volume,
-            MAX(ts_unix) AS last_ts,
-            SUM(CASE WHEN role = 'maker' THEN 1 ELSE 0 END) * 1.0 / NULLIF(COUNT(*), 0) AS maker_ratio,
-            AVG(usd_notional) AS avg_fill_size
-          FROM discovery_activity_v3
-          GROUP BY proxy_wallet
-        )
-        SELECT proxy_wallet, trade_count, market_count, volume,
-          maker_ratio > 0.7 AS is_mm,
-          last_ts >= ${v2Cutoff} AS has_v2_trades
-        FROM wm
-        WHERE trade_count > 500
-          AND maker_ratio > 0.7
-          AND avg_fill_size < 200
-        ORDER BY RANDOM()
-        LIMIT ${limit}
-      `;
-    case 'arb':
-      // Holds both BUY and SELL in same market (net YES and NO simultaneously)
-      // Approximate: wallet has both BUY and SELL in same market_id
-      return `
-        WITH market_sides AS (
-          SELECT proxy_wallet, market_id,
-            SUM(CASE WHEN side = 'BUY' THEN abs_size ELSE 0 END) AS buy_size,
-            SUM(CASE WHEN side = 'SELL' THEN abs_size ELSE 0 END) AS sell_size
-          FROM discovery_activity_v3
-          GROUP BY proxy_wallet, market_id
-        ),
-        arb_wallets AS (
-          SELECT proxy_wallet,
-            COUNT(CASE WHEN buy_size > 0 AND sell_size > 0 THEN 1 END) AS two_side_markets
-          FROM market_sides
-          GROUP BY proxy_wallet
-          HAVING COUNT(CASE WHEN buy_size > 0 AND sell_size > 0 THEN 1 END) >= 3
-        ),
-        wm AS (
-          SELECT a.proxy_wallet,
-            COUNT(*) AS trade_count,
-            COUNT(DISTINCT a.market_id) AS market_count,
-            SUM(a.usd_notional) AS volume,
-            MAX(a.ts_unix) AS last_ts
-          FROM discovery_activity_v3 a
-          JOIN arb_wallets aw ON aw.proxy_wallet = a.proxy_wallet
-          GROUP BY a.proxy_wallet
-        )
-        SELECT proxy_wallet, trade_count, market_count, volume,
-          last_ts >= ${v2Cutoff} AS has_v2_trades
-        FROM wm
-        ORDER BY RANDOM()
-        LIMIT ${limit}
-      `;
-    case 'mixed':
-    default:
-      // Any active wallet not caught by above filters
-      return `
-        WITH wm AS (
-          SELECT proxy_wallet,
-            COUNT(*) AS trade_count,
-            COUNT(DISTINCT market_id) AS market_count,
-            SUM(usd_notional) AS volume,
-            MAX(ts_unix) AS last_ts
-          FROM discovery_activity_v3
-          GROUP BY proxy_wallet
-        )
-        SELECT proxy_wallet, trade_count, market_count, volume,
-          last_ts >= ${v2Cutoff} AS has_v2_trades
-        FROM wm
-        WHERE trade_count BETWEEN 20 AND 1000
-          AND market_count BETWEEN 5 AND 50
-        ORDER BY RANDOM()
-        LIMIT ${limit}
-      `;
-  }
+interface VerifyResult {
+  wallet: string;
+  walletType: WalletType;
+  hasV2Trades: boolean;
+  ourVolume: number;
+  apiVolume: number | null;
+  realizedPnl: number;
+  unrealizedPnl: number;
+  totalPnl: number;
+  pass: boolean;
+  reason?: string;
+  apiFullyPaginated?: boolean;
 }
 
-// ─── PnL SQL for a set of wallets ────────────────────────────────────────────
+// ─── Sampling: candidates from discovery_feature_snapshots_v3 ────────────────
+//
+// Snapshot columns: proxy_wallet, snapshot_day, trade_count, volume_total,
+// distinct_markets, closed_positions, realized_pnl, unrealized_pnl,
+// first_active_ts, last_active_ts, observation_span_days.
+//
+// We aggregate to LIFETIME stats per wallet (sum/max across snapshot_days),
+// then bucket by wallet type using simple ratios. This SQL only touches a
+// table with one row per (wallet, day), not 912M trade rows.
+
+function buildLifetimeWalletPoolSql(perTypeLimit: number): string {
+  // We over-sample within each type to allow rejection on V2-cover constraints
+  // and bad joins later. The pool is small (~5 × perTypeLimit × 5 = 125 wallets
+  // for the default smoke test), so the WHERE proxy_wallet IN (...) PnL query
+  // stays fast.
+  const oversample = Math.max(perTypeLimit * 4, 20);
+  return `
+    WITH lifetime AS (
+      SELECT
+        proxy_wallet,
+        SUM(trade_count)                            AS trade_count,
+        SUM(volume_total)                           AS volume,
+        MAX(distinct_markets)                       AS market_count_max,
+        SUM(closed_positions)                       AS closed_positions_sum,
+        MIN(first_active_ts)                        AS first_active_ts,
+        MAX(last_active_ts)                         AS last_active_ts
+      FROM discovery_feature_snapshots_v3
+      GROUP BY proxy_wallet
+      HAVING SUM(trade_count) >= 10
+    ),
+    classified AS (
+      SELECT
+        proxy_wallet,
+        trade_count,
+        market_count_max  AS market_count,
+        volume,
+        last_active_ts,
+        last_active_ts >= ${V2_CUTOVER_TS}                                         AS has_v2_trades,
+        trade_count * 1.0 / NULLIF(market_count_max, 0)                            AS trades_per_market,
+        CASE
+          WHEN trade_count BETWEEN 10 AND 200
+               AND market_count_max >= 5
+               AND (trade_count * 1.0 / NULLIF(market_count_max, 0)) < 3.0
+          THEN 'buy_and_hold'
+          WHEN trade_count BETWEEN 30 AND 5000
+               AND market_count_max >= 3
+               AND (trade_count * 1.0 / NULLIF(market_count_max, 0)) >= 8.0
+          THEN 'swing'
+          WHEN trade_count > 500
+               AND (trade_count * 1.0 / NULLIF(market_count_max, 0)) >= 20.0
+          THEN 'market_maker'
+          WHEN trade_count BETWEEN 20 AND 1000
+               AND market_count_max BETWEEN 3 AND 50
+          THEN 'mixed'
+          ELSE 'other'
+        END AS wallet_type
+      FROM lifetime
+    ),
+    ranked AS (
+      SELECT *,
+        ROW_NUMBER() OVER (PARTITION BY wallet_type ORDER BY RANDOM()) AS rn
+      FROM classified
+      WHERE wallet_type <> 'other'
+    )
+    SELECT proxy_wallet, wallet_type, trade_count, market_count, volume,
+           has_v2_trades, last_active_ts
+    FROM ranked
+    WHERE rn <= ${oversample}
+    ORDER BY wallet_type, rn
+  `;
+}
+
+// ─── arb-wallet probe ────────────────────────────────────────────────────────
+//
+// Arb pattern (BUY + SELL same market) cannot be inferred from snapshot
+// columns. We probe a CANDIDATE pool (already small, pre-filtered to active
+// wallets) for both-sided activity. Activity-table scan is bounded by
+// proxy_wallet IN (...) so memory cost stays small.
+
+function buildArbProbeSql(candidateWallets: string[]): string {
+  const lit = candidateWallets.map((w) => `'${w.replace(/'/g, "''")}'`).join(',');
+  return `
+    WITH market_sides AS (
+      SELECT proxy_wallet, market_id,
+        SUM(CASE WHEN side = 'BUY'  THEN abs_size ELSE 0 END) AS buy_size,
+        SUM(CASE WHEN side = 'SELL' THEN abs_size ELSE 0 END) AS sell_size
+      FROM discovery_activity_v3
+      WHERE proxy_wallet IN (${lit})
+      GROUP BY proxy_wallet, market_id
+    )
+    SELECT proxy_wallet,
+      COUNT(CASE WHEN buy_size > 0 AND sell_size > 0 THEN 1 END) AS two_side_markets
+    FROM market_sides
+    GROUP BY proxy_wallet
+    HAVING COUNT(CASE WHEN buy_size > 0 AND sell_size > 0 THEN 1 END) >= 3
+  `;
+}
+
+// ─── PnL SQL for a small set of wallets ──────────────────────────────────────
 
 function buildWalletPnlSql(wallets: string[]): string {
   const walletsLiteral = wallets.map((w) => `'${w.replace(/'/g, "''")}'`).join(',');
+  // Critical: WHERE proxy_wallet IN (...) FIRST so DuckDB pushes the filter
+  // into the activity scan. Subsequent CTEs operate on tens of thousands of
+  // rows, not 912M.
   return `
     WITH
+    wallet_activity AS (
+      SELECT proxy_wallet, market_id, side, usd_notional, signed_size, ts_unix, price_yes
+      FROM discovery_activity_v3
+      WHERE proxy_wallet IN (${walletsLiteral})
+    ),
     wallet_market_agg AS (
       SELECT
         proxy_wallet,
@@ -204,17 +203,18 @@ function buildWalletPnlSql(wallets: string[]): string {
         SUM(CASE WHEN side = 'SELL' THEN usd_notional ELSE -usd_notional END) AS cash_flow,
         SUM(signed_size)                                                        AS token_balance,
         SUM(usd_notional)                                                       AS volume_total
-      FROM discovery_activity_v3
-      WHERE proxy_wallet IN (${walletsLiteral})
+      FROM wallet_activity
       GROUP BY proxy_wallet, market_id
     ),
+    -- last observed price per market (just for the markets these wallets touched)
+    relevant_markets AS (
+      SELECT DISTINCT market_id FROM wallet_market_agg
+    ),
     market_last_price AS (
-      SELECT
-        market_id,
-        arg_max(price_yes, ts_unix) AS last_price_yes
-      FROM discovery_activity_v3
-      WHERE market_id IN (SELECT DISTINCT market_id FROM wallet_market_agg)
-      GROUP BY market_id
+      SELECT a.market_id, arg_max(a.price_yes, a.ts_unix) AS last_price_yes
+      FROM discovery_activity_v3 a
+      JOIN relevant_markets r ON r.market_id = a.market_id
+      GROUP BY a.market_id
     ),
     wallet_market_pnl AS (
       SELECT
@@ -254,28 +254,13 @@ function buildWalletPnlSql(wallets: string[]): string {
   `;
 }
 
-// ─── Result types ─────────────────────────────────────────────────────────────
+// ─── Logging helpers ─────────────────────────────────────────────────────────
 
-interface PnlRow {
-  proxy_wallet: string;
-  our_volume: number;
-  realized_pnl: number;
-  unrealized_pnl: number;
-  total_pnl: number;
+function ts(): string {
+  return new Date().toISOString().slice(11, 19);
 }
-
-interface VerifyResult {
-  wallet: string;
-  walletType: WalletType;
-  hasV2Trades: boolean;
-  ourVolume: number;
-  apiVolume: number | null;
-  realizedPnl: number;
-  unrealizedPnl: number;
-  totalPnl: number;
-  pass: boolean;
-  reason?: string;
-  apiFullyPaginated?: boolean;
+function log(msg: string): void {
+  console.log(`[${ts()}] ${msg}`);
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -284,78 +269,161 @@ async function main(): Promise<void> {
   const { values } = parseArgs({
     args: process.argv.slice(2),
     options: {
-      'duckdb-path': { type: 'string', default: process.env.DUCKDB_PATH || '/mnt/HC_Volume_105468668/discovery.duckdb' },
+      'duckdb-path': {
+        type: 'string',
+        default: process.env.DUCKDB_PATH || '/mnt/HC_Volume_105468668/discovery_v3.duckdb',
+      },
+      'wallets': { type: 'string', default: String(DEFAULT_WALLET_COUNT) },
       'dry-run': { type: 'boolean', default: false },
     },
   });
 
   const duckdbPath = values['duckdb-path'] as string;
   const isDryRun = values['dry-run'] as boolean;
+  let walletTarget = Math.min(Math.max(parseInt(String(values['wallets']), 10) || DEFAULT_WALLET_COUNT, 1), MAX_WALLET_COUNT);
+
+  // Default the memory limit if the caller didn't already set it. This is
+  // critical on the 8GB Hetzner box where prior runs OOM-thrashed.
+  if (!process.env.DUCKDB_MEMORY_LIMIT_GB) {
+    process.env.DUCKDB_MEMORY_LIMIT_GB = String(DEFAULT_MEMORY_LIMIT_GB);
+  }
+  if (!process.env.DUCKDB_TEMP_DIR) {
+    // Same volume as the DB; it's the one with free space.
+    process.env.DUCKDB_TEMP_DIR = '/mnt/HC_Volume_105468668/duckdb_tmp';
+  }
 
   console.log(`\n${'═'.repeat(80)}`);
   console.log('PnL Verification Harness — cross-check vs. Polymarket Data API');
-  console.log(`DuckDB: ${duckdbPath}`);
-  console.log(`Tolerance: ±${ABS_TOLERANCE_USD} USDC OR ±${(REL_TOLERANCE * 100).toFixed(1)}% relative`);
+  console.log(`DuckDB:        ${duckdbPath}`);
+  console.log(`Memory limit:  ${process.env.DUCKDB_MEMORY_LIMIT_GB} GB`);
+  console.log(`Temp dir:      ${process.env.DUCKDB_TEMP_DIR}`);
+  console.log(`Target sample: ${walletTarget} wallets (${isDryRun ? 'dry-run, no API calls' : 'live API cross-check'})`);
+  console.log(`Tolerance:     ±${ABS_TOLERANCE_USD} USDC OR ±${(REL_TOLERANCE * 100).toFixed(1)}% relative`);
   console.log(`${'═'.repeat(80)}\n`);
 
   let db: ReturnType<typeof openDuckDB>;
   try {
+    log(`Opening DuckDB...`);
     db = openDuckDB(duckdbPath);
   } catch (err) {
     console.error(`[ERROR] Cannot open DuckDB at ${duckdbPath}: ${(err as Error).message}`);
-    console.error('Hint: run 04_emit_snapshots.ts first to populate the database.');
+    console.error('Hint: did 04_emit_snapshots.ts complete? Is the path right?');
     process.exit(1);
   }
 
-  // ─── Step 1: Sample wallets ─────────────────────────────────────────────────
-  const nowTs = Math.floor(Date.now() / 1000);
-  const samplesPerType = Math.ceil(TARGET_WALLET_COUNT / 5);
-  const walletTypes: WalletType[] = ['buy_and_hold', 'swing', 'market_maker', 'arb', 'mixed'];
-
-  const sampledWallets: Map<string, { walletType: WalletType; hasV2Trades: boolean; tradeCount: number; marketCount: number; volume: number }> = new Map();
-
-  for (const wtype of walletTypes) {
-    const sql = buildSampleSql(wtype, samplesPerType, nowTs);
-    try {
-      const rows = await db.query<{
-        proxy_wallet: string;
-        trade_count: number;
-        market_count: number;
-        volume: number;
-        has_v2_trades: boolean;
-      }>(sql);
-      for (const r of rows) {
-        if (!sampledWallets.has(r.proxy_wallet)) {
-          sampledWallets.set(r.proxy_wallet, {
-            walletType: wtype,
-            hasV2Trades: Boolean(r.has_v2_trades),
-            tradeCount: Number(r.trade_count),
-            marketCount: Number(r.market_count),
-            volume: Number(r.volume),
-          });
-        }
-      }
-    } catch (err) {
-      console.warn(`[WARN] Could not sample ${wtype} wallets: ${(err as Error).message}`);
-    }
+  // ─── Step 1: Sample candidate wallets from snapshots (cheap) ───────────────
+  log(`Step 1/4: sampling candidate wallets from discovery_feature_snapshots_v3...`);
+  const perTypeLimit = Math.max(Math.ceil(walletTarget / 5), 2);
+  let candidateRows: Array<{
+    proxy_wallet: string;
+    wallet_type: WalletType;
+    trade_count: number;
+    market_count: number;
+    volume: number;
+    has_v2_trades: boolean;
+    last_active_ts: number;
+  }>;
+  try {
+    candidateRows = await db.query(buildLifetimeWalletPoolSql(perTypeLimit));
+  } catch (err) {
+    console.error(`[ERROR] candidate sampling SQL failed: ${(err as Error).message}`);
+    await db.close();
+    process.exit(1);
   }
-
-  if (sampledWallets.size === 0) {
-    console.error('[ERROR] No wallets found in discovery_activity_v3. Is the backfill complete?');
+  log(`  ✓ ${candidateRows.length} candidate wallets across types: ${
+    [...new Set(candidateRows.map((r) => r.wallet_type))].join(', ')
+  }`);
+  if (candidateRows.length === 0) {
+    console.error('[ERROR] No candidate wallets in discovery_feature_snapshots_v3. Has 04_emit_snapshots run?');
     await db.close();
     process.exit(1);
   }
 
-  const walletList = [...sampledWallets.keys()].slice(0, TARGET_WALLET_COUNT);
-  const v2Count = [...sampledWallets.values()].filter((v) => v.hasV2Trades).length;
-
-  console.log(`Sampled ${walletList.length} wallets (${v2Count} with V2 trades >= ${new Date(V2_CUTOVER_TS * 1000).toISOString().split('T')[0]})`);
-  if (v2Count < MIN_V2_WALLETS) {
-    console.warn(`[WARN] Only ${v2Count}/${MIN_V2_WALLETS} V2-era wallets found — V2 fee handling coverage is limited.`);
+  // ─── Step 2: probe arb pattern in the candidate pool only ──────────────────
+  log(`Step 2/4: probing arb-wallet pattern in candidate pool...`);
+  let arbWalletSet: Set<string> = new Set();
+  try {
+    const arbRows = await db.query<{ proxy_wallet: string; two_side_markets: number }>(
+      buildArbProbeSql(candidateRows.map((r) => r.proxy_wallet))
+    );
+    arbWalletSet = new Set(arbRows.map((r) => r.proxy_wallet));
+    log(`  ✓ ${arbWalletSet.size} candidates exhibit arb pattern (>=3 markets with both BUY and SELL)`);
+  } catch (err) {
+    console.warn(`[WARN] arb probe failed (non-fatal): ${(err as Error).message}`);
   }
 
-  // ─── Step 2: Compute our PnL ────────────────────────────────────────────────
-  console.log('\nComputing PnL from DuckDB...');
+  // Re-tag arb wallets in the candidate list (if classified as something else)
+  const candidatesByType: Map<WalletType, typeof candidateRows> = new Map();
+  for (const wt of WALLET_TYPES) candidatesByType.set(wt, []);
+  for (const r of candidateRows) {
+    const finalType: WalletType = arbWalletSet.has(r.proxy_wallet) ? 'arb' : r.wallet_type;
+    candidatesByType.get(finalType)!.push({ ...r, wallet_type: finalType });
+  }
+
+  // ─── Step 3: build the final sample, biasing toward V2 coverage ────────────
+  log(`Step 3/4: selecting final ${walletTarget}-wallet sample (per-type round-robin, V2 bias)...`);
+  const wantPerType = Math.max(Math.floor(walletTarget / 5), 1);
+  const finalSample: Array<{ wallet: string; meta: WalletMeta }> = [];
+  const seen = new Set<string>();
+
+  // Pass A: take up to wantPerType from each type, preferring V2-era wallets
+  for (const wt of WALLET_TYPES) {
+    const pool = candidatesByType.get(wt)!;
+    const v2First = [...pool].sort((a, b) => Number(b.has_v2_trades) - Number(a.has_v2_trades));
+    let taken = 0;
+    for (const r of v2First) {
+      if (taken >= wantPerType) break;
+      if (seen.has(r.proxy_wallet)) continue;
+      seen.add(r.proxy_wallet);
+      finalSample.push({
+        wallet: r.proxy_wallet,
+        meta: {
+          walletType: wt,
+          hasV2Trades: Boolean(r.has_v2_trades),
+          tradeCount: Number(r.trade_count),
+          marketCount: Number(r.market_count),
+          volume: Number(r.volume),
+        },
+      });
+      taken++;
+    }
+  }
+  // Pass B: fill remaining slots from any type
+  if (finalSample.length < walletTarget) {
+    for (const r of candidateRows) {
+      if (finalSample.length >= walletTarget) break;
+      if (seen.has(r.proxy_wallet)) continue;
+      seen.add(r.proxy_wallet);
+      const finalType: WalletType = arbWalletSet.has(r.proxy_wallet) ? 'arb' : r.wallet_type;
+      finalSample.push({
+        wallet: r.proxy_wallet,
+        meta: {
+          walletType: finalType,
+          hasV2Trades: Boolean(r.has_v2_trades),
+          tradeCount: Number(r.trade_count),
+          marketCount: Number(r.market_count),
+          volume: Number(r.volume),
+        },
+      });
+    }
+  }
+  if (finalSample.length === 0) {
+    console.error('[ERROR] could not assemble a sample. candidates exist but none survived classification.');
+    await db.close();
+    process.exit(1);
+  }
+  // Reduce target if we couldn't find enough
+  if (finalSample.length < walletTarget) {
+    log(`  [note] only ${finalSample.length} wallets matched filters; continuing with that.`);
+    walletTarget = finalSample.length;
+  }
+  const v2Count = finalSample.filter((s) => s.meta.hasV2Trades).length;
+  const typeCounts = WALLET_TYPES.map((wt) => `${wt}=${finalSample.filter((s) => s.meta.walletType === wt).length}`).join(' ');
+  log(`  ✓ sample composition: ${typeCounts}, V2-era wallets=${v2Count}`);
+
+  // ─── Step 4: compute our PnL for this small slice (bounded scan) ───────────
+  log(`Step 4/4: computing PnL via cash-flow SQL for ${finalSample.length} wallets (bounded scan)...`);
+  const walletList = finalSample.map((s) => s.wallet);
   let pnlRows: PnlRow[];
   try {
     pnlRows = await db.query<PnlRow>(buildWalletPnlSql(walletList));
@@ -364,46 +432,40 @@ async function main(): Promise<void> {
     await db.close();
     process.exit(1);
   }
+  log(`  ✓ PnL computed for ${pnlRows.length}/${finalSample.length} wallets`);
   const pnlByWallet = new Map(pnlRows.map((r) => [r.proxy_wallet, r]));
 
-  // ─── Step 3: Fetch from Polymarket Data API and compare ─────────────────────
-  console.log('Fetching from Polymarket Data API (this may take a while for large wallets)...\n');
-
+  // ─── Step 5: cross-check vs. Polymarket Data API ───────────────────────────
+  if (isDryRun) {
+    log(`(dry-run) skipping API cross-check`);
+  } else {
+    log(`Cross-checking vs. Polymarket Data API (this dominates the wall clock)...`);
+  }
   const results: VerifyResult[] = [];
-
-  for (const wallet of walletList) {
-    const meta = sampledWallets.get(wallet)!;
+  let idx = 0;
+  for (const { wallet, meta } of finalSample) {
+    idx++;
     const pnl = pnlByWallet.get(wallet);
 
     if (!pnl) {
+      log(`  [${idx}/${finalSample.length}] ${wallet.slice(0, 12)}... no PnL row`);
       results.push({
-        wallet,
-        walletType: meta.walletType,
-        hasV2Trades: meta.hasV2Trades,
-        ourVolume: 0,
-        apiVolume: null,
-        realizedPnl: 0,
-        unrealizedPnl: 0,
-        totalPnl: 0,
-        pass: false,
-        reason: 'no PnL row returned from DuckDB',
+        wallet, walletType: meta.walletType, hasV2Trades: meta.hasV2Trades,
+        ourVolume: 0, apiVolume: null, realizedPnl: 0, unrealizedPnl: 0, totalPnl: 0,
+        pass: false, reason: 'no PnL row returned from DuckDB',
       });
       continue;
     }
 
     if (isDryRun) {
-      // Skip API calls in dry-run mode
+      log(`  [${idx}/${finalSample.length}] ${wallet.slice(0, 12)}... (${meta.walletType}) vol=${Number(pnl.our_volume).toFixed(2)} pnl=${Number(pnl.total_pnl).toFixed(2)} (api skipped)`);
       results.push({
-        wallet,
-        walletType: meta.walletType,
-        hasV2Trades: meta.hasV2Trades,
-        ourVolume: Number(pnl.our_volume),
-        apiVolume: null,
+        wallet, walletType: meta.walletType, hasV2Trades: meta.hasV2Trades,
+        ourVolume: Number(pnl.our_volume), apiVolume: null,
         realizedPnl: Number(pnl.realized_pnl),
         unrealizedPnl: Number(pnl.unrealized_pnl),
         totalPnl: Number(pnl.total_pnl),
-        pass: true,
-        reason: 'dry-run, API skipped',
+        pass: true, reason: 'dry-run, API skipped',
       });
       continue;
     }
@@ -416,44 +478,30 @@ async function main(): Promise<void> {
     const ourVol = Number(pnl.our_volume);
     const apiVol = apiResult.apiVolume ?? 0;
 
-    // Pass criterion: absolute delta <= 1 USDC OR relative delta <= 0.5%
     let pass = apiResult.ok;
     let reason = apiResult.reason;
 
-    // Apply our custom tighter tolerance (override the default 5% in dataApiValidator)
     if (apiResult.apiVolume !== null && apiResult.apiTradeCount !== null && apiResult.apiTradeCount > 0) {
       const absDelta = Math.abs(ourVol - apiVol);
       const relDelta = absDelta / Math.max(ourVol, apiVol, 1);
       pass = absDelta <= ABS_TOLERANCE_USD || relDelta <= REL_TOLERANCE;
-      if (!pass) {
-        reason = `volume mismatch: ours=${ourVol.toFixed(2)}, api=${apiVol.toFixed(2)}, absDelta=${absDelta.toFixed(2)}, relDelta=${(relDelta * 100).toFixed(2)}%`;
-      } else {
-        reason = undefined;
-      }
+      reason = pass ? undefined : `volume mismatch: ours=${ourVol.toFixed(2)}, api=${apiVol.toFixed(2)}, absDelta=${absDelta.toFixed(2)}, relDelta=${(relDelta * 100).toFixed(2)}%`;
     }
 
     results.push({
-      wallet,
-      walletType: meta.walletType,
-      hasV2Trades: meta.hasV2Trades,
-      ourVolume: ourVol,
-      apiVolume: apiResult.apiVolume,
+      wallet, walletType: meta.walletType, hasV2Trades: meta.hasV2Trades,
+      ourVolume: ourVol, apiVolume: apiResult.apiVolume,
       realizedPnl: Number(pnl.realized_pnl),
       unrealizedPnl: Number(pnl.unrealized_pnl),
       totalPnl: Number(pnl.total_pnl),
-      pass,
-      reason,
-      apiFullyPaginated: apiResult.apiFullyPaginated,
+      pass, reason, apiFullyPaginated: apiResult.apiFullyPaginated,
     });
-
-    // Brief progress indicator
-    const status = pass ? '✓' : '✗';
-    process.stdout.write(`  ${status} ${wallet.slice(0, 12)}... (${meta.walletType})\n`);
+    log(`  [${idx}/${finalSample.length}] ${pass ? '✓' : '✗'} ${wallet.slice(0, 12)}... (${meta.walletType}) ours=${ourVol.toFixed(2)} api=${apiVol.toFixed(2)}`);
   }
 
   await db.close();
 
-  // ─── Step 4: Print results table ──────────────────────────────────────────
+  // ─── Results table ──────────────────────────────────────────────────────────
   console.log(`\n${'═'.repeat(120)}`);
   console.log('RESULTS TABLE');
   console.log(`${'═'.repeat(120)}`);
@@ -471,37 +519,29 @@ async function main(): Promise<void> {
   console.log(header);
   console.log('-'.repeat(120));
 
-  let passCount = 0;
-  let failCount = 0;
-  let skippedCount = 0;
-
+  let passCount = 0, failCount = 0, skippedCount = 0;
   for (const r of results) {
-    if (r.reason === 'dry-run, API skipped') {
-      skippedCount++;
-    } else if (r.pass) {
-      passCount++;
-    } else {
-      failCount++;
-    }
+    if (r.reason === 'dry-run, API skipped') skippedCount++;
+    else if (r.pass) passCount++;
+    else failCount++;
 
     const pagNote = r.apiFullyPaginated === false ? '[api-capped]' : '';
-    const row = [
+    console.log([
       r.wallet.padEnd(44),
       r.walletType.padEnd(14),
       (r.hasV2Trades ? 'YES' : 'no').padEnd(5),
-      (r.ourVolume).toFixed(2).padStart(12),
+      r.ourVolume.toFixed(2).padStart(12),
       (r.apiVolume ?? 0).toFixed(2).padStart(12),
-      (r.realizedPnl).toFixed(2).padStart(10),
-      (r.unrealizedPnl).toFixed(2).padStart(11),
+      r.realizedPnl.toFixed(2).padStart(10),
+      r.unrealizedPnl.toFixed(2).padStart(11),
       (r.pass ? 'PASS' : 'FAIL').padEnd(6),
       [r.reason ?? '', pagNote].filter(Boolean).join(' '),
-    ].join(' ');
-    console.log(row);
+    ].join(' '));
   }
 
   console.log(`\n${'═'.repeat(120)}`);
   if (isDryRun) {
-    console.log(`DRY RUN: ${walletList.length} wallets sampled, API calls skipped.`);
+    console.log(`DRY RUN: ${results.length} wallets sampled, API calls skipped.`);
   } else {
     console.log(`SUMMARY: ${passCount}/${results.length - skippedCount} PASS, ${failCount} FAIL`);
   }

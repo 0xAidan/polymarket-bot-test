@@ -1067,3 +1067,39 @@ No new columns added to `discovery_feature_snapshots_v3`. The existing schema:
 - `unrealized_pnl` — now populated (was hardcoded 0.0)
 
 Rerunning step 04 (`04_emit_snapshots.ts`) is required to update the snapshot table with the new formula. The old values will be replaced.
+
+---
+
+### Memory safety in the verify script (2026-04-28 rev 2)
+
+Initial version of `verify-pnl-vs-polymarket-api.ts` ran 5 full GROUP BY scans
+over the 912M-row `discovery_activity_v3` table just to classify wallets. This
+OOM-thrashed the 8 GB Hetzner host (load avg ~5, swap ~10 GB, never finished).
+Fixed in rev 2 with this strategy — keep this in mind for any future verify or
+ad-hoc script:
+
+1. **Sample candidates from `discovery_feature_snapshots_v3`, NOT from the
+   activity table.** The snapshot table has one row per (wallet, day) with
+   trade_count / volume_total / distinct_markets already aggregated. Lifetime
+   stats are a cheap second aggregation over that table.
+
+2. **Any activity-table scan MUST be bounded by `WHERE proxy_wallet IN (...)`
+   on a small wallet list.** The arb-pattern probe and the PnL SQL both follow
+   this rule. DuckDB pushes the filter into the scan and only materializes
+   tens of thousands of rows.
+
+3. **Always set `DUCKDB_MEMORY_LIMIT_GB` defensively** when running on the
+   8 GB host. The `verify:pnl*` npm scripts default it to 5 GB. Without this,
+   a query mistake can push the box into swap.
+
+4. **Always set `DUCKDB_TEMP_DIR` to a path on the data volume**
+   (`/mnt/HC_Volume_105468668/duckdb_tmp`). DuckDB's default temp dir is
+   sometimes on `/tmp`, which is small and can block spilling.
+
+5. **Default to a small smoke sample (5 wallets), expand only after smoke
+   passes.** `npm run verify:pnl:smoke` is the smoke. `npm run verify:pnl:full`
+   is the 20-wallet run that gates merging the PR.
+
+6. **Print progress at every step.** A silent script on a slow box looks the
+   same as a hung script; explicit `[hh:mm:ss] Step N/M: ...` log lines let an
+   operator distinguish them.
