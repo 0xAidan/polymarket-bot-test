@@ -859,3 +859,267 @@ discovery-worker changes).
 3. The v3 frontend must always set `credentials: 'same-origin'` so
    Auth0 cookies reach mutators. Never show the raw 401 body — route
    the user to `/auth/login?returnTo=…` instead.
+
+---
+
+## Part 14: Discovery PnL Fix + JUNGLE Pillar Features (2026-04-28)
+
+> **PR:** feat/discovery-pnl-pillars  
+> **Status:** Open, NOT merged. Awaiting review.  
+> **Auditor:** feat/discovery-pnl-pillars agent
+
+---
+
+### Where data lives (two-sentence mental model)
+
+`discovery_activity_v3` is the per-trade source of truth (~912M rows, one per fill, from backfill + live ingest). `markets_v3` holds market metadata + resolution prices. `discovery_feature_snapshots_v3` is the daily roll-up per wallet used for scoring — do NOT use it as source-of-truth for PnL calculations; always derive from `discovery_activity_v3`.
+
+---
+
+### Why the old PnL was wrong
+
+The old `buildSnapshotEmitSql()` used:
+
+```sql
+SUM(usd_notional × (price_yes − 0.5))   AS realized_pnl_day
+```
+
+This is the "edge vs. coin flip" approximation — it estimates how much better than random a trader did per trade. It is **NOT** real PnL for three reasons:
+
+1. It doesn't account for the cash actually spent vs. received.
+2. It only fires on resolved markets (joined on `end_date`), so it produces zero PnL for all swing-trade profit in open markets.
+3. A swing trader who buys at $0.40 and sells at $0.60 before resolution would show **$0 realized PnL** under the old formula, because the market was still open.
+
+Do not revert to this formula.
+
+---
+
+### The correct PnL formula (plain English)
+
+```
+realized_pnl = Σ(USDC received from sells)
+             − Σ(USDC spent on buys)
+             + Σ(token_balance × resolution_price)  [for closed markets]
+```
+
+**SQL implementation:**
+
+```sql
+-- Step 1: per (wallet, market) cash flow
+cash_flow = SUM(CASE WHEN side='SELL' THEN usd_notional ELSE -usd_notional END)
+
+-- Step 2: token balance = net tokens held
+token_balance = SUM(signed_size)
+
+-- Step 3: resolution payout (closed markets only)
+resolution_payout = token_balance × TRY_CAST(json_extract_string(outcome_prices, '$[0]') AS DOUBLE)
+
+-- Step 4: total realized
+realized_pnl = cash_flow + resolution_payout
+```
+
+**Worked example — swing trader (buy 0.40, sell 0.60):**
+- BUY 100 tokens: `usd_notional=40`, `signed_size=+100`
+- SELL 100 tokens: `usd_notional=60`, `signed_size=-100`
+- `cash_flow = -40 + 60 = +20`
+- `token_balance = 100 - 100 = 0`
+- `resolution_payout = 0` (no tokens held, doesn't matter if market resolves)
+- `realized_pnl = +20` ✓
+
+**Worked example — buy-and-hold YES wins:**
+- BUY 100 tokens at $0.40: `cash_flow = -40`, `token_balance = 100`
+- Market resolves YES: `outcome_prices = ["1.0","0.0"]`
+- `resolution_payout = 100 × 1.0 = 100`
+- `realized_pnl = -40 + 100 = +60` ✓
+
+---
+
+### V1 vs V2 fee model — what changed and how we detect it
+
+| | V1 (before Apr 28 2026 07:00 UTC) | V2 (after Apr 28 2026 07:00 UTC) |
+|---|---|---|
+| Fee currency | Shares (conditional tokens) | USDC |
+| Where deducted | From `signed_size` (fill reports net tokens) | From USDC notional at match time |
+| In activity table | `signed_size` is already net of fee | `usd_notional` is net of USDC fee |
+| PnL formula | Same — use `usd_notional` as net cash | Same — use `usd_notional` as net cash |
+
+**Key insight**: The exchange contract for V2 deducts fees from `makerAmountFilled` / `takerAmountFilled` _before_ emitting the event. So `usd_notional` in the activity table is the net cash flow for **both** V1 and V2. **No per-row branching is needed in PnL SQL.**
+
+**V1/V2 detection**: `ts_unix >= 1745827200` (2026-04-28 07:00 UTC). Constant exported as `V2_CUTOVER_TS` from `pillarFeatures.ts`.
+
+**Audit doc**: `docs/2026-04-28-v1-v2-activity-shape-audit.md`
+
+---
+
+### Unrealized PnL — approximation note
+
+```
+unrealized_pnl = token_balance × last_trade_price_yes_for_that_market
+```
+
+"Last trade price" = `arg_max(price_yes, ts_unix)` across ALL wallets' trades on that market. **This is an approximation**: for illiquid markets where no trade has occurred in weeks, the last trade price may be stale. We do not apply a staleness cutoff — doing so would produce zero unrealized for many valid positions. The risk is that stale prices slightly overstate or understate the mark. Document this to downstream consumers; do not treat unrealized PnL as precise.
+
+---
+
+### The 5 JUNGLE Pillars — what each measures
+
+All pillar SQL is in `src/discovery/v3/pillarFeatures.ts`. All are read-side queries — no backfill required.
+
+**1. Niche Knowledge** (`buildNicheKnowledgeSql`)
+- Per-(wallet, category): volume share, trade count, cash-flow PnL
+- Category derived from market question/slug keywords (best-effort, not a formal taxonomy)
+- Identifies wallets concentrated in specific verticals (politics, crypto, sports, etc.)
+- Returns: `(proxy_wallet, category, cat_volume, cat_pnl, cat_volume_share, total_volume)`
+
+**2. Probabilistic Accuracy** (`buildProbabilisticAccuracySql`)
+- For resolved markets the wallet held to resolution
+- Computes Brier score: `mean((entry_price - resolution)²)` — lower = better calibrated
+- Also computes hit rate at 0.60 and 0.70 thresholds
+- Returns: `(proxy_wallet, resolved_position_count, brier_score, hit_rate_above_60, hit_rate_above_70)`
+
+**3. Market Edge / CLV** (`buildMarketEdgeCLVSql`)
+- Closing Line Value: for each trade, compare entry price to market price 1h and 24h later
+- Positive CLV = wallet entered before a favorable move (captured value)
+- Warning: requires a self-join on `discovery_activity_v3` which is expensive at scale; consider sampling
+- Returns: `(proxy_wallet, trades_with_clv, avg_clv_1h, avg_clv_24h, pct_positive_clv_1h, pct_positive_clv_24h)`
+
+**4. Risk DNA / Consistency** (`buildRiskDNASql`)
+- Bet size distribution: p50, p90, p99, stddev, max bet, max-bet-as-fraction-of-volume
+- Identifies "max concentration risk" (a single giant bet vs. consistent sizing)
+- Returns: `(proxy_wallet, trade_count, median_bet_usd, p90_bet_usd, p99_bet_usd, stddev_bet_usd, max_bet_usd, max_bet_vol_share, total_volume_usd)`
+
+**5. Momentum / Heat** (`buildMomentumHeatSql`)
+- 7d and 30d rolling cash-flow PnL vs. historical daily average
+- `pnl_7d_vs_avg > 0` = hot (above historical rate); `< 0` = cooling
+- Returns: `(proxy_wallet, pnl_7d, pnl_30d, pnl_alltime, pnl_7d_vs_avg, pnl_30d_vs_avg, last_trade_ts, days_since_last_trade)`
+
+---
+
+### How to add a new pillar / feature
+
+Recipe (no backfill needed):
+
+1. Write a function in `src/discovery/v3/pillarFeatures.ts` that returns a SQL string.  
+   The query must SELECT `(proxy_wallet, your_metric_name, ...)`.
+
+2. Add it to `allPillarSqls()` in the same file.
+
+3. Wire into `tierScoring.ts` if you want it to influence tier scores:  
+   Call your SQL, collect the results, feed the metric into `zScores()` like `edgeRate` or `breadth`.
+
+4. Add a unit test in `tests/v3-pnl-formula.test.ts` covering at least the empty-table and a fixture case.
+
+5. Run `npm test` and `npm run verify:pnl:dry-run` to confirm nothing breaks.
+
+That's it. No schema changes, no backfill re-run.
+
+---
+
+### The verification harness
+
+**File:** `scripts/verify-pnl-vs-polymarket-api.ts`
+
+**What it does:**
+- Samples 20 wallets from the activity table (4 each of buy-and-hold, swing, market-maker, arb, mixed)
+- Computes our PnL using the new SQL
+- Fetches the same wallets' volume from `data-api.polymarket.com/v1/activity` (paginated, TRADE events only)
+- Cross-checks volume against ours; requires ≤1 USDC OR ≤0.5% relative delta to pass
+- Ensures ≥3 wallets have V2 trades (ts_unix ≥ 2026-04-28 07:00 UTC) to exercise V2 fee handling
+
+**How to run locally:**
+```bash
+# Dry-run (no API calls, just SQL)
+DUCKDB_PATH=/mnt/HC_Volume_105468668/discovery.duckdb npm run verify:pnl:dry-run
+
+# Full run (needs network access to data-api.polymarket.com)
+DUCKDB_PATH=/mnt/HC_Volume_105468668/discovery.duckdb npm run verify:pnl
+```
+
+**If it fails:**
+1. Check if the DuckDB is from a complete backfill (all 64 buckets loaded).
+2. Check if failing wallets are recent (trades after parquet snapshot) — expected for small delta.
+3. Check if failing wallets have V2 trades and the fee model in the docs matches what we see.
+4. Do NOT just increase tolerances. Investigate each FAIL first.
+
+**Note on PnL vs. volume:**  
+The Polymarket Data API does not expose a `realized_pnl` field. We cross-check **volume** (which is invariant to fill granularity) rather than PnL directly. Volume agreement is necessary but not sufficient for PnL correctness — the resolution payout math is tested in unit tests instead.
+
+---
+
+### What's still approximate
+
+1. **Unrealized PnL on stale markets**: last observed trade price may be weeks old for illiquid markets. Do not present unrealized PnL as precise to users without a staleness disclaimer.
+
+2. **Distinct market counts use HyperLogLog**: `APPROX_COUNT_DISTINCT` has ~1.6% error. Fine for ranking, not for exact counts.
+
+3. **Category inference is keyword-based**: `pillarFeatures.ts` derives categories from question text, not a formal Polymarket taxonomy. "Other" is the fallback for anything unclear.
+
+4. **CLV self-join is O(N²) on market fills**: `buildMarketEdgeCLVSql` joins activity to itself for 1h/24h price windows. On a production 912M-row table this is extremely expensive without TABLESAMPLE or pre-materialized price snapshots. Use with caution on live data; add sampling before production use.
+
+5. **Goldsky listener V2 gap**: `goldskyListener.ts::normalizeOrderFilled` still uses the V1 `makerAssetId === '0'` heuristic. If the Goldsky subgraph gains V2 support with different event schema, update this normalizer. As of 2026-04-28, live V2 fills go through `chainListener.ts` → `TradeIngestion` (not through Goldsky → DuckDB), so this is not an active bug but a future risk.
+
+---
+
+### Snapshot schema additions (PR: feat/discovery-pnl-pillars)
+
+No new columns added to `discovery_feature_snapshots_v3`. The existing schema:
+- `realized_pnl` — now uses correct cash-flow formula (was broken edge approximation)
+- `unrealized_pnl` — now populated (was hardcoded 0.0)
+
+Rerunning step 04 (`04_emit_snapshots.ts`) is required to update the snapshot table with the new formula. The old values will be replaced.
+
+---
+
+### Memory safety in the verify script (2026-04-28 rev 2)
+
+Initial version of `verify-pnl-vs-polymarket-api.ts` ran 5 full GROUP BY scans
+over the 912M-row `discovery_activity_v3` table just to classify wallets. This
+OOM-thrashed the 8 GB Hetzner host (load avg ~5, swap ~10 GB, never finished).
+Fixed in rev 2 with this strategy — keep this in mind for any future verify or
+ad-hoc script:
+
+1. **Sample candidates from `discovery_feature_snapshots_v3`, NOT from the
+   activity table.** The snapshot table has one row per (wallet, day) with
+   trade_count / volume_total / distinct_markets already aggregated. Lifetime
+   stats are a cheap second aggregation over that table.
+
+2. **Any activity-table scan MUST be bounded by `WHERE proxy_wallet IN (...)`
+   on a small wallet list.** The arb-pattern probe and the PnL SQL both follow
+   this rule. DuckDB pushes the filter into the scan and only materializes
+   tens of thousands of rows.
+
+3. **Always set `DUCKDB_MEMORY_LIMIT_GB` defensively** when running on the
+   8 GB host. The `verify:pnl*` npm scripts default it to 5 GB. Without this,
+   a query mistake can push the box into swap.
+
+4. **Always set `DUCKDB_TEMP_DIR` to a path on the data volume**
+   (`/mnt/HC_Volume_105468668/duckdb_tmp`). DuckDB's default temp dir is
+   sometimes on `/tmp`, which is small and can block spilling.
+
+5. **Default to a small smoke sample (5 wallets), expand only after smoke
+   passes.** `npm run verify:pnl:smoke` is the smoke. `npm run verify:pnl:full`
+   is the 20-wallet run that gates merging the PR.
+
+6. **Print progress at every step.** A silent script on a slow box looks the
+   same as a hung script; explicit `[hh:mm:ss] Step N/M: ...` log lines let an
+   operator distinguish them.
+
+---
+
+### Data freshness reality (must read before trusting any PnL/volume number)
+
+**The `discovery_activity_v3` table is incomplete from 2026-03-05 onward.**
+
+- The backfill source is the [`SII-WANGZJ/Polymarket_data` HuggingFace dataset](https://huggingface.co/datasets/SII-WANGZJ/Polymarket_data).
+- That dataset's coverage **ends at 2026-03-04** (last updated 2026-03-05).
+- Anything after that date depends on the chain/Goldsky listener catching up. As of 2026-04-28 a sizeable gap exists between the parquet's cutoff and when continuous listening began. A `verify:pnl:full` run on this date showed 11/20 wallets PASS — the 9 FAILs were all data-gap, not math-error.
+- Fix tracked in **issue #103** (gap-backfill).
+
+**Until #103 is closed:** treat any wallet whose last trade is < 24h old as
+suspect for completeness. The PnL math (PR #102) is correct; the inputs to
+that math are stale. Run `scripts/triage-wallet.ts <wallet>` on any
+discrepancy before assuming it's a code bug.
+
+**Before regression-testing:** check `MAX(ts_unix)` from `discovery_activity_v3`
+and report it loudly. If it's > 24h stale, the data-freshness gap will
+dominate any other signal you're trying to measure.

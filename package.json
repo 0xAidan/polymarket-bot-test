@@ -19,7 +19,11 @@
     "start:prod:app": "node dist/index.js",
     "start:prod:discovery": "node dist/discovery/discoveryWorker.js",
     "lint": "eslint src --ext .ts",
-    "validate:egress": "node scripts/validate-polymarket-egress.mjs"
+    "validate:egress": "node scripts/validate-polymarket-egress.mjs",
+    "verify:pnl": "DUCKDB_MEMORY_LIMIT_GB=${DUCKDB_MEMORY_LIMIT_GB:-5} DUCKDB_TEMP_DIR=${DUCKDB_TEMP_DIR:-/mnt/HC_Volume_105468668/duckdb_tmp} npx tsx scripts/verify-pnl-vs-polymarket-api.ts",
+    "verify:pnl:smoke": "DUCKDB_MEMORY_LIMIT_GB=${DUCKDB_MEMORY_LIMIT_GB:-5} DUCKDB_TEMP_DIR=${DUCKDB_TEMP_DIR:-/mnt/HC_Volume_105468668/duckdb_tmp} npx tsx scripts/verify-pnl-vs-polymarket-api.ts --wallets 5",
+    "verify:pnl:full": "DUCKDB_MEMORY_LIMIT_GB=${DUCKDB_MEMORY_LIMIT_GB:-5} DUCKDB_TEMP_DIR=${DUCKDB_TEMP_DIR:-/mnt/HC_Volume_105468668/duckdb_tmp} npx tsx scripts/verify-pnl-vs-polymarket-api.ts --wallets 20",
+    "verify:pnl:dry-run": "DUCKDB_MEMORY_LIMIT_GB=${DUCKDB_MEMORY_LIMIT_GB:-5} DUCKDB_TEMP_DIR=${DUCKDB_TEMP_DIR:-/mnt/HC_Volume_105468668/duckdb_tmp} npx tsx scripts/verify-pnl-vs-polymarket-api.ts --dry-run"
   },
   "keywords": [
     "polymarket",
