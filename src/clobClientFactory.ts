@@ -1,10 +1,11 @@
 import type { TradingWallet } from './types.js';
 import { PolymarketClobClient } from './clobClient.js';
-import { getBuilderCredentials, getSigner } from './secureKeyManager.js';
+import { getSigner } from './secureKeyManager.js';
 import { createComponentLogger } from './logger.js';
 import { getValidEvmAddress } from './addressUtils.js';
 import { PolymarketApi } from './polymarketApi.js';
 import { isHostedMultiTenantMode } from './hostedMode.js';
+import { ensurePusdReady } from './pusdWrapper.js';
 
 const log = createComponentLogger('ClobClientFactory');
 
@@ -63,10 +64,23 @@ export const resolveFunderAddress = async (
     }
   } else {
     log.warn(
-      `Hosted mode: no explicit/proxy/API funder for wallet ${tw.id}; refusing env funder fallback and using wallet address`
+      `Hosted mode: no explicit/proxy/API funder for wallet ${tw.id}; refusing env funder fallback and using wallet address`,
     );
   }
   return tw.address;
+};
+
+/**
+ * Resolve builder code: per-wallet override, then env. V2 builder attribution
+ * is a single short string set in polymarket.com/settings → Builder Profile.
+ * Missing builderCode is non-fatal in V2 — orders place without attribution.
+ */
+const resolveBuilderCode = (tw: TradingWallet): string | undefined => {
+  if (tw.polymarketBuilderCode && tw.polymarketBuilderCode.trim().length > 0) {
+    return tw.polymarketBuilderCode.trim();
+  }
+  const fromEnv = (process.env.POLYMARKET_BUILDER_CODE || '').trim();
+  return fromEnv ? fromEnv : undefined;
 };
 
 /**
@@ -84,10 +98,10 @@ export async function getClobClientForTradingWallet(
   }
 
   const signer = getSigner(tw.id);
-  const builder = getBuilderCredentials(tw.id);
-  if (!builder?.apiKey || !builder.apiSecret || !builder.apiPassphrase) {
-    throw new Error(
-      `Builder API credentials not loaded for trading wallet "${tw.id}". Add Builder credentials in the dashboard.`,
+  const builderCode = resolveBuilderCode(tw);
+  if (!builderCode) {
+    log.warn(
+      `No builderCode configured for trading wallet "${tw.id}". Orders will place but will not be attributed. Set POLYMARKET_BUILDER_CODE or TradingWallet.polymarketBuilderCode.`,
     );
   }
 
@@ -99,12 +113,16 @@ export async function getClobClientForTradingWallet(
     privateKey: signer.privateKey,
     signatureType,
     funderAddress,
-    builder: {
-      key: builder.apiKey,
-      secret: builder.apiSecret,
-      passphrase: builder.apiPassphrase,
-    },
+    builder: builderCode ? { builderCode } : undefined,
   });
+
+  // Best-effort: auto-wrap any USDC.e on the EOA into pUSD so V2 trading is ready.
+  // Never throw — failures are logged and ignored, since the user may have pUSD already.
+  try {
+    await ensurePusdReady(signer, funderAddress, log);
+  } catch (err: any) {
+    log.warn(`[pUSD] ensurePusdReady threw despite internal guard (non-fatal): ${err?.message ?? err}`);
+  }
 
   evictIfNeeded();
   cache.set(key, client);

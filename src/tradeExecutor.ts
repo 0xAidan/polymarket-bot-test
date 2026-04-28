@@ -2,7 +2,7 @@ import { PolymarketApi } from './polymarketApi.js';
 import { PolymarketClobClient } from './clobClient.js';
 import { TradeOrder, TradeResult } from './types.js';
 import { Storage } from './storage.js';
-import { Side } from '@polymarket/clob-client';
+import { Side } from '@polymarket/clob-client-v2';
 import {
   buildTradeExecutionDiagnosticContext,
   logTradeRegressionDebug,
@@ -208,6 +208,17 @@ export class TradeExecutor {
       // Convert side to CLOB client Side enum
       const side = order.side === 'BUY' ? Side.BUY : Side.SELL;
 
+      // For BUY orders, opportunistically fetch the wallet's pUSD balance so the V2 SDK
+      // can do fee-aware fill calculation on market BUYs. Limit orders ignore the field.
+      let userUSDCBalance: number | undefined;
+      if (side === Side.BUY) {
+        try {
+          userUSDCBalance = await clobClient.getUsdcBalance();
+        } catch (balErr: any) {
+          log.warn(`[Execute] Could not fetch pUSD balance for fee-aware sizing (continuing): ${balErr?.message ?? balErr}`);
+        }
+      }
+
       // Place order via CLOB client
       log.info(`\n📤 Placing order via CLOB client...`);
       const clobOrderParams = {
@@ -217,6 +228,7 @@ export class TradeExecutor {
         price: price,
         tickSize: tickSize,
         negRisk: negRisk,
+        ...(userUSDCBalance !== undefined ? { userUSDCBalance } : {}),
       };
       const diagSig = parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '0', 10);
       const diagFunder =

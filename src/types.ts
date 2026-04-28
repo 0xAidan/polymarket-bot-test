@@ -340,6 +340,8 @@ export interface TradingWallet {
   polymarketSignatureType?: number;
   /** Explicit Polymarket funder (proxy) — prefer proxyAddress when set */
   polymarketFunderAddress?: string;
+  /** Per-tenant V2 builder code override (defaults from POLYMARKET_BUILDER_CODE env). */
+  polymarketBuilderCode?: string;
   isActive: boolean;             // Whether this wallet is enabled for trading
   createdAt: string;             // ISO timestamp
 

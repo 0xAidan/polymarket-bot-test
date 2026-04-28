@@ -1,4 +1,4 @@
-import { Side } from '@polymarket/clob-client';
+import { Side } from '@polymarket/clob-client-v2';
 
 import { DetectedTrade, TradeOrder } from './types.js';
 

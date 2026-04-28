@@ -1,7 +1,7 @@
 import { PolymarketApi } from './polymarketApi.js';
 import { PolymarketClobClient } from './clobClient.js';
 import { Storage } from './storage.js';
-import { Side } from '@polymarket/clob-client';
+import { Side } from '@polymarket/clob-client-v2';
 import { getValidEvmAddress } from './addressUtils.js';
 import { createComponentLogger } from './logger.js';
 import { getAllocationTargetWeight } from './allocation/policyEngine.js';
