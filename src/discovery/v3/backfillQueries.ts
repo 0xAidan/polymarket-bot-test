@@ -574,52 +574,159 @@ export function buildMarketsIngestSql({ sourceRef, limit }: MarketsIngestOptions
  *
  * Rules (Invariant 4):
  *   - Only count events with ts_unix <= end_of_snapshot_day
- *   - PnL contributions require market.end_date <= snapshot_day
+ *   - PnL contributions are computed per (wallet, market) across all activity
  *
  * Windowed implementation: only emit (wallet, day) pairs where the wallet had
  * >= 1 trade on that day. This keeps the row count proportional to activity,
  * not wallet_count * day_count.
+ *
+ * ─── PnL FORMULA (2026-04-28 rewrite) ───────────────────────────────────────
+ *
+ * OLD (BROKEN): SUM(usd_notional × (price_yes − 0.5))
+ *   - This was an approximation of "edge vs. coin flip", NOT real PnL.
+ *   - It only produced values for resolved markets (joined on end_date).
+ *   - It misses all swing-trade PnL in open markets.
+ *
+ * NEW (CORRECT): Cash-flow PnL
+ *   realized_pnl = Σ(SELL proceeds) − Σ(BUY costs) + Σ(resolution payout)
+ *
+ * Implementation:
+ *   1. cash_flow per trade row:
+ *      - SELL: +usd_notional  (received USDC)
+ *      - BUY:  -usd_notional  (spent USDC)
+ *   2. token_balance per (wallet, market) = SUM(signed_size)
+ *      - Positive = net long YES tokens
+ *      - Negative = net short YES tokens
+ *   3. resolution payout for CLOSED markets:
+ *      - Parse outcome_prices JSON: first element is YES resolution price
+ *        ("1.0" if YES wins, "0.0" if NO wins).
+ *      - Payout = token_balance × resolution_price_yes
+ *      - (For swing traders who exit before resolution, token_balance ≈ 0
+ *        so this term contributes nothing — cash_flow alone captures their PnL)
+ *   4. unrealized_pnl for OPEN markets:
+ *      - = token_balance × last_trade_price_yes_for_that_market
+ *      - "last trade price" = most recent price_yes from any wallet's trade
+ *        in that market (the market's last observed trade price).
+ *      - APPROXIMATION: stale if market hasn't traded recently.
+ *
+ * V1 vs V2 fees:
+ *   - V1: fees were deducted in shares. signed_size is already net of fee.
+ *     usd_notional is gross USDC. No extra adjustment needed.
+ *   - V2 (ts_unix >= 1745827200, Apr 28 2026 07:00 UTC): fees are USDC at
+ *     match time. The exchange contract deducts fees BEFORE emitting
+ *     makerAmountFilled/takerAmountFilled, so usd_notional already reflects
+ *     the net USDC exchanged. No extra adjustment needed.
+ *   RESULT: The same formula works for both V1 and V2 rows.
+ *
+ * Works correctly for:
+ *   - Buy-and-hold: cash_flow negative (spent USDC buying), + resolution payout
+ *   - Swing trader: cash_flow is the net gain/loss, resolution payout ≈ 0
+ *   - Market maker: same as swing (many buys and sells, net cash flow = edge)
+ *   - Arb (YES + NO): each token tracked independently per market_id
+ *   - Mixed (some closed, some open): closed get resolution, open get unrealized
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 export function buildSnapshotEmitSql(): string {
-  // 2026-04-23 rewrite for scale:
+  // 2026-04-28 rewrite — correct cash-flow PnL:
   //
-  // The prior version joined `discovery_activity_v3 a` to a (wallet, day)
-  // dimension table on the inequality `a.ts_unix < b.day_end_ts`. DuckDB
-  // planned this as a hash-join-plus-filter that tried to allocate a
-  // contiguous ~16 GiB intermediate, which cannot fit on the 8 GB Hetzner
-  // box (memory_limit=6 GB). See the #15420/#16229 class of OOMs.
+  // Shape:
+  //   1) daily_activity: GROUP BY (wallet, day) for trade stats. Pure
+  //      equality aggregation, spillable, no inequality join.
+  //   2) wallet_market_pnl: per (wallet, market) cash-flow PnL + token balance.
+  //      Joined to markets_v3 to add resolution price and end_date.
+  //      This computes BOTH realized (for closed markets) and provides
+  //      the token_balance needed for unrealized (for open markets).
+  //   3) wallet_last_price: the most recent trade price per market_id across
+  //      all wallets — used as the unrealized mark price.
+  //   4) wallet_daily_pnl: roll up wallet_market_pnl into per (wallet, day)
+  //      buckets using the market's end_date (for closed) or the wallet's
+  //      last trade day on that market (for unrealized).
+  //   5) merged + cumulative window: same as before.
   //
-  // New shape — two passes, no inequality join:
-  //   1) daily_activity: GROUP BY (proxy_wallet, snapshot_day) once over
-  //      the 912M-row activity table. Produces ~tens of millions of
-  //      per-day partial aggregates. Pure equality aggregation, spillable.
-  //   2) daily_closed: same-shape GROUP BY but joined to markets_v3 first
-  //      to precompute per-(wallet, day) realized PnL contributions for
-  //      markets that resolved by the END of that same day. Because this
-  //      is also an equality-keyed aggregation it does not allocate huge
-  //      hash tables.
-  //   3) cumulative: use window functions partitioned by wallet, ordered
-  //      by day, with `ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`
-  //      to turn per-day aggregates into point-in-time cumulative values.
-  //      This preserves the original Invariant-4 semantics (snapshot on
-  //      day D reflects all activity with ts_unix <= end_of_day_D) while
-  //      never instantiating the O(wallet * day) cross-product that blew
-  //      up before.
-  //
-  // Notes on exactness vs. the old query:
-  //   - `distinct_markets` used COUNT(DISTINCT market_id) cumulatively
-  //     under the old shape. In the new shape we approximate it with
-  //     `APPROX_COUNT_DISTINCT`, which DuckDB implements via HyperLogLog
-  //     and is streaming / mergeable across window frames. Error is
-  //     ~1.6% — acceptable for scoring (tierScoring does not threshold
-  //     on exact distinct counts). Same for `closed_positions`.
-  //   - `first_active_ts` / `last_active_ts` are exact via MIN/MAX
-  //     window aggregates.
-  //   - `realized_pnl` is exact: it's a pure SUM over a filtered
-  //     equality join.
+  // Memory note: wallet_market_pnl GROUP BY is O(unique wallet×market pairs)
+  // which is ~10s of millions, not 912M rows. DuckDB hash-aggregates this
+  // cleanly within the 6GB memory limit.
   return `
     INSERT INTO discovery_feature_snapshots_v3
-    WITH daily_activity AS (
+    WITH
+    -- Step 1: per-(wallet, market) aggregates: cash flow, token balance
+    wallet_market_agg AS (
+      SELECT
+        proxy_wallet,
+        market_id,
+        SUM(CASE WHEN side = 'SELL' THEN usd_notional ELSE -usd_notional END) AS cash_flow,
+        SUM(signed_size)                                                        AS token_balance,
+        MIN(ts_unix)                                                            AS first_trade_ts,
+        MAX(ts_unix)                                                            AS last_trade_ts
+      FROM discovery_activity_v3
+      GROUP BY proxy_wallet, market_id
+    ),
+    -- Step 2: last observed price per market (any wallet's most recent trade)
+    market_last_price AS (
+      SELECT
+        market_id,
+        arg_max(price_yes, ts_unix) AS last_price_yes
+      FROM discovery_activity_v3
+      GROUP BY market_id
+    ),
+    -- Step 3: join market metadata and compute per-(wallet, market) PnL
+    wallet_market_pnl AS (
+      SELECT
+        w.proxy_wallet,
+        w.market_id,
+        w.cash_flow,
+        w.token_balance,
+        w.first_trade_ts,
+        w.last_trade_ts,
+        m.end_date,
+        -- closed = market has resolved (end_date set AND closed=1 OR outcome_prices resolved)
+        CASE
+          WHEN m.market_id IS NOT NULL AND m.end_date IS NOT NULL AND m.closed = 1
+          THEN 1 ELSE 0
+        END AS is_closed,
+        -- resolution payout: YES wins → price[0]=1.0, NO wins → price[0]=0.0
+        -- outcome_prices is a JSON array like ["1.0", "0.0"]
+        CASE
+          WHEN m.market_id IS NOT NULL AND m.end_date IS NOT NULL AND m.closed = 1
+               AND m.outcome_prices IS NOT NULL
+               AND TRY_CAST(json_extract_string(m.outcome_prices, '$[0]') AS DOUBLE) IS NOT NULL
+          THEN w.token_balance * TRY_CAST(json_extract_string(m.outcome_prices, '$[0]') AS DOUBLE)
+          ELSE 0.0
+        END AS resolution_payout,
+        -- unrealized: open markets, use last observed market price as mark
+        CASE
+          WHEN (m.market_id IS NULL OR m.end_date IS NULL OR m.closed = 0)
+               AND lp.last_price_yes IS NOT NULL
+          THEN w.token_balance * lp.last_price_yes
+          ELSE 0.0
+        END AS unrealized_mark
+      FROM wallet_market_agg w
+      LEFT JOIN markets_v3 m ON m.market_id = w.market_id
+      LEFT JOIN market_last_price lp ON lp.market_id = w.market_id
+    ),
+    -- Step 4: per-(wallet, snapshot_day) PnL roll-up
+    -- For closed markets: attribute realized PnL to the market's end_date
+    -- For open markets: attribute unrealized to the wallet's last trade on that market
+    daily_pnl AS (
+      SELECT
+        proxy_wallet,
+        -- closed markets → attribute to end_date; open → last trade day
+        CASE
+          WHEN is_closed = 1 THEN CAST(end_date AS DATE)
+          ELSE CAST(TO_TIMESTAMP(last_trade_ts) AS DATE)
+        END AS snapshot_day,
+        SUM(cash_flow + resolution_payout) AS realized_pnl_day,
+        SUM(CASE WHEN is_closed = 0 THEN unrealized_mark ELSE 0.0 END) AS unrealized_pnl_day,
+        APPROX_COUNT_DISTINCT(CASE WHEN is_closed = 1 THEN market_id ELSE NULL END) AS closed_positions_day
+      FROM wallet_market_pnl
+      GROUP BY proxy_wallet,
+        CASE
+          WHEN is_closed = 1 THEN CAST(end_date AS DATE)
+          ELSE CAST(TO_TIMESTAMP(last_trade_ts) AS DATE)
+        END
+    ),
+    -- Step 5: per-(wallet, day) activity stats
+    daily_activity AS (
       SELECT
         proxy_wallet,
         CAST(TO_TIMESTAMP(ts_unix) AS DATE)   AS snapshot_day,
@@ -631,34 +738,22 @@ export function buildSnapshotEmitSql(): string {
       FROM discovery_activity_v3
       GROUP BY proxy_wallet, CAST(TO_TIMESTAMP(ts_unix) AS DATE)
     ),
-    daily_closed AS (
-      SELECT
-        a.proxy_wallet,
-        CAST(m.end_date AS DATE)              AS snapshot_day,
-        APPROX_COUNT_DISTINCT(a.market_id)    AS closed_positions_day,
-        SUM(a.usd_notional * (a.price_yes - 0.5)) AS realized_pnl_day
-      FROM discovery_activity_v3 a
-      JOIN markets_v3 m
-        ON m.market_id = a.market_id
-       AND m.end_date IS NOT NULL
-       AND CAST(TO_TIMESTAMP(a.ts_unix) AS DATE) <= CAST(m.end_date AS DATE)
-      GROUP BY a.proxy_wallet, CAST(m.end_date AS DATE)
-    ),
     merged AS (
       SELECT
-        COALESCE(da.proxy_wallet, dc.proxy_wallet)       AS proxy_wallet,
-        COALESCE(da.snapshot_day, dc.snapshot_day)       AS snapshot_day,
+        COALESCE(da.proxy_wallet, dp.proxy_wallet)       AS proxy_wallet,
+        COALESCE(da.snapshot_day, dp.snapshot_day)       AS snapshot_day,
         COALESCE(da.trade_count_day, 0)                  AS trade_count_day,
         COALESCE(da.volume_day, 0.0)                     AS volume_day,
         COALESCE(da.distinct_markets_day, 0)             AS distinct_markets_day,
         da.first_active_ts_day                           AS first_active_ts_day,
         da.last_active_ts_day                            AS last_active_ts_day,
-        COALESCE(dc.closed_positions_day, 0)             AS closed_positions_day,
-        COALESCE(dc.realized_pnl_day, 0.0)               AS realized_pnl_day
+        COALESCE(dp.closed_positions_day, 0)             AS closed_positions_day,
+        COALESCE(dp.realized_pnl_day, 0.0)               AS realized_pnl_day,
+        COALESCE(dp.unrealized_pnl_day, 0.0)             AS unrealized_pnl_day
       FROM daily_activity da
-      FULL OUTER JOIN daily_closed dc
-        ON dc.proxy_wallet = da.proxy_wallet
-       AND dc.snapshot_day = da.snapshot_day
+      FULL OUTER JOIN daily_pnl dp
+        ON dp.proxy_wallet = da.proxy_wallet
+       AND dp.snapshot_day = da.snapshot_day
     )
     SELECT
       proxy_wallet,
@@ -676,15 +771,19 @@ export function buildSnapshotEmitSql(): string {
       SELECT
         proxy_wallet,
         snapshot_day,
-        SUM(trade_count_day)      OVER (PARTITION BY proxy_wallet ORDER BY snapshot_day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS trade_count,
-        SUM(volume_day)           OVER (PARTITION BY proxy_wallet ORDER BY snapshot_day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS volume_total,
-        SUM(distinct_markets_day) OVER (PARTITION BY proxy_wallet ORDER BY snapshot_day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS distinct_markets,
-        SUM(closed_positions_day) OVER (PARTITION BY proxy_wallet ORDER BY snapshot_day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS closed_positions,
-        SUM(realized_pnl_day)     OVER (PARTITION BY proxy_wallet ORDER BY snapshot_day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS realized_pnl,
-        0.0                                                                                                                                                AS unrealized_pnl,
-        MIN(first_active_ts_day)  OVER (PARTITION BY proxy_wallet ORDER BY snapshot_day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS first_active_ts,
-        MAX(last_active_ts_day)   OVER (PARTITION BY proxy_wallet ORDER BY snapshot_day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS last_active_ts
+        SUM(trade_count_day)      OVER w AS trade_count,
+        SUM(volume_day)           OVER w AS volume_total,
+        SUM(distinct_markets_day) OVER w AS distinct_markets,
+        SUM(closed_positions_day) OVER w AS closed_positions,
+        SUM(realized_pnl_day)     OVER w AS realized_pnl,
+        -- Unrealized is NOT cumulative (open positions change daily);
+        -- we take the most recent day's unrealized mark
+        LAST_VALUE(unrealized_pnl_day) OVER w AS unrealized_pnl,
+        MIN(first_active_ts_day)  OVER w AS first_active_ts,
+        MAX(last_active_ts_day)   OVER w AS last_active_ts
       FROM merged
+      WINDOW w AS (PARTITION BY proxy_wallet ORDER BY snapshot_day
+                   ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
     )
     WHERE trade_count > 0
   `;

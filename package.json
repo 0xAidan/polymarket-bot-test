@@ -19,7 +19,9 @@
     "start:prod:app": "node dist/index.js",
     "start:prod:discovery": "node dist/discovery/discoveryWorker.js",
     "lint": "eslint src --ext .ts",
-    "validate:egress": "node scripts/validate-polymarket-egress.mjs"
+    "validate:egress": "node scripts/validate-polymarket-egress.mjs",
+    "verify:pnl": "npx tsx scripts/verify-pnl-vs-polymarket-api.ts",
+    "verify:pnl:dry-run": "npx tsx scripts/verify-pnl-vs-polymarket-api.ts --dry-run"
   },
   "keywords": [
     "polymarket",
