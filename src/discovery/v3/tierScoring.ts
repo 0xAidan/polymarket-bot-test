@@ -102,15 +102,21 @@ export function scoreTiers(
   const volume = eligible.map((r) => r.snapshot.volume_total);
   const span = eligible.map((r) => r.snapshot.observation_span_days);
 
-  const zEdge = zScores(edgeRate);
-  const zBreadth = zScores(breadth);
-  const zTrades = zScores(tradeCount);
-  const zVolume = zScores(volume);
-  const zSpan = zScores(span);
+  // Percentile-rank each feature independently before blending.
+  // This makes every dimension outlier-resistant: one wallet with 50× the
+  // median volume only reaches pct=1.0, not z≈50, so it can't drown out
+  // the other dimensions in the weighted sum. The blend of per-feature
+  // percentile ranks is then re-ranked at the end to produce the final
+  // tier score (still a valid total order; just more evenly spaced).
+  const pctEdge    = percentileRank(edgeRate);
+  const pctBreadth = percentileRank(breadth);
+  const pctTrades  = percentileRank(tradeCount);
+  const pctVolume  = percentileRank(volume);
+  const pctSpan    = percentileRank(span);
 
-  const alphaRaw = eligible.map((_, i) => 0.45 * zEdge[i] + 0.35 * zBreadth[i] + 0.20 * zTrades[i]);
-  const whaleRaw = eligible.map((_, i) => 0.60 * zVolume[i] + 0.25 * zTrades[i] + 0.15 * zSpan[i]);
-  const specialistRaw = eligible.map((_, i) => 0.55 * zEdge[i] + 0.25 * zBreadth[i] + 0.20 * zVolume[i]);
+  const alphaRaw      = eligible.map((_, i) => 0.45 * pctEdge[i]    + 0.35 * pctBreadth[i] + 0.20 * pctTrades[i]);
+  const whaleRaw      = eligible.map((_, i) => 0.60 * pctVolume[i]  + 0.25 * pctTrades[i]  + 0.15 * pctSpan[i]);
+  const specialistRaw = eligible.map((_, i) => 0.55 * pctEdge[i]    + 0.25 * pctBreadth[i] + 0.20 * pctVolume[i]);
 
   const alphaPct = percentileRank(alphaRaw);
   const whalePct = percentileRank(whaleRaw);
