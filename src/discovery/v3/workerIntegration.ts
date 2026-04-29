@@ -42,6 +42,9 @@ export async function startDiscoveryV3Worker(
   const duck = openDuckDB(dbPath);
   await runV3DuckDBMigrations((sql) => duck.exec(sql));
   log(`[v3] DuckDB open at ${dbPath}`);
+  log(
+    `[v3] coverage contract source=${process.env.DISCOVERY_V3_HISTORICAL_BACKFILL_SOURCE || 'huggingface:SII-WANGZJ/Polymarket_data/users.parquet'} max_ts=${process.env.DISCOVERY_V3_HISTORICAL_COVERAGE_MAX_TS || '1772668800'}`
+  );
 
   // Goldsky live listener
   const client = createGoldskyClient();

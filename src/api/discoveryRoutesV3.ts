@@ -7,6 +7,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import type Database from 'better-sqlite3';
 import { isDiscoveryV3Enabled } from '../discovery/v3/featureFlag.js';
+import { getDiscoveryCoverageContract } from '../discovery/v3/coverageContract.js';
 import { TierName } from '../discovery/v3/types.js';
 
 const VALID_TIERS: ReadonlySet<TierName> = new Set(['alpha', 'whale', 'specialist']);
@@ -162,14 +163,32 @@ export function createDiscoveryV3Router(deps: V3RouterDeps): Router {
       const cursor = deps.getDb().prepare(
         'SELECT pipeline, last_block, last_ts_unix, updated_at FROM pipeline_cursor'
       ).all() as Array<{ pipeline: string; last_block: number; last_ts_unix: number; updated_at: number }>;
+      const coverage = getDiscoveryCoverageContract(deps.getDb());
       res.json({
         success: true,
         flag: isDiscoveryV3Enabled(),
         tierCounts: Object.fromEntries(counts.map((c) => [c.tier, c.count])),
         cursors: cursor,
+        coverage,
       });
     } catch (err) {
-      res.json({ success: true, flag: isDiscoveryV3Enabled(), tierCounts: {}, cursors: [], warning: (err as Error).message });
+      res.json({
+        success: true,
+        flag: isDiscoveryV3Enabled(),
+        tierCounts: {},
+        cursors: [],
+        coverage: {
+          historical_backfill_source: process.env.DISCOVERY_V3_HISTORICAL_BACKFILL_SOURCE
+            || 'huggingface:SII-WANGZJ/Polymarket_data/users.parquet',
+          historical_coverage_max_ts: Number(process.env.DISCOVERY_V3_HISTORICAL_COVERAGE_MAX_TS || 1772668800),
+          known_gap_policy: process.env.DISCOVERY_V3_KNOWN_GAP_POLICY
+            || 'Historical coverage is limited to imported backfill + live ingest.',
+          live_ingest_cursor_ts: null,
+          live_ingest_cursor_block: null,
+          score_updated_at: null,
+        },
+        warning: (err as Error).message,
+      });
     }
   });
 
@@ -210,12 +229,14 @@ export function createDiscoveryV3Router(deps: V3RouterDeps): Router {
       'SELECT pipeline, last_block, last_ts_unix, updated_at FROM pipeline_cursor'
     ).all() as Array<{ pipeline: string; last_block: number; last_ts_unix: number; updated_at: number }>;
     const totalRow = db.prepare('SELECT COUNT(*) AS c FROM discovery_wallet_scores_v3').get() as { c: number };
+    const coverage = getDiscoveryCoverageContract(db);
     res.json({
       success: true,
       flag: isDiscoveryV3Enabled(),
       totalScoreRows: totalRow.c,
       tierCounts: Object.fromEntries(tierCounts.map((c) => [c.tier, c.count])),
       cursors,
+      coverage,
     });
   });
 
