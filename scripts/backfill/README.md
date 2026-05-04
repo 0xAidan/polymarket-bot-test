@@ -40,6 +40,13 @@ tsx scripts/backfill/05_score_and_publish.ts
 
 # 7. 20-wallet spot check against the Data API
 tsx scripts/backfill/06_validate.ts
+
+# 8. Fill the ~55-day gap (March 5 2026 → now) from Goldsky live events
+#    Resumable — safe to Ctrl-C and re-run.
+tsx scripts/backfill/07_goldsky_gap_fill.ts
+
+# 9. After gap fill, rescore wallets with the new data
+tsx scripts/backfill/05_score_and_publish.ts
 ```
 
 ## Flags

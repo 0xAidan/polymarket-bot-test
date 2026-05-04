@@ -69,31 +69,7 @@ async function main(): Promise<void> {
     // has ~800M rows and DuckDB 1.4.x CREATE INDEX would OOM.
     // See src/discovery/v3/duckdbSchema.ts for the full rationale.
     await runV3DuckDBMigrationsBackfillNoIndex((sql) => duck.exec(sql));
-<<<<<<< HEAD
-    console.log('[05] selecting latest snapshot per wallet…');
-    const rows = await duck.query<V3FeatureSnapshot>(
-      `SELECT
-         proxy_wallet,
-         CAST(snapshot_day AS VARCHAR)                AS snapshot_day,
-         CAST(trade_count AS BIGINT)                  AS trade_count,
-         volume_total,
-         CAST(distinct_markets AS BIGINT)             AS distinct_markets,
-         CAST(closed_positions AS BIGINT)             AS closed_positions,
-         CAST(realized_pnl AS DOUBLE)                 AS realized_pnl,
-         CAST(unrealized_pnl AS DOUBLE)               AS unrealized_pnl,
-         CAST(first_active_ts AS BIGINT)              AS first_active_ts,
-         CAST(last_active_ts AS BIGINT)               AS last_active_ts,
-         CAST(observation_span_days AS INTEGER)       AS observation_span_days
-       FROM (
-         SELECT *,
-                ROW_NUMBER() OVER (PARTITION BY proxy_wallet ORDER BY snapshot_day DESC) AS rn
-         FROM discovery_feature_snapshots_v3
-       ) t
-       WHERE rn = 1`
-    );
-    console.log(`[05] scoring ${rows.length} wallets`);
-=======
->>>>>>> origin
+
 
     // Mirror 04_emit_snapshots' pragmas so any large operator (the
     // ARG_MAX hash aggregate below, or its temp materialisation) can
