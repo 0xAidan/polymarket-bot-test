@@ -121,15 +121,52 @@ export function scoreTiers(
     tier: TierName;
     score: number;
     reasons: string[];
+    trustScore: number;
+    copyabilityScore: number;
+    confidenceBucket: 'low' | 'medium' | 'high';
   }
   const allRanked: Ranked[] = [];
 
   for (let i = 0; i < eligible.length; i++) {
     const s = eligible[i].snapshot;
+    const trustScore = Math.max(0, Math.min(100, (0.45 * whalePct[i] + 0.55 * alphaPct[i]) * 100));
+    const copyabilityScore = Math.max(0, Math.min(100, (0.60 * specialistPct[i] + 0.40 * alphaPct[i]) * 100));
+    const confidenceBucket: 'low' | 'medium' | 'high' = s.trade_count >= 200
+      ? 'high'
+      : s.trade_count >= 60
+        ? 'medium'
+        : 'low';
     allRanked.push(
-      { wallet: s.proxy_wallet, snapshot: s, tier: 'alpha',       score: alphaPct[i] * 100,      reasons: ['edge_rate', 'market_breadth', 'trade_count'] },
-      { wallet: s.proxy_wallet, snapshot: s, tier: 'whale',       score: whalePct[i] * 100,      reasons: ['volume_total', 'trade_count', 'observation_span'] },
-      { wallet: s.proxy_wallet, snapshot: s, tier: 'specialist',  score: specialistPct[i] * 100, reasons: ['edge_rate', 'market_breadth', 'volume_total'] },
+      {
+        wallet: s.proxy_wallet,
+        snapshot: s,
+        tier: 'alpha',
+        score: alphaPct[i] * 100,
+        reasons: ['Strong recent edge per closed position', 'Broad market coverage', 'Healthy trade cadence'],
+        trustScore,
+        copyabilityScore,
+        confidenceBucket,
+      },
+      {
+        wallet: s.proxy_wallet,
+        snapshot: s,
+        tier: 'whale',
+        score: whalePct[i] * 100,
+        reasons: ['Large sustained notional volume', 'Consistent multi-market activity', 'Durable observation span'],
+        trustScore,
+        copyabilityScore,
+        confidenceBucket,
+      },
+      {
+        wallet: s.proxy_wallet,
+        snapshot: s,
+        tier: 'specialist',
+        score: specialistPct[i] * 100,
+        reasons: ['High signal in concentrated niches', 'Repeatable realized edge', 'Specialist profile strength'],
+        trustScore,
+        copyabilityScore,
+        confidenceBucket,
+      },
     );
   }
 
@@ -157,7 +194,14 @@ export function scoreTiers(
         realized_pnl: r.snapshot.realized_pnl,
         hit_rate: null,
         last_active_ts: r.snapshot.last_active_ts,
-        reasons_json: JSON.stringify(r.reasons),
+        reasons_json: JSON.stringify({
+          primaryReason: r.reasons[0],
+          supportingReasons: r.reasons,
+          cautionFlags: r.confidenceBucket === 'low' ? ['Provisional evidence; limited sample size'] : [],
+          trustScore: r.trustScore,
+          copyabilityScore: r.copyabilityScore,
+          confidenceBucket: r.confidenceBucket,
+        }),
         updated_at: now,
       });
     }

@@ -494,6 +494,10 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
   const router = Router();
 
   router.use(ensureDatabase);
+  router.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('x-discovery-legacy-deprecated', 'true');
+    next();
+  });
 
   const getWalletSnapshot = (address: string): Record<string, unknown> | null => {
     const normalized = address.toLowerCase();

@@ -370,7 +370,7 @@ async function startDiscoveryWorkerRuntime() {
   try {
     if (isDiscoveryV3Enabled()) {
       console.warn(
-        '[DiscoveryWorker] APP_RUNTIME=discovery-worker (index.ts) does not bootstrap discovery v3. Use npm run start:discovery or npm run start:prod:discovery for v3 live ingest.'
+        '[DiscoveryWorker] APP_RUNTIME=discovery-worker (index.ts) does not bootstrap discovery v3 live ingest. Use npm run start:discovery or npm run start:prod:discovery. Legacy v1/v2 writes are disabled by default when DISCOVERY_V3=true.'
       );
     }
 

@@ -3141,7 +3141,7 @@ const runDiscoveryCompare = async () => {
   }
   tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Comparing wallets...</td></tr>';
   try {
-    const resp = await fetch('/api/discovery/wallets/compare', {
+    const resp = await fetch('/api/discovery/v3/wallets/compare', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ addresses }),
@@ -3178,7 +3178,7 @@ const addSelectedDiscoveryWalletToWatchlist = async () => {
   if (!wallet?.address) return;
   try {
     const note = await win95Dialog.prompt('Optional note for this watchlist wallet:', '', 'Watchlist');
-    await fetch('/api/discovery/watchlist', {
+    await fetch('/api/discovery/v3/watchlist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -3194,7 +3194,7 @@ const addSelectedDiscoveryWalletToWatchlist = async () => {
 
 const removeDiscoveryWatchlist = async (address) => {
   try {
-    await fetch('/api/discovery/watchlist/' + encodeURIComponent(address), { method: 'DELETE' });
+    await fetch('/api/discovery/v3/watchlist/' + encodeURIComponent(address), { method: 'DELETE' });
     loadDiscoveryWatchlist();
   } catch {
     /* best-effort */
@@ -3205,7 +3205,7 @@ const loadDiscoveryWatchlist = async () => {
   const tbody = document.getElementById('discoveryWatchlistBody');
   if (!tbody) return;
   try {
-    const resp = await fetch('/api/discovery/watchlist?limit=100&offset=0');
+    const resp = await fetch('/api/discovery/v3/watchlist?limit=100&offset=0');
     const data = await resp.json();
     if (!data.success) throw new Error(data.error || 'Watchlist unavailable');
     const rows = data.watchlist || [];
@@ -3235,7 +3235,7 @@ const loadDiscoveryAlertsCenter = async () => {
   try {
     const severityEl = document.getElementById('discoveryAlertsSeverityFilter');
     const severity = severityEl?.value ? `&severity=${encodeURIComponent(severityEl.value)}` : '';
-    const resp = await fetch('/api/discovery/alerts?limit=20&offset=0' + severity);
+    const resp = await fetch('/api/discovery/v3/alerts?limit=20&offset=0' + severity);
     const data = await resp.json();
     if (!data.success) throw new Error(data.error || 'Alerts unavailable');
     const alerts = data.alerts || [];
@@ -3286,7 +3286,7 @@ const loadDiscoveryAllocationStates = async () => {
 const dismissDiscoveryAlert = async (id) => {
   if (!id) return;
   try {
-    await fetch(`/api/discovery/alerts/${encodeURIComponent(String(id))}/dismiss`, { method: 'POST' });
+    await fetch(`/api/discovery/v3/alerts/${encodeURIComponent(String(id))}/dismiss`, { method: 'POST' });
     await loadDiscoveryAlertsCenter();
   } catch {
     /* best-effort */
@@ -3355,7 +3355,7 @@ const loadDiscoveryMethodology = async () => {
   const bodyEl = document.getElementById('discoveryMethodologyBody');
   if (!bodyEl) return;
   try {
-    const resp = await fetch('/api/discovery/methodology');
+    const resp = await fetch('/api/discovery/v3/methodology');
     const data = await resp.json();
     if (!data.success) throw new Error(data.error || 'Methodology unavailable');
     const methodology = data.methodology || {};
@@ -3719,7 +3719,7 @@ const fetchDiscoveryWallets = async (append) => {
     const minScoreEl = document.getElementById('filterMinScore');
     const heatEl = document.getElementById('filterHeat');
     const hasSignalsEl = document.getElementById('filterHasSignals');
-    let url = `/api/discovery/wallets?sort=${encodeURIComponent(sort)}&limit=${DISCOVERY_PAGE_SIZE}&offset=${discoveryWalletOffset}`;
+    let url = `/api/discovery/v3/wallets?sort=${encodeURIComponent(sort)}&limit=${DISCOVERY_PAGE_SIZE}&offset=${discoveryWalletOffset}`;
     if (focus) url += '&focus=' + encodeURIComponent(focus);
     if (minScoreEl && parseInt(minScoreEl.value, 10) > 0) url += '&minScore=' + minScoreEl.value;
     if (heatEl && heatEl.value) url += '&heat=' + encodeURIComponent(heatEl.value);
@@ -3775,8 +3775,8 @@ const fetchDiscoveryInspectorData = async (address) => {
   }
 
   const [positionsResp, signalsResp] = await Promise.all([
-    fetch('/api/discovery/wallets/' + encodeURIComponent(cacheKey) + '/positions'),
-    fetch('/api/discovery/wallets/' + encodeURIComponent(cacheKey) + '/signals'),
+    fetch('/api/discovery/v3/wallets/' + encodeURIComponent(cacheKey) + '/positions'),
+    fetch('/api/discovery/v3/wallets/' + encodeURIComponent(cacheKey) + '/signals'),
   ]);
   const positionsData = await positionsResp.json();
   const signalsData = await signalsResp.json();
@@ -3937,7 +3937,7 @@ const loadDiscoverySignals = async () => {
   try {
     const severityEl = document.getElementById('signalSeverityFilter');
     const severity = severityEl ? severityEl.value : '';
-    let url = '/api/discovery/signals?limit=10&offset=0';
+    let url = '/api/discovery/v3/signals?limit=10&offset=0';
     if (severity) url += '&severity=' + encodeURIComponent(severity);
     const resp = await fetch(url);
     const data = await resp.json();
@@ -3977,14 +3977,14 @@ const loadDiscoverySignals = async () => {
 
 const dismissSignal = async (id) => {
   try {
-    await fetch('/api/discovery/signals/' + id + '/dismiss', { method: 'POST' });
+    await fetch('/api/discovery/v3/signals/' + id + '/dismiss', { method: 'POST' });
     loadDiscoverySignals();
   } catch { /* best-effort */ }
 };
 
 const loadUnusualMarkets = async () => {
   try {
-    const resp = await fetch('/api/discovery/signals/markets?days=7');
+    const resp = await fetch('/api/discovery/v3/signals/markets?days=7');
     const data = await resp.json();
     const tbody = document.getElementById('unusualMarketsBody');
     if (!data.success || !tbody) return;
@@ -4016,7 +4016,7 @@ const loadUnusualMarkets = async () => {
 
 const loadDiscoveryOverview = async () => {
   try {
-    const resp = await fetch('/api/discovery/summary?days=7');
+    const resp = await fetch('/api/discovery/v3/summary?days=7');
     const data = await resp.json();
     if (!data.success) return;
 
@@ -4076,8 +4076,8 @@ const openWalletDetail = async (address) => {
 
   try {
     const [posResp, sigResp] = await Promise.all([
-      fetch('/api/discovery/wallets/' + encodeURIComponent(address.toLowerCase()) + '/positions'),
-      fetch('/api/discovery/wallets/' + encodeURIComponent(address.toLowerCase()) + '/signals'),
+      fetch('/api/discovery/v3/wallets/' + encodeURIComponent(address.toLowerCase()) + '/positions'),
+      fetch('/api/discovery/v3/wallets/' + encodeURIComponent(address.toLowerCase()) + '/signals'),
     ]);
     const posData = await posResp.json();
     const sigData = await sigResp.json();
@@ -4162,7 +4162,11 @@ const trackDiscoveredWallet = async (address, btn) => {
         throw new Error(toggleData.error || 'Failed to activate wallet');
       }
 
-      await fetch(`/api/discovery/wallets/${address}/track`, { method: 'POST' });
+      await fetch('/api/discovery/v3/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address })
+      });
       btn.textContent = 'Active';
       btn.classList.remove('win-btn-primary');
     } else {

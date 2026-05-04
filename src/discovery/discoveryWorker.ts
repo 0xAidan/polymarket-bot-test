@@ -40,6 +40,7 @@ import {
 } from './evaluationEngine.js';
 import { insertDiscoveryRunLog } from './runLog.js';
 import { isDiscoveryV3Enabled } from './v3/featureFlag.js';
+import { isLegacyDiscoveryWriteAllowed, legacyWriteGuardReason } from './v3/legacyMode.js';
 import { startDiscoveryV3Worker } from './v3/workerIntegration.js';
 import { getDiscoveryConfig } from './statsStore.js';
 import { DiscoveryStrategyClass, DiscoveryWalletScoreRow } from './types.js';
@@ -98,7 +99,19 @@ export class DiscoveryWorkerRuntime {
     this.leaderboardWindows = options.leaderboardWindows ?? DEFAULT_LEADERBOARD_WINDOWS;
   }
 
+  private shouldRunLegacyPipeline(): boolean {
+    if (!isDiscoveryV3Enabled()) {
+      return true;
+    }
+    return isLegacyDiscoveryWriteAllowed();
+  }
+
   async start(): Promise<void> {
+    if (!this.shouldRunLegacyPipeline()) {
+      const reason = legacyWriteGuardReason() || 'discovery v3 active';
+      console.log(`[DiscoveryWorker] Legacy v1/v2 cycle disabled (${reason}).`);
+      return;
+    }
     await this.tick();
     if (this.timer) return;
     const cfg = getDiscoveryConfig();
@@ -119,6 +132,9 @@ export class DiscoveryWorkerRuntime {
   }
 
   async runCycle(): Promise<void> {
+    if (!this.shouldRunLegacyPipeline()) {
+      return;
+    }
     const cfg = getDiscoveryConfig();
     if (!cfg.enabled) {
       return;
@@ -481,6 +497,7 @@ export class DiscoveryWorkerRuntime {
   }
 
   private async tick(): Promise<void> {
+    if (!this.shouldRunLegacyPipeline()) return;
     const cfg = getDiscoveryConfig();
     if (!cfg.enabled) return;
     if (this.lastCompletedCycleAt > 0) {
@@ -665,6 +682,9 @@ export const startDiscoveryWorker = async (
   await initDatabase();
   const cfg = getDiscoveryConfig();
   console.log('[DiscoveryWorker] Started. Discovery enabled:', cfg.enabled, cfg.enabled ? '' : '(set DISCOVERY_ENABLED=true or enable in the app to run cycles)');
+  if (isDiscoveryV3Enabled() && !isLegacyDiscoveryWriteAllowed()) {
+    console.log('[DiscoveryWorker] v3 mode active: legacy v1/v2 cycle writes are disabled by default.');
+  }
   await runner.start();
   return runner;
 };
@@ -672,7 +692,8 @@ export const startDiscoveryWorker = async (
 const main = async (): Promise<void> => {
   const runner = await startDiscoveryWorker(new DiscoveryWorkerRuntime());
 
-  // Discovery v3 — flag-gated, additive. Legacy v1/v2 pipeline above keeps running.
+  // Discovery v3 runtime owner. Legacy v1/v2 cycle is disabled by default
+  // unless DISCOVERY_V3_LEGACY_WRITES=true is explicitly set.
   let v3Handle: Awaited<ReturnType<typeof startDiscoveryV3Worker>> = null;
   if (isDiscoveryV3Enabled()) {
     try {
