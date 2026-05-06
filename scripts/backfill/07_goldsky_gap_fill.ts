@@ -36,7 +36,6 @@ import {
   createGoldskyClient,
   normalizeOrderFilled,
   insertNormalizedRows,
-  GOLDSKY_ENDPOINT,
   type GoldskyOrderFilled,
   type NormalizedV3Row,
 } from '../../src/discovery/v3/goldskyListener.js';
@@ -105,56 +104,23 @@ function writeCursor(path: string, cursor: CursorFile): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Query Goldsky for the first OrderFilled event at or after the given
- * timestamp and return its block number. Falls back to a rough estimate
- * if the query fails.
+ * Return the Polygon block number corresponding to approximately March 5, 2026.
+ *
+ * The Goldsky subgraph only supports filtering by `blockNumber`, not by
+ * `timestamp`, so we use a direct block estimate instead of querying.
+ * Polygon block ~74,700,000 corresponds to roughly March 5, 2026.
+ *
+ * Because `fetchOrderFilledSince` uses `blockNumber_gt` (strictly greater
+ * than), we subtract 1 so the first event at that block is included.
  */
-async function findStartingBlock(startTs: number): Promise<number> {
-  console.log(`[07] looking up starting block for ts=${startTs} (${new Date(startTs * 1000).toISOString()})…`);
-
-  try {
-    const query = `
-      query StartBlock($ts: Int!) {
-        orderFilledEvents(
-          first: 1,
-          orderBy: timestamp,
-          orderDirection: asc,
-          where: { timestamp_gte: $ts }
-        ) {
-          blockNumber
-          timestamp
-        }
-      }
-    `;
-    const res = await fetch(GOLDSKY_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, variables: { ts: startTs } }),
-    });
-    if (!res.ok) throw new Error(`Goldsky HTTP ${res.status}`);
-    const body = (await res.json()) as {
-      data?: { orderFilledEvents?: Array<{ blockNumber: string; timestamp: string }> };
-      errors?: Array<{ message: string }>;
-    };
-    if (body.errors?.length) throw new Error(body.errors.map((e) => e.message).join('; '));
-    const events = body.data?.orderFilledEvents ?? [];
-    if (events.length > 0) {
-      const block = Number(events[0].blockNumber);
-      // Start one block before the first event so fetchOrderFilledSince
-      // (which uses blockNumber_gt) includes it.
-      const startBlock = Math.max(0, block - 1);
-      console.log(`[07] found first event at block ${block} (ts=${events[0].timestamp}), starting from block ${startBlock}`);
-      return startBlock;
-    }
-    throw new Error('no events returned');
-  } catch (err) {
-    // Fallback: estimate based on Polygon's ~2s block time.
-    // Reference: Polygon block 70_000_000 ≈ 2026-01-01T00:00:00Z (approximate).
-    // March 5 is 63 days later → 63 * 86400 / 2 = 2,721,600 blocks later.
-    const fallbackBlock = 72_700_000;
-    console.warn(`[07] block lookup failed (${(err as Error).message}), using fallback block ${fallbackBlock}`);
-    return fallbackBlock;
-  }
+function findStartingBlock(_startTs: number): number {
+  const MARCH_5_2026_BLOCK = 74_700_000;
+  const startBlock = MARCH_5_2026_BLOCK - 1;
+  console.log(
+    `[07] using estimated Polygon block ${MARCH_5_2026_BLOCK} (~March 5 2026), ` +
+    `starting from block ${startBlock} (blockNumber_gt pagination)`
+  );
+  return startBlock;
 }
 
 // ---------------------------------------------------------------------------
@@ -223,7 +189,7 @@ async function main(): Promise<void> {
         `${formatNumber(totalFetched)} events fetched, ${formatNumber(totalInserted)} rows inserted previously`
       );
     } else {
-      lastBlock = await findStartingBlock(startTsUnix);
+      lastBlock = findStartingBlock(startTsUnix);
       totalInserted = 0;
       totalFetched = 0;
     }
