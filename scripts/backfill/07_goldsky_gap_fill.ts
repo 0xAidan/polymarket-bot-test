@@ -35,7 +35,7 @@ import { getDuckDBPath } from '../../src/discovery/v3/featureFlag.js';
 import {
   createGoldskyClient,
   normalizeOrderFilled,
-  insertNormalizedRows,
+  insertNormalizedRowsBatch,
   type GoldskyOrderFilled,
   type NormalizedV3Row,
 } from '../../src/discovery/v3/goldskyListener.js';
@@ -46,8 +46,8 @@ import {
 
 const DEFAULT_GAP_START_TS = '2026-03-05T00:00:00Z';
 const DEFAULT_CURSOR_PATH = './data/07_gap_fill_cursor.json';
-const DEFAULT_PAGE_SIZE = 500;
-const DEFAULT_DELAY_MS = 200;
+const DEFAULT_PAGE_SIZE = 1000;
+const DEFAULT_DELAY_MS = 0;
 const MAX_RETRIES = 3;
 
 interface CursorFile {
@@ -181,6 +181,17 @@ async function main(): Promise<void> {
       lastTimestamp = savedCursor.lastTimestamp;
       totalInserted = savedCursor.totalInserted;
       totalFetched = savedCursor.totalFetched;
+      // Clean up any partial-page remnants from a previous Ctrl+C.
+      // The cursor represents the max timestamp of the last FULLY completed
+      // page, so anything above it is from an interrupted batch.
+      const deleted = await duck.query<{ c: number | bigint }>(
+        `SELECT COUNT(*)::BIGINT AS c FROM discovery_activity_v3 WHERE ts_unix > ${lastTimestamp}`
+      );
+      const delCount = Number(deleted[0].c);
+      if (delCount > 0) {
+        await duck.exec(`DELETE FROM discovery_activity_v3 WHERE ts_unix > ${lastTimestamp}`);
+        console.log(`[07] cleaned ${formatNumber(delCount)} partial-page rows above cursor ts ${lastTimestamp}`);
+      }
       console.log(
         `[07] resuming from cursor — ts ${lastTimestamp} (${new Date(lastTimestamp * 1000).toISOString()}), ` +
         `${formatNumber(totalFetched)} events fetched, ${formatNumber(totalInserted)} rows inserted previously`
@@ -226,12 +237,12 @@ async function main(): Promise<void> {
         rows.push(...normalizeOrderFilled(ev));
       }
 
-      // Insert into DuckDB (dupes silently swallowed).
+      // Insert into DuckDB (batch — single INSERT statement per page).
       let pageInserted = 0;
       try {
-        pageInserted = await insertNormalizedRows(duck, rows);
+        pageInserted = await insertNormalizedRowsBatch(duck, rows);
       } catch (err) {
-        // Non-duplicate DuckDB error — log and continue.
+        // DuckDB error — log and continue.
         console.error(`[07] DuckDB insert error on page ${pageNum}: ${(err as Error).message} — continuing`);
       }
 
