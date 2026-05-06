@@ -95,7 +95,8 @@ export function createGoldskyClient(opts: { fetchImpl?: typeof fetch; endpoint?:
 function syntheticLogIndex(orderHash: string): number {
   // Strip leading '0x' if present, then take first 8 hex chars.
   const hex = orderHash.replace(/^0x/, '').slice(0, 8);
-  return parseInt(hex, 16) >>> 0; // unsigned 32-bit
+  // Cap at 3B so the taker's +1B offset still fits in UINT32 (max ~4.29B).
+  return (parseInt(hex, 16) >>> 0) % 3_000_000_000;
 }
 
 /**
