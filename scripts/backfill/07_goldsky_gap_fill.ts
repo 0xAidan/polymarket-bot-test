@@ -4,8 +4,8 @@
  * existing Goldsky listener infrastructure.
  *
  * This is a one-shot backfill — it pages through all OrderFilled events
- * from a starting block to the chain tip and exits. The script is fully
- * resumable: a cursor file tracks the last successfully processed block
+ * from a starting timestamp to the chain tip and exits. The script is fully
+ * resumable: a cursor file tracks the last successfully processed timestamp
  * so a crash or Ctrl-C loses at most one page of work.
  *
  * ## Usage
@@ -51,7 +51,7 @@ const DEFAULT_DELAY_MS = 200;
 const MAX_RETRIES = 3;
 
 interface CursorFile {
-  lastBlock: number;
+  lastTimestamp: number;
   totalInserted: number;
   totalFetched: number;
   updatedAt: string;
@@ -85,8 +85,10 @@ function readCursor(path: string): CursorFile | null {
   try {
     const raw = readFileSync(path, 'utf-8');
     const parsed = JSON.parse(raw) as CursorFile;
-    if (typeof parsed.lastBlock === 'number' && parsed.lastBlock > 0) {
-      return parsed;
+    // Support both old (lastBlock) and new (lastTimestamp) cursor formats.
+    const ts = parsed.lastTimestamp ?? (parsed as any).lastBlock;
+    if (typeof ts === 'number' && ts > 0) {
+      return { ...parsed, lastTimestamp: ts };
     }
     return null;
   } catch {
@@ -100,27 +102,22 @@ function writeCursor(path: string, cursor: CursorFile): void {
 }
 
 // ---------------------------------------------------------------------------
-// Starting block lookup
+// Starting timestamp
 // ---------------------------------------------------------------------------
 
 /**
- * Return the Polygon block number corresponding to approximately March 5, 2026.
- *
- * The Goldsky subgraph only supports filtering by `blockNumber`, not by
- * `timestamp`, so we use a direct block estimate instead of querying.
- * Polygon block ~74,700,000 corresponds to roughly March 5, 2026.
- *
- * Because `fetchOrderFilledSince` uses `blockNumber_gt` (strictly greater
- * than), we subtract 1 so the first event at that block is included.
+ * Return the Unix timestamp (seconds) for approximately March 5, 2026.
+ * The Goldsky subgraph paginates by `timestamp_gt`, so we use the
+ * timestamp directly.
  */
-function findStartingBlock(_startTs: number): number {
-  const MARCH_5_2026_BLOCK = 74_700_000;
-  const startBlock = MARCH_5_2026_BLOCK - 1;
+function findStartingTimestamp(startTsUnix: number): number {
+  // Subtract 1 so the `timestamp_gt` filter includes events AT the start.
+  const cursor = startTsUnix - 1;
   console.log(
-    `[07] using estimated Polygon block ${MARCH_5_2026_BLOCK} (~March 5 2026), ` +
-    `starting from block ${startBlock} (blockNumber_gt pagination)`
+    `[07] using start timestamp ${startTsUnix} (${new Date(startTsUnix * 1000).toISOString()}), ` +
+    `cursor=${cursor} (timestamp_gt pagination)`
   );
-  return startBlock;
+  return cursor;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,13 +126,13 @@ function findStartingBlock(_startTs: number): number {
 
 async function fetchWithRetry(
   client: ReturnType<typeof createGoldskyClient>,
-  lastBlock: number,
+  lastTimestamp: number,
   pageSize: number,
 ): Promise<GoldskyOrderFilled[]> {
   let lastErr: Error | null = null;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      return await client.fetchOrderFilledSince(lastBlock, pageSize);
+      return await client.fetchOrderFilledSince(lastTimestamp, pageSize);
     } catch (err) {
       lastErr = err as Error;
       const backoffMs = 1000 * Math.pow(2, attempt - 1); // 1s, 2s, 4s
@@ -174,22 +171,22 @@ async function main(): Promise<void> {
     )[0].c;
     console.log(`[07] existing rows in discovery_activity_v3: ${formatNumber(Number(beforeRows))}`);
 
-    // ── Determine starting block ────────────────────────────────────────
+    // ── Determine starting timestamp ──────────────────────────────────
     const savedCursor = readCursor(cursorPath);
-    let lastBlock: number;
+    let lastTimestamp: number;
     let totalInserted: number;
     let totalFetched: number;
 
     if (savedCursor) {
-      lastBlock = savedCursor.lastBlock;
+      lastTimestamp = savedCursor.lastTimestamp;
       totalInserted = savedCursor.totalInserted;
       totalFetched = savedCursor.totalFetched;
       console.log(
-        `[07] resuming from cursor — block ${formatNumber(lastBlock)}, ` +
+        `[07] resuming from cursor — ts ${lastTimestamp} (${new Date(lastTimestamp * 1000).toISOString()}), ` +
         `${formatNumber(totalFetched)} events fetched, ${formatNumber(totalInserted)} rows inserted previously`
       );
     } else {
-      lastBlock = findStartingBlock(startTsUnix);
+      lastTimestamp = findStartingTimestamp(startTsUnix);
       totalInserted = 0;
       totalFetched = 0;
     }
@@ -204,22 +201,22 @@ async function main(): Promise<void> {
 
       let events: GoldskyOrderFilled[];
       try {
-        events = await fetchWithRetry(client, lastBlock, pageSize);
+        events = await fetchWithRetry(client, lastTimestamp, pageSize);
       } catch (err) {
         // All retries exhausted — save cursor and bail.
         console.error(`[07] FATAL: Goldsky fetch failed after ${MAX_RETRIES} retries: ${(err as Error).message}`);
         writeCursor(cursorPath, {
-          lastBlock,
+          lastTimestamp,
           totalInserted,
           totalFetched,
           updatedAt: new Date().toISOString(),
         });
-        console.log(`[07] cursor saved at block ${formatNumber(lastBlock)} — re-run to resume`);
+        console.log(`[07] cursor saved at ts ${lastTimestamp} — re-run to resume`);
         process.exit(1);
       }
 
       if (events.length === 0) {
-        console.log(`[07] caught up to chain tip — no more events after block ${formatNumber(lastBlock)}`);
+        console.log(`[07] caught up to chain tip — no more events after ts ${lastTimestamp}`);
         break;
       }
 
@@ -239,14 +236,14 @@ async function main(): Promise<void> {
       }
 
       // Advance cursor.
-      const maxBlock = events.reduce((m, e) => Math.max(m, Number(e.blockNumber)), lastBlock);
-      lastBlock = maxBlock;
+      const maxTs = events.reduce((m, e) => Math.max(m, Number(e.timestamp)), lastTimestamp);
+      lastTimestamp = maxTs;
       totalFetched += events.length;
       totalInserted += pageInserted;
 
       // Save cursor after every page so we can resume.
       writeCursor(cursorPath, {
-        lastBlock,
+        lastTimestamp,
         totalInserted,
         totalFetched,
         updatedAt: new Date().toISOString(),
@@ -254,7 +251,7 @@ async function main(): Promise<void> {
 
       // Progress log.
       console.log(
-        `[07] page ${pageNum} | block ${formatNumber(lastBlock)} | ` +
+        `[07] page ${pageNum} | ts ${lastTimestamp} (${new Date(lastTimestamp * 1000).toISOString()}) | ` +
         `fetched ${formatNumber(totalFetched)} events → ${formatNumber(totalFetched * 2)} rows | ` +
         `inserted ${formatNumber(totalInserted)} new | elapsed ${formatElapsed(t0)}`
       );

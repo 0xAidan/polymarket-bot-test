@@ -17,18 +17,15 @@ test('normalizeOrderFilled produces two rows (maker + taker) with unique log_ind
   const ev: GoldskyOrderFilled = {
     id: 'e1',
     transactionHash: '0xabc',
-    logIndex: '7',
-    blockNumber: '1000',
     timestamp: '1700000000',
+    orderHash: '0x1234567890abcdef',
     maker: '0xMAKER',
     taker: '0xTAKER',
     makerAssetId: '0',                // collateral
     takerAssetId: '999',              // outcome token
     makerAmountFilled: '50',          // USDC notional
     takerAmountFilled: '100',         // size
-    conditionId: 'c1',
-    marketId: 'm1',
-    eventId: 'ev1',
+    fee: '0',
   };
   const rows = normalizeOrderFilled(ev);
   assert.equal(rows.length, 2);
@@ -41,6 +38,8 @@ test('normalizeOrderFilled produces two rows (maker + taker) with unique log_ind
   assert.equal(maker.usd_notional, 50);
   assert.equal(maker.abs_size, 100);
   assert.equal(maker.price_yes, 0.5);
+  assert.equal(maker.block_number, 0, 'block_number not available from Goldsky');
+  assert.equal(maker.market_id, '999', 'market_id derived from non-collateral asset id');
 
   const taker = rows[1];
   assert.equal(taker.role, 'taker');
@@ -58,18 +57,15 @@ test('pollGoldskyOnce advances cursor + inserts rows + deduplicates via mock cli
       {
         id: 'e1',
         transactionHash: '0xa',
-        logIndex: '1',
-        blockNumber: '100',
         timestamp: '1700000000',
+        orderHash: '0xaabbccdd11223344',
         maker: '0xM1',
         taker: '0xT1',
         makerAssetId: '0',
         takerAssetId: '1',
         makerAmountFilled: '25',
         takerAmountFilled: '50',
-        conditionId: 'c1',
-        marketId: 'm1',
-        eventId: 'ev1',
+        fee: '0',
       },
     ],
     [], // second call: nothing new
@@ -77,7 +73,7 @@ test('pollGoldskyOnce advances cursor + inserts rows + deduplicates via mock cli
 
   let calls = 0;
   const client: GoldskyClient = {
-    async fetchOrderFilledSince(lastBlock: number): Promise<GoldskyOrderFilled[]> {
+    async fetchOrderFilledSince(lastTimestamp: number): Promise<GoldskyOrderFilled[]> {
       calls++;
       return responses.shift() ?? [];
     },
@@ -87,12 +83,12 @@ test('pollGoldskyOnce advances cursor + inserts rows + deduplicates via mock cli
   const r1 = await pollGoldskyOnce({ duck, cursor, client });
   assert.equal(r1.fetched, 1);
   assert.equal(r1.inserted, 2, 'maker + taker rows');
-  assert.equal(r1.newCursor, 100);
+  assert.equal(r1.newCursor, 1700000000, 'cursor should be max timestamp');
 
   // Second poll: nothing new.
   const r2 = await pollGoldskyOnce({ duck, cursor, client });
   assert.equal(r2.fetched, 0);
-  assert.equal(r2.newCursor, 100);
+  assert.equal(r2.newCursor, 1700000000);
 
   const rows = await duck.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM discovery_activity_v3');
   assert.equal(Number(rows[0].c), 2);
@@ -111,18 +107,15 @@ test('pollGoldskyOnce advances cursor + inserts rows + deduplicates via mock cli
           {
             id: 'e1',
             transactionHash: '0xa',
-            logIndex: '1',
-            blockNumber: '100',
             timestamp: '1700000000',
+            orderHash: '0xaabbccdd11223344',
             maker: '0xM1',
             taker: '0xT1',
             makerAssetId: '0',
             takerAssetId: '1',
             makerAmountFilled: '25',
             takerAmountFilled: '50',
-            conditionId: 'c1',
-            marketId: 'm1',
-            eventId: 'ev1',
+            fee: '0',
           },
         ];
       },
