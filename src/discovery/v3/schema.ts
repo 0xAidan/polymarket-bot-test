@@ -31,6 +31,17 @@ export const V3_SQLITE_DDL: string[] = [
   )`,
 ];
 
+/**
+ * Additive Composite Score columns on the existing scores table.
+ * These ALTER TABLEs are idempotent — SQLite will error if the column
+ * already exists, so we catch and ignore.
+ */
+const COMPOSITE_COLUMN_MIGRATIONS: string[] = [
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN composite_score REAL DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN momentum_score REAL DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN consistency_score REAL DEFAULT NULL`,
+];
+
 export function runV3SqliteMigrations(db: Database.Database): void {
   // Pre-existing DBs (created before rev5, 2026-04-23) have
   // `discovery_wallet_scores_v3` with PRIMARY KEY (proxy_wallet) — a bug.
@@ -47,5 +58,16 @@ export function runV3SqliteMigrations(db: Database.Database): void {
   }
   for (const stmt of V3_SQLITE_DDL) {
     db.exec(stmt);
+  }
+
+  // Additive migration: add Composite Score columns if they don't exist yet.
+  // SQLite has no ADD COLUMN IF NOT EXISTS, so we catch the "duplicate column" error.
+  for (const alter of COMPOSITE_COLUMN_MIGRATIONS) {
+    try {
+      db.exec(alter);
+    } catch (err) {
+      // "duplicate column name" is expected on subsequent runs — ignore.
+      if (!/duplicate column/i.test((err as Error).message)) throw err;
+    }
   }
 }

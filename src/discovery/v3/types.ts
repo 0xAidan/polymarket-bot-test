@@ -64,6 +64,12 @@ export interface V3WalletScore {
   last_active_ts: number;
   reasons_json: string;
   updated_at: number;
+  /** Composite Score — overall quality metric (0–100). Null if not yet computed. */
+  composite_score?: number | null;
+  /** Momentum pillar — recent performance vs baseline (0–100). */
+  momentum_score?: number | null;
+  /** Consistency pillar — bet sizing discipline (0–100). */
+  consistency_score?: number | null;
 }
 
 export interface EligibilityInput {

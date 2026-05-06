@@ -12,6 +12,8 @@ import { DuckDBClient } from './duckdbClient.js';
 import { buildSnapshotEmitSql } from './backfillQueries.js';
 import { scoreTiers } from './tierScoring.js';
 import { runV3SqliteMigrations } from './schema.js';
+import { buildCombinedCompositeStatsQuery } from './compositeQueries.js';
+import { scoreComposite, type CombinedWalletStats } from './compositeScoring.js';
 import type { V3FeatureSnapshot } from './types.js';
 
 export interface RefreshWorkerOptions {
@@ -60,6 +62,29 @@ export async function runRefreshOnce(options: RefreshWorkerOptions): Promise<Ref
   );
 
   const now = Math.floor(Date.now() / 1000);
+
+  const rawStats = await duck.query<CombinedWalletStats>(buildCombinedCompositeStatsQuery(now));
+  const { scores: compScores } = scoreComposite(
+    rawStats.map(r => ({
+      ...r,
+      avg_bet_size:   Number(r.avg_bet_size),
+      std_bet_size:   Number(r.std_bet_size),
+      bet_size_cv:    Number(r.bet_size_cv),
+      total_bets:     Number(r.total_bets),
+      avg_bet_7d:     r.avg_bet_7d !== null ? Number(r.avg_bet_7d) : null,
+      max_bet_size:   Number(r.max_bet_size),
+      pnl_7d:         Number(r.pnl_7d),
+      trades_7d:      Number(r.trades_7d),
+      pnl_30d:        Number(r.pnl_30d),
+      trades_30d:     Number(r.trades_30d),
+      avg_daily_pnl:  Number(r.avg_daily_pnl),
+      std_daily_pnl:  Number(r.std_daily_pnl),
+      active_days:    Number(r.active_days),
+    })),
+    999_999
+  );
+  const compMap = new Map(compScores.map(s => [s.proxy_wallet, s]));
+
   const { scores, stats } = scoreTiers(
     rows.map((r) => ({
       snapshot: {
@@ -76,20 +101,29 @@ export async function runRefreshOnce(options: RefreshWorkerOptions): Promise<Ref
     options.topN ?? 500
   );
 
+  for (const s of scores) {
+    const c = compMap.get(s.proxy_wallet);
+    s.composite_score = c?.composite_score ?? null;
+    s.momentum_score = c?.pillars?.momentum ?? null;
+    s.consistency_score = c?.pillars?.consistency ?? null;
+  }
+
   const tx = sqlite.transaction((list: typeof scores) => {
     sqlite.prepare('DELETE FROM discovery_wallet_scores_v3').run();
     const ins = sqlite.prepare(
       `INSERT INTO discovery_wallet_scores_v3
          (proxy_wallet, tier, tier_rank, score, volume_total, trade_count,
           distinct_markets, closed_positions, realized_pnl, hit_rate,
-          last_active_ts, reasons_json, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          last_active_ts, reasons_json, updated_at,
+          composite_score, momentum_score, consistency_score)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     );
     for (const s of list) {
       ins.run(
         s.proxy_wallet, s.tier, s.tier_rank, s.score, s.volume_total,
         s.trade_count, s.distinct_markets, s.closed_positions,
-        s.realized_pnl, s.hit_rate, s.last_active_ts, s.reasons_json, s.updated_at
+        s.realized_pnl, s.hit_rate, s.last_active_ts, s.reasons_json, s.updated_at,
+        s.composite_score, s.momentum_score, s.consistency_score
       );
     }
   });
