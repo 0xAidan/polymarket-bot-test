@@ -25,6 +25,9 @@ interface ScoreRow {
   last_active_ts: number;
   reasons_json: string;
   updated_at: number;
+  composite_score: number | null;
+  momentum_score: number | null;
+  consistency_score: number | null;
 }
 
 function dto(row: ScoreRow) {
@@ -44,6 +47,9 @@ function dto(row: ScoreRow) {
     lastActiveTs: row.last_active_ts,
     reasons,
     updatedAt: row.updated_at,
+    compositeScore: row.composite_score,
+    momentumScore: row.momentum_score,
+    consistencyScore: row.consistency_score,
   };
 }
 

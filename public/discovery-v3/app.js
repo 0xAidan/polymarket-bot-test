@@ -48,17 +48,17 @@ function fmtNum(n) {
   return String(Math.round(n));
 }
 
-function fmtPct(n) {
-  if (n == null) return '—';
-  return (n * 100).toFixed(1) + '%';
-}
-
 function fmtAge(ts) {
   if (!ts) return '—';
   const ageSec = Math.floor(Date.now() / 1000) - Number(ts);
   if (ageSec < 3600) return `${Math.floor(ageSec / 60)}m ago`;
   if (ageSec < 86400) return `${Math.floor(ageSec / 3600)}h ago`;
   return `${Math.floor(ageSec / 86400)}d ago`;
+}
+
+function fmtScore(n) {
+  if (n == null) return '—';
+  return Math.round(n).toString();
 }
 
 function walletCard(w) {
@@ -73,9 +73,13 @@ function walletCard(w) {
         <span>Vol <strong>$${fmtNum(w.volumeTotal)}</strong></span>
         <span>Trades <strong>${fmtNum(w.tradeCount)}</strong></span>
         <span>Markets <strong>${fmtNum(w.distinctMarkets)}</strong></span>
-        <span>Hit rate <strong>${fmtPct(w.hitRate)}</strong></span>
         <span>PnL <strong>$${fmtNum(w.realizedPnl)}</strong></span>
-        <span class="last-active">Last active ${fmtAge(w.lastActiveTs)}</span>
+        <span>Last active <strong>${fmtAge(w.lastActiveTs)}</strong></span>
+      </div>
+      <div class="metrics composite-metrics">
+        <span>Composite <strong>${fmtScore(w.compositeScore)}</strong></span>
+        <span>Heat <strong>${fmtScore(w.momentumScore)}</strong></span>
+        <span>Risk DNA <strong>${fmtScore(w.consistencyScore)}</strong></span>
       </div>
       <div class="chips">
         <span class="chip eligible">eligible</span>

@@ -64,6 +64,7 @@ main { padding: 1.5rem 2rem; }
 }
 .metrics span { color: var(--muted); }
 .metrics strong { color: var(--fg); }
+.composite-metrics { margin-top: 0.25rem; border-top: 1px solid var(--border); padding-top: 0.4rem; }
 .chips { display: flex; gap: 0.35rem; margin-top: 0.5rem; flex-wrap: wrap; }
 .chip {
   padding: 0.15rem 0.55rem;
