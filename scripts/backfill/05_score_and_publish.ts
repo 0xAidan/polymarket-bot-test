@@ -48,8 +48,7 @@ import { runV3DuckDBMigrationsBackfillNoIndex } from '../../src/discovery/v3/duc
 import { runV3SqliteMigrations } from '../../src/discovery/v3/schema.js';
 import { getDuckDBPath } from '../../src/discovery/v3/featureFlag.js';
 import { scoreTiers } from '../../src/discovery/v3/tierScoring.js';
-import { buildCombinedCompositeStatsQuery } from '../../src/discovery/v3/compositeQueries.js';
-import { scoreComposite, type CombinedWalletStats } from '../../src/discovery/v3/compositeScoring.js';
+import { buildCompositeScoringQuery, type CompositeScoredRow } from '../../src/discovery/v3/compositeQueries.js';
 import type { V3FeatureSnapshot } from '../../src/discovery/v3/types.js';
 
 function getSqlitePath(): string {
@@ -171,25 +170,11 @@ async function main(): Promise<void> {
 
     console.log(`[05] computing Composite scores from DuckDB…`);
     const now = Math.floor(Date.now() / 1000);
-    const rawStats = await duck.query<CombinedWalletStats>(buildCombinedCompositeStatsQuery(now));
-    const { scores: compScores } = scoreComposite(
-      rawStats.map(r => ({
-        ...r,
-        avg_bet_size:   Number(r.avg_bet_size),
-        std_bet_size:   Number(r.std_bet_size),
-        bet_size_cv:    Number(r.bet_size_cv),
-        total_bets:     Number(r.total_bets),
-        avg_bet_7d:     r.avg_bet_7d !== null ? Number(r.avg_bet_7d) : null,
-        max_bet_size:   Number(r.max_bet_size),
-        pnl_7d:         Number(r.pnl_7d),
-        trades_7d:      Number(r.trades_7d),
-        pnl_30d:        Number(r.pnl_30d),
-        trades_30d:     Number(r.trades_30d),
-        avg_daily_pnl:  Number(r.avg_daily_pnl),
-        std_daily_pnl:  Number(r.std_daily_pnl),
-        active_days:    Number(r.active_days),
-      })),
-      999_999 // score all eligible wallets
+    // Scoring and percentile ranking run entirely inside DuckDB — only the
+    // final scored rows cross the JS boundary, avoiding the heap OOM that
+    // occurred when materialising raw stats for 2M+ wallets in JS.
+    const compScores = await duck.query<CompositeScoredRow>(
+      buildCompositeScoringQuery(now, 999_999)
     );
     const compMap = new Map(compScores.map(s => [s.proxy_wallet, s]));
 
@@ -205,8 +190,8 @@ async function main(): Promise<void> {
     for (const s of scores) {
       const c = compMap.get(s.proxy_wallet);
       s.composite_score = c?.composite_score ?? null;
-      s.momentum_score = c?.pillars?.momentum ?? null;
-      s.consistency_score = c?.pillars?.consistency ?? null;
+      s.momentum_score = c?.momentum_score ?? null;
+      s.consistency_score = c?.consistency_score ?? null;
     }
 
     const sqlitePath = getSqlitePath();
