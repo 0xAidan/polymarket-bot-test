@@ -61,6 +61,20 @@ function fmtScore(n) {
   return Math.round(n).toString();
 }
 
+function getDittoHtml(stateStr) {
+  let cssClass = 'chip ditto-state';
+  let icon = '';
+  let label = stateStr.replace(/_/g, ' ');
+
+  if (stateStr === 'HOT_STREAK') { cssClass += ' hot'; icon = '🔥 '; }
+  else if (stateStr === 'COOLDOWN_PAUSED') { cssClass += ' cooldown'; icon = '⏸️ '; }
+  else if (stateStr === 'SLOWING_REVERTING') { cssClass += ' slowing'; icon = '⚠️ '; }
+  else if (stateStr === 'CONSISTENT_PERFORMER') { cssClass += ' consistent'; icon = '✅ '; }
+  else if (stateStr === 'NEW_UNRANKED') { cssClass += ' unranked'; icon = '🆕 '; }
+
+  return `<span class="${cssClass}">${icon}${label}</span>`;
+}
+
 function walletCard(w) {
   const card = document.createElement('div');
   card.className = 'wallet-card';
@@ -82,6 +96,7 @@ function walletCard(w) {
         <span>Risk DNA <strong>${fmtScore(w.consistencyScore)}</strong></span>
       </div>
       <div class="chips">
+        ${w.dittoState ? getDittoHtml(w.dittoState) : ''}
         <span class="chip eligible">eligible</span>
         ${(w.reasons || []).map((r) => `<span class="chip">${r}</span>`).join('')}
       </div>

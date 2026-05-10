@@ -28,6 +28,7 @@ interface ScoreRow {
   composite_score: number | null;
   momentum_score: number | null;
   consistency_score: number | null;
+  ditto_state: string | null;
 }
 
 function dto(row: ScoreRow) {
@@ -50,6 +51,7 @@ function dto(row: ScoreRow) {
     compositeScore: row.composite_score,
     momentumScore: row.momentum_score,
     consistencyScore: row.consistency_score,
+    dittoState: row.ditto_state,
   };
 }
 

@@ -1,5 +1,13 @@
 export type TierName = 'alpha' | 'whale' | 'specialist';
 
+export enum DittoExecutionState {
+  NEW_UNRANKED = 'NEW_UNRANKED',
+  CONSISTENT_PERFORMER = 'CONSISTENT_PERFORMER',
+  HOT_STREAK = 'HOT_STREAK',
+  SLOWING_REVERTING = 'SLOWING_REVERTING',
+  COOLDOWN_PAUSED = 'COOLDOWN_PAUSED',
+}
+
 export interface V3ActivityRow {
   proxy_wallet: string;
   market_id: string;
@@ -70,6 +78,7 @@ export interface V3WalletScore {
   momentum_score?: number | null;
   /** Consistency pillar — bet sizing discipline (0–100). */
   consistency_score?: number | null;
+  ditto_state?: string | null;
 }
 
 export interface EligibilityInput {

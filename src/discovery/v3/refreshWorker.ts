@@ -13,6 +13,7 @@ import { buildSnapshotEmitSql } from './backfillQueries.js';
 import { scoreTiers } from './tierScoring.js';
 import { runV3SqliteMigrations } from './schema.js';
 import { buildCompositeScoringQuery, type CompositeScoredRow } from './compositeQueries.js';
+import { determineDittoState } from './dittoEngine.js';
 import type { V3FeatureSnapshot } from './types.js';
 
 export interface RefreshWorkerOptions {
@@ -88,6 +89,18 @@ export async function runRefreshOnce(options: RefreshWorkerOptions): Promise<Ref
     s.composite_score = c?.composite_score ?? null;
     s.momentum_score = c?.momentum_score ?? null;
     s.consistency_score = c?.consistency_score ?? null;
+
+    if (c) {
+      s.ditto_state = determineDittoState({
+        trade_count: c.trades_7d > 0 ? c.trades_7d : 0, // Fallback for trade count since old query might not have total
+        pnl_7d: c.pnl_7d,
+        momentum_z: c.momentum_z,
+        bet_size_cv: c.bet_size_cv,
+        tier_score: s.score,
+      });
+    } else {
+      s.ditto_state = null;
+    }
   }
 
   const tx = sqlite.transaction((list: typeof scores) => {
@@ -97,15 +110,16 @@ export async function runRefreshOnce(options: RefreshWorkerOptions): Promise<Ref
          (proxy_wallet, tier, tier_rank, score, volume_total, trade_count,
           distinct_markets, closed_positions, realized_pnl, hit_rate,
           last_active_ts, reasons_json, updated_at,
-          composite_score, momentum_score, consistency_score)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          composite_score, momentum_score, consistency_score, ditto_state)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     );
     for (const s of list) {
       ins.run(
         s.proxy_wallet, s.tier, s.tier_rank, s.score, s.volume_total,
         s.trade_count, s.distinct_markets, s.closed_positions,
         s.realized_pnl, s.hit_rate, s.last_active_ts, s.reasons_json, s.updated_at,
-        s.composite_score, s.momentum_score, s.consistency_score
+        s.composite_score, s.momentum_score, s.consistency_score,
+        s.ditto_state
       );
     }
   });
