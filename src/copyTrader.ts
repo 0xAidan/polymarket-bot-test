@@ -6,9 +6,7 @@ import { PositionMirror } from './positionMirror.js';
 import { DetectedTrade, TradeOrder, TradeResult, RateLimitState, TradeSideFilter, PerWalletRateLimitStates } from './types.js';
 import { decidePendingOrderReconciliation } from './noRepeatReconciliation.js';
 import { Storage } from './storage.js';
-import { getDatabase } from './database.js';
 import { config } from './config.js';
-import { DittoExecutionState } from './discovery/v3/types.js';
 import {
   initWalletManager,
   getAssignmentsForTrackedWallet,
@@ -311,44 +309,10 @@ export class CopyTrader {
       executionTargets = assignments.map(a => ({ tradingWalletId: a.tradingWalletId }));
     }
 
-    // Query the latest Ditto Execution State from SQLite
-    let dittoState: string | null = null;
-    try {
-      const db = getDatabase();
-      const row = db.prepare(`SELECT ditto_state FROM discovery_wallet_scores_v3 WHERE proxy_wallet = ? LIMIT 1`).get(trade.walletAddress.toLowerCase()) as { ditto_state: string } | undefined;
-      dittoState = row?.ditto_state || null;
-    } catch (e: any) {
-      log.warn(`[CopyTrader] Failed to fetch ditto_state for ${trade.walletAddress}: ${e.message}`);
-    }
-
-    // Apply Ditto Execution State Logic
-    let dittoMultiplier = 1.0;
-    if (dittoState === DittoExecutionState.COOLDOWN_PAUSED || dittoState === DittoExecutionState.NEW_UNRANKED) {
-      log.info(`[CopyTrader] ⏸️ Ditto State blocked trade for ${trade.walletAddress.slice(0, 10)}...: State is ${dittoState}`);
-      await this.performanceTracker.recordTrade({
-        timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId, marketTitle: trade.marketTitle,
-        outcome: trade.outcome, amount: trade.amount, price: trade.price, success: false,
-        status: 'rejected', executionTimeMs: 0,
-        error: `[DITTO_STATE] Trade blocked because wallet is in ${dittoState} state`,
-        detectedTxHash: trade.transactionHash, tokenId: trade.tokenId,
-      });
-      return;
-    } else if (dittoState === DittoExecutionState.HOT_STREAK) {
-      dittoMultiplier = 1.5; // Upsize
-      log.info(`[CopyTrader] 🔥 HOT STREAK detected for ${trade.walletAddress.slice(0, 10)}... Applying 1.5x multiplier.`);
-    } else if (dittoState === DittoExecutionState.SLOWING_REVERTING) {
-      dittoMultiplier = 0.5; // De-risk
-      log.info(`[CopyTrader] ⚠️ SLOWING / REVERTING detected for ${trade.walletAddress.slice(0, 10)}... Applying 0.5x multiplier (De-risking).`);
-    }
-
     const allocationState = getAllocationPolicyState(trade.walletAddress);
-    let allocationWeight = allocationState
+    const allocationWeight = allocationState
       ? Math.max(0, Math.min(2, Number(allocationState.targetWeight || 0)))
       : 1;
-
-    // Combine standard allocation with Ditto multiplier
-    allocationWeight = allocationWeight * dittoMultiplier;
-
     if ((allocationState?.state === 'PAUSED') || allocationWeight <= 0) {
       const blockedReason = allocationState?.pauseReason
         || `Allocation policy is ${allocationState?.state || 'PAUSED'} for this wallet`;
@@ -957,9 +921,7 @@ export class CopyTrader {
       // Validate final trade size
       if (allocationWeight !== 1) {
         tradeSizeUsdcNum = parseFloat((tradeSizeUsdcNum * allocationWeight).toFixed(2));
-        const allocStr = allocationState?.state || 'CONSISTENT';
-        const dittoStr = dittoState ? `Ditto: ${dittoState}` : '';
-        tradeSizeSource = `${tradeSizeSource}, allocation x${allocationWeight.toFixed(2)} (${allocStr} ${dittoStr})`;
+        tradeSizeSource = `${tradeSizeSource}, allocation x${allocationWeight.toFixed(2)} (${allocationState?.state || 'CONSISTENT'})`;
       }
 
       if (isNaN(tradeSizeUsdcNum) || tradeSizeUsdcNum <= 0) {

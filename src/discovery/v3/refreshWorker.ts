@@ -12,8 +12,6 @@ import { DuckDBClient } from './duckdbClient.js';
 import { buildSnapshotEmitSql } from './backfillQueries.js';
 import { scoreTiers } from './tierScoring.js';
 import { runV3SqliteMigrations } from './schema.js';
-import { allPillarSqls } from './pillarFeatures.js';
-import { determineDittoState } from './dittoEngine.js';
 import type { V3FeatureSnapshot } from './types.js';
 
 export interface RefreshWorkerOptions {
@@ -78,45 +76,20 @@ export async function runRefreshOnce(options: RefreshWorkerOptions): Promise<Ref
     options.topN ?? 500
   );
 
-  const pillars = allPillarSqls({ nowTs: now });
-  const riskDna = await duck.query<{ proxy_wallet: string; trade_count: number; stddev_bet_usd: number; median_bet_usd: number }>(pillars.riskDNA);
-  const momentum = await duck.query<{ proxy_wallet: string; pnl_7d: number; pnl_7d_vs_avg: number }>(pillars.momentumHeat);
-
-  const riskMap = new Map(riskDna.map(r => [r.proxy_wallet, r]));
-  const momMap = new Map(momentum.map(m => [m.proxy_wallet, m]));
-
-  for (const s of scores) {
-    const r = riskMap.get(s.proxy_wallet);
-    const m = momMap.get(s.proxy_wallet);
-    if (r && m) {
-      s.ditto_state = determineDittoState({
-        trade_count: r.trade_count,
-        pnl_7d: m.pnl_7d,
-        pnl_7d_vs_avg: m.pnl_7d_vs_avg,
-        stddev_bet_usd: r.stddev_bet_usd,
-        median_bet_usd: r.median_bet_usd,
-        tier_score: s.score,
-      });
-    } else {
-      s.ditto_state = null;
-    }
-  }
-
   const tx = sqlite.transaction((list: typeof scores) => {
     sqlite.prepare('DELETE FROM discovery_wallet_scores_v3').run();
     const ins = sqlite.prepare(
       `INSERT INTO discovery_wallet_scores_v3
          (proxy_wallet, tier, tier_rank, score, volume_total, trade_count,
           distinct_markets, closed_positions, realized_pnl, hit_rate,
-          last_active_ts, reasons_json, updated_at, ditto_state)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          last_active_ts, reasons_json, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
     );
     for (const s of list) {
       ins.run(
         s.proxy_wallet, s.tier, s.tier_rank, s.score, s.volume_total,
         s.trade_count, s.distinct_markets, s.closed_positions,
-        s.realized_pnl, s.hit_rate, s.last_active_ts, s.reasons_json, s.updated_at,
-        s.ditto_state
+        s.realized_pnl, s.hit_rate, s.last_active_ts, s.reasons_json, s.updated_at
       );
     }
   });

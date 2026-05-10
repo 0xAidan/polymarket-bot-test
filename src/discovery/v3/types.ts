@@ -1,13 +1,5 @@
 export type TierName = 'alpha' | 'whale' | 'specialist';
 
-export enum DittoExecutionState {
-  NEW_UNRANKED = 'NEW_UNRANKED',
-  CONSISTENT_PERFORMER = 'CONSISTENT_PERFORMER',
-  HOT_STREAK = 'HOT_STREAK',
-  SLOWING_REVERTING = 'SLOWING_REVERTING',
-  COOLDOWN_PAUSED = 'COOLDOWN_PAUSED',
-}
-
 export interface V3ActivityRow {
   proxy_wallet: string;
   market_id: string;
@@ -72,7 +64,6 @@ export interface V3WalletScore {
   last_active_ts: number;
   reasons_json: string;
   updated_at: number;
-  ditto_state?: string | null;
 }
 
 export interface EligibilityInput {
