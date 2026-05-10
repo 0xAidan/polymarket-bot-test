@@ -31,6 +31,15 @@ export const V3_SQLITE_DDL: string[] = [
   )`,
 ];
 
+/**
+ * Additive columns on the existing scores table.
+ * These ALTER TABLEs are idempotent — SQLite will error if the column
+ * already exists, so we catch and ignore.
+ */
+const ADDITIVE_COLUMN_MIGRATIONS: string[] = [
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN ditto_state TEXT DEFAULT NULL`,
+];
+
 export function runV3SqliteMigrations(db: Database.Database): void {
   // Pre-existing DBs (created before rev5, 2026-04-23) have
   // `discovery_wallet_scores_v3` with PRIMARY KEY (proxy_wallet) — a bug.
@@ -47,5 +56,14 @@ export function runV3SqliteMigrations(db: Database.Database): void {
   }
   for (const stmt of V3_SQLITE_DDL) {
     db.exec(stmt);
+  }
+
+  // Additive migration: add Ditto State column if it doesn't exist yet.
+  for (const alter of ADDITIVE_COLUMN_MIGRATIONS) {
+    try {
+      db.exec(alter);
+    } catch (err) {
+      if (!/duplicate column/i.test((err as Error).message)) throw err;
+    }
   }
 }

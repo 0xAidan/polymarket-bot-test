@@ -26,6 +26,7 @@ interface ScoreRow {
   last_active_ts: number;
   reasons_json: string;
   updated_at: number;
+  ditto_state: string | null;
 }
 
 function dto(row: ScoreRow) {
@@ -45,6 +46,7 @@ function dto(row: ScoreRow) {
     lastActiveTs: row.last_active_ts,
     reasons,
     updatedAt: row.updated_at,
+    dittoState: row.ditto_state,
   };
 }
 
