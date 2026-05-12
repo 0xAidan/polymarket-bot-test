@@ -19,18 +19,7 @@ export function latestSnapshotPerWallet(
   return byWallet;
 }
 
-/**
- * Pearson-style z-score over an already-filtered (eligible) cohort. Falls back
- * to 0 for a zero-variance cohort so the rank-by-z is well-defined.
- */
-function zScores(values: number[]): number[] {
-  if (values.length === 0) return [];
-  const mean = values.reduce((a, b) => a + b, 0) / values.length;
-  const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length;
-  const std = Math.sqrt(variance);
-  if (std === 0) return values.map(() => 0);
-  return values.map((v) => (v - mean) / std);
-}
+
 
 function percentileRank(values: number[]): number[] {
   const n = values.length;
@@ -139,7 +128,7 @@ export function scoreTiers(
 
   const eligible = preScored.filter((r) => r.eligible);
 
-  // Alpha: blend realized edge rate + activity breadth.
+  // ── Extract raw features from eligible cohort ──
   const edgeRate = eligible.map((r) =>
     r.snapshot.closed_positions > 0
       ? r.snapshot.realized_pnl / Math.max(1, r.snapshot.closed_positions)
@@ -150,21 +139,37 @@ export function scoreTiers(
   const volume = eligible.map((r) => r.snapshot.volume_total);
   const span = eligible.map((r) => r.snapshot.observation_span_days);
 
+  // Momentum proxy: last_active_ts — higher (more recent) is better.
+  const momentum = eligible.map((r) => r.snapshot.last_active_ts);
+
+  // Consistency proxy: average bet size (volume / trades). More consistent
+  // sizing produces a higher percentile relative to the cohort.
+  const consistency = eligible.map((r) =>
+    r.snapshot.trade_count > 0
+      ? r.snapshot.volume_total / r.snapshot.trade_count
+      : 0
+  );
+
   // Percentile-rank each feature independently before blending.
   // This makes every dimension outlier-resistant: one wallet with 50× the
   // median volume only reaches pct=1.0, not z≈50, so it can't drown out
   // the other dimensions in the weighted sum. The blend of per-feature
   // percentile ranks is then re-ranked at the end to produce the final
   // tier score (still a valid total order; just more evenly spaced).
-  const pctEdge    = percentileRank(edgeRate);
-  const pctBreadth = percentileRank(breadth);
-  const pctTrades  = percentileRank(tradeCount);
-  const pctVolume  = percentileRank(volume);
-  const pctSpan    = percentileRank(span);
+  const pctEdge        = percentileRank(edgeRate);
+  const pctBreadth     = percentileRank(breadth);
+  const pctTrades      = percentileRank(tradeCount);
+  const pctVolume      = percentileRank(volume);
+  const pctSpan        = percentileRank(span);
+  const pctMomentum    = percentileRank(momentum);
+  const pctConsistency = percentileRank(consistency);
 
-  const alphaRaw      = eligible.map((_, i) => 0.45 * pctEdge[i]    + 0.35 * pctBreadth[i] + 0.20 * pctTrades[i]);
-  const whaleRaw      = eligible.map((_, i) => 0.60 * pctVolume[i]  + 0.25 * pctTrades[i]  + 0.15 * pctSpan[i]);
-  const specialistRaw = eligible.map((_, i) => 0.55 * pctEdge[i]    + 0.25 * pctBreadth[i] + 0.20 * pctVolume[i]);
+  // Alpha (edge-focused, sharp bettors): 35% edge + 25% breadth + 20% momentum + 15% consistency + 5% trades
+  const alphaRaw      = eligible.map((_, i) => 0.35 * pctEdge[i] + 0.25 * pctBreadth[i] + 0.20 * pctMomentum[i] + 0.15 * pctConsistency[i] + 0.05 * pctTrades[i]);
+  // Whale (volume-focused): 55% volume + 20% trades + 15% span + 10% consistency
+  const whaleRaw      = eligible.map((_, i) => 0.55 * pctVolume[i] + 0.20 * pctTrades[i] + 0.15 * pctSpan[i] + 0.10 * pctConsistency[i]);
+  // Specialist (consistency-focused, safe to copy): 35% edge + 30% consistency + 20% momentum + 15% breadth
+  const specialistRaw = eligible.map((_, i) => 0.35 * pctEdge[i] + 0.30 * pctConsistency[i] + 0.20 * pctMomentum[i] + 0.15 * pctBreadth[i]);
 
   const alphaPct = percentileRank(alphaRaw);
   const whalePct = percentileRank(whaleRaw);
@@ -183,9 +188,9 @@ export function scoreTiers(
     const s = eligible[i].snapshot;
     const softM = computeSoftMultiplier(s, now);
     allRanked.push(
-      { wallet: s.proxy_wallet, snapshot: s, tier: 'alpha',      score: alphaPct[i]     * 100 * softM, reasons: ['edge_rate', 'market_breadth', 'trade_count'] },
-      { wallet: s.proxy_wallet, snapshot: s, tier: 'whale',      score: whalePct[i]     * 100 * softM, reasons: ['volume_total', 'trade_count', 'observation_span'] },
-      { wallet: s.proxy_wallet, snapshot: s, tier: 'specialist', score: specialistPct[i] * 100 * softM, reasons: ['edge_rate', 'market_breadth', 'volume_total'] },
+      { wallet: s.proxy_wallet, snapshot: s, tier: 'alpha',      score: alphaPct[i]     * 100 * softM, reasons: ['edge_rate', 'market_breadth', 'momentum', 'consistency', 'trade_count'] },
+      { wallet: s.proxy_wallet, snapshot: s, tier: 'whale',      score: whalePct[i]     * 100 * softM, reasons: ['volume_total', 'trade_count', 'observation_span', 'consistency'] },
+      { wallet: s.proxy_wallet, snapshot: s, tier: 'specialist', score: specialistPct[i] * 100 * softM, reasons: ['edge_rate', 'consistency', 'momentum', 'market_breadth'] },
     );
   }
 
