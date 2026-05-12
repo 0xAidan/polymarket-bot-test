@@ -636,11 +636,19 @@ export function buildSnapshotEmitSql(): string {
         a.proxy_wallet,
         CAST(m.end_date AS DATE)              AS snapshot_day,
         APPROX_COUNT_DISTINCT(a.market_id)    AS closed_positions_day,
-        SUM(a.usd_notional * (a.price_yes - 0.5)) AS realized_pnl_day
+        SUM(
+          CASE a.side
+            WHEN 'BUY'  THEN a.abs_size * COALESCE(CAST(JSON_EXTRACT(m.outcome_prices, '$[0]') AS DOUBLE), 0) - a.usd_notional
+            WHEN 'SELL' THEN a.usd_notional - a.abs_size * COALESCE(CAST(JSON_EXTRACT(m.outcome_prices, '$[0]') AS DOUBLE), 0)
+            ELSE 0.0
+          END
+        ) AS realized_pnl_day
       FROM discovery_activity_v3 a
       JOIN markets_v3 m
         ON m.market_id = a.market_id
        AND m.end_date IS NOT NULL
+       AND m.closed = 1
+       AND m.outcome_prices IS NOT NULL
        AND CAST(TO_TIMESTAMP(a.ts_unix) AS DATE) <= CAST(m.end_date AS DATE)
       GROUP BY a.proxy_wallet, CAST(m.end_date AS DATE)
     ),

@@ -58,7 +58,13 @@ export function buildCompositeScoringQuery(nowTsUnix: number, topN: number): str
       SELECT
         proxy_wallet,
         CAST(TO_TIMESTAMP(ts_unix) AS DATE)        AS trade_day,
-        SUM(usd_notional * (price_yes - 0.5))      AS daily_pnl,
+        SUM(
+          CASE side
+            WHEN 'BUY'  THEN usd_notional * (price_yes - 0.5)
+            WHEN 'SELL' THEN usd_notional * (0.5 - price_yes)
+            ELSE 0.0
+          END
+        )                                          AS daily_pnl,
         COUNT(*)                                   AS daily_trades
       FROM discovery_activity_v3
       WHERE proxy_wallet IN (SELECT proxy_wallet FROM bet_stats)
@@ -182,7 +188,13 @@ export function buildCombinedCompositeStatsQuery(nowTsUnix: number): string {
       SELECT
         proxy_wallet,
         CAST(TO_TIMESTAMP(ts_unix) AS DATE) AS trade_day,
-        SUM(usd_notional * (price_yes - 0.5)) AS daily_pnl,
+        SUM(
+          CASE side
+            WHEN 'BUY'  THEN usd_notional * (price_yes - 0.5)
+            WHEN 'SELL' THEN usd_notional * (0.5 - price_yes)
+            ELSE 0.0
+          END
+        ) AS daily_pnl,
         COUNT(*) AS daily_trades
       FROM discovery_activity_v3
       WHERE proxy_wallet IN (SELECT proxy_wallet FROM bet_stats)
