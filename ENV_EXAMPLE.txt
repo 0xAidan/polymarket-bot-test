@@ -33,15 +33,19 @@ REQUIRE_API_SECRET=true
 PRIVATE_KEY=your_private_key_here
 
 # ============================================================
-# Polymarket Builder API credentials (REQUIRED for trading!)
+# Polymarket V2 Builder code (OPTIONAL — for order attribution only)
 # ============================================================
-# Without these, your orders WILL BE BLOCKED by Cloudflare.
-# Get these from: https://polymarket.com/settings?tab=builder
-# 
-# 1. Go to polymarket.com and log in
-# 2. Click your profile -> Settings -> Builder tab
-# 3. Create new API keys
-# 4. Copy the values below
+# In V2, builder attribution is via a single short builderCode string.
+# Without it, orders place successfully but you lose attribution.
+# Get it from: https://polymarket.com/settings → Builder Profile
+POLYMARKET_BUILDER_CODE=your_builder_code_from_polymarket_settings_here
+
+# ============================================================
+# Legacy Builder HMAC credentials (still used by gasless redeem/merge relayer)
+# ============================================================
+# These are NOT used for order placement under V2 — only the gasless
+# RelayClient (redeem/merge transactions) still validates them.
+# Safe to leave blank if you don't use auto-redeem/auto-merge.
 POLYMARKET_BUILDER_API_KEY=your_builder_api_key_here
 POLYMARKET_BUILDER_SECRET=your_builder_secret_here
 POLYMARKET_BUILDER_PASSPHRASE=your_builder_passphrase_here

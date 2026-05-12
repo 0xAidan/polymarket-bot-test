@@ -30,3 +30,6 @@ jobs:
       
       - name: Run tests
         run: npm run test
+      
+      - name: Run PnL formula unit tests (dry-run, no API calls)
+        run: node --test --import tsx tests/v3-pnl-formula.test.ts

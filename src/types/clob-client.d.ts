@@ -1,65 +1,72 @@
-declare module '@polymarket/clob-client' {
-  import { BuilderConfig } from '@polymarket/builder-signing-sdk';
-
+// Fallback type declarations for @polymarket/clob-client-v2.
+// The published package ships its own types; this shim exists in case the
+// installed package's d.ts surface drifts from what we use. TypeScript will
+// prefer the package's own typings when present.
+declare module '@polymarket/clob-client-v2' {
   export enum Side {
     BUY = 'BUY',
-    SELL = 'SELL'
+    SELL = 'SELL',
   }
 
   export enum OrderType {
-    GTC = 'GTC', // Good-Til-Cancelled
-    IOC = 'IOC', // Immediate-Or-Cancel
-    FOK = 'FOK'  // Fill-Or-Kill
+    GTC = 'GTC',
+    IOC = 'IOC',
+    FOK = 'FOK',
+    GTD = 'GTD',
   }
 
-  export interface ApiCredentials {
-    apiKey: string;
-    apiSecret: string;
-    apiPassphrase: string;
+  export interface ApiKeyCreds {
+    key: string;
+    secret: string;
+    passphrase: string;
   }
 
-  export interface ClobClientConfig {
+  export interface BuilderConfig {
+    builderCode: string;
+  }
+
+  export interface ClobClientOptions {
     host: string;
-    chainId: number;
+    chain: number;
     signer: any;
-    apiCredentials?: ApiCredentials;
+    creds?: ApiKeyCreds;
     signatureType?: number;
     funderAddress?: string;
+    builderConfig?: BuilderConfig;
+  }
+
+  export interface UserOrder {
+    tokenID: string;
+    price: number;
+    size: number;
+    side: Side;
+    feeRateBps?: never;
+    nonce?: never;
+    taker?: never;
+    builderCode?: string;
+  }
+
+  export interface UserMarketOrder {
+    tokenID: string;
+    amount: number;
+    side: Side;
+    builderCode?: string;
+    userUSDCBalance?: number;
   }
 
   export class ClobClient {
-    constructor(
-      host: string,
-      chainId: number,
-      signer: any,
-      apiCredentials?: ApiCredentials,
-      signatureType?: number,
-      funderAddress?: string,
-      relayer?: any,
-      useRelayer?: boolean,
-      builderConfig?: BuilderConfig
-    );
-
-    createOrDeriveApiKey(): Promise<ApiCredentials>;
+    constructor(opts: ClobClientOptions);
+    createOrDeriveApiKey(): Promise<ApiKeyCreds>;
     getMarket(tokenId: string): Promise<any>;
     createAndPostOrder(
-      order: {
-        tokenID: string;
-        price: number;
-        size: number;
-        side: Side;
-      },
-      options?: {
-        tickSize?: string | any;
-        negRisk?: boolean;
-      },
-      orderType?: OrderType
+      order: UserOrder & { builderCode?: string; userUSDCBalance?: number },
+      options?: { tickSize?: string | any; negRisk?: boolean },
+      orderType?: OrderType,
     ): Promise<any>;
     getOpenOrders(): Promise<any[]>;
-    cancelOrder(orderId: string): Promise<any>;
+    cancelOrder(payload: { orderID: string }): Promise<any>;
     cancelOrders(orderIds: string[]): Promise<any>;
     cancelAll(): Promise<any>;
+    getBalanceAllowance(params: { asset_type: string }): Promise<any>;
   }
-
-  export { Side, OrderType, ApiCredentials };
 }

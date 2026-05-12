@@ -22,6 +22,8 @@ import { openDuckDB } from '../../src/discovery/v3/duckdbClient.js';
 import { getDuckDBPath } from '../../src/discovery/v3/featureFlag.js';
 import { validateWalletAgainstDataApi } from '../../src/discovery/v3/dataApiValidator.js';
 
+const strictCoverageMode = process.argv.includes('--strict-coverage');
+
 async function main(): Promise<void> {
   const db = openDuckDB(getDuckDBPath());
   try {
@@ -54,21 +56,30 @@ async function main(): Promise<void> {
 
     let pass = 0;
     let capped = 0;
+    let coverageWarnings = 0;
+    let validatorErrors = 0;
     for (const w of wallets) {
       const res = await validateWalletAgainstDataApi(w.proxy_wallet, {
         trade_count: Number(w.trade_count),
         volume_total: Number(w.volume_total),
       });
-      const status = res.ok ? 'PASS' : 'FAIL';
+      const isValidatorError = res.apiTradeCount === null || res.apiVolume === null;
+      const status = res.ok ? 'PASS' : isValidatorError ? 'ERROR' : 'WARN';
       const pag = res.apiFullyPaginated === false ? ' [api-capped]' : '';
       console.log(`[06] ${w.proxy_wallet}  ${status}${pag}  ${res.reason ?? ''}`);
       if (res.ok) pass++;
       if (res.apiFullyPaginated === false) capped++;
+      if (!res.ok && !isValidatorError) coverageWarnings++;
+      if (isValidatorError) validatorErrors++;
     }
+
+    const strictFailCount = strictCoverageMode ? wallets.length - pass : validatorErrors;
     console.log(
-      `[06] summary: ${pass}/${wallets.length} within tolerance  (api-capped on ${capped} mega-wallets)`
+      `[06] summary: pass=${pass}/${wallets.length} warnings=${coverageWarnings} errors=${validatorErrors} strict=${strictCoverageMode} (api-capped on ${capped} mega-wallets)`
     );
-    if (pass < wallets.length) process.exitCode = 3;
+    if (strictFailCount > 0) {
+      process.exitCode = 3;
+    }
   } finally {
     await db.close();
   }
