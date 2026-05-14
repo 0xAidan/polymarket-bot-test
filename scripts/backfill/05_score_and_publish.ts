@@ -82,13 +82,19 @@ async function main(): Promise<void> {
     await runV3DuckDBMigrationsBackfillNoIndex((sql) => duck.exec(sql));
     await runV3SnapshotAdditiveColumnMigrations((sql) => duck.exec(sql));
 
-    // Mirror 04_emit_snapshots' pragmas so any large operator (the
-    // ARG_MAX hash aggregate below, or its temp materialisation) can
-    // spill freely instead of hitting DuckDB's memory_limit. Same
-    // rationale as 04 — see that file's header comment for the full
-    // story on preserve_insertion_order and max_temp_directory_size.
+    // Memory/thread tuning — same knobs as 04_emit_snapshots.ts.
+    // Defaults are conservative for the 8GB Hetzner box:
+    //   4GB DuckDB limit leaves ~1GB for Node heap + OS.
+    //   2 threads limits parallel memory peaks without killing throughput.
+    // Override with env vars if you have more RAM available.
+    const memLimit = process.env.DUCKDB_MEMORY_LIMIT_GB ?? '4';
+    const threads  = process.env.DUCKDB_THREADS          ?? '2';
+    const tempCap  = process.env.DUCKDB_MAX_TEMP_DIR_GB  ?? '100';
+    await duck.exec(`SET memory_limit = '${memLimit}GB'`);
+    await duck.exec(`SET threads = ${threads}`);
+    await duck.exec(`SET max_temp_directory_size = '${tempCap}GiB'`);
     await duck.exec('SET preserve_insertion_order = false');
-    await duck.exec("SET max_temp_directory_size = '100GiB'");
+    console.log(`[05] tuned: memory_limit=${memLimit}GB threads=${threads} temp_cap=${tempCap}GiB`);
 
     // (1) Build a one-row-per-wallet "latest snapshot" temp table using
     // ARG_MAX over GROUP BY. DuckDB executes this as a streaming hash
