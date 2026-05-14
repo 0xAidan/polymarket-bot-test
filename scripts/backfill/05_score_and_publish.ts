@@ -197,27 +197,43 @@ async function main(): Promise<void> {
 
     function ts(): string { return `${Math.round((Date.now() - t0) / 1000)}s`; }
 
-    // Compute composite scores in DuckDB (same as refreshWorker does) so
-    // backfill and live runs produce identical columns in discovery_wallet_scores_v3.
-    console.log('[05] computing composite scores…');
-    const compMap = new Map<string, CompositeScoredRow>();
-    for (const c of await duck.query<CompositeScoredRow>(buildCompositeScoringQuery(now, 999_999))) {
-      compMap.set(c.proxy_wallet, c);
-    }
-    console.log(`[05] composite scores: ${compMap.size} wallets (${ts()})`);
+    // ── Skip flags — set to '1' to bypass expensive DuckDB scans on small boxes.
+    // All skipped pillars write NULL to their columns; the hourly refreshWorker
+    // fills them in once the bot is running.
+    //   SKIP_COMPOSITE=1  — skip composite/momentum/consistency/ditto scoring
+    //   SKIP_BRIER=1      — skip Brier score (probabilistic accuracy)
+    //   SKIP_NICHE=1      — skip niche/specialist category scoring
+    //   SKIP_COPY=1       — skip copyability maker-ratio filter
+    //   SKIP_CLV=1        — skip CLV self-join query (always skip on 8GB boxes)
+    const skipComposite = process.env.SKIP_COMPOSITE === '1';
+    const skipBrier     = process.env.SKIP_BRIER     === '1';
+    const skipNiche     = process.env.SKIP_NICHE     === '1';
+    const skipCopy      = process.env.SKIP_COPY      === '1';
+    const skipClv       = process.env.SKIP_CLV       === '1';
 
-    // ── Pillar queries — build Maps directly without holding full row arrays ──
-    console.log('[05] computing Brier scores…');
+    const compMap = new Map<string, CompositeScoredRow>();
+    if (skipComposite) {
+      console.log('[05] composite scores: skipped (SKIP_COMPOSITE=1)');
+    } else {
+      console.log('[05] computing composite scores…');
+      for (const c of await duck.query<CompositeScoredRow>(buildCompositeScoringQuery(now, 999_999))) {
+        compMap.set(c.proxy_wallet, c);
+      }
+      console.log(`[05] composite scores: ${compMap.size} wallets (${ts()})`);
+    }
+
     interface BrierRow { proxy_wallet: string; brier_score: number | null }
     const brierMap = new Map<string, number | null>();
-    for (const r of await duck.query<BrierRow>(buildProbabilisticAccuracySql())) {
-      brierMap.set(r.proxy_wallet, r.brier_score);
+    if (skipBrier) {
+      console.log('[05] Brier scores: skipped (SKIP_BRIER=1)');
+    } else {
+      console.log('[05] computing Brier scores…');
+      for (const r of await duck.query<BrierRow>(buildProbabilisticAccuracySql())) {
+        brierMap.set(r.proxy_wallet, r.brier_score);
+      }
+      console.log(`[05] brier: ${brierMap.size} wallets (${ts()})`);
     }
-    console.log(`[05] brier: ${brierMap.size} wallets (${ts()})`);
 
-    // CLV is the most expensive pillar query (self-join). Set SKIP_CLV=1 to skip it
-    // during initial backfills and let the hourly refresh compute it incrementally.
-    const skipClv = process.env.SKIP_CLV === '1';
     interface ClvRow { proxy_wallet: string; avg_clv_1h: number | null; pct_positive_clv_1h: number | null }
     const clvMap = new Map<string, ClvRow>();
     if (skipClv) {
@@ -230,24 +246,31 @@ async function main(): Promise<void> {
       console.log(`[05] clv: ${clvMap.size} wallets (${ts()})`);
     }
 
-    console.log('[05] computing niche scores…');
     interface NicheRow { proxy_wallet: string; category: string; cat_pnl: number; cat_volume_share: number }
     const nicheMap = new Map<string, NicheRow>();
-    // QUALIFY in SQL already returns exactly 1 row per wallet (top category by volume).
-    for (const row of await duck.query<NicheRow>(buildNicheKnowledgeSql())) {
-      nicheMap.set(row.proxy_wallet, row);
+    if (skipNiche) {
+      console.log('[05] niche scores: skipped (SKIP_NICHE=1)');
+    } else {
+      console.log('[05] computing niche scores…');
+      for (const row of await duck.query<NicheRow>(buildNicheKnowledgeSql())) {
+        nicheMap.set(row.proxy_wallet, row);
+      }
+      console.log(`[05] niche: ${nicheMap.size} wallets (${ts()})`);
     }
-    console.log(`[05] niche: ${nicheMap.size} wallets (${ts()})`);
 
-    console.log('[05] computing copyability filter…');
     interface CopyRow { proxy_wallet: string; maker_ratio: number; copyable: number }
     const copyMap = new Map<string, CopyRow>();
-    let excludedCopyCount = 0;
-    for (const r of await duck.query<CopyRow>(buildCopyabilityFilterSql())) {
-      copyMap.set(r.proxy_wallet, r);
-      if (r.copyable === 0) excludedCopyCount++;
+    if (skipCopy) {
+      console.log('[05] copyability filter: skipped (SKIP_COPY=1)');
+    } else {
+      console.log('[05] computing copyability filter…');
+      let excludedCopyCount = 0;
+      for (const r of await duck.query<CopyRow>(buildCopyabilityFilterSql())) {
+        copyMap.set(r.proxy_wallet, r);
+        if (r.copyable === 0) excludedCopyCount++;
+      }
+      console.log(`[05] copyability: ${excludedCopyCount} wallets excluded (${ts()})`);
     }
-    console.log(`[05] copyability: ${excludedCopyCount} wallets excluded (${ts()})`);
 
     const { scores, stats } = scoreTiers(
       rows.map((r) => {
