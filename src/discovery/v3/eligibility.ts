@@ -7,6 +7,11 @@ export const ELIGIBILITY_THRESHOLDS = {
   MIN_CLOSED_POSITIONS: 10,
   MAX_DORMANCY_DAYS: 30,
   MIN_VOLUME_TOTAL: 10000,
+  // No single individual trader on Polymarket can exceed ~$500M lifetime volume.
+  // Addresses above this threshold are almost certainly smart contracts, routing
+  // aggregators, or CTF adapter proxies that funnel multiple users' trades.
+  // We exclude them so they don't pollute tier rankings.
+  MAX_VOLUME_TOTAL: 500_000_000,
   // Raised from 0 — wallets must have at least $100 total lifetime realized profit.
   // Prevents lucky-but-broke wallets from qualifying on volume alone.
   MIN_REALIZED_PNL: 100,
@@ -58,6 +63,11 @@ export function isEligible(input: EligibilityInput): EligibilityResult {
   }
   if (input.volume_total < ELIGIBILITY_THRESHOLDS.MIN_VOLUME_TOTAL * 0.5) {
     reasons.push('VOLUME_TOTAL_TOO_LOW');
+  }
+  // Aggregator / system contract guard: no individual Polymarket trader can
+  // have > $500M lifetime volume. Addresses above this are routing contracts.
+  if (input.volume_total > ELIGIBILITY_THRESHOLDS.MAX_VOLUME_TOTAL) {
+    reasons.push('VOLUME_EXCEEDS_INDIVIDUAL_MAX');
   }
 
   // Recency gate: wallet must have traded in the last 90 days.

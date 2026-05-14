@@ -65,7 +65,9 @@ function aliasFor(address: string): string {
   const animals = ['Otter', 'Falcon', 'Moth', 'Hare', 'Vulture', 'Lynx', 'Stoat', 'Marlin'];
   let h = 0;
   for (let i = 0; i < address.length; i++) h = (h * 31 + address.charCodeAt(i)) >>> 0;
-  return `${adjectives[h % adjectives.length]} ${animals[(h >> 3) % animals.length]}`;
+  // Use unsigned right shift (>>>) so h stays non-negative and array indices are always valid.
+  // Signed shift (>>) would give negative indices for h >= 2^31, producing 'undefined'.
+  return `${adjectives[h % adjectives.length]} ${animals[(h >>> 3) % animals.length]}`;
 }
 
 export interface V3RouterDeps {

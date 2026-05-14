@@ -98,7 +98,8 @@ function dittoChipHtml(s) {
 // ── Wallet row ────────────────────────────────────────────────────────────────
 
 function walletRow(w, tier) {
-  const tierScore = w.tierScore ?? w.compositeScore ?? null;
+  // DTO field is `score` (the tier-specific score from 05_score_and_publish).
+  const tierScore = w.score ?? w.compositeScore ?? null;
   const scorePct  = tierScore != null ? Math.min(100, Math.max(0, tierScore)) : 0;
   const pnlClass  = (w.realizedPnl ?? 0) >= 0 ? 'pos' : 'neg';
 
@@ -139,7 +140,7 @@ function walletRow(w, tier) {
         <div class="m"><span class="m-label">Volume</span><span class="m-val">${fmt$(w.volumeTotal)}</span></div>
         <div class="m"><span class="m-label">Trades</span><span class="m-val">${fmtN(w.tradeCount)}</span></div>
         <div class="m"><span class="m-label">Markets</span><span class="m-val">${fmtN(w.distinctMarkets)}</span></div>
-        <div class="m"><span class="m-label">Realized PnL</span><span class="m-val ${pnlClass}">${fmt$(w.realizedPnl)}</span></div>
+        <div class="m"><span class="m-label">Lifetime PnL</span><span class="m-val ${pnlClass}">${fmt$(w.realizedPnl)}</span></div>
         <div class="m"><span class="m-label">Last active</span><span class="m-val">${fmtAge(w.lastActiveTs)}</span></div>
       </div>
 

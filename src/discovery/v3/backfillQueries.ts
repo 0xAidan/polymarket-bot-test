@@ -655,7 +655,10 @@ export function buildSnapshotEmitSql(): string {
         proxy_wallet,
         market_id,
         SUM(CASE WHEN side = 'SELL' THEN usd_notional ELSE -usd_notional END) AS cash_flow,
-        SUM(signed_size)                                                        AS token_balance,
+        -- Use abs_size × sign(side) so the net position is always correct even if
+        -- the source parquet has token_amount as an unsigned absolute fill amount.
+        -- (If token_amount IS already signed, this produces the same result.)
+        SUM(CASE WHEN side = 'BUY' THEN abs_size ELSE -abs_size END)           AS token_balance,
         MIN(ts_unix)                                                            AS first_trade_ts,
         MAX(ts_unix)                                                            AS last_trade_ts
       FROM discovery_activity_v3
