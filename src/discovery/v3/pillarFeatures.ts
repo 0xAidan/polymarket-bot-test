@@ -213,10 +213,10 @@ export function buildProbabilisticAccuracySql(): string {
 export function buildMarketEdgeCLVSql(): string {
   return `
     WITH trade_entries AS (
-      -- TABLESAMPLE 10% samples rows uniformly at random.
-      -- Wrapped in a subquery because DuckDB does not allow an alias directly
-      -- after the USING SAMPLE clause.
-      -- Caps the self-join from O(N^2) to O(0.1N * N) while preserving signal direction.
+      -- Hard-capped sample: at most 500k rows, drawn with BERNOULLI(1%).
+      -- 1% of 900M = ~9M rows before the LIMIT; LIMIT caps it further.
+      -- The self-join is O(sample * market_activity), so keeping the sample
+      -- small is critical. Signal direction is preserved at this size.
       SELECT
         a.proxy_wallet,
         a.market_id,
@@ -226,7 +226,8 @@ export function buildMarketEdgeCLVSql(): string {
       FROM (
         SELECT proxy_wallet, market_id, ts_unix, price_yes, side
         FROM discovery_activity_v3
-        USING SAMPLE 10 PERCENT (bernoulli)
+        USING SAMPLE 1 PERCENT (bernoulli)
+        LIMIT 500000
       ) a
       WHERE a.price_yes BETWEEN 0.01 AND 0.99  -- skip degenerate near-0/near-1 prices
     ),

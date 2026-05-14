@@ -205,11 +205,19 @@ async function main(): Promise<void> {
     const brierMap = new Map(brierRows.map(r => [r.proxy_wallet, r.brier_score]));
     console.log(`[05] brier: ${brierMap.size} wallets`);
 
-    console.log('[05] computing CLV scores (sampled)…');
+    // CLV is the most expensive pillar query (self-join). Set SKIP_CLV=1 to skip it
+    // during initial backfills and let the hourly refresh compute it incrementally.
+    const skipClv = process.env.SKIP_CLV === '1';
     interface ClvRow { proxy_wallet: string; avg_clv_1h: number | null; pct_positive_clv_1h: number | null }
-    const clvRows = await duck.query<ClvRow>(buildMarketEdgeCLVSql());
-    const clvMap = new Map(clvRows.map(r => [r.proxy_wallet, r]));
-    console.log(`[05] clv: ${clvMap.size} wallets`);
+    let clvMap = new Map<string, ClvRow>();
+    if (skipClv) {
+      console.log('[05] CLV scores: skipped (SKIP_CLV=1)');
+    } else {
+      console.log('[05] computing CLV scores (sampled, 1%, max 500k rows)…');
+      const clvRows = await duck.query<ClvRow>(buildMarketEdgeCLVSql());
+      clvMap = new Map(clvRows.map(r => [r.proxy_wallet, r]));
+      console.log(`[05] clv: ${clvMap.size} wallets`);
+    }
 
     console.log('[05] computing niche scores…');
     interface NicheRow { proxy_wallet: string; category: string; cat_pnl: number; cat_volume_share: number }
