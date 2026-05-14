@@ -414,52 +414,43 @@ export const COPYABILITY_MAKER_RATIO_MAX    = 0.70;
 export const COPYABILITY_MAX_TRADES_PER_DAY = 200;
 
 export function buildCopyabilityFilterSql(): string {
+  // Single-pass approach: GROUP BY (proxy_wallet, day) once, then aggregate.
+  // The original 3-CTE approach did 3 full scans of the 900M row table
+  // (trade_stats + inner daily + outer daily_max). This does one scan into
+  // the daily_activity intermediate (~29M rows), then two tiny aggregations.
   return `
-    WITH trade_stats AS (
+    WITH daily_activity AS (
       SELECT
         proxy_wallet,
-        COUNT(*)                                                     AS total_trades,
-        SUM(CASE WHEN role = 'maker' THEN 1 ELSE 0 END)             AS maker_count,
-        PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY usd_notional)  AS median_trade_usd,
-        COUNT(*) * 1.0 / NULLIF(
-          DATEDIFF('day',
-            MIN(CAST(TO_TIMESTAMP(ts_unix) AS DATE)),
-            MAX(CAST(TO_TIMESTAMP(ts_unix) AS DATE))
-          ) + 1, 0
-        )                                                            AS avg_trades_per_day
+        CAST(TO_TIMESTAMP(ts_unix) AS DATE)          AS trade_day,
+        COUNT(*)                                     AS daily_count,
+        SUM(CASE WHEN role = 'maker' THEN 1 ELSE 0 END) AS maker_count_day
       FROM discovery_activity_v3
-      GROUP BY proxy_wallet
-      HAVING COUNT(*) >= 5
+      GROUP BY proxy_wallet, CAST(TO_TIMESTAMP(ts_unix) AS DATE)
     ),
-    daily_max AS (
+    wallet_stats AS (
       SELECT
         proxy_wallet,
-        MAX(daily_count) AS max_trades_per_day
-      FROM (
-        SELECT
-          proxy_wallet,
-          CAST(TO_TIMESTAMP(ts_unix) AS DATE) AS trade_day,
-          COUNT(*)                            AS daily_count
-        FROM discovery_activity_v3
-        GROUP BY proxy_wallet, CAST(TO_TIMESTAMP(ts_unix) AS DATE)
-      ) d
+        SUM(daily_count)      AS total_trades,
+        SUM(maker_count_day)  AS maker_count,
+        MAX(daily_count)      AS max_trades_per_day
+      FROM daily_activity
       GROUP BY proxy_wallet
+      HAVING SUM(daily_count) >= 5
     )
     SELECT
-      t.proxy_wallet,
-      t.total_trades,
-      t.maker_count,
-      ROUND(t.maker_count * 1.0 / NULLIF(t.total_trades, 0), 4) AS maker_ratio,
-      ROUND(t.median_trade_usd, 2)                               AS median_trade_usd,
-      d.max_trades_per_day,
+      proxy_wallet,
+      total_trades,
+      maker_count,
+      ROUND(maker_count * 1.0 / NULLIF(total_trades, 0), 4) AS maker_ratio,
+      max_trades_per_day,
       CASE
-        WHEN (t.maker_count * 1.0 / NULLIF(t.total_trades, 0)) > ${COPYABILITY_MAKER_RATIO_MAX}
-          OR d.max_trades_per_day > ${COPYABILITY_MAX_TRADES_PER_DAY}
+        WHEN (maker_count * 1.0 / NULLIF(total_trades, 0)) > ${COPYABILITY_MAKER_RATIO_MAX}
+          OR max_trades_per_day > ${COPYABILITY_MAX_TRADES_PER_DAY}
         THEN 0
         ELSE 1
-      END                                                         AS copyable
-    FROM trade_stats t
-    JOIN daily_max d ON d.proxy_wallet = t.proxy_wallet
+      END AS copyable
+    FROM wallet_stats
     ORDER BY maker_ratio DESC
   `;
 }

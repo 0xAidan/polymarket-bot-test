@@ -189,50 +189,59 @@ async function main(): Promise<void> {
     console.log(`[05] scoring ${rows.length} wallets`);
     const now = Math.floor(Date.now() / 1000);
 
+    function ts(): string { return `${Math.round((Date.now() - t0) / 1000)}s`; }
+
     // Compute composite scores in DuckDB (same as refreshWorker does) so
     // backfill and live runs produce identical columns in discovery_wallet_scores_v3.
     console.log('[05] computing composite scores…');
-    const compRows = await duck.query<CompositeScoredRow>(
-      buildCompositeScoringQuery(now, 999_999)
-    );
-    const compMap = new Map(compRows.map((c) => [c.proxy_wallet, c]));
-    console.log(`[05] composite scores: ${compMap.size} wallets`);
+    const compMap = new Map<string, CompositeScoredRow>();
+    for (const c of await duck.query<CompositeScoredRow>(buildCompositeScoringQuery(now, 999_999))) {
+      compMap.set(c.proxy_wallet, c);
+    }
+    console.log(`[05] composite scores: ${compMap.size} wallets (${ts()})`);
 
-    // ── Pillar queries ───────────────────────────────────────────────────────
+    // ── Pillar queries — build Maps directly without holding full row arrays ──
     console.log('[05] computing Brier scores…');
     interface BrierRow { proxy_wallet: string; brier_score: number | null }
-    const brierRows = await duck.query<BrierRow>(buildProbabilisticAccuracySql());
-    const brierMap = new Map(brierRows.map(r => [r.proxy_wallet, r.brier_score]));
-    console.log(`[05] brier: ${brierMap.size} wallets`);
+    const brierMap = new Map<string, number | null>();
+    for (const r of await duck.query<BrierRow>(buildProbabilisticAccuracySql())) {
+      brierMap.set(r.proxy_wallet, r.brier_score);
+    }
+    console.log(`[05] brier: ${brierMap.size} wallets (${ts()})`);
 
     // CLV is the most expensive pillar query (self-join). Set SKIP_CLV=1 to skip it
     // during initial backfills and let the hourly refresh compute it incrementally.
     const skipClv = process.env.SKIP_CLV === '1';
     interface ClvRow { proxy_wallet: string; avg_clv_1h: number | null; pct_positive_clv_1h: number | null }
-    let clvMap = new Map<string, ClvRow>();
+    const clvMap = new Map<string, ClvRow>();
     if (skipClv) {
       console.log('[05] CLV scores: skipped (SKIP_CLV=1)');
     } else {
       console.log('[05] computing CLV scores (sampled, 1%, max 500k rows)…');
-      const clvRows = await duck.query<ClvRow>(buildMarketEdgeCLVSql());
-      clvMap = new Map(clvRows.map(r => [r.proxy_wallet, r]));
-      console.log(`[05] clv: ${clvMap.size} wallets`);
+      for (const r of await duck.query<ClvRow>(buildMarketEdgeCLVSql())) {
+        clvMap.set(r.proxy_wallet, r);
+      }
+      console.log(`[05] clv: ${clvMap.size} wallets (${ts()})`);
     }
 
     console.log('[05] computing niche scores…');
     interface NicheRow { proxy_wallet: string; category: string; cat_pnl: number; cat_volume_share: number }
-    const nicheRows = await duck.query<NicheRow>(buildNicheKnowledgeSql());
     const nicheMap = new Map<string, NicheRow>();
-    for (const row of nicheRows) {
-      if (!nicheMap.has(row.proxy_wallet)) nicheMap.set(row.proxy_wallet, row);
+    // QUALIFY in SQL already returns exactly 1 row per wallet (top category by volume).
+    for (const row of await duck.query<NicheRow>(buildNicheKnowledgeSql())) {
+      nicheMap.set(row.proxy_wallet, row);
     }
-    console.log(`[05] niche: ${nicheMap.size} wallets`);
+    console.log(`[05] niche: ${nicheMap.size} wallets (${ts()})`);
 
     console.log('[05] computing copyability filter…');
     interface CopyRow { proxy_wallet: string; maker_ratio: number; copyable: number }
-    const copyRows = await duck.query<CopyRow>(buildCopyabilityFilterSql());
-    const copyMap = new Map(copyRows.map(r => [r.proxy_wallet, r]));
-    console.log(`[05] copyability: ${copyRows.filter(r => r.copyable === 0).length} wallets excluded`);
+    const copyMap = new Map<string, CopyRow>();
+    let excludedCopyCount = 0;
+    for (const r of await duck.query<CopyRow>(buildCopyabilityFilterSql())) {
+      copyMap.set(r.proxy_wallet, r);
+      if (r.copyable === 0) excludedCopyCount++;
+    }
+    console.log(`[05] copyability: ${excludedCopyCount} wallets excluded (${ts()})`);
 
     const { scores, stats } = scoreTiers(
       rows.map((r) => {
