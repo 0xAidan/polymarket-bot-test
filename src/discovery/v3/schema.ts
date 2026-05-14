@@ -41,6 +41,18 @@ const ADDITIVE_COLUMN_MIGRATIONS: string[] = [
   `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN momentum_score REAL DEFAULT NULL`,
   `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN consistency_score REAL DEFAULT NULL`,
   `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN ditto_state TEXT DEFAULT NULL`,
+  // Phase 3: Brier / CLV / Niche pillars
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN brier_score REAL DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN avg_clv_1h REAL DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN pct_positive_clv_1h REAL DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN top_category TEXT DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN cat_volume_share REAL DEFAULT NULL`,
+  // Phase 6: Copyability
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN maker_ratio REAL DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN copyable INTEGER DEFAULT 1`,
+  // Phase 7: Signal integration
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN latest_signal TEXT DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN latest_signal_ts INTEGER DEFAULT NULL`,
 ];
 
 export function runV3SqliteMigrations(db: Database.Database): void {

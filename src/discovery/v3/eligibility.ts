@@ -7,8 +7,15 @@ export const ELIGIBILITY_THRESHOLDS = {
   MIN_CLOSED_POSITIONS: 10,
   MAX_DORMANCY_DAYS: 30,
   MIN_VOLUME_TOTAL: 10000,
-  MIN_REALIZED_PNL: 0,
-  MIN_PNL_PER_TRADE: 0,
+  // Raised from 0 — wallets must have at least $100 total lifetime realized profit.
+  // Prevents lucky-but-broke wallets from qualifying on volume alone.
+  MIN_REALIZED_PNL: 100,
+  // Raised from 0 — at least $0.50 average per closed position.
+  // No-op at 0; at 0.50 it gates out noise traders who grind tiny edges.
+  MIN_PNL_PER_TRADE: 0.5,
+  // Wallets must have traded at least 10 times in the last 90 days.
+  // Prevents dormant historical winners from ranking over active traders.
+  MIN_RECENT_TRADES_90D: 10,
 } as const;
 
 export function isEligible(input: EligibilityInput): EligibilityResult {
@@ -51,6 +58,17 @@ export function isEligible(input: EligibilityInput): EligibilityResult {
   }
   if (input.volume_total < ELIGIBILITY_THRESHOLDS.MIN_VOLUME_TOTAL * 0.5) {
     reasons.push('VOLUME_TOTAL_TOO_LOW');
+  }
+
+  // Recency gate: wallet must have traded in the last 90 days.
+  // Only checked when the snapshot includes trade_count_90d (post-hardening backfills).
+  // Pre-hardening snapshots (field absent) skip this gate to avoid retroactively
+  // failing all existing data before a fresh backfill is available.
+  if (
+    input.trade_count_90d != null &&
+    input.trade_count_90d < ELIGIBILITY_THRESHOLDS.MIN_RECENT_TRADES_90D
+  ) {
+    reasons.push('INSUFFICIENT_RECENT_ACTIVITY');
   }
 
   return { eligible: reasons.length === 0, reasons };

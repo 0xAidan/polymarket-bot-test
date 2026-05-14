@@ -73,17 +73,23 @@ export const V3_DUCKDB_DDL: string[] = [
     updated_at        TIMESTAMP
   )`,
   `CREATE TABLE IF NOT EXISTS discovery_feature_snapshots_v3 (
-    proxy_wallet          VARCHAR   NOT NULL,
-    snapshot_day          DATE      NOT NULL,
-    trade_count           BIGINT    NOT NULL,
-    volume_total          DOUBLE    NOT NULL,
-    distinct_markets      BIGINT    NOT NULL,
-    closed_positions      BIGINT    NOT NULL,
-    realized_pnl          DOUBLE    NOT NULL,
-    unrealized_pnl        DOUBLE    NOT NULL,
-    first_active_ts       UBIGINT   NOT NULL,
-    last_active_ts        UBIGINT   NOT NULL,
-    observation_span_days INTEGER   NOT NULL,
+    proxy_wallet              VARCHAR   NOT NULL,
+    snapshot_day              DATE      NOT NULL,
+    trade_count               BIGINT    NOT NULL,
+    volume_total              DOUBLE    NOT NULL,
+    distinct_markets          BIGINT    NOT NULL,
+    closed_positions          BIGINT    NOT NULL,
+    realized_pnl              DOUBLE    NOT NULL,
+    unrealized_pnl            DOUBLE    NOT NULL,
+    first_active_ts           UBIGINT   NOT NULL,
+    last_active_ts            UBIGINT   NOT NULL,
+    observation_span_days     INTEGER   NOT NULL,
+    -- Rolling 90-day columns for recency weighting (Phase 4)
+    trade_count_90d           BIGINT    DEFAULT 0,
+    volume_90d                DOUBLE    DEFAULT 0.0,
+    realized_pnl_90d          DOUBLE    DEFAULT 0.0,
+    -- True win rate numerator: how many (wallet,market) pairs closed profitably (Phase 1D)
+    closed_positions_positive BIGINT    DEFAULT 0,
     PRIMARY KEY (proxy_wallet, snapshot_day)
   )`,
 ];

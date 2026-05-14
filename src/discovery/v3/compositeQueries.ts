@@ -55,13 +55,18 @@ export function buildCompositeScoringQuery(nowTsUnix: number, topN: number): str
       HAVING COUNT(*) >= 10
     ),
     daily_pnl AS (
+      -- Cash-flow PnL: BUYs are outflows (negative), SELLs are inflows (positive).
+      -- Matches the snapshot PnL semantics in backfillQueries.ts / buildSnapshotEmitSql.
+      -- Prior formula used midpoint-edge (usd_notional × (price_yes − 0.5)) which is
+      -- a theoretical "fair-value" measure, not real cash — the two diverge for
+      -- traders who buy at high prices or hold through adverse moves.
       SELECT
         proxy_wallet,
         CAST(TO_TIMESTAMP(ts_unix) AS DATE)        AS trade_day,
         SUM(
           CASE side
-            WHEN 'BUY'  THEN usd_notional * (price_yes - 0.5)
-            WHEN 'SELL' THEN usd_notional * (0.5 - price_yes)
+            WHEN 'BUY'  THEN -usd_notional
+            WHEN 'SELL' THEN  usd_notional
             ELSE 0.0
           END
         )                                          AS daily_pnl,
@@ -185,13 +190,14 @@ export function buildCombinedCompositeStatsQuery(nowTsUnix: number): string {
       HAVING COUNT(*) >= 10
     ),
     daily_pnl AS (
+      -- Cash-flow PnL (same formula as buildCompositeScoringQuery above).
       SELECT
         proxy_wallet,
         CAST(TO_TIMESTAMP(ts_unix) AS DATE) AS trade_day,
         SUM(
           CASE side
-            WHEN 'BUY'  THEN usd_notional * (price_yes - 0.5)
-            WHEN 'SELL' THEN usd_notional * (0.5 - price_yes)
+            WHEN 'BUY'  THEN -usd_notional
+            WHEN 'SELL' THEN  usd_notional
             ELSE 0.0
           END
         ) AS daily_pnl,

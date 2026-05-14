@@ -49,6 +49,13 @@ import { runV3SqliteMigrations } from '../../src/discovery/v3/schema.js';
 import { getDuckDBPath } from '../../src/discovery/v3/featureFlag.js';
 import { scoreTiers } from '../../src/discovery/v3/tierScoring.js';
 import { buildCompositeScoringQuery, type CompositeScoredRow } from '../../src/discovery/v3/compositeQueries.js';
+import { determineDittoState } from '../../src/discovery/v3/dittoEngine.js';
+import {
+  buildProbabilisticAccuracySql,
+  buildMarketEdgeCLVSql,
+  buildNicheKnowledgeSql,
+  buildCopyabilityFilterSql,
+} from '../../src/discovery/v3/pillarFeatures.js';
 import type { V3FeatureSnapshot } from '../../src/discovery/v3/types.js';
 
 function getSqlitePath(): string {
@@ -70,7 +77,6 @@ async function main(): Promise<void> {
     // has ~800M rows and DuckDB 1.4.x CREATE INDEX would OOM.
     // See src/discovery/v3/duckdbSchema.ts for the full rationale.
     await runV3DuckDBMigrationsBackfillNoIndex((sql) => duck.exec(sql));
-
 
     // Mirror 04_emit_snapshots' pragmas so any large operator (the
     // ARG_MAX hash aggregate below, or its temp materialisation) can
@@ -97,16 +103,20 @@ async function main(): Promise<void> {
          proxy_wallet,
          (ARG_MAX(
             STRUCT_PACK(
-              snapshot_day          := snapshot_day,
-              trade_count           := trade_count,
-              volume_total          := volume_total,
-              distinct_markets      := distinct_markets,
-              closed_positions      := closed_positions,
-              realized_pnl          := realized_pnl,
-              unrealized_pnl        := unrealized_pnl,
-              first_active_ts       := first_active_ts,
-              last_active_ts        := last_active_ts,
-              observation_span_days := observation_span_days
+              snapshot_day              := snapshot_day,
+              trade_count               := trade_count,
+              volume_total              := volume_total,
+              distinct_markets          := distinct_markets,
+              closed_positions          := closed_positions,
+              realized_pnl              := realized_pnl,
+              unrealized_pnl            := unrealized_pnl,
+              first_active_ts           := first_active_ts,
+              last_active_ts            := last_active_ts,
+              observation_span_days     := observation_span_days,
+              trade_count_90d           := CAST(COALESCE(trade_count_90d, 0) AS BIGINT),
+              volume_90d                := COALESCE(volume_90d, 0.0),
+              realized_pnl_90d          := COALESCE(realized_pnl_90d, 0.0),
+              closed_positions_positive := CAST(COALESCE(closed_positions_positive, 0) AS BIGINT)
             ),
             snapshot_day
           )) AS s
@@ -146,17 +156,21 @@ async function main(): Promise<void> {
       for (const row of batch) {
         const s = row.s as Record<string, unknown>;
         rows.push({
-          proxy_wallet:          row.proxy_wallet,
-          snapshot_day:          String(s.snapshot_day),
-          trade_count:           Number(s.trade_count),
-          volume_total:          Number(s.volume_total),
-          distinct_markets:      Number(s.distinct_markets),
-          closed_positions:      Number(s.closed_positions),
-          realized_pnl:          Number(s.realized_pnl),
-          unrealized_pnl:        Number(s.unrealized_pnl),
-          first_active_ts:       Number(s.first_active_ts),
-          last_active_ts:        Number(s.last_active_ts),
-          observation_span_days: Number(s.observation_span_days),
+          proxy_wallet:              row.proxy_wallet,
+          snapshot_day:              String(s.snapshot_day),
+          trade_count:               Number(s.trade_count),
+          volume_total:              Number(s.volume_total),
+          distinct_markets:          Number(s.distinct_markets),
+          closed_positions:          Number(s.closed_positions),
+          realized_pnl:              Number(s.realized_pnl),
+          unrealized_pnl:            Number(s.unrealized_pnl),
+          first_active_ts:           Number(s.first_active_ts),
+          last_active_ts:            Number(s.last_active_ts),
+          observation_span_days:     Number(s.observation_span_days),
+          trade_count_90d:           Number(s.trade_count_90d ?? 0),
+          volume_90d:                Number(s.volume_90d ?? 0),
+          realized_pnl_90d:          Number(s.realized_pnl_90d ?? 0),
+          closed_positions_positive: Number(s.closed_positions_positive ?? 0),
         });
       }
       cursor = batch[batch.length - 1].proxy_wallet;
@@ -168,30 +182,87 @@ async function main(): Promise<void> {
     // cohort, but we'd rather not have DuckDB holding RAM in parallel).
     await duck.exec('DROP TABLE IF EXISTS tmp_latest_snapshots_v3');
 
-    console.log(`[05] computing Composite scores from DuckDB…`);
+    console.log(`[05] scoring ${rows.length} wallets`);
     const now = Math.floor(Date.now() / 1000);
-    // Scoring and percentile ranking run entirely inside DuckDB — only the
-    // final scored rows cross the JS boundary, avoiding the heap OOM that
-    // occurred when materialising raw stats for 2M+ wallets in JS.
-    const compScores = await duck.query<CompositeScoredRow>(
+
+    // Compute composite scores in DuckDB (same as refreshWorker does) so
+    // backfill and live runs produce identical columns in discovery_wallet_scores_v3.
+    console.log('[05] computing composite scores…');
+    const compRows = await duck.query<CompositeScoredRow>(
       buildCompositeScoringQuery(now, 999_999)
     );
-    const compMap = new Map(compScores.map(s => [s.proxy_wallet, s]));
+    const compMap = new Map(compRows.map((c) => [c.proxy_wallet, c]));
+    console.log(`[05] composite scores: ${compMap.size} wallets`);
 
-    console.log(`[05] scoring ${rows.length} wallets for tiers`);
+    // ── Pillar queries ───────────────────────────────────────────────────────
+    console.log('[05] computing Brier scores…');
+    interface BrierRow { proxy_wallet: string; brier_score: number | null }
+    const brierRows = await duck.query<BrierRow>(buildProbabilisticAccuracySql());
+    const brierMap = new Map(brierRows.map(r => [r.proxy_wallet, r.brier_score]));
+    console.log(`[05] brier: ${brierMap.size} wallets`);
+
+    console.log('[05] computing CLV scores (sampled)…');
+    interface ClvRow { proxy_wallet: string; avg_clv_1h: number | null; pct_positive_clv_1h: number | null }
+    const clvRows = await duck.query<ClvRow>(buildMarketEdgeCLVSql());
+    const clvMap = new Map(clvRows.map(r => [r.proxy_wallet, r]));
+    console.log(`[05] clv: ${clvMap.size} wallets`);
+
+    console.log('[05] computing niche scores…');
+    interface NicheRow { proxy_wallet: string; category: string; cat_pnl: number; cat_volume_share: number }
+    const nicheRows = await duck.query<NicheRow>(buildNicheKnowledgeSql());
+    const nicheMap = new Map<string, NicheRow>();
+    for (const row of nicheRows) {
+      if (!nicheMap.has(row.proxy_wallet)) nicheMap.set(row.proxy_wallet, row);
+    }
+    console.log(`[05] niche: ${nicheMap.size} wallets`);
+
+    console.log('[05] computing copyability filter…');
+    interface CopyRow { proxy_wallet: string; maker_ratio: number; copyable: number }
+    const copyRows = await duck.query<CopyRow>(buildCopyabilityFilterSql());
+    const copyMap = new Map(copyRows.map(r => [r.proxy_wallet, r]));
+    console.log(`[05] copyability: ${copyRows.filter(r => r.copyable === 0).length} wallets excluded`);
+
     const { scores, stats } = scoreTiers(
-      rows.map((r) => ({ snapshot: r, now_ts: now }))
+      rows.map((r) => {
+        const nicheRow = nicheMap.get(r.proxy_wallet);
+        return {
+          snapshot: r,
+          now_ts: now,
+          niche: nicheRow
+            ? { top_category: nicheRow.category, cat_volume_share: nicheRow.cat_volume_share, cat_pnl: nicheRow.cat_pnl }
+            : undefined,
+        };
+      })
     );
     console.log(
       `[05] eligibility: ${stats.eligible}/${stats.total} (rejection ${(stats.rejection_rate * 100).toFixed(1)}%)`
     );
 
-    // Merge Composite scores into Tier scores
     for (const s of scores) {
       const c = compMap.get(s.proxy_wallet);
-      s.composite_score = c?.composite_score ?? null;
-      s.momentum_score = c?.momentum_score ?? null;
+      s.composite_score   = c?.composite_score   ?? null;
+      s.momentum_score    = c?.momentum_score    ?? null;
       s.consistency_score = c?.consistency_score ?? null;
+      s.ditto_state = c
+        ? determineDittoState({
+            trade_count: s.trade_count,
+            pnl_7d:      c.pnl_7d,
+            momentum_z:  c.momentum_z,
+            bet_size_cv: c.bet_size_cv,
+            tier_score:  s.score,
+          })
+        : null;
+
+      s.brier_score           = brierMap.get(s.proxy_wallet) ?? null;
+      const clv               = clvMap.get(s.proxy_wallet);
+      s.avg_clv_1h            = clv?.avg_clv_1h ?? null;
+      s.pct_positive_clv_1h   = clv?.pct_positive_clv_1h ?? null;
+      const niche             = nicheMap.get(s.proxy_wallet);
+      s.top_category          = niche?.category ?? null;
+      s.cat_volume_share      = niche?.cat_volume_share ?? null;
+      const copy              = copyMap.get(s.proxy_wallet);
+      s.maker_ratio           = copy?.maker_ratio ?? null;
+      s.copyable              = copy?.copyable ?? 1;
     }
 
     const sqlitePath = getSqlitePath();
@@ -207,15 +278,22 @@ async function main(): Promise<void> {
              (proxy_wallet, tier, tier_rank, score, volume_total, trade_count,
               distinct_markets, closed_positions, realized_pnl, hit_rate,
               last_active_ts, reasons_json, updated_at,
-              composite_score, momentum_score, consistency_score)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+              composite_score, momentum_score, consistency_score, ditto_state,
+              brier_score, avg_clv_1h, pct_positive_clv_1h,
+              top_category, cat_volume_share, maker_ratio, copyable)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         );
         for (const s of list) {
           ins.run(
             s.proxy_wallet, s.tier, s.tier_rank, s.score, s.volume_total,
             s.trade_count, s.distinct_markets, s.closed_positions,
             s.realized_pnl, s.hit_rate, s.last_active_ts, s.reasons_json, s.updated_at,
-            s.composite_score, s.momentum_score, s.consistency_score
+            s.composite_score     ?? null, s.momentum_score       ?? null,
+            s.consistency_score   ?? null, s.ditto_state           ?? null,
+            s.brier_score         ?? null, s.avg_clv_1h             ?? null,
+            s.pct_positive_clv_1h ?? null,
+            s.top_category        ?? null, s.cat_volume_share       ?? null,
+            s.maker_ratio         ?? null, s.copyable               ?? 1
           );
         }
       });

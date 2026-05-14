@@ -85,6 +85,12 @@ export interface CombinedWalletStats {
   avg_daily_pnl: number;
   std_daily_pnl: number;
   active_days: number;
+  // Phase 3 pillars (optional — null if pillar query not yet run)
+  brier_score?: number | null;        // lower is better; invert for percentile ranking
+  avg_clv_1h?: number | null;         // higher is better
+  pct_positive_clv_1h?: number | null; // higher is better
+  cat_volume_share?: number | null;   // concentration in top category
+  cat_pnl?: number | null;            // PnL in top category
 }
 
 export interface CompositeScoringOutput {
@@ -95,12 +101,17 @@ export interface CompositeScoringOutput {
   };
 }
 
+// Phase 1 (original): momentum 0.35 + consistency 0.35 = 0.70 active weight.
+// Phase 3 (hardening): wire in Brier (0.20), CLV (0.10), Niche (0.15).
+// Sum = 1.15 → renormalized inside scoreComposite to sum to 1.0 across active pillars.
+// Set a pillar to 0.00 to disable it; the active-weight renormalization keeps
+// the score in [0,100] regardless of how many pillars are active.
 const PILLAR_WEIGHTS = {
-  momentum:    0.35,
-  consistency: 0.35,
-  niche:       0.00,
-  clv:         0.00,
-  brier:       0.00,
+  momentum:    0.30,
+  consistency: 0.25,
+  niche:       0.15,
+  clv:         0.10,
+  brier:       0.20,
 } as const;
 
 export function scoreComposite(
@@ -135,24 +146,55 @@ export function scoreComposite(
     })
   );
 
+  // Pillar: Brier score — invert so higher rank = better calibration.
+  // If brier_score is null (no resolved positions) treat as worst case (0.25 = coin-flip).
+  const brierRaws = stats.map((s) =>
+    1.0 - (s.brier_score != null ? s.brier_score : 0.25)
+  );
+
+  // Pillar: CLV — use pct_positive_clv_1h if available, else avg_clv_1h.
+  const clvRaws = stats.map((s) =>
+    s.pct_positive_clv_1h != null ? s.pct_positive_clv_1h
+    : s.avg_clv_1h != null ? s.avg_clv_1h
+    : 0
+  );
+
+  // Pillar: Niche — product of volume concentration × category PnL percentile.
+  // Use cat_volume_share as the raw input; category PnL is ranked separately.
+  const nicheRaws = stats.map((s) =>
+    (s.cat_volume_share ?? 0) * Math.max(0, s.cat_pnl ?? 0)
+  );
+
   const pctMomentum    = percentileRank(momentumZs);
   const pctConsistency = percentileRank(consistencyRaws);
+  const pctBrier       = percentileRank(brierRaws);
+  const pctClv         = percentileRank(clvRaws);
+  const pctNiche       = percentileRank(nicheRaws);
 
-  const activeWeightSum = PILLAR_WEIGHTS.momentum + PILLAR_WEIGHTS.consistency;
+  // Active pillars are those with non-zero weight.
+  const activeWeightSum =
+    PILLAR_WEIGHTS.momentum + PILLAR_WEIGHTS.consistency +
+    PILLAR_WEIGHTS.niche + PILLAR_WEIGHTS.clv + PILLAR_WEIGHTS.brier;
   const wMomentum    = PILLAR_WEIGHTS.momentum    / activeWeightSum;
   const wConsistency = PILLAR_WEIGHTS.consistency / activeWeightSum;
+  const wBrier       = PILLAR_WEIGHTS.brier       / activeWeightSum;
+  const wClv         = PILLAR_WEIGHTS.clv         / activeWeightSum;
+  const wNiche       = PILLAR_WEIGHTS.niche       / activeWeightSum;
 
   const composites = stats.map((_, i) => {
     const pillars: CompositePillarScores = {
       momentum:    pctMomentum[i]    * 100,
       consistency: pctConsistency[i] * 100,
-      niche: 0,
-      clv:   0,
-      brier: 0,
+      niche:       pctNiche[i]       * 100,
+      clv:         pctClv[i]         * 100,
+      brier:       pctBrier[i]       * 100,
     };
     const composite_score =
-      wMomentum    * pillars.momentum +
-      wConsistency * pillars.consistency;
+      wMomentum    * pillars.momentum    +
+      wConsistency * pillars.consistency +
+      wBrier       * pillars.brier       +
+      wClv         * pillars.clv         +
+      wNiche       * pillars.niche;
 
     return {
       proxy_wallet:  stats[i].proxy_wallet,

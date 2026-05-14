@@ -195,7 +195,8 @@ async function main(): Promise<void> {
           END AS snapshot_day,
           SUM(cash_flow + resolution_payout) AS realized_pnl_day,
           SUM(CASE WHEN is_closed = 0 THEN unrealized_mark ELSE 0.0 END) AS unrealized_pnl_day,
-          APPROX_COUNT_DISTINCT(CASE WHEN is_closed = 1 THEN market_id ELSE NULL END) AS closed_positions_day
+          APPROX_COUNT_DISTINCT(CASE WHEN is_closed = 1 THEN market_id ELSE NULL END) AS closed_positions_day,
+          COUNT(CASE WHEN is_closed = 1 AND (cash_flow + resolution_payout) > 0 THEN 1 END) AS closed_positions_positive_day
         FROM _emit_wmp
         GROUP BY proxy_wallet,
           CASE
@@ -270,7 +271,8 @@ async function main(): Promise<void> {
               da.last_active_ts_day                            AS last_active_ts_day,
               COALESCE(dp.closed_positions_day, 0)             AS closed_positions_day,
               COALESCE(dp.realized_pnl_day, 0.0)               AS realized_pnl_day,
-              COALESCE(dp.unrealized_pnl_day, 0.0)             AS unrealized_pnl_day
+              COALESCE(dp.unrealized_pnl_day, 0.0)             AS unrealized_pnl_day,
+              COALESCE(dp.closed_positions_positive_day, 0)    AS closed_positions_positive_day
             FROM (SELECT * FROM _emit_da WHERE hash(proxy_wallet) % ${N} = ${i}) da
             FULL OUTER JOIN
                  (SELECT * FROM _emit_dp WHERE hash(proxy_wallet) % ${N} = ${i}) dp
@@ -288,22 +290,33 @@ async function main(): Promise<void> {
             unrealized_pnl,
             first_active_ts,
             last_active_ts,
-            CAST(FLOOR((last_active_ts - first_active_ts) / 86400.0) AS INTEGER) AS observation_span_days
+            CAST(FLOOR((last_active_ts - first_active_ts) / 86400.0) AS INTEGER) AS observation_span_days,
+            trade_count_90d,
+            volume_90d,
+            realized_pnl_90d,
+            closed_positions_positive
           FROM (
             SELECT
               proxy_wallet,
               snapshot_day,
-              SUM(trade_count_day)      OVER w AS trade_count,
-              SUM(volume_day)           OVER w AS volume_total,
-              SUM(distinct_markets_day) OVER w AS distinct_markets,
-              SUM(closed_positions_day) OVER w AS closed_positions,
-              SUM(realized_pnl_day)     OVER w AS realized_pnl,
-              LAST_VALUE(unrealized_pnl_day) OVER w AS unrealized_pnl,
-              MIN(first_active_ts_day)  OVER w AS first_active_ts,
-              MAX(last_active_ts_day)   OVER w AS last_active_ts
+              SUM(trade_count_day)               OVER w   AS trade_count,
+              SUM(volume_day)                    OVER w   AS volume_total,
+              SUM(distinct_markets_day)          OVER w   AS distinct_markets,
+              SUM(closed_positions_day)          OVER w   AS closed_positions,
+              SUM(realized_pnl_day)              OVER w   AS realized_pnl,
+              LAST_VALUE(unrealized_pnl_day)     OVER w   AS unrealized_pnl,
+              MIN(first_active_ts_day)           OVER w   AS first_active_ts,
+              MAX(last_active_ts_day)            OVER w   AS last_active_ts,
+              SUM(trade_count_day)               OVER w90 AS trade_count_90d,
+              SUM(volume_day)                    OVER w90 AS volume_90d,
+              SUM(realized_pnl_day)              OVER w90 AS realized_pnl_90d,
+              SUM(closed_positions_positive_day) OVER w   AS closed_positions_positive
             FROM merged
-            WINDOW w AS (PARTITION BY proxy_wallet ORDER BY snapshot_day
-                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+            WINDOW
+              w   AS (PARTITION BY proxy_wallet ORDER BY snapshot_day
+                      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW),
+              w90 AS (PARTITION BY proxy_wallet ORDER BY snapshot_day
+                      ROWS BETWEEN 89 PRECEDING AND CURRENT ROW)
           )
           WHERE trade_count > 0
         `);
