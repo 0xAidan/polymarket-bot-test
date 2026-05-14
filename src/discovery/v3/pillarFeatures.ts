@@ -121,7 +121,10 @@ export function buildNicheKnowledgeSql(): string {
       wt.total_volume
     FROM wallet_cat wc
     JOIN wallet_total wt ON wt.proxy_wallet = wc.proxy_wallet
-    ORDER BY wc.proxy_wallet, cat_volume DESC
+    -- QUALIFY keeps only the single top category per wallet, ranked by volume.
+    -- Without this, the query returns one row per (wallet, category) — up to
+    -- 8 categories × 2.4M wallets = ~19M rows in JS, causing heap OOM.
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY wc.proxy_wallet ORDER BY wc.cat_volume DESC) = 1
   `;
 }
 

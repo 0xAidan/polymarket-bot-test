@@ -188,6 +188,10 @@ async function main(): Promise<void> {
 
     console.log(`[05] scoring ${rows.length} wallets`);
     const now = Math.floor(Date.now() / 1000);
+    // Pillar queries run after this — free the raw snapshot array so the GC
+    // can reclaim ~500MB before the next large allocation.
+    const rowCount = rows.length;
+    (rows as unknown[]).length = 0;
 
     // Compute composite scores in DuckDB (same as refreshWorker does) so
     // backfill and live runs produce identical columns in discovery_wallet_scores_v3.
@@ -247,7 +251,7 @@ async function main(): Promise<void> {
       })
     );
     console.log(
-      `[05] eligibility: ${stats.eligible}/${stats.total} (rejection ${(stats.rejection_rate * 100).toFixed(1)}%)`
+      `[05] eligibility: ${stats.eligible}/${stats.total} (rejection ${(stats.rejection_rate * 100).toFixed(1)}%) — ${rowCount} wallets scored`
     );
 
     for (const s of scores) {
