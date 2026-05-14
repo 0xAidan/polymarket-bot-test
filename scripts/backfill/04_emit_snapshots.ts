@@ -246,62 +246,75 @@ async function main(): Promise<void> {
       logStage(`stage E done: ${c} (wallet, day) activity rows`, tStage);
     }
 
-    // ─── Stage F: merge + cumulative window + INSERT into target ────────────
+    // ─── Stage F: merge + cumulative window + INSERT into target (chunked) ──
+    // Chunked by hash(proxy_wallet) % N — same logic as 04b_emit_stageF_only.ts.
+    // The window PARTITION BY proxy_wallet is fully contained within each bucket,
+    // so output is byte-identical to the unchunked version.
     {
-      const t0 = Date.now();
-      console.log('[04] stage F/F: merge + window + INSERT');
-      await db.exec(`
-        INSERT INTO discovery_feature_snapshots_v3
-        WITH
-        merged AS (
-          SELECT
-            COALESCE(da.proxy_wallet, dp.proxy_wallet)       AS proxy_wallet,
-            COALESCE(da.snapshot_day, dp.snapshot_day)       AS snapshot_day,
-            COALESCE(da.trade_count_day, 0)                  AS trade_count_day,
-            COALESCE(da.volume_day, 0.0)                     AS volume_day,
-            COALESCE(da.distinct_markets_day, 0)             AS distinct_markets_day,
-            da.first_active_ts_day                           AS first_active_ts_day,
-            da.last_active_ts_day                            AS last_active_ts_day,
-            COALESCE(dp.closed_positions_day, 0)             AS closed_positions_day,
-            COALESCE(dp.realized_pnl_day, 0.0)               AS realized_pnl_day,
-            COALESCE(dp.unrealized_pnl_day, 0.0)             AS unrealized_pnl_day
-          FROM _emit_da da
-          FULL OUTER JOIN _emit_dp dp
-            ON dp.proxy_wallet = da.proxy_wallet
-           AND dp.snapshot_day = da.snapshot_day
-        )
-        SELECT
-          proxy_wallet,
-          snapshot_day,
-          trade_count,
-          volume_total,
-          distinct_markets,
-          closed_positions,
-          realized_pnl,
-          unrealized_pnl,
-          first_active_ts,
-          last_active_ts,
-          CAST(FLOOR((last_active_ts - first_active_ts) / 86400.0) AS INTEGER) AS observation_span_days
-        FROM (
+      const tStage = Date.now();
+      console.log(`[04] stage F/F: merge + window + INSERT in ${N} chunks`);
+      let totalInserted = 0;
+      for (let i = 0; i < N; i++) {
+        const t0 = Date.now();
+        await db.exec(`
+          INSERT INTO discovery_feature_snapshots_v3
+          WITH
+          merged AS (
+            SELECT
+              COALESCE(da.proxy_wallet, dp.proxy_wallet)       AS proxy_wallet,
+              COALESCE(da.snapshot_day, dp.snapshot_day)       AS snapshot_day,
+              COALESCE(da.trade_count_day, 0)                  AS trade_count_day,
+              COALESCE(da.volume_day, 0.0)                     AS volume_day,
+              COALESCE(da.distinct_markets_day, 0)             AS distinct_markets_day,
+              da.first_active_ts_day                           AS first_active_ts_day,
+              da.last_active_ts_day                            AS last_active_ts_day,
+              COALESCE(dp.closed_positions_day, 0)             AS closed_positions_day,
+              COALESCE(dp.realized_pnl_day, 0.0)               AS realized_pnl_day,
+              COALESCE(dp.unrealized_pnl_day, 0.0)             AS unrealized_pnl_day
+            FROM (SELECT * FROM _emit_da WHERE hash(proxy_wallet) % ${N} = ${i}) da
+            FULL OUTER JOIN
+                 (SELECT * FROM _emit_dp WHERE hash(proxy_wallet) % ${N} = ${i}) dp
+              ON dp.proxy_wallet = da.proxy_wallet
+             AND dp.snapshot_day = da.snapshot_day
+          )
           SELECT
             proxy_wallet,
             snapshot_day,
-            SUM(trade_count_day)      OVER w AS trade_count,
-            SUM(volume_day)           OVER w AS volume_total,
-            SUM(distinct_markets_day) OVER w AS distinct_markets,
-            SUM(closed_positions_day) OVER w AS closed_positions,
-            SUM(realized_pnl_day)     OVER w AS realized_pnl,
-            LAST_VALUE(unrealized_pnl_day) OVER w AS unrealized_pnl,
-            MIN(first_active_ts_day)  OVER w AS first_active_ts,
-            MAX(last_active_ts_day)   OVER w AS last_active_ts
-          FROM merged
-          WINDOW w AS (PARTITION BY proxy_wallet ORDER BY snapshot_day
-                       ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
-        )
-        WHERE trade_count > 0
-      `);
-      const c = (await db.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM discovery_feature_snapshots_v3'))[0].c;
-      logStage(`stage F done: ${c} snapshot rows inserted`, t0);
+            trade_count,
+            volume_total,
+            distinct_markets,
+            closed_positions,
+            realized_pnl,
+            unrealized_pnl,
+            first_active_ts,
+            last_active_ts,
+            CAST(FLOOR((last_active_ts - first_active_ts) / 86400.0) AS INTEGER) AS observation_span_days
+          FROM (
+            SELECT
+              proxy_wallet,
+              snapshot_day,
+              SUM(trade_count_day)      OVER w AS trade_count,
+              SUM(volume_day)           OVER w AS volume_total,
+              SUM(distinct_markets_day) OVER w AS distinct_markets,
+              SUM(closed_positions_day) OVER w AS closed_positions,
+              SUM(realized_pnl_day)     OVER w AS realized_pnl,
+              LAST_VALUE(unrealized_pnl_day) OVER w AS unrealized_pnl,
+              MIN(first_active_ts_day)  OVER w AS first_active_ts,
+              MAX(last_active_ts_day)   OVER w AS last_active_ts
+            FROM merged
+            WINDOW w AS (PARTITION BY proxy_wallet ORDER BY snapshot_day
+                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+          )
+          WHERE trade_count > 0
+        `);
+        const cumulative = (
+          await db.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM discovery_feature_snapshots_v3')
+        )[0].c;
+        const inserted = Number(cumulative) - totalInserted;
+        totalInserted = Number(cumulative);
+        logStage(`  F chunk ${i + 1}/${N}: +${inserted} rows (total ${totalInserted})`, t0);
+      }
+      logStage(`stage F done: ${totalInserted} snapshot rows`, tStage);
       await db.exec('DROP TABLE _emit_da');
       await db.exec('DROP TABLE _emit_dp');
     }
