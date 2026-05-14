@@ -123,6 +123,35 @@ export async function runV3DuckDBMigrationsBackfillNoIndex(
 }
 
 /**
+ * Additive column migrations for `discovery_feature_snapshots_v3`.
+ *
+ * `CREATE TABLE IF NOT EXISTS` will not add new columns to an existing table.
+ * These ALTER TABLE statements are idempotent via `IF NOT EXISTS` — safe to run
+ * on a fresh table (columns already present = no-op) or an old one (adds them).
+ *
+ * Run these AFTER `runV3DuckDBMigrationsBackfillNoIndex` / `runV3DuckDBMigrations`
+ * in every script that writes snapshot rows.
+ */
+export const V3_SNAPSHOT_ADDITIVE_MIGRATIONS: string[] = [
+  `ALTER TABLE discovery_feature_snapshots_v3 ADD COLUMN IF NOT EXISTS trade_count_90d BIGINT DEFAULT 0`,
+  `ALTER TABLE discovery_feature_snapshots_v3 ADD COLUMN IF NOT EXISTS volume_90d DOUBLE DEFAULT 0.0`,
+  `ALTER TABLE discovery_feature_snapshots_v3 ADD COLUMN IF NOT EXISTS realized_pnl_90d DOUBLE DEFAULT 0.0`,
+  `ALTER TABLE discovery_feature_snapshots_v3 ADD COLUMN IF NOT EXISTS closed_positions_positive BIGINT DEFAULT 0`,
+];
+
+/**
+ * Apply additive snapshot column migrations. Idempotent — each ALTER is
+ * guarded by IF NOT EXISTS so it silently no-ops when the column already exists.
+ */
+export async function runV3SnapshotAdditiveColumnMigrations(
+  exec: (sql: string) => Promise<void>
+): Promise<void> {
+  for (const stmt of V3_SNAPSHOT_ADDITIVE_MIGRATIONS) {
+    await exec(stmt);
+  }
+}
+
+/**
  * Exposed for completeness; backfill scripts must NOT invoke this on a
  * populated `discovery_activity_v3` on a memory-constrained host.
  */

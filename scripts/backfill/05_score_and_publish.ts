@@ -44,7 +44,10 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { openDuckDB } from '../../src/discovery/v3/duckdbClient.js';
-import { runV3DuckDBMigrationsBackfillNoIndex } from '../../src/discovery/v3/duckdbSchema.js';
+import {
+  runV3DuckDBMigrationsBackfillNoIndex,
+  runV3SnapshotAdditiveColumnMigrations,
+} from '../../src/discovery/v3/duckdbSchema.js';
 import { runV3SqliteMigrations } from '../../src/discovery/v3/schema.js';
 import { getDuckDBPath } from '../../src/discovery/v3/featureFlag.js';
 import { scoreTiers } from '../../src/discovery/v3/tierScoring.js';
@@ -77,6 +80,7 @@ async function main(): Promise<void> {
     // has ~800M rows and DuckDB 1.4.x CREATE INDEX would OOM.
     // See src/discovery/v3/duckdbSchema.ts for the full rationale.
     await runV3DuckDBMigrationsBackfillNoIndex((sql) => duck.exec(sql));
+    await runV3SnapshotAdditiveColumnMigrations((sql) => duck.exec(sql));
 
     // Mirror 04_emit_snapshots' pragmas so any large operator (the
     // ARG_MAX hash aggregate below, or its temp materialisation) can

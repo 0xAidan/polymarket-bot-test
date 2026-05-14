@@ -24,6 +24,7 @@
  *   STAGE_F_CHUNKS           default 16
  */
 import { openDuckDB } from '../../src/discovery/v3/duckdbClient.js';
+import { runV3SnapshotAdditiveColumnMigrations } from '../../src/discovery/v3/duckdbSchema.js';
 import { getDuckDBPath } from '../../src/discovery/v3/featureFlag.js';
 
 function logStage(label: string, t0: number): void {
@@ -34,6 +35,10 @@ function logStage(label: string, t0: number): void {
 async function main(): Promise<void> {
   const db = openDuckDB(getDuckDBPath());
   try {
+    // Ensure the four new snapshot columns exist before writing to the table.
+    // This is a no-op if columns were already added by 04_emit_snapshots.ts.
+    await runV3SnapshotAdditiveColumnMigrations((sql) => db.exec(sql));
+
     const memLimit = process.env.DUCKDB_MEMORY_LIMIT_GB || '5';
     const threads = process.env.DUCKDB_THREADS || '2';
     const tempCap = process.env.DUCKDB_MAX_TEMP_DIR_GB || '40';

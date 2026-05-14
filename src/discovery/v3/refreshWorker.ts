@@ -12,6 +12,7 @@ import { DuckDBClient } from './duckdbClient.js';
 import { buildSnapshotEmitSql } from './backfillQueries.js';
 import { scoreTiers } from './tierScoring.js';
 import { runV3SqliteMigrations } from './schema.js';
+import { runV3SnapshotAdditiveColumnMigrations } from './duckdbSchema.js';
 import { buildCompositeScoringQuery, type CompositeScoredRow } from './compositeQueries.js';
 import { determineDittoState } from './dittoEngine.js';
 import {
@@ -41,6 +42,8 @@ export async function runRefreshOnce(options: RefreshWorkerOptions): Promise<Ref
   const { duck, sqlite } = options;
 
   runV3SqliteMigrations(sqlite);
+  // Ensure the new snapshot columns exist before writing (idempotent ALTER TABLE IF NOT EXISTS).
+  await runV3SnapshotAdditiveColumnMigrations((sql) => duck.exec(sql));
   await duck.exec('DELETE FROM discovery_feature_snapshots_v3');
   await duck.exec(buildSnapshotEmitSql());
 

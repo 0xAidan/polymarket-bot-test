@@ -34,7 +34,10 @@
  *   EMIT_CHUNKS              default 16   (number of hash buckets per stage)
  */
 import { openDuckDB } from '../../src/discovery/v3/duckdbClient.js';
-import { runV3DuckDBMigrationsBackfillNoIndex } from '../../src/discovery/v3/duckdbSchema.js';
+import {
+  runV3DuckDBMigrationsBackfillNoIndex,
+  runV3SnapshotAdditiveColumnMigrations,
+} from '../../src/discovery/v3/duckdbSchema.js';
 import { getDuckDBPath } from '../../src/discovery/v3/featureFlag.js';
 
 function logStage(label: string, t0: number): void {
@@ -46,6 +49,8 @@ async function main(): Promise<void> {
   const db = openDuckDB(getDuckDBPath());
   try {
     await runV3DuckDBMigrationsBackfillNoIndex((sql) => db.exec(sql));
+    // Add any new snapshot columns to an existing table (idempotent ALTER TABLE IF NOT EXISTS).
+    await runV3SnapshotAdditiveColumnMigrations((sql) => db.exec(sql));
 
     // ─── Memory tuning ──────────────────────────────────────────────────────
     const memLimit = process.env.DUCKDB_MEMORY_LIMIT_GB || '6';
