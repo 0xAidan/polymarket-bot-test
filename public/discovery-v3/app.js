@@ -4,30 +4,30 @@ const state = {
   tier: 'alpha',
   retryTimer: null,
   lastWallets: [],
-  authed: false, // filled in by refreshAuthStatus()
+  authed: false,
 };
 
 const statusEl = document.getElementById('status');
-const listEl = document.getElementById('wallet-list');
+const listEl   = document.getElementById('wallet-list');
 
-// Build the auth bar once. We keep the reference so we can re-render when
-// auth state changes (e.g. after a 401 on a mutation).
-const authBarEl = document.createElement('div');
-authBarEl.className = 'auth-bar';
-document.querySelector('.v3-header')?.appendChild(authBarEl);
+// ─── Auth bar ─────────────────────────────────────────────────────────────────
+
+const authBarEl = document.getElementById('auth-bar-mount');
 
 function renderAuthBar() {
   if (state.authed) {
     authBarEl.innerHTML = `
-      <span class="auth-status">Signed in</span>
-      <a class="auth-link" href="/auth/logout">Log out</a>
-    `;
+      <div class="auth-bar">
+        <span class="auth-status">Signed in</span>
+        <a class="auth-link" href="/auth/logout">Log out</a>
+      </div>`;
   } else {
     const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
     authBarEl.innerHTML = `
-      <span class="auth-status">Viewing as guest — sign in to copy trade</span>
-      <a class="auth-link primary" href="/auth/login?returnTo=${returnTo}">Sign in</a>
-    `;
+      <div class="auth-bar">
+        <span class="auth-status">Viewing as guest</span>
+        <a class="auth-link primary" href="/auth/login?returnTo=${returnTo}">Sign in</a>
+      </div>`;
   }
 }
 
@@ -41,17 +41,38 @@ async function refreshAuthStatus() {
   renderAuthBar();
 }
 
+// ─── Tier guide toggle ─────────────────────────────────────────────────────────
+
+const guideToggleBtn = document.getElementById('guideToggle');
+const guidePanel     = document.getElementById('tierGuide');
+
+guideToggleBtn.addEventListener('click', () => {
+  const open = !guidePanel.hidden;
+  guidePanel.hidden = open;
+  guideToggleBtn.setAttribute('aria-expanded', String(!open));
+  guideToggleBtn.textContent = open ? 'What do these mean?' : 'Hide guide';
+});
+
+// ─── Formatters ───────────────────────────────────────────────────────────────
+
 function fmtNum(n) {
   if (n == null) return '—';
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + 'M';
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+  if (n >= 1_000_000) return '$' + (n / 1_000_000).toFixed(2) + 'M';
+  if (n >= 1_000)     return '$' + (n / 1_000).toFixed(1) + 'K';
+  return '$' + String(Math.round(n));
+}
+
+function fmtCount(n) {
+  if (n == null) return '—';
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000)     return (n / 1_000).toFixed(1) + 'K';
   return String(Math.round(n));
 }
 
 function fmtAge(ts) {
   if (!ts) return '—';
   const ageSec = Math.floor(Date.now() / 1000) - Number(ts);
-  if (ageSec < 3600) return `${Math.floor(ageSec / 60)}m ago`;
+  if (ageSec < 3600)  return `${Math.floor(ageSec / 60)}m ago`;
   if (ageSec < 86400) return `${Math.floor(ageSec / 3600)}h ago`;
   return `${Math.floor(ageSec / 86400)}d ago`;
 }
@@ -61,53 +82,80 @@ function fmtScore(n) {
   return Math.round(n).toString();
 }
 
+// ─── Ditto state chip ─────────────────────────────────────────────────────────
+
 function getDittoHtml(stateStr) {
-  let cssClass = 'chip ditto-state';
-  let icon = '';
+  let cls = 'chip ditto-state';
   let label = stateStr.replace(/_/g, ' ');
-
-  if (stateStr === 'HOT_STREAK') { cssClass += ' hot'; icon = '🔥 '; }
-  else if (stateStr === 'COOLDOWN_PAUSED') { cssClass += ' cooldown'; icon = '⏸️ '; }
-  else if (stateStr === 'SLOWING_REVERTING') { cssClass += ' slowing'; icon = '⚠️ '; }
-  else if (stateStr === 'CONSISTENT_PERFORMER') { cssClass += ' consistent'; icon = '✅ '; }
-  else if (stateStr === 'NEW_UNRANKED') { cssClass += ' unranked'; icon = '🆕 '; }
-
-  return `<span class="${cssClass}">${icon}${label}</span>`;
+  if (stateStr === 'HOT_STREAK')           cls += ' hot';
+  else if (stateStr === 'COOLDOWN_PAUSED') cls += ' cooldown';
+  else if (stateStr === 'SLOWING_REVERTING') cls += ' slowing';
+  else if (stateStr === 'CONSISTENT_PERFORMER') cls += ' consistent';
+  else if (stateStr === 'NEW_UNRANKED')    cls += ' unranked';
+  return `<span class="${cls}">${label}</span>`;
 }
 
-function walletCard(w) {
+// ─── Wallet card ──────────────────────────────────────────────────────────────
+
+function walletCard(w, tier) {
+  const tierScore = w.tierScore ?? w.compositeScore ?? null;
+  const scorePct  = tierScore != null ? Math.min(100, Math.max(0, tierScore)) : 0;
+
   const card = document.createElement('div');
-  card.className = 'wallet-card';
+  card.className = `wallet-card tier-${tier}`;
+
+  // Pillar row (show only non-null values)
+  const pillars = [
+    w.momentumScore    != null ? `<span>Heat <strong>${fmtScore(w.momentumScore)}</strong></span>`    : '',
+    w.consistencyScore != null ? `<span>Risk DNA <strong>${fmtScore(w.consistencyScore)}</strong></span>` : '',
+    w.brierScore       != null ? `<span>Brier <strong>${fmtScore(w.brierScore)}</strong></span>`      : '',
+    w.avgClv1h         != null ? `<span>CLV <strong>${(w.avgClv1h * 100).toFixed(1)}%</strong></span>` : '',
+    w.nicheScore       != null ? `<span>Niche <strong>${fmtScore(w.nicheScore)}</strong></span>`      : '',
+  ].filter(Boolean).join('');
+
   card.innerHTML = `
     <div class="rank">#${w.tierRank}</div>
-    <div>
-      <div class="alias">${w.alias}</div>
-      <div class="address">${w.address}</div>
+
+    <div class="wallet-info">
+      <div class="wallet-head">
+        <span class="alias">${w.alias}</span>
+        <span class="address">${w.address}</span>
+      </div>
+
+      <div class="score-strip">
+        <span class="score-main">${fmtScore(tierScore)}</span>
+        <div class="score-bar-wrap">
+          <div class="score-bar-fill" style="width:${scorePct}%"></div>
+        </div>
+        ${w.compositeScore != null ? `<span style="font-size:0.75rem;color:var(--muted)">Composite ${fmtScore(w.compositeScore)}</span>` : ''}
+      </div>
+
       <div class="metrics">
-        <span>Vol <strong>$${fmtNum(w.volumeTotal)}</strong></span>
-        <span>Trades <strong>${fmtNum(w.tradeCount)}</strong></span>
-        <span>Markets <strong>${fmtNum(w.distinctMarkets)}</strong></span>
-        <span>PnL <strong>$${fmtNum(w.realizedPnl)}</strong></span>
+        <span>Vol <strong>${fmtNum(w.volumeTotal)}</strong></span>
+        <span>Trades <strong>${fmtCount(w.tradeCount)}</strong></span>
+        <span>Markets <strong>${fmtCount(w.distinctMarkets)}</strong></span>
+        <span>PnL <strong>${fmtNum(w.realizedPnl)}</strong></span>
         <span>Last active <strong>${fmtAge(w.lastActiveTs)}</strong></span>
       </div>
-      <div class="metrics composite-metrics">
-        <span>Composite <strong>${fmtScore(w.compositeScore)}</strong></span>
-        <span>Heat <strong>${fmtScore(w.momentumScore)}</strong></span>
-        <span>Risk DNA <strong>${fmtScore(w.consistencyScore)}</strong></span>
-      </div>
+
+      ${pillars ? `<div class="metrics metrics-secondary">${pillars}</div>` : ''}
+
       <div class="chips">
         ${w.dittoState ? getDittoHtml(w.dittoState) : ''}
         <span class="chip eligible">eligible</span>
         ${(w.reasons || []).map((r) => `<span class="chip">${r}</span>`).join('')}
       </div>
     </div>
+
     <button class="cta-copy" data-address="${w.address}">Copy Trade</button>
   `;
+
   const copyBtn = card.querySelector('.cta-copy');
   if (!state.authed) {
     copyBtn.textContent = 'Sign in to Copy';
     copyBtn.classList.add('needs-auth');
   }
+
   copyBtn.addEventListener('click', async () => {
     if (!state.authed) {
       const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
@@ -133,28 +181,20 @@ function walletCard(w) {
       statusEl.textContent = `Error: ${e.message}`;
     }
   });
+
   return card;
 }
 
-/**
- * Fetch wrapper that:
- * - Always inspects status + content-type BEFORE trying JSON parse
- * - Returns a discriminated result instead of throwing on HTTP errors
- * - Surfaces 429 as a structured result so callers can show a retry banner
- */
+// ─── Safe fetch ───────────────────────────────────────────────────────────────
+
 async function safeFetch(url, options = {}) {
   let res;
   try {
-    // Always include cookies so the Auth0 session is seen by the server when
-    // the user is signed in. Read endpoints don't need it, but mutations do.
     res = await fetch(url, { credentials: 'same-origin', ...options });
   } catch (e) {
     return { ok: false, kind: 'network', message: `Network error: ${e.message}` };
   }
 
-  // 401 → auth needed. For reads this should never happen (public). For
-  // mutations, surface a structured result so the caller can prompt login
-  // instead of the raw server message.
   if (res.status === 401) {
     let loginUrl = '/auth/login';
     try {
@@ -177,11 +217,9 @@ async function safeFetch(url, options = {}) {
         const body = await res.json();
         retryAfterSec = Number(body.retryAfterSec) || retryAfterSec;
         message = body.message || body.error || message;
-      } catch (_) {
-        // non-fatal — use defaults
-      }
+      } catch (_) { /* ignore */ }
     } else {
-      try { await res.text(); } catch (_) { /* swallow */ }
+      try { await res.text(); } catch (_) { /* ignore */ }
     }
     if (!retryAfterSec || retryAfterSec < 1) retryAfterSec = 15;
     return { ok: false, kind: 'rate_limited', retryAfterSec, message };
@@ -189,13 +227,9 @@ async function safeFetch(url, options = {}) {
 
   if (!res.ok) {
     let bodyText = '';
-    try { bodyText = isJson ? JSON.stringify(await res.json()) : await res.text(); } catch (_) { /* swallow */ }
-    return {
-      ok: false,
-      kind: 'http_error',
-      status: res.status,
-      message: `HTTP ${res.status}${bodyText ? `: ${bodyText.slice(0, 200)}` : ''}`
-    };
+    try { bodyText = isJson ? JSON.stringify(await res.json()) : await res.text(); } catch (_) { /* ignore */ }
+    return { ok: false, kind: 'http_error', status: res.status,
+      message: `HTTP ${res.status}${bodyText ? `: ${bodyText.slice(0, 200)}` : ''}` };
   }
 
   if (!isJson) {
@@ -211,20 +245,20 @@ async function safeFetch(url, options = {}) {
   }
 }
 
-function renderWallets(wallets) {
+// ─── Render ───────────────────────────────────────────────────────────────────
+
+function renderWallets(wallets, tier) {
   listEl.innerHTML = '';
-  for (const w of wallets) listEl.appendChild(walletCard(w));
+  for (const w of wallets) listEl.appendChild(walletCard(w, tier));
 }
+
+// ─── Retry scheduling ─────────────────────────────────────────────────────────
 
 function scheduleRetry(tier, delaySec) {
   if (state.retryTimer) clearTimeout(state.retryTimer);
   let remaining = delaySec;
   const tick = () => {
-    if (remaining <= 0) {
-      loadTier(tier);
-      return;
-    }
-    // Preserve previously-loaded wallets so the UI never goes blank.
+    if (remaining <= 0) { loadTier(tier); return; }
     statusEl.innerHTML = `<span class="warn">Rate-limited, retrying in ${remaining}s...</span>`;
     remaining -= 1;
     state.retryTimer = setTimeout(tick, 1000);
@@ -232,16 +266,11 @@ function scheduleRetry(tier, delaySec) {
   tick();
 }
 
+// ─── Load tier ────────────────────────────────────────────────────────────────
+
 async function loadTier(tier) {
-  if (state.retryTimer) {
-    clearTimeout(state.retryTimer);
-    state.retryTimer = null;
-  }
-  // Only clear the list on first load — if we already have wallets, keep them
-  // visible while we re-fetch, so transient errors don't produce a blank UI.
-  if (state.lastWallets.length === 0) {
-    listEl.innerHTML = '';
-  }
+  if (state.retryTimer) { clearTimeout(state.retryTimer); state.retryTimer = null; }
+  if (state.lastWallets.length === 0) listEl.innerHTML = '';
   statusEl.textContent = `Loading ${tier}...`;
 
   const result = await safeFetch(`${API}/tier/${tier}?limit=50`);
@@ -259,35 +288,38 @@ async function loadTier(tier) {
       return;
     }
     state.lastWallets = data.data;
-    renderWallets(data.data);
+    renderWallets(data.data, tier);
     statusEl.textContent = `${tier}: ${data.count} wallets`;
     return;
   }
 
-  if (result.kind === 'rate_limited') {
-    scheduleRetry(tier, result.retryAfterSec);
-    return;
-  }
+  if (result.kind === 'rate_limited') { scheduleRetry(tier, result.retryAfterSec); return; }
 
   if (result.kind === 'http_error' && result.status === 404) {
     statusEl.innerHTML = '<span class="error">Discovery v3 is not enabled on this server.</span>';
     return;
   }
 
-  // Any other error: keep prior wallets visible if we have them.
   statusEl.innerHTML = `<span class="error">${result.message || 'Fetch failed'}</span>`;
 }
 
+// ─── Tier nav ─────────────────────────────────────────────────────────────────
+
 document.querySelectorAll('.tier-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.tier-btn').forEach((b) => b.classList.remove('active'));
+    document.querySelectorAll('.tier-btn').forEach((b) => {
+      b.classList.remove('active');
+      b.setAttribute('aria-selected', 'false');
+    });
     btn.classList.add('active');
+    btn.setAttribute('aria-selected', 'true');
     state.tier = btn.dataset.tier;
     state.lastWallets = [];
     loadTier(state.tier);
   });
 });
 
-// Render the auth bar immediately (as guest), then refresh from the server.
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+
 renderAuthBar();
 refreshAuthStatus().finally(() => loadTier(state.tier));

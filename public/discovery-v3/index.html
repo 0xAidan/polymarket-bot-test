@@ -8,18 +8,112 @@
 </head>
 <body>
   <header class="v3-header">
-    <h1>Discovery v3</h1>
-    <p class="subtitle">Tiered wallet discovery with point-in-time purity</p>
-    <nav class="tier-nav">
-      <button data-tier="alpha" class="tier-btn active">Alpha</button>
-      <button data-tier="whale" class="tier-btn">Whale</button>
-      <button data-tier="specialist" class="tier-btn">Specialist</button>
-    </nav>
+    <div class="header-top">
+      <div class="header-title-block">
+        <h1>Discovery <span class="version-badge">v3</span></h1>
+        <p class="subtitle">Tiered wallet discovery with point-in-time purity</p>
+      </div>
+      <div id="auth-bar-mount"></div>
+    </div>
+
+    <div class="tier-bar">
+      <nav class="tier-nav" role="tablist">
+        <button data-tier="alpha"      class="tier-btn active" role="tab" aria-selected="true">
+          <span class="tier-dot alpha-dot"></span>
+          <span class="tier-label">Alpha</span>
+          <span class="tier-sub">Early signal</span>
+        </button>
+        <button data-tier="whale"      class="tier-btn" role="tab" aria-selected="false">
+          <span class="tier-dot whale-dot"></span>
+          <span class="tier-label">Whale</span>
+          <span class="tier-sub">High volume</span>
+        </button>
+        <button data-tier="specialist" class="tier-btn" role="tab" aria-selected="false">
+          <span class="tier-dot specialist-dot"></span>
+          <span class="tier-label">Specialist</span>
+          <span class="tier-sub">Niche expert</span>
+        </button>
+      </nav>
+      <button class="guide-toggle" id="guideToggle" aria-expanded="false" aria-controls="tierGuide">
+        What do these mean?
+      </button>
+    </div>
+
+    <!-- Tier guide panel — hidden by default, toggled by button above -->
+    <div class="tier-guide" id="tierGuide" hidden>
+      <div class="guide-grid">
+
+        <div class="guide-card guide-alpha">
+          <div class="guide-card-header">
+            <span class="tier-dot alpha-dot"></span>
+            <strong>Alpha</strong>
+          </div>
+          <p>Wallets that enter markets <em>before</em> the price moves. They have a high win rate and their trades tend to predict which way a market will resolve. Best for news-driven events.</p>
+          <ul>
+            <li>High CLV — they buy low before consensus forms</li>
+            <li>Strong Brier score — their probability estimates are accurate</li>
+            <li>Early entry on major markets</li>
+          </ul>
+        </div>
+
+        <div class="guide-card guide-whale">
+          <div class="guide-card-header">
+            <span class="tier-dot whale-dot"></span>
+            <strong>Whale</strong>
+          </div>
+          <p>High-volume traders with a proven profitability track record. They trade large amounts with conviction and their entries can move markets. Best for copying size and direction.</p>
+          <ul>
+            <li>Large average trade size ($1K+)</li>
+            <li>Consistent positive realized PnL over 90+ days</li>
+            <li>Trades are liquid enough to replicate</li>
+          </ul>
+        </div>
+
+        <div class="guide-card guide-specialist">
+          <div class="guide-card-header">
+            <span class="tier-dot specialist-dot"></span>
+            <strong>Specialist</strong>
+          </div>
+          <p>Experts in a specific category — politics, crypto, sports, macro. They outperform in their niche because they know context that the broader market misses.</p>
+          <ul>
+            <li>High niche concentration (≥60% volume in one category)</li>
+            <li>Edge rate above baseline in their category</li>
+            <li>Consistent wins within their domain</li>
+          </ul>
+        </div>
+
+      </div>
+
+      <div class="guide-section">
+        <strong class="guide-section-title">Execution states (Ditto)</strong>
+        <div class="guide-chips-row">
+          <span class="chip hot">HOT STREAK</span><span class="guide-chip-desc">Recently winning — best time to copy</span>
+          <span class="chip consistent">CONSISTENT PERFORMER</span><span class="guide-chip-desc">Steady long-term edge</span>
+          <span class="chip slowing">SLOWING / REVERTING</span><span class="guide-chip-desc">Performance declining, monitor closely</span>
+          <span class="chip cooldown">COOLDOWN PAUSED</span><span class="guide-chip-desc">Unusual activity, temporarily paused</span>
+          <span class="chip unranked">NEW / UNRANKED</span><span class="guide-chip-desc">Not enough data yet</span>
+        </div>
+      </div>
+
+      <div class="guide-section">
+        <strong class="guide-section-title">Score columns</strong>
+        <div class="guide-scores-grid">
+          <div><span class="guide-label">Composite</span><span class="guide-desc">Weighted blend of all pillars (0–100)</span></div>
+          <div><span class="guide-label">Heat</span><span class="guide-desc">Recent momentum vs historical baseline</span></div>
+          <div><span class="guide-label">Risk DNA</span><span class="guide-desc">Consistency of sizing and frequency over time</span></div>
+          <div><span class="guide-label">Brier</span><span class="guide-desc">Probabilistic accuracy — lower raw score = better calibration</span></div>
+          <div><span class="guide-label">CLV</span><span class="guide-desc">Closing-line value — avg edge at market close vs entry price</span></div>
+          <div><span class="guide-label">Niche</span><span class="guide-desc">Dominance score within their top category</span></div>
+        </div>
+      </div>
+    </div>
   </header>
+
   <main>
     <section id="status" class="status-bar"></section>
     <section id="wallet-list"></section>
   </main>
+
   <script src="./app.js" type="module"></script>
 </body>
 </html>
