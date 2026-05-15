@@ -11,6 +11,8 @@ type DuckDBModule = {
 interface DuckDBDatabase {
   connect(): DuckDBConnection;
   close(cb: (err: Error | null) => void): void;
+  /** Finishes background tasks after opening a file-backed DB (node-duckdb). */
+  wait(cb: (err: Error | null) => void): void;
 }
 
 interface DuckDBConnection {
@@ -31,19 +33,53 @@ function loadDuckDB(): DuckDBModule {
   return require('duckdb') as DuckDBModule;
 }
 
-const runOnConn = (conn: DuckDBConnection, sql: string): Promise<void> =>
+const execOnConn = (conn: DuckDBConnection, sql: string): Promise<void> =>
   new Promise((resolve, reject) => {
-    conn.run(sql, (err) => {
+    conn.exec(sql, (err) => {
       if (err) reject(err);
       else resolve();
     });
   });
 
+const waitDatabaseReady = (db: DuckDBDatabase): Promise<void> =>
+  new Promise((resolve, reject) => {
+    db.wait((err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+
+function isLikelyExclusiveLockError(message: string): boolean {
+  return (
+    message.includes('never established') ||
+    message.includes('has been closed already') ||
+    message.includes('Could not set lock') ||
+    message.includes('conflicting lock')
+  );
+}
+
+async function verifyWritableConnection(conn: DuckDBConnection, dbPath: string): Promise<void> {
+  try {
+    await execOnConn(conn, 'SELECT 1');
+  } catch (err) {
+    const message = (err as Error).message;
+    if (isLikelyExclusiveLockError(message)) {
+      throw new Error(
+        `DuckDB could not open "${dbPath}" for writing — another process almost certainly ` +
+          `already has this file open (DuckDB allows only one writer at a time). ` +
+          `On the server run: sudo lsof "${dbPath}"  OR  sudo fuser -v "${dbPath}" ` +
+          `Stop any other \`node\` using that path (e.g. 05_score_and_publish, verify scripts, ` +
+          `or a stray shell), then restart this service. Original error: ${message}`
+      );
+    }
+    throw err;
+  }
+}
+
 /**
  * Apply DuckDB runtime settings from environment variables. Must complete
- * before any other `exec` / `all` on the same connection: node-duckdb queues
- * `run` on worker threads; overlapping `run` + `exec` causes "connection
- * closed" and occasional INTERNAL null dereferences (staging logs).
+ * before any other `exec` / `all` on the same connection so we do not overlap
+ * with migrations (node-duckdb is sensitive to concurrent work on one handle).
  *
  * Supported env vars:
  *   DUCKDB_MEMORY_LIMIT_GB   — cap DuckDB's memory (default: let DuckDB pick)
@@ -65,7 +101,7 @@ async function applyRuntimeSettings(conn: DuckDBConnection): Promise<void> {
 
   const tryRun = async (label: string, sql: string): Promise<void> => {
     try {
-      await runOnConn(conn, sql);
+      await execOnConn(conn, sql);
     } catch (err) {
       console.warn(`[duckdb] ${label} failed:`, (err as Error).message);
     }
@@ -94,7 +130,9 @@ async function applyRuntimeSettings(conn: DuckDBConnection): Promise<void> {
 export async function openDuckDB(path: string): Promise<DuckDBClient> {
   const duckdb = loadDuckDB();
   const db = new duckdb.Database(path);
+  await waitDatabaseReady(db);
   const conn = db.connect();
+  await verifyWritableConnection(conn, path);
   await applyRuntimeSettings(conn);
 
   return {
