@@ -62,7 +62,7 @@ function getSqlitePath(): string {
 const READ_BATCH_SIZE = Number(process.env.V3_SCORE_READ_BATCH ?? 100_000);
 
 async function main(): Promise<void> {
-  const duck = openDuckDB(getDuckDBPath());
+  const duck = await openDuckDB(getDuckDBPath());
   try {
     // Use the no-index migration — the backfilled discovery_activity_v3
     // has ~800M rows and DuckDB 1.4.x CREATE INDEX would OOM.

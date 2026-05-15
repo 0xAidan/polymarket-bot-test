@@ -25,7 +25,7 @@ import { validateWalletAgainstDataApi } from '../../src/discovery/v3/dataApiVali
 const strictCoverageMode = process.argv.includes('--strict-coverage');
 
 async function main(): Promise<void> {
-  const db = openDuckDB(getDuckDBPath());
+  const db = await openDuckDB(getDuckDBPath());
   try {
     const wallets = await db.query<{ proxy_wallet: string; volume_total: number; trade_count: number }>(
       `WITH latest AS (

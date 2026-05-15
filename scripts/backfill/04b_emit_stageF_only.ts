@@ -32,7 +32,7 @@ function logStage(label: string, t0: number): void {
 }
 
 async function main(): Promise<void> {
-  const db = openDuckDB(getDuckDBPath());
+  const db = await openDuckDB(getDuckDBPath());
   try {
     const memLimit = process.env.DUCKDB_MEMORY_LIMIT_GB || '5';
     const threads = process.env.DUCKDB_THREADS || '2';

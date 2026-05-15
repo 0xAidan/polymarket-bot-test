@@ -39,7 +39,7 @@ export async function startDiscoveryV3Worker(
 
   const dbPath = getDuckDBPath();
   mkdirSync(dirname(dbPath), { recursive: true });
-  const duck = openDuckDB(dbPath);
+  const duck = await openDuckDB(dbPath);
   await runV3DuckDBMigrations((sql) => duck.exec(sql));
   log(`[v3] DuckDB open at ${dbPath}`);
   log(

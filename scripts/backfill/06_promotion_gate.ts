@@ -26,7 +26,7 @@ const getSqlitePath = (): string => {
 };
 
 async function main(): Promise<void> {
-  const duck = openDuckDB(getDuckDBPath());
+  const duck = await openDuckDB(getDuckDBPath());
   const sqlite = new Database(getSqlitePath(), { readonly: true });
   const failures: string[] = [];
 

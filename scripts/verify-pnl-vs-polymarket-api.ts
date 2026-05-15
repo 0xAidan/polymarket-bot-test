@@ -301,10 +301,10 @@ async function main(): Promise<void> {
   console.log(`Tolerance:     ±${ABS_TOLERANCE_USD} USDC OR ±${(REL_TOLERANCE * 100).toFixed(1)}% relative`);
   console.log(`${'═'.repeat(80)}\n`);
 
-  let db: ReturnType<typeof openDuckDB>;
+  let db: Awaited<ReturnType<typeof openDuckDB>>;
   try {
     log(`Opening DuckDB...`);
-    db = openDuckDB(duckdbPath);
+    db = await openDuckDB(duckdbPath);
   } catch (err) {
     console.error(`[ERROR] Cannot open DuckDB at ${duckdbPath}: ${(err as Error).message}`);
     console.error('Hint: did 04_emit_snapshots.ts complete? Is the path right?');

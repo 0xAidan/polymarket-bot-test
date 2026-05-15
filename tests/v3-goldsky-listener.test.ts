@@ -50,7 +50,7 @@ test('normalizeOrderFilled produces two rows (maker + taker) with unique log_ind
 test('pollGoldskyOnce advances cursor + inserts rows + deduplicates via mock client', async () => {
   const sqlite = new Database(':memory:');
   runV3SqliteMigrations(sqlite);
-  const duck = openDuckDB(':memory:');
+  const duck = await openDuckDB(':memory:');
   await runV3DuckDBMigrations((sql) => duck.exec(sql));
 
   const responses: GoldskyOrderFilled[][] = [

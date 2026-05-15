@@ -51,7 +51,7 @@ function parseArgs(argv: string[]): { dryRun: boolean; skipDupeCheck: boolean } 
 
 async function main(): Promise<void> {
   const { dryRun, skipDupeCheck } = parseArgs(process.argv.slice(2));
-  const db = openDuckDB(getDuckDBPath());
+  const db = await openDuckDB(getDuckDBPath());
   try {
     const total = (
       await db.query<{ c: number }>('SELECT COUNT(*)::BIGINT AS c FROM discovery_activity_v3')

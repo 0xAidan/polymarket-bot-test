@@ -43,7 +43,7 @@ function info(msg: string) { console.log(`${YELLOW}→${RESET} ${msg}`); }
 async function main() {
   const tmp = mkdtempSync(join(tmpdir(), 'rev6-verify-'));
   const parquet = join(tmp, 'users.parquet');
-  const db = openDuckDB(':memory:');
+  const db = await openDuckDB(':memory:');
 
   try {
     // ========================================================================
@@ -188,7 +188,7 @@ async function main() {
     // STEP 4: Test the BUCKET SORT path (02a regen — what user needs to run)
     // ========================================================================
     info('STEP 4: Testing bucket-sort path (02a pipeline — staging → parquet bucket)');
-    const db2 = openDuckDB(':memory:');
+    const db2 = await openDuckDB(':memory:');
     try {
       await runV3DuckDBMigrations((sql) => db2.exec(sql));
       await db2.exec(buildStagingCreateSql());
@@ -266,7 +266,7 @@ async function main() {
     // STEP 5: Test chunked anti-join path (used by 02c when iterating)
     // ========================================================================
     info('STEP 5: Testing chunked anti-join path (02c chunk iteration)');
-    const db3 = openDuckDB(':memory:');
+    const db3 = await openDuckDB(':memory:');
     try {
       await runV3DuckDBMigrations((sql) => db3.exec(sql));
       const CHUNKS = 4;

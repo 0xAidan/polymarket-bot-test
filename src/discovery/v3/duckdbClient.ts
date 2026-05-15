@@ -31,10 +31,19 @@ function loadDuckDB(): DuckDBModule {
   return require('duckdb') as DuckDBModule;
 }
 
+const runOnConn = (conn: DuckDBConnection, sql: string): Promise<void> =>
+  new Promise((resolve, reject) => {
+    conn.run(sql, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+
 /**
- * Apply DuckDB runtime settings from environment variables. Safe to call
- * synchronously via the CJS `run` method; pragmas are fire-and-forget and
- * will be fully applied before the first real query resolves.
+ * Apply DuckDB runtime settings from environment variables. Must complete
+ * before any other `exec` / `all` on the same connection: node-duckdb queues
+ * `run` on worker threads; overlapping `run` + `exec` causes "connection
+ * closed" and occasional INTERNAL null dereferences (staging logs).
  *
  * Supported env vars:
  *   DUCKDB_MEMORY_LIMIT_GB   — cap DuckDB's memory (default: let DuckDB pick)
@@ -49,50 +58,44 @@ function loadDuckDB(): DuckDBModule {
  * Setting temp_directory is essential: without it, a GROUP BY or ROW_NUMBER
  * on a larger-than-memory dataset will OOM instead of spilling to disk.
  */
-function applyRuntimeSettings(conn: DuckDBConnection): void {
+async function applyRuntimeSettings(conn: DuckDBConnection): Promise<void> {
   const memGb = process.env.DUCKDB_MEMORY_LIMIT_GB;
   const threads = process.env.DUCKDB_THREADS;
   const tempDir = process.env.DUCKDB_TEMP_DIR;
 
+  const tryRun = async (label: string, sql: string): Promise<void> => {
+    try {
+      await runOnConn(conn, sql);
+    } catch (err) {
+      console.warn(`[duckdb] ${label} failed:`, (err as Error).message);
+    }
+  };
+
   if (memGb && Number(memGb) > 0) {
-    conn.run(`SET memory_limit = '${Number(memGb)}GB'`, (err) => {
-      if (err) console.warn('[duckdb] memory_limit pragma failed:', err.message);
-    });
+    await tryRun('memory_limit', `SET memory_limit = '${Number(memGb)}GB'`);
   }
   if (threads && Number(threads) > 0) {
-    conn.run(`SET threads = ${Number(threads)}`, (err) => {
-      if (err) console.warn('[duckdb] threads pragma failed:', err.message);
-    });
+    await tryRun('threads', `SET threads = ${Number(threads)}`);
   }
   if (tempDir) {
-    // Escape single quotes in the path to be safe.
     const escaped = tempDir.replace(/'/g, "''");
-    conn.run(`SET temp_directory = '${escaped}'`, (err) => {
-      if (err) console.warn('[duckdb] temp_directory pragma failed:', err.message);
-    });
+    await tryRun('temp_directory', `SET temp_directory = '${escaped}'`);
   }
-  // max_temp_directory_size defaults to 90% of FREE disk at spill time.
-  // If the volume is already crowded (e.g. source parquet + staging DB share
-  // the same disk), DuckDB computes a tiny cap (~7 GB in our runs) and the
-  // next sort hits OOM immediately. Pin the cap explicitly.
   const maxTempGb = process.env.DUCKDB_MAX_TEMP_DIR_GB;
   if (maxTempGb && Number(maxTempGb) > 0) {
-    conn.run(`SET max_temp_directory_size = '${Number(maxTempGb)}GB'`, (err) => {
-      if (err) console.warn('[duckdb] max_temp_directory_size pragma failed:', err.message);
-    });
+    await tryRun(
+      'max_temp_directory_size',
+      `SET max_temp_directory_size = '${Number(maxTempGb)}GB'`
+    );
   }
-  // preserve_insertion_order=false lets DuckDB stream INSERT ... SELECT
-  // without buffering the whole result set — critical for 48GB ingests.
-  conn.run('SET preserve_insertion_order = false', (err) => {
-    if (err) console.warn('[duckdb] preserve_insertion_order pragma failed:', err.message);
-  });
+  await tryRun('preserve_insertion_order', 'SET preserve_insertion_order = false');
 }
 
-export function openDuckDB(path: string): DuckDBClient {
+export async function openDuckDB(path: string): Promise<DuckDBClient> {
   const duckdb = loadDuckDB();
   const db = new duckdb.Database(path);
   const conn = db.connect();
-  applyRuntimeSettings(conn);
+  await applyRuntimeSettings(conn);
 
   return {
     query<T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<T[]> {

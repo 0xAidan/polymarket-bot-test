@@ -62,7 +62,7 @@ async function main(): Promise<void> {
     process.exit(3);
   }
 
-  const db = openDuckDB(getDuckDBPath());
+  const db = await openDuckDB(getDuckDBPath());
   try {
     await runV3DuckDBMigrationsBackfillNoIndex((sql) => db.exec(sql));
 
