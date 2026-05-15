@@ -11,7 +11,7 @@ async function main(): Promise<void> {
   const path = getDuckDBPath();
   mkdirSync(dirname(path), { recursive: true });
   console.log(`[01] initializing DuckDB at ${path}`);
-  const db = openDuckDB(path);
+  const db = await openDuckDB(path);
   try {
     await runV3DuckDBMigrations((sql) => db.exec(sql));
     const tables = await db.query<{ table_name: string }>(

@@ -79,7 +79,7 @@ async function main(): Promise<void> {
 
   // Use an in-memory DuckDB connection. We only need the parquet reader +
   // external sort \u2014 no persistent state lives past this process.
-  const db = openDuckDB(':memory:');
+  const db = await openDuckDB(':memory:');
   try {
     await db.exec('INSTALL httpfs; LOAD httpfs;');
 

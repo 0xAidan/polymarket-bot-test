@@ -22,8 +22,8 @@ import { allPillarSqls } from '../src/discovery/v3/pillarFeatures.ts';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function openMemDb() {
-  return openDuckDB(':memory:');
+async function openMemDb() {
+  return await openDuckDB(':memory:');
 }
 
 /**
@@ -52,7 +52,7 @@ async function makeDb(opts: {
     end_date?: string | null;
   }>;
 }) {
-  const db = openMemDb();
+  const db = await openMemDb();
   await runV3DuckDBMigrationsBackfillNoIndex((sql) => db.exec(sql));
 
   for (const r of opts.activityRows) {
@@ -105,7 +105,7 @@ interface SnapRow {
   closed_positions: number;
 }
 
-async function getSnaps(db: ReturnType<typeof openDuckDB>): Promise<SnapRow[]> {
+async function getSnaps(db: Awaited<ReturnType<typeof openDuckDB>>): Promise<SnapRow[]> {
   return db.query<SnapRow>(`
     SELECT proxy_wallet, snapshot_day::VARCHAR AS snapshot_day,
            ROUND(realized_pnl, 6) AS realized_pnl,
@@ -461,7 +461,7 @@ test('PnL: cumulative realized_pnl is non-decreasing across days for buy-hold-re
 
 // ─── Test 13: SQL is valid DuckDB syntax ─────────────────────────────────────
 test('buildSnapshotEmitSql: SQL is syntactically valid (EXPLAIN succeeds)', async () => {
-  const db = openMemDb();
+  const db = await openMemDb();
   try {
     await runV3DuckDBMigrationsBackfillNoIndex((sql) => db.exec(sql));
     // EXPLAIN should not throw for valid SQL
@@ -497,7 +497,7 @@ test('Pillar SQL builders: all 5 return non-empty strings with expected keywords
 
 // ─── Test 15: Pillar SQL runs against empty tables without error ──────────────
 test('Pillar SQL: all 5 pillars run on empty tables and return 0 rows', async () => {
-  const db = openMemDb();
+  const db = await openMemDb();
   try {
     await runV3DuckDBMigrationsBackfillNoIndex((sql) => db.exec(sql));
     const pillars = allPillarSqls({ nowTs: 1700000000 });
@@ -511,7 +511,7 @@ test('Pillar SQL: all 5 pillars run on empty tables and return 0 rows', async ()
 
 // ─── Test 16: Risk DNA SQL returns expected percentile columns ─────────────────
 test('Pillar riskDNA: correct percentile results on synthetic data', async () => {
-  const db = openMemDb();
+  const db = await openMemDb();
   try {
     await runV3DuckDBMigrationsBackfillNoIndex((sql) => db.exec(sql));
     // 10 trades at 10, 20, 30, ... 100 USDC

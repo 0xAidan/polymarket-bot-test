@@ -13,7 +13,7 @@ const wallet = process.argv[2];
 if (!wallet) { console.error('usage: tsx triage-wallet.ts <wallet>'); process.exit(1); }
 
 const dbPath = process.env.DUCKDB_PATH || '/mnt/HC_Volume_105468668/discovery_v3.duckdb';
-const db = openDuckDB(dbPath);
+const db = await openDuckDB(dbPath);
 
 console.log(`\n── Our trades for ${wallet} ─────────────────────────────────────────`);
 const rows = await db.query<any>(`

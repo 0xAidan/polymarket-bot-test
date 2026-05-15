@@ -36,7 +36,7 @@ async function main(): Promise<void> {
   const DUPES = 600;
 
   // --- Generate the sorted bucket parquet in a throwaway in-memory DB ---
-  const gen = openDuckDB(':memory:');
+  const gen = await openDuckDB(':memory:');
   try {
     await gen.exec(`CREATE TABLE bucket AS
       SELECT
@@ -72,7 +72,7 @@ async function main(): Promise<void> {
     console.log(`[scale] parquet written: total=${totalInParquet}, distinct_keys=${distinctKeys}`);
 
     // --- Exercise the new path on disk (so CHECKPOINT + indexes are real) ---
-    const db = openDuckDB(dbPath);
+    const db = await openDuckDB(dbPath);
     try {
       await runV3DuckDBMigrationsBackfillNoIndex((sql) => db.exec(sql));
 

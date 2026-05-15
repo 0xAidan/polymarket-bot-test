@@ -79,7 +79,7 @@ async function main(): Promise<void> {
     process.exit(2);
   }
 
-  const db = openDuckDB(dbPath);
+  const db = await openDuckDB(dbPath);
   try {
     await runV3DuckDBMigrations((sql) => db.exec(sql));
 

@@ -43,7 +43,7 @@ function logStage(label: string, t0: number): void {
 }
 
 async function main(): Promise<void> {
-  const db = openDuckDB(getDuckDBPath());
+  const db = await openDuckDB(getDuckDBPath());
   try {
     await runV3DuckDBMigrationsBackfillNoIndex((sql) => db.exec(sql));
 

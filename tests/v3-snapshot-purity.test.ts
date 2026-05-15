@@ -7,7 +7,7 @@ import { runV3DuckDBMigrations } from '../src/discovery/v3/duckdbSchema.ts';
 import { buildSnapshotEmitSql } from '../src/discovery/v3/backfillQueries.ts';
 
 async function allSnapshotsHash(
-  db: ReturnType<typeof openDuckDB>
+  db: Awaited<ReturnType<typeof openDuckDB>>
 ): Promise<string> {
   const rows = await db.query(
     `SELECT CAST(snapshot_day AS VARCHAR) AS snapshot_day, proxy_wallet,
@@ -31,7 +31,7 @@ async function allSnapshotsHash(
 }
 
 test('04_emit_snapshots: point-in-time purity + determinism', async () => {
-  const db = openDuckDB(':memory:');
+  const db = await openDuckDB(':memory:');
   try {
     await runV3DuckDBMigrations((sql) => db.exec(sql));
 

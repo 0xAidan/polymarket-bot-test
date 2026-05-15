@@ -9,7 +9,7 @@ import {
 } from '../src/discovery/v3/duckdbSchema.ts';
 
 test('DuckDB v3 DDL creates all tables + UNIQUE dedup index (idempotent)', async () => {
-  const db = openDuckDB(':memory:');
+  const db = await openDuckDB(':memory:');
   try {
     await runV3DuckDBMigrations((sql) => db.exec(sql));
     await runV3DuckDBMigrations((sql) => db.exec(sql));
@@ -39,7 +39,7 @@ test('runV3DuckDBMigrationsBackfillNoIndex creates tables but skips activity ART
   // 2026-04-23 "backfill-skips-indexes" invariant. If this test breaks, the
   // backfill will OOM on the Hetzner 8GB box when 04/05 trigger index build
   // on 800M rows. See src/discovery/v3/duckdbSchema.ts for the full story.
-  const db = openDuckDB(':memory:');
+  const db = await openDuckDB(':memory:');
   try {
     await runV3DuckDBMigrationsBackfillNoIndex((sql) => db.exec(sql));
     const tables = await db.query<{ table_name: string }>(
