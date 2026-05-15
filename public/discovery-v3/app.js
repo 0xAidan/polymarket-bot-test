@@ -8,57 +8,47 @@ const state = {
 };
 
 const statusEl = document.getElementById('status');
-const listEl   = document.getElementById('wallet-list');
+const gridEl   = document.getElementById('wallet-grid');
 
-// ── Auth bar ─────────────────────────────────────────────────────────────────
+// ── Auth bar ──────────────────────────────────────────────────────────────────
 
 const authBarMount = document.getElementById('auth-bar-mount');
 
 function renderAuthBar() {
-  if (state.authed) {
-    authBarMount.innerHTML = `
-      <div class="auth-bar">
-        <span class="auth-status">Signed in</span>
-        <a class="auth-link" href="/auth/logout">Sign out</a>
-      </div>`;
-  } else {
-    const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
-    authBarMount.innerHTML = `
-      <div class="auth-bar">
-        <span class="auth-status">Viewing as guest</span>
-        <a class="auth-link primary" href="/auth/login?returnTo=${returnTo}">Sign in</a>
-      </div>`;
-  }
+  const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
+  authBarMount.innerHTML = state.authed
+    ? `<div class="auth-bar">
+         <span class="auth-status">Signed in</span>
+         <a class="auth-link" href="/auth/logout">Sign out</a>
+       </div>`
+    : `<div class="auth-bar">
+         <span class="auth-status">Viewing as guest</span>
+         <a class="auth-link primary" href="/auth/login?returnTo=${returnTo}">Sign in</a>
+       </div>`;
 }
 
 async function refreshAuthStatus() {
   try {
-    const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
-    state.authed = res.ok;
-  } catch {
-    state.authed = false;
-  }
+    state.authed = (await fetch('/api/auth/me', { credentials: 'same-origin' })).ok;
+  } catch { state.authed = false; }
   renderAuthBar();
 }
 
 // ── Mobile guide toggle ───────────────────────────────────────────────────────
 
-const mobileToggle = document.getElementById('guideMobileToggle');
-const guideEl      = document.querySelector('.tier-guide');
-
-mobileToggle?.addEventListener('click', () => {
-  const open = guideEl.classList.toggle('open');
-  mobileToggle.setAttribute('aria-expanded', String(open));
-  mobileToggle.textContent = open ? 'Hide guide' : 'Tier guide';
+document.getElementById('guideToggle')?.addEventListener('click', (e) => {
+  const guide = document.querySelector('.guide');
+  const open = guide.classList.toggle('open');
+  e.currentTarget.textContent = open ? 'Hide guide' : 'Guide';
+  e.currentTarget.setAttribute('aria-expanded', String(open));
 });
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
 function fmt$(n) {
   if (n == null) return '—';
-  const abs = Math.abs(n);
-  const sign = n < 0 ? '-' : '';
-  if (abs >= 1_000_000) return sign + '$' + (abs / 1_000_000).toFixed(2) + 'M';
+  const abs = Math.abs(n), sign = n < 0 ? '-' : '';
+  if (abs >= 1_000_000) return sign + '$' + (abs / 1_000_000).toFixed(1) + 'M';
   if (abs >= 1_000)     return sign + '$' + (abs / 1_000).toFixed(1) + 'K';
   return sign + '$' + Math.round(abs);
 }
@@ -72,93 +62,121 @@ function fmtN(n) {
 
 function fmtAge(ts) {
   if (!ts) return '—';
-  const sec = Math.floor(Date.now() / 1000) - Number(ts);
-  if (sec < 3600)  return `${Math.floor(sec / 60)}m ago`;
-  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
-  return `${Math.floor(sec / 86400)}d ago`;
+  const s = Math.floor(Date.now() / 1000) - Number(ts);
+  if (s < 3600)  return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
 }
 
-function fmtScore(n) {
-  return n != null ? Math.round(n).toString() : '—';
-}
+function fmtScore(n) { return n != null ? Math.round(n).toString() : '—'; }
 
 // ── Ditto chip ────────────────────────────────────────────────────────────────
 
-function dittoChipHtml(s) {
-  let cls = 'chip ditto-state';
-  let label = s.replace(/_/g, ' ');
-  if (s === 'HOT_STREAK')           { cls += ' hot';        label = 'HOT STREAK'; }
-  else if (s === 'COOLDOWN_PAUSED') { cls += ' cooldown';   label = 'COOLDOWN'; }
-  else if (s === 'SLOWING_REVERTING') { cls += ' slowing';  label = 'SLOWING'; }
-  else if (s === 'CONSISTENT_PERFORMER') { cls += ' consistent'; label = 'CONSISTENT'; }
-  else if (s === 'NEW_UNRANKED')    { cls += ' unranked';   label = 'NEW'; }
-  return `<span class="${cls}">${label}</span>`;
+function dittoChip(s) {
+  const map = {
+    HOT_STREAK:           ['hot',        'HOT STREAK'],
+    COOLDOWN_PAUSED:      ['cooldown',   'COOLDOWN'],
+    SLOWING_REVERTING:    ['slowing',    'SLOWING'],
+    CONSISTENT_PERFORMER: ['consistent', 'CONSISTENT'],
+    NEW_UNRANKED:         ['unranked',   'NEW'],
+  };
+  const [cls, label] = map[s] ?? ['unranked', s.replace(/_/g, ' ')];
+  return `<span class="chip ${cls}">${label}</span>`;
 }
 
-// ── Wallet row ────────────────────────────────────────────────────────────────
+// ── Score ring SVG ────────────────────────────────────────────────────────────
 
-function walletRow(w, tier) {
-  // DTO field is `score` (the tier-specific score from 05_score_and_publish).
-  const tierScore = w.score ?? w.compositeScore ?? null;
-  const scorePct  = tierScore != null ? Math.min(100, Math.max(0, tierScore)) : 0;
-  const pnlClass  = (w.realizedPnl ?? 0) >= 0 ? 'pos' : 'neg';
+function scoreRingSvg(score) {
+  // Circle r=21 → circumference = 2π×21 ≈ 132
+  const circ = 132;
+  const pct  = score != null ? Math.min(100, Math.max(0, score)) : 0;
+  const offset = circ * (1 - pct / 100);
+  return `
+    <div class="score-ring-wrap">
+      <svg class="score-ring" viewBox="0 0 52 52" aria-hidden="true">
+        <circle class="ring-track" cx="26" cy="26" r="21"/>
+        <circle class="ring-fill"  cx="26" cy="26" r="21"
+                data-offset="${offset}"
+                style="stroke-dashoffset:${circ}"/>
+      </svg>
+      <span class="ring-label">${score != null ? Math.round(score) : '?'}</span>
+    </div>`;
+}
 
-  // Pillar pills — only render if data exists
+// Animate rings after insertion
+function animateRings(container) {
+  // rAF to let the browser paint the initial state first
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    container.querySelectorAll('.ring-fill[data-offset]').forEach((el) => {
+      el.style.strokeDashoffset = el.dataset.offset;
+    });
+  }));
+}
+
+// ── Wallet card ───────────────────────────────────────────────────────────────
+
+function walletCard(w, tier) {
+  const score   = w.score ?? w.compositeScore ?? null;
+  const pnlCls  = (w.realizedPnl ?? 0) >= 0 ? 'pos' : 'neg';
+
   const pillars = [
-    w.momentumScore    != null ? `<span class="p"><span>Heat</span> <strong>${fmtScore(w.momentumScore)}</strong></span>` : '',
-    w.consistencyScore != null ? `<span class="p"><span>Risk DNA</span> <strong>${fmtScore(w.consistencyScore)}</strong></span>` : '',
-    w.brierScore       != null ? `<span class="p"><span>Brier</span> <strong>${fmtScore(w.brierScore)}</strong></span>` : '',
-    w.avgClv1h         != null ? `<span class="p"><span>CLV</span> <strong>${(w.avgClv1h * 100).toFixed(1)}%</strong></span>` : '',
-    w.nicheScore       != null ? `<span class="p"><span>Niche</span> <strong>${fmtScore(w.nicheScore)}</strong></span>` : '',
+    w.momentumScore    != null && `<div class="cpillar"><span class="cpillar-lbl">Heat</span><span class="cpillar-val">${fmtScore(w.momentumScore)}</span></div>`,
+    w.consistencyScore != null && `<div class="cpillar"><span class="cpillar-lbl">Risk DNA</span><span class="cpillar-val">${fmtScore(w.consistencyScore)}</span></div>`,
+    w.brierScore       != null && `<div class="cpillar"><span class="cpillar-lbl">Brier</span><span class="cpillar-val">${fmtScore(w.brierScore)}</span></div>`,
+    w.avgClv1h         != null && `<div class="cpillar"><span class="cpillar-lbl">CLV</span><span class="cpillar-val">${(w.avgClv1h * 100).toFixed(1)}%</span></div>`,
+    w.nicheScore       != null && `<div class="cpillar"><span class="cpillar-lbl">Niche</span><span class="cpillar-val">${fmtScore(w.nicheScore)}</span></div>`,
   ].filter(Boolean).join('');
 
-  const reasonChips = (w.reasons || [])
-    .map((r) => `<span class="chip reason">${r}</span>`)
-    .join('');
+  const reasonChips = (w.reasons || []).map((r) => `<span class="chip reason">${r}</span>`).join('');
 
-  const row = document.createElement('div');
-  row.className = `wallet-row tier-${tier}`;
-
-  row.innerHTML = `
-    <div class="row-rank">${w.tierRank}</div>
-
-    <div class="row-body">
-      <div class="row-head">
-        <span class="row-alias">${w.alias}</span>
-        <span class="row-address">${w.address}</span>
-      </div>
-
-      <div class="row-score-line">
-        <span class="row-score-num">${fmtScore(tierScore)}</span>
-        <div class="row-bar"><div class="row-bar-fill" style="width:${scorePct}%"></div></div>
-        ${w.compositeScore != null && w.compositeScore !== tierScore
-          ? `<span class="row-composite-label">composite ${fmtScore(w.compositeScore)}</span>`
-          : ''}
-      </div>
-
-      <div class="row-metrics">
-        <div class="m"><span class="m-label">Volume</span><span class="m-val">${fmt$(w.volumeTotal)}</span></div>
-        <div class="m"><span class="m-label">Trades</span><span class="m-val">${fmtN(w.tradeCount)}</span></div>
-        <div class="m"><span class="m-label">Markets</span><span class="m-val">${fmtN(w.distinctMarkets)}</span></div>
-        <div class="m"><span class="m-label">Lifetime PnL</span><span class="m-val ${pnlClass}">${fmt$(w.realizedPnl)}</span></div>
-        <div class="m"><span class="m-label">Last active</span><span class="m-val">${fmtAge(w.lastActiveTs)}</span></div>
-      </div>
-
-      ${pillars ? `<div class="row-pillars">${pillars}</div>` : ''}
-
-      <div class="row-chips">
-        ${w.dittoState ? dittoChipHtml(w.dittoState) : ''}
-        <span class="chip eligible">eligible</span>
-        ${reasonChips}
+  const card = document.createElement('div');
+  card.className = `wcard tier-${tier}`;
+  card.innerHTML = `
+    <div class="chead">
+      ${scoreRingSvg(score)}
+      <div class="cident">
+        <div class="cident-row1">
+          <span class="cname">${w.alias}</span>
+          <span class="crank">#${w.tierRank}</span>
+        </div>
+        <span class="caddr">${w.address}</span>
       </div>
     </div>
 
-    <div class="row-cta">
-      <button class="cta-copy" data-address="${w.address}">Copy Trade</button>
+    <div class="cstats">
+      <div class="cstat">
+        <span class="cstat-lbl">Volume</span>
+        <span class="cstat-val">${fmt$(w.volumeTotal)}</span>
+      </div>
+      <div class="cstat">
+        <span class="cstat-lbl">Trades</span>
+        <span class="cstat-val">${fmtN(w.tradeCount)}</span>
+      </div>
+      <div class="cstat">
+        <span class="cstat-lbl">Markets</span>
+        <span class="cstat-val">${fmtN(w.distinctMarkets)}</span>
+      </div>
+      <div class="cstat">
+        <span class="cstat-lbl">Lifetime PnL</span>
+        <span class="cstat-val ${pnlCls}">${fmt$(w.realizedPnl)}</span>
+      </div>
+    </div>
+
+    ${pillars ? `<div class="cpillars">${pillars}</div>` : ''}
+
+    <div class="cchips">
+      ${w.dittoState ? dittoChip(w.dittoState) : ''}
+      <span class="chip eligible">eligible</span>
+      ${reasonChips}
+    </div>
+
+    <div class="ccta">
+      <span class="ccta-meta">Last active: ${fmtAge(w.lastActiveTs)}</span>
+      <button class="cta-btn" data-address="${w.address}">Copy Trade</button>
     </div>
   `;
 
-  const btn = row.querySelector('.cta-copy');
+  const btn = card.querySelector('.cta-btn');
   if (!state.authed) {
     btn.textContent = 'Sign in to Copy';
     btn.classList.add('needs-auth');
@@ -173,30 +191,23 @@ function walletRow(w, tier) {
       return;
     }
     btn.disabled = true;
-    btn.textContent = 'Tracking…';
+    btn.textContent = 'Adding…';
     try {
-      const result = await safeFetch(`${API}/track`, {
+      const r = await safeFetch(`${API}/track`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ address: w.address }),
       });
-      if (result.ok) {
-        const j = result.data;
-        if (j.success) {
-          btn.textContent = 'Tracking';
-          statusEl.textContent = `Now tracking ${w.alias}`;
-        } else {
-          btn.disabled = false;
-          btn.textContent = 'Copy Trade';
-          statusEl.innerHTML = `<span class="error">${j.error || 'Error'}</span>`;
-        }
-      } else if (result.kind === 'auth_required') {
+      if (r.ok && r.data.success) {
+        btn.textContent = 'Tracking';
+        statusEl.textContent = `Now tracking ${w.alias}`;
+      } else if (r.kind === 'auth_required') {
         const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
-        window.location.href = `${result.loginUrl}?returnTo=${returnTo}`;
+        window.location.href = `${r.loginUrl}?returnTo=${returnTo}`;
       } else {
         btn.disabled = false;
         btn.textContent = 'Copy Trade';
-        statusEl.innerHTML = `<span class="error">${result.message || 'Error tracking wallet'}</span>`;
+        statusEl.innerHTML = `<span class="error">${r.data?.error || r.message || 'Error'}</span>`;
       }
     } catch (e) {
       btn.disabled = false;
@@ -205,18 +216,15 @@ function walletRow(w, tier) {
     }
   });
 
-  return row;
+  return card;
 }
 
 // ── Safe fetch ────────────────────────────────────────────────────────────────
 
-async function safeFetch(url, options = {}) {
+async function safeFetch(url, opts = {}) {
   let res;
-  try {
-    res = await fetch(url, { credentials: 'same-origin', ...options });
-  } catch (e) {
-    return { ok: false, kind: 'network', message: `Network error: ${e.message}` };
-  }
+  try { res = await fetch(url, { credentials: 'same-origin', ...opts }); }
+  catch (e) { return { ok: false, kind: 'network', message: e.message }; }
 
   if (res.status === 401) {
     let loginUrl = '/auth/login';
@@ -229,10 +237,8 @@ async function safeFetch(url, options = {}) {
 
   if (res.status === 429) {
     let sec = Number(res.headers.get('Retry-After')) || 0;
-    let msg = 'Rate-limited';
-    if (isJson) { try { const b = await res.json(); sec = Number(b.retryAfterSec) || sec; msg = b.message || msg; } catch { /* swallow */ } }
-    if (sec < 1) sec = 15;
-    return { ok: false, kind: 'rate_limited', retryAfterSec: sec, message: msg };
+    if (isJson) { try { const b = await res.json(); sec = Number(b.retryAfterSec) || sec; } catch { /* swallow */ } }
+    return { ok: false, kind: 'rate_limited', retryAfterSec: Math.max(sec, 15) };
   }
 
   if (!res.ok) {
@@ -241,20 +247,19 @@ async function safeFetch(url, options = {}) {
     return { ok: false, kind: 'http_error', status: res.status, message: `HTTP ${res.status}${txt ? ': ' + txt.slice(0, 200) : ''}` };
   }
 
-  if (!isJson) {
-    const text = await res.text().catch(() => '');
-    return { ok: false, kind: 'bad_content_type', message: `Unexpected response: ${text.slice(0, 120)}` };
-  }
-
+  if (!isJson) return { ok: false, kind: 'bad_content_type', message: 'Unexpected response' };
   try { return { ok: true, data: await res.json() }; }
-  catch (e) { return { ok: false, kind: 'parse_error', message: `Invalid JSON: ${e.message}` }; }
+  catch (e) { return { ok: false, kind: 'parse_error', message: e.message }; }
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
 
 function renderWallets(wallets, tier) {
-  listEl.innerHTML = '';
-  for (const w of wallets) listEl.appendChild(walletRow(w, tier));
+  gridEl.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  for (const w of wallets) frag.appendChild(walletCard(w, tier));
+  gridEl.appendChild(frag);
+  animateRings(gridEl);
 }
 
 // ── Retry ─────────────────────────────────────────────────────────────────────
@@ -275,7 +280,7 @@ function scheduleRetry(tier, delaySec) {
 
 async function loadTier(tier) {
   if (state.retryTimer) { clearTimeout(state.retryTimer); state.retryTimer = null; }
-  if (state.lastWallets.length === 0) listEl.innerHTML = '';
+  if (!state.lastWallets.length) gridEl.innerHTML = '';
   statusEl.textContent = `Loading ${tier}…`;
 
   const result = await safeFetch(`${API}/tier/${tier}?limit=50`);
@@ -283,9 +288,9 @@ async function loadTier(tier) {
   if (result.ok) {
     const { success, error, data, count } = result.data;
     if (!success) { statusEl.innerHTML = `<span class="error">${error || 'Unknown error'}</span>`; return; }
-    if (!Array.isArray(data) || data.length === 0) {
+    if (!Array.isArray(data) || !data.length) {
       state.lastWallets = [];
-      listEl.innerHTML = `<div class="empty-state"><strong>No wallets scored yet</strong><p>Run the backfill pipeline to populate this tier.</p></div>`;
+      gridEl.innerHTML = `<div class="empty-state"><strong>No wallets scored yet</strong><p>Run the backfill pipeline to populate this tier.</p></div>`;
       statusEl.textContent = `${tier} · 0 wallets`;
       return;
     }
