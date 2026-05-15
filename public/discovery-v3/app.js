@@ -115,8 +115,8 @@ function animateRings(container) {
 
 // ── Wallet card ───────────────────────────────────────────────────────────────
 
-function walletCard(w, tier) {
-  const score   = w.score ?? w.compositeScore ?? null;
+function walletCard(w, tier, displayScore) {
+  const score   = displayScore ?? w.score ?? w.compositeScore ?? null;
   const pnlCls  = (w.realizedPnl ?? 0) >= 0 ? 'pos' : 'neg';
 
   const pillars = [
@@ -256,8 +256,23 @@ async function safeFetch(url, opts = {}) {
 
 function renderWallets(wallets, tier) {
   gridEl.innerHTML = '';
+
+  // Scores within a tier batch are tightly clustered (all top wallets land near
+  // the same percentile × dormancy multiplier). Normalize within the visible
+  // batch so the ring visually reflects rank rather than absolute score.
+  // #1 → 96, last → 20, to keep rings meaningfully filled and distinct.
+  const scores = wallets.map((w) => w.score ?? w.compositeScore ?? 0);
+  const maxS = Math.max(...scores) || 1;
+  const minS = Math.min(...scores);
+  const range = maxS - minS || 1;
+
   const frag = document.createDocumentFragment();
-  for (const w of wallets) frag.appendChild(walletCard(w, tier));
+  for (let i = 0; i < wallets.length; i++) {
+    const raw = scores[i];
+    // Normalize to 20–96 so even the last card shows a meaningful ring arc.
+    const normalized = Math.round(20 + ((raw - minS) / range) * 76);
+    frag.appendChild(walletCard(wallets[i], tier, normalized));
+  }
   gridEl.appendChild(frag);
   animateRings(gridEl);
 }
