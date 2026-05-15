@@ -6,9 +6,13 @@
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 import type Database from 'better-sqlite3';
+import { parseNullableBooleanInput } from '../../utils/booleanParsing.js';
 import { isDiscoveryV3Enabled, getDuckDBPath } from './featureFlag.js';
 import { openDuckDB, DuckDBClient } from './duckdbClient.js';
-import { runV3DuckDBMigrations } from './duckdbSchema.js';
+import {
+  runV3DuckDBMigrations,
+  runV3DuckDBMigrationsBackfillNoIndex,
+} from './duckdbSchema.js';
 import { applyV3SqliteMigrationsIfEnabled } from './migrations.js';
 import {
   createGoldskyClient,
@@ -29,6 +33,10 @@ export interface V3WorkerOptions {
   log?: (msg: string) => void;
 }
 
+/** Large backfilled DBs: creating ART indexes on discovery_activity_v3 can OOM (DuckDB 1.4.x). */
+const skipActivityArtIndexes = (): boolean =>
+  parseNullableBooleanInput(process.env.DISCOVERY_V3_SKIP_ACTIVITY_ART_INDEXES) === true;
+
 export async function startDiscoveryV3Worker(
   opts: V3WorkerOptions
 ): Promise<V3WorkerHandle | null> {
@@ -40,7 +48,14 @@ export async function startDiscoveryV3Worker(
   const dbPath = getDuckDBPath();
   mkdirSync(dirname(dbPath), { recursive: true });
   const duck = await openDuckDB(dbPath);
-  await runV3DuckDBMigrations((sql) => duck.exec(sql));
+  if (skipActivityArtIndexes()) {
+    log(
+      '[v3] skip activity ART indexes (DISCOVERY_V3_SKIP_ACTIVITY_ART_INDEXES); live dupes need offline index or dedup'
+    );
+    await runV3DuckDBMigrationsBackfillNoIndex((sql) => duck.exec(sql));
+  } else {
+    await runV3DuckDBMigrations((sql) => duck.exec(sql));
+  }
   log(`[v3] DuckDB open at ${dbPath}`);
   log(
     `[v3] coverage contract source=${process.env.DISCOVERY_V3_HISTORICAL_BACKFILL_SOURCE || 'huggingface:SII-WANGZJ/Polymarket_data/users.parquet'} max_ts=${process.env.DISCOVERY_V3_HISTORICAL_COVERAGE_MAX_TS || '1772668800'}`
