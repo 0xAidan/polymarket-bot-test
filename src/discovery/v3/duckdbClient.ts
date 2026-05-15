@@ -13,6 +13,8 @@ interface DuckDBDatabase {
   close(cb: (err: Error | null) => void): void;
   /** Finishes background tasks after opening a file-backed DB (node-duckdb). */
   wait(cb: (err: Error | null) => void): void;
+  /** Runs on the DB default path before any `connect()` — safer for large files. */
+  exec(sql: string, cb: (err: Error | null) => void): void;
 }
 
 interface DuckDBConnection {
@@ -36,6 +38,14 @@ function loadDuckDB(): DuckDBModule {
 const execOnConn = (conn: DuckDBConnection, sql: string): Promise<void> =>
   new Promise((resolve, reject) => {
     conn.exec(sql, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+
+const execOnDatabase = (db: DuckDBDatabase, sql: string): Promise<void> =>
+  new Promise((resolve, reject) => {
+    db.exec(sql, (err) => {
       if (err) reject(err);
       else resolve();
     });
@@ -77,9 +87,11 @@ async function verifyWritableConnection(conn: DuckDBConnection, dbPath: string):
 }
 
 /**
- * Apply DuckDB runtime settings from environment variables. Must complete
- * before any other `exec` / `all` on the same connection so we do not overlap
- * with migrations (node-duckdb is sensitive to concurrent work on one handle).
+ * Apply DuckDB runtime settings from environment variables **on the Database
+ * handle** before `connect()`. On large file-backed DBs, node-duckdb can
+ * return a Connection whose worker queue is not ready if we `connect()` first
+ * and immediately `exec` SET pragmas (staging: "connection never established").
+ * Settings applied here still apply to connections opened afterward.
  *
  * Supported env vars:
  *   DUCKDB_MEMORY_LIMIT_GB   — cap DuckDB's memory (default: let DuckDB pick)
@@ -94,46 +106,46 @@ async function verifyWritableConnection(conn: DuckDBConnection, dbPath: string):
  * Setting temp_directory is essential: without it, a GROUP BY or ROW_NUMBER
  * on a larger-than-memory dataset will OOM instead of spilling to disk.
  */
-async function applyRuntimeSettings(conn: DuckDBConnection): Promise<void> {
+async function applyRuntimeSettingsOnDatabase(db: DuckDBDatabase): Promise<void> {
   const memGb = process.env.DUCKDB_MEMORY_LIMIT_GB;
   const threads = process.env.DUCKDB_THREADS;
   const tempDir = process.env.DUCKDB_TEMP_DIR;
 
-  const tryRun = async (label: string, sql: string): Promise<void> => {
+  const tryDb = async (label: string, sql: string): Promise<void> => {
     try {
-      await execOnConn(conn, sql);
+      await execOnDatabase(db, sql);
     } catch (err) {
       console.warn(`[duckdb] ${label} failed:`, (err as Error).message);
     }
   };
 
   if (memGb && Number(memGb) > 0) {
-    await tryRun('memory_limit', `SET memory_limit = '${Number(memGb)}GB'`);
+    await tryDb('memory_limit', `SET memory_limit = '${Number(memGb)}GB'`);
   }
   if (threads && Number(threads) > 0) {
-    await tryRun('threads', `SET threads = ${Number(threads)}`);
+    await tryDb('threads', `SET threads = ${Number(threads)}`);
   }
   if (tempDir) {
     const escaped = tempDir.replace(/'/g, "''");
-    await tryRun('temp_directory', `SET temp_directory = '${escaped}'`);
+    await tryDb('temp_directory', `SET temp_directory = '${escaped}'`);
   }
   const maxTempGb = process.env.DUCKDB_MAX_TEMP_DIR_GB;
   if (maxTempGb && Number(maxTempGb) > 0) {
-    await tryRun(
+    await tryDb(
       'max_temp_directory_size',
       `SET max_temp_directory_size = '${Number(maxTempGb)}GB'`
     );
   }
-  await tryRun('preserve_insertion_order', 'SET preserve_insertion_order = false');
+  await tryDb('preserve_insertion_order', 'SET preserve_insertion_order = false');
 }
 
 export async function openDuckDB(path: string): Promise<DuckDBClient> {
   const duckdb = loadDuckDB();
   const db = new duckdb.Database(path);
   await waitDatabaseReady(db);
+  await applyRuntimeSettingsOnDatabase(db);
   const conn = db.connect();
   await verifyWritableConnection(conn, path);
-  await applyRuntimeSettings(conn);
 
   return {
     query<T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<T[]> {
