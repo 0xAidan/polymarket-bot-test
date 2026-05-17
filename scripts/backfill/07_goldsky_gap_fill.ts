@@ -20,8 +20,8 @@
  *   DUCKDB_TEMP_DIR           — spill directory
  *   GAP_FILL_CURSOR_PATH     — cursor file (default: ./data/07_gap_fill_cursor.json)
  *   GAP_FILL_START_TS        — override the gap start (default: 2026-03-05T00:00:00Z)
- *   GAP_FILL_PAGE_SIZE       — events per Goldsky page (default: 500)
- *   GAP_FILL_DELAY_MS        — delay between pages in ms (default: 200)
+ *   GAP_FILL_PAGE_SIZE       — events per Goldsky page (default: 1000)
+ *   GAP_FILL_DELAY_MS        — delay between pages in ms (default: 0)
  *
  * ## After running
  *
@@ -239,14 +239,27 @@ async function main(): Promise<void> {
 
       // Insert into DuckDB (batch — single INSERT statement per page).
       let pageInserted = 0;
+      let insertFailed = false;
       try {
         pageInserted = await insertNormalizedRowsBatch(duck, rows);
       } catch (err) {
-        // DuckDB error — log and continue.
-        console.error(`[07] DuckDB insert error on page ${pageNum}: ${(err as Error).message} — continuing`);
+        // DuckDB error — do NOT advance cursor so next run retries this page.
+        console.error(`[07] DuckDB insert error on page ${pageNum}: ${(err as Error).message} — retrying next run from same position`);
+        insertFailed = true;
       }
 
-      // Advance cursor.
+      if (insertFailed) {
+        writeCursor(cursorPath, {
+          lastTimestamp,
+          totalInserted,
+          totalFetched,
+          updatedAt: new Date().toISOString(),
+        });
+        console.log(`[07] cursor held at ts ${lastTimestamp} — re-run to retry failed page`);
+        process.exit(1);
+      }
+
+      // Advance cursor only after successful insert.
       const maxTs = events.reduce((m, e) => Math.max(m, Number(e.timestamp)), lastTimestamp);
       lastTimestamp = maxTs;
       totalFetched += events.length;

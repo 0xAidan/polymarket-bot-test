@@ -30,6 +30,14 @@ interface ScoreRow {
   momentum_score: number | null;
   consistency_score: number | null;
   ditto_state: string | null;
+  // Pillar columns (populated after full backfill run with pillars enabled)
+  brier_score: number | null;
+  avg_clv_1h: number | null;
+  pct_positive_clv_1h: number | null;
+  top_category: string | null;
+  cat_volume_share: number | null;
+  maker_ratio: number | null;
+  copyable: number | null;
 }
 
 function dto(row: ScoreRow) {
@@ -53,6 +61,14 @@ function dto(row: ScoreRow) {
     momentumScore: row.momentum_score,
     consistencyScore: row.consistency_score,
     dittoState: row.ditto_state,
+    // Pillar scores — null when pillars were skipped during scoring run
+    brierScore: row.brier_score ?? null,
+    avgClv1h: row.avg_clv_1h ?? null,
+    pctPositiveClv1h: row.pct_positive_clv_1h ?? null,
+    topCategory: row.top_category ?? null,
+    catVolumeShare: row.cat_volume_share ?? null,
+    makerRatio: row.maker_ratio ?? null,
+    copyable: row.copyable != null ? row.copyable === 1 : null,
   };
 }
 

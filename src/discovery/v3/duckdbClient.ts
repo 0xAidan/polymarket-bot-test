@@ -133,7 +133,7 @@ async function applyRuntimeSettingsOnDatabase(db: DuckDBDatabase): Promise<void>
   if (maxTempGb && Number(maxTempGb) > 0) {
     await tryDb(
       'max_temp_directory_size',
-      `SET max_temp_directory_size = '${Number(maxTempGb)}GB'`
+      `SET max_temp_directory_size = '${Number(maxTempGb)}GiB'`
     );
   }
   await tryDb('preserve_insertion_order', 'SET preserve_insertion_order = false');

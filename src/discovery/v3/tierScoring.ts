@@ -19,19 +19,6 @@ export function latestSnapshotPerWallet(
   return byWallet;
 }
 
-/**
- * Pearson-style z-score over an already-filtered (eligible) cohort. Falls back
- * to 0 for a zero-variance cohort so the rank-by-z is well-defined.
- */
-function zScores(values: number[]): number[] {
-  if (values.length === 0) return [];
-  const mean = values.reduce((a, b) => a + b, 0) / values.length;
-  const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length;
-  const std = Math.sqrt(variance);
-  if (std === 0) return values.map(() => 0);
-  return values.map((v) => (v - mean) / std);
-}
-
 function percentileRank(values: number[]): number[] {
   const n = values.length;
   if (n === 0) return [];

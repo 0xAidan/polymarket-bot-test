@@ -82,12 +82,10 @@ async function main(): Promise<void> {
     await runV3SnapshotAdditiveColumnMigrations((sql) => duck.exec(sql));
 
     // Memory/thread tuning — same knobs as 04_emit_snapshots.ts.
-    // Defaults are conservative for the 8GB Hetzner box:
-    //   4GB DuckDB limit leaves ~1GB for Node heap + OS.
-    //   2 threads limits parallel memory peaks without killing throughput.
-    // Override with env vars if you have more RAM available.
-    const memLimit = process.env.DUCKDB_MEMORY_LIMIT_GB ?? '4';
-    const threads  = process.env.DUCKDB_THREADS          ?? '2';
+    // Defaults target the 30GB production server.
+    // Override with env vars on smaller boxes (e.g. DUCKDB_MEMORY_LIMIT_GB=5 DUCKDB_THREADS=1).
+    const memLimit = process.env.DUCKDB_MEMORY_LIMIT_GB ?? '20';
+    const threads  = process.env.DUCKDB_THREADS          ?? '4';
     const tempCap  = process.env.DUCKDB_MAX_TEMP_DIR_GB  ?? '100';
     await duck.exec(`SET memory_limit = '${memLimit}GB'`);
     await duck.exec(`SET threads = ${threads}`);

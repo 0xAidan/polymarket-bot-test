@@ -28,9 +28,9 @@
  *      operate on those accumulators only — no activity scan.
  *
  * Knobs (env, all optional):
- *   DUCKDB_MEMORY_LIMIT_GB   default 6
- *   DUCKDB_THREADS           default 2
- *   DUCKDB_MAX_TEMP_DIR_GB   default 40
+ *   DUCKDB_MEMORY_LIMIT_GB   default 20  (set lower on small boxes, e.g. 5 for 8GB)
+ *   DUCKDB_THREADS           default 4   (set lower on small boxes, e.g. 1–2)
+ *   DUCKDB_MAX_TEMP_DIR_GB   default 100
  *   EMIT_CHUNKS              default 16   (number of hash buckets per stage)
  */
 import { openDuckDB } from '../../src/discovery/v3/duckdbClient.js';
@@ -53,9 +53,9 @@ async function main(): Promise<void> {
     await runV3SnapshotAdditiveColumnMigrations((sql) => db.exec(sql));
 
     // ─── Memory tuning ──────────────────────────────────────────────────────
-    const memLimit = process.env.DUCKDB_MEMORY_LIMIT_GB || '6';
-    const threads = process.env.DUCKDB_THREADS || '2';
-    const tempCap = process.env.DUCKDB_MAX_TEMP_DIR_GB || '40';
+    const memLimit = process.env.DUCKDB_MEMORY_LIMIT_GB || '20';
+    const threads = process.env.DUCKDB_THREADS || '4';
+    const tempCap = process.env.DUCKDB_MAX_TEMP_DIR_GB || '100';
     const N = Math.max(2, parseInt(process.env.EMIT_CHUNKS || '16', 10));
     await db.exec(`SET memory_limit = '${memLimit}GB'`);
     await db.exec(`SET threads = ${threads}`);

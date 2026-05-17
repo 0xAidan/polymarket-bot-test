@@ -82,31 +82,42 @@ export async function runRefreshOnce(options: RefreshWorkerOptions): Promise<Ref
     GROUP BY proxy_wallet
   `);
   interface LatestSnapRow { proxy_wallet: string; s: Record<string, unknown> }
-  const latestSnapRows = await duck.query<LatestSnapRow>(
-    'SELECT proxy_wallet, s FROM _refresh_latest_snap'
-  );
+  // Stream in batches to avoid loading all 2M+ snapshots into Node heap at once.
+  const READ_BATCH_SIZE = 100_000;
+  const rows: V3FeatureSnapshot[] = [];
+  let cursor = '';
+  while (true) {
+    const cursorClause = cursor
+      ? `WHERE proxy_wallet > '${cursor.replace(/'/g, "''")}'`
+      : '';
+    const batch = await duck.query<LatestSnapRow>(
+      `SELECT proxy_wallet, s FROM _refresh_latest_snap ${cursorClause} ORDER BY proxy_wallet LIMIT ${READ_BATCH_SIZE}`
+    );
+    if (batch.length === 0) break;
+    for (const row of batch) {
+      const s = row.s as Record<string, unknown>;
+      rows.push({
+        proxy_wallet:             row.proxy_wallet,
+        snapshot_day:             String(s.snapshot_day),
+        trade_count:              Number(s.trade_count),
+        volume_total:             Number(s.volume_total),
+        distinct_markets:         Number(s.distinct_markets),
+        closed_positions:         Number(s.closed_positions),
+        realized_pnl:             Number(s.realized_pnl),
+        unrealized_pnl:           Number(s.unrealized_pnl),
+        first_active_ts:          Number(s.first_active_ts),
+        last_active_ts:           Number(s.last_active_ts),
+        observation_span_days:    Number(s.observation_span_days),
+        trade_count_90d:          Number(s.trade_count_90d),
+        volume_90d:               Number(s.volume_90d),
+        realized_pnl_90d:         Number(s.realized_pnl_90d),
+        closed_positions_positive: Number(s.closed_positions_positive),
+      });
+    }
+    cursor = batch[batch.length - 1].proxy_wallet;
+    if (batch.length < READ_BATCH_SIZE) break;
+  }
   await duck.exec('DROP TABLE IF EXISTS _refresh_latest_snap');
-
-  const rows: V3FeatureSnapshot[] = latestSnapRows.map((row) => {
-    const s = row.s as Record<string, unknown>;
-    return {
-      proxy_wallet:             row.proxy_wallet,
-      snapshot_day:             String(s.snapshot_day),
-      trade_count:              Number(s.trade_count),
-      volume_total:             Number(s.volume_total),
-      distinct_markets:         Number(s.distinct_markets),
-      closed_positions:         Number(s.closed_positions),
-      realized_pnl:             Number(s.realized_pnl),
-      unrealized_pnl:           Number(s.unrealized_pnl),
-      first_active_ts:          Number(s.first_active_ts),
-      last_active_ts:           Number(s.last_active_ts),
-      observation_span_days:    Number(s.observation_span_days),
-      trade_count_90d:          Number(s.trade_count_90d),
-      volume_90d:               Number(s.volume_90d),
-      realized_pnl_90d:         Number(s.realized_pnl_90d),
-      closed_positions_positive: Number(s.closed_positions_positive),
-    };
-  });
 
   const now = Math.floor(Date.now() / 1000);
 
