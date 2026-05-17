@@ -32,7 +32,7 @@ async function main(): Promise<void> {
     console.error('[03] markets.parquet missing and --source-url not provided; run 00_fetch_parquet.ts');
     process.exit(2);
   }
-  const db = openDuckDB(getDuckDBPath());
+  const db = await openDuckDB(getDuckDBPath());
   try {
     await db.exec("INSTALL httpfs; LOAD httpfs;");
     // Use the no-index migration — the backfilled discovery_activity_v3

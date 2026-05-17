@@ -29,7 +29,7 @@ import {
 } from '../src/discovery/v3/backfillQueries.ts';
 
 async function runNoIndexLoadAndDedup(
-  db: ReturnType<typeof openDuckDB>,
+  db: Awaited<ReturnType<typeof openDuckDB>>,
   bucketPaths: string[]
 ): Promise<void> {
   // Mirrors the production path: 02c dedup-inserts each bucket into an
@@ -45,7 +45,7 @@ async function runNoIndexLoadAndDedup(
 test('02_load_events: parquet → discovery_activity_v3 schema mapping + dedup', async () => {
   const tmp = mkdtempSync(join(tmpdir(), 'v3-map-'));
   const parquet = join(tmp, 'users.parquet');
-  const db = openDuckDB(':memory:');
+  const db = await openDuckDB(':memory:');
   try {
     // Build a synthetic users.parquet with the real schema quirks.
     await db.exec(`CREATE TABLE users_source (
@@ -95,7 +95,7 @@ test('02_load_events: parquet → discovery_activity_v3 schema mapping + dedup',
 test('02_load_events chunked: bucketed ingest matches unchunked result', async () => {
   const tmp = mkdtempSync(join(tmpdir(), 'v3-chunk-'));
   const parquet = join(tmp, 'users.parquet');
-  const db = openDuckDB(':memory:');
+  const db = await openDuckDB(':memory:');
   try {
     await db.exec(`CREATE TABLE users_source (
       address VARCHAR, market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR,
@@ -149,7 +149,7 @@ test('02_load_events chunked: bucketed ingest matches unchunked result', async (
 test('02_load_events staging: two-phase streaming ingest equals single-shot result', async () => {
   const tmp = mkdtempSync(join(tmpdir(), 'v3-stage-'));
   const parquet = join(tmp, 'users.parquet');
-  const db = openDuckDB(':memory:');
+  const db = await openDuckDB(':memory:');
   try {
     // Same synthetic fixture as the first test — so the expected output is identical.
     await db.exec(`CREATE TABLE users_source (
@@ -217,7 +217,7 @@ test('02_load_events sort-based: external-sort-then-LAG dedup matches single-sho
   const tmp = mkdtempSync(join(tmpdir(), 'v3-sort-'));
   const parquet = join(tmp, 'users.parquet');
   const sortedParquet = join(tmp, 'sorted.parquet');
-  const db = openDuckDB(':memory:');
+  const db = await openDuckDB(':memory:');
   try {
     await db.exec(`CREATE TABLE users_source (
       address VARCHAR, market_id VARCHAR, condition_id VARCHAR, event_id VARCHAR,
@@ -301,8 +301,8 @@ test('02_load_events bucketed sort: per-bucket dedup matches single-sort dedup',
   // single-sort dedup. This is what lets Phase B fit on the production volume.
   const tmp = mkdtempSync(join(tmpdir(), 'v3-bucketed-'));
   const parquet = join(tmp, 'users.parquet');
-  const dbSingle = openDuckDB(':memory:');
-  const dbBucketed = openDuckDB(':memory:');
+  const dbSingle = await openDuckDB(':memory:');
+  const dbBucketed = await openDuckDB(':memory:');
   try {
     // Build a fixture with duplicates spread across many transaction_hash
     // values so buckets get non-trivial content.
@@ -361,7 +361,7 @@ test('02_load_events bucketed sort: per-bucket dedup matches single-sort dedup',
     await dbBucketed.exec(buildStagingDropSql());
 
     // --- Compare ---
-    const asRows = async (db: ReturnType<typeof openDuckDB>) =>
+    const asRows = async (db: Awaited<ReturnType<typeof openDuckDB>>) =>
       db.query<{ k: string }>(
         `SELECT tx_hash || '|' || log_index || '|' || CAST(ts_unix AS VARCHAR) || '|' || proxy_wallet AS k
            FROM discovery_activity_v3
@@ -389,8 +389,8 @@ test('02_load_events parquet-direct: no staging table, result matches staging pa
   // output to the staging-based bucketed path.
   const tmp = mkdtempSync(join(tmpdir(), 'v3-pqdirect-'));
   const parquet = join(tmp, 'users.parquet');
-  const dbStaging = openDuckDB(':memory:');
-  const dbDirect = openDuckDB(':memory:');
+  const dbStaging = await openDuckDB(':memory:');
+  const dbDirect = await openDuckDB(':memory:');
   try {
     const values: string[] = [];
     for (let i = 0; i < 40; i++) {
@@ -446,7 +446,7 @@ test('02_load_events parquet-direct: no staging table, result matches staging pa
     }
     await runNoIndexLoadAndDedup(dbDirect, directBuckets);
 
-    const asRows = async (db: ReturnType<typeof openDuckDB>) =>
+    const asRows = async (db: Awaited<ReturnType<typeof openDuckDB>>) =>
       db.query<{ k: string }>(
         `SELECT tx_hash || '|' || log_index || '|' || CAST(ts_unix AS VARCHAR) || '|' || proxy_wallet AS k
            FROM discovery_activity_v3
@@ -470,7 +470,7 @@ test('02_load_events parquet-direct: no staging table, result matches staging pa
 test('03_load_markets: Python-list outcome_prices parsed to JSON, neg_risk column preserved', async () => {
   const tmp = mkdtempSync(join(tmpdir(), 'v3-markets-'));
   const parquet = join(tmp, 'markets.parquet');
-  const db = openDuckDB(':memory:');
+  const db = await openDuckDB(':memory:');
   try {
     // NOTE (2026-04-23): real SII-WANGZJ/Polymarket_data/markets.parquet
     // uses column `id` (not `market_id`) and `volume` (not `volume_total`).

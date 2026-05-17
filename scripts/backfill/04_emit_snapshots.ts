@@ -46,7 +46,7 @@ function logStage(label: string, t0: number): void {
 }
 
 async function main(): Promise<void> {
-  const db = openDuckDB(getDuckDBPath());
+  const db = await openDuckDB(getDuckDBPath());
   try {
     await runV3DuckDBMigrationsBackfillNoIndex((sql) => db.exec(sql));
     // Add any new snapshot columns to an existing table (idempotent ALTER TABLE IF NOT EXISTS).

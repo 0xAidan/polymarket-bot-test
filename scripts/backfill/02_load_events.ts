@@ -81,7 +81,7 @@ async function main(): Promise<void> {
   }
 
   console.log(`[02] source: ${sourceRef}, dest duckdb: ${dbPath}, limit: ${args.limit ?? 'unlimited'}`);
-  const db = openDuckDB(dbPath);
+  const db = await openDuckDB(dbPath);
   try {
     await db.exec("INSTALL httpfs; LOAD httpfs;");
     await runV3DuckDBMigrations((sql) => db.exec(sql));

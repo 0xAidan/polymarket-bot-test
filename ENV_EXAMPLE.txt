@@ -111,3 +111,6 @@ MASTER_PASSWORD=
 DISCOVERY_V3=false
 # Path to the DuckDB sidecar file used by the v3 analytics pipeline.
 DUCKDB_PATH=./data/discovery_v3.duckdb
+# Large backfill: skip CREATE INDEX on discovery_activity_v3 (ART indexes must fit in RAM during build).
+# When true, Goldsky live ingest cannot rely on UNIQUE(tx_hash, log_index) for duplicate swallowing.
+DISCOVERY_V3_SKIP_ACTIVITY_ART_INDEXES=false

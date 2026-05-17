@@ -33,7 +33,7 @@ function logStage(label: string, t0: number): void {
 }
 
 async function main(): Promise<void> {
-  const db = openDuckDB(getDuckDBPath());
+  const db = await openDuckDB(getDuckDBPath());
   try {
     // Ensure the four new snapshot columns exist before writing to the table.
     // This is a no-op if columns were already added by 04_emit_snapshots.ts.

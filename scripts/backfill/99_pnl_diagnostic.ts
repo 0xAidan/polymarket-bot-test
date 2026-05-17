@@ -19,7 +19,7 @@ const PROBE_WALLETS = [
 ].map((a) => a.toLowerCase());
 
 async function main(): Promise<void> {
-  const db = openDuckDB(getDuckDBPath());
+  const db = await openDuckDB(getDuckDBPath());
   try {
     // ─── SECTION 1: Market join health ─────────────────────────────────────────
     console.log('\n══════ §1: MARKET JOIN HEALTH ══════');

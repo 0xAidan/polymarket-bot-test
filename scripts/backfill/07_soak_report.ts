@@ -18,7 +18,7 @@ interface CountRow {
 }
 
 async function main(): Promise<void> {
-  const duck = openDuckDB(getDuckDBPath());
+  const duck = await openDuckDB(getDuckDBPath());
   const sqlite = new Database(getSqlitePath(), { readonly: true });
   const now = Math.floor(Date.now() / 1000);
 

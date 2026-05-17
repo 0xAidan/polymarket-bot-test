@@ -11,6 +11,10 @@ type DuckDBModule = {
 interface DuckDBDatabase {
   connect(): DuckDBConnection;
   close(cb: (err: Error | null) => void): void;
+  /** Finishes background tasks after opening a file-backed DB (node-duckdb). */
+  wait(cb: (err: Error | null) => void): void;
+  /** Runs on the DB default path before any `connect()` — safer for large files. */
+  exec(sql: string, cb: (err: Error | null) => void): void;
 }
 
 interface DuckDBConnection {
@@ -31,10 +35,63 @@ function loadDuckDB(): DuckDBModule {
   return require('duckdb') as DuckDBModule;
 }
 
+const execOnConn = (conn: DuckDBConnection, sql: string): Promise<void> =>
+  new Promise((resolve, reject) => {
+    conn.exec(sql, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+
+const execOnDatabase = (db: DuckDBDatabase, sql: string): Promise<void> =>
+  new Promise((resolve, reject) => {
+    db.exec(sql, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+
+const waitDatabaseReady = (db: DuckDBDatabase): Promise<void> =>
+  new Promise((resolve, reject) => {
+    db.wait((err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+
+function isLikelyExclusiveLockError(message: string): boolean {
+  return (
+    message.includes('never established') ||
+    message.includes('has been closed already') ||
+    message.includes('Could not set lock') ||
+    message.includes('conflicting lock')
+  );
+}
+
+async function verifyWritableConnection(conn: DuckDBConnection, dbPath: string): Promise<void> {
+  try {
+    await execOnConn(conn, 'SELECT 1');
+  } catch (err) {
+    const message = (err as Error).message;
+    if (isLikelyExclusiveLockError(message)) {
+      throw new Error(
+        `DuckDB could not open "${dbPath}" for writing — another process almost certainly ` +
+          `already has this file open (DuckDB allows only one writer at a time). ` +
+          `On the server run: sudo lsof "${dbPath}"  OR  sudo fuser -v "${dbPath}" ` +
+          `Stop any other \`node\` using that path (e.g. 05_score_and_publish, verify scripts, ` +
+          `or a stray shell), then restart this service. Original error: ${message}`
+      );
+    }
+    throw err;
+  }
+}
+
 /**
- * Apply DuckDB runtime settings from environment variables. Safe to call
- * synchronously via the CJS `run` method; pragmas are fire-and-forget and
- * will be fully applied before the first real query resolves.
+ * Apply DuckDB runtime settings from environment variables **on the Database
+ * handle** before `connect()`. On large file-backed DBs, node-duckdb can
+ * return a Connection whose worker queue is not ready if we `connect()` first
+ * and immediately `exec` SET pragmas (staging: "connection never established").
+ * Settings applied here still apply to connections opened afterward.
  *
  * Supported env vars:
  *   DUCKDB_MEMORY_LIMIT_GB   — cap DuckDB's memory (default: let DuckDB pick)
@@ -49,50 +106,46 @@ function loadDuckDB(): DuckDBModule {
  * Setting temp_directory is essential: without it, a GROUP BY or ROW_NUMBER
  * on a larger-than-memory dataset will OOM instead of spilling to disk.
  */
-function applyRuntimeSettings(conn: DuckDBConnection): void {
+async function applyRuntimeSettingsOnDatabase(db: DuckDBDatabase): Promise<void> {
   const memGb = process.env.DUCKDB_MEMORY_LIMIT_GB;
   const threads = process.env.DUCKDB_THREADS;
   const tempDir = process.env.DUCKDB_TEMP_DIR;
 
+  const tryDb = async (label: string, sql: string): Promise<void> => {
+    try {
+      await execOnDatabase(db, sql);
+    } catch (err) {
+      console.warn(`[duckdb] ${label} failed:`, (err as Error).message);
+    }
+  };
+
   if (memGb && Number(memGb) > 0) {
-    conn.run(`SET memory_limit = '${Number(memGb)}GB'`, (err) => {
-      if (err) console.warn('[duckdb] memory_limit pragma failed:', err.message);
-    });
+    await tryDb('memory_limit', `SET memory_limit = '${Number(memGb)}GB'`);
   }
   if (threads && Number(threads) > 0) {
-    conn.run(`SET threads = ${Number(threads)}`, (err) => {
-      if (err) console.warn('[duckdb] threads pragma failed:', err.message);
-    });
+    await tryDb('threads', `SET threads = ${Number(threads)}`);
   }
   if (tempDir) {
-    // Escape single quotes in the path to be safe.
     const escaped = tempDir.replace(/'/g, "''");
-    conn.run(`SET temp_directory = '${escaped}'`, (err) => {
-      if (err) console.warn('[duckdb] temp_directory pragma failed:', err.message);
-    });
+    await tryDb('temp_directory', `SET temp_directory = '${escaped}'`);
   }
-  // max_temp_directory_size defaults to 90% of FREE disk at spill time.
-  // If the volume is already crowded (e.g. source parquet + staging DB share
-  // the same disk), DuckDB computes a tiny cap (~7 GB in our runs) and the
-  // next sort hits OOM immediately. Pin the cap explicitly.
   const maxTempGb = process.env.DUCKDB_MAX_TEMP_DIR_GB;
   if (maxTempGb && Number(maxTempGb) > 0) {
-    conn.run(`SET max_temp_directory_size = '${Number(maxTempGb)}GB'`, (err) => {
-      if (err) console.warn('[duckdb] max_temp_directory_size pragma failed:', err.message);
-    });
+    await tryDb(
+      'max_temp_directory_size',
+      `SET max_temp_directory_size = '${Number(maxTempGb)}GB'`
+    );
   }
-  // preserve_insertion_order=false lets DuckDB stream INSERT ... SELECT
-  // without buffering the whole result set — critical for 48GB ingests.
-  conn.run('SET preserve_insertion_order = false', (err) => {
-    if (err) console.warn('[duckdb] preserve_insertion_order pragma failed:', err.message);
-  });
+  await tryDb('preserve_insertion_order', 'SET preserve_insertion_order = false');
 }
 
-export function openDuckDB(path: string): DuckDBClient {
+export async function openDuckDB(path: string): Promise<DuckDBClient> {
   const duckdb = loadDuckDB();
   const db = new duckdb.Database(path);
+  await waitDatabaseReady(db);
+  await applyRuntimeSettingsOnDatabase(db);
   const conn = db.connect();
-  applyRuntimeSettings(conn);
+  await verifyWritableConnection(conn, path);
 
   return {
     query<T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<T[]> {

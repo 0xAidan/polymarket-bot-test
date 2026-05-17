@@ -160,7 +160,7 @@ async function main(): Promise<void> {
   // ── DuckDB ──────────────────────────────────────────────────────────────
   const dbPath = getDuckDBPath();
   mkdirSync(dirname(dbPath), { recursive: true });
-  const duck = openDuckDB(dbPath);
+  const duck = await openDuckDB(dbPath);
 
   try {
     // Use backfill-safe migrations (no ART indexes — would OOM on 800M+ rows).
