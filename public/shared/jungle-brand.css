@@ -35,6 +35,14 @@
   --space-xl: 32px;
   --space-2xl: 48px;
   --space-3xl: 64px;
+
+  /* Terminal UI (Ditto dashboard rework) */
+  --j-radius-sm: 6px;
+  --j-radius-md: 10px;
+  --j-radius-lg: 14px;
+  --j-drawer-width: 400px;
+  --j-table-row-h: 36px;
+  --j-shadow-1: 0 4px 24px rgba(0, 0, 0, 0.35);
 }
 
 /* ---------- Reset & Base ---------- */

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ditto Admin — Jungle Agents</title>
+  <link rel="stylesheet" href="/shared/jungle-brand.css">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body class="grid-pattern app-loading">
+  <div class="j-admin-wrap">
+    <header class="j-admin-header">
+      <div>
+        <div class="app-section-kicker">Platform Admin</div>
+        <h1 class="font-serif">Jungle Agents</h1>
+      </div>
+      <div class="j-topbar-actions">
+        <a href="/" class="j-btn">← Back to Ditto</a>
+        <button type="button" class="j-btn j-btn-primary" id="adminAddAgentBtn">Add agent</button>
+        <button type="button" class="j-btn" id="adminRefreshBtn">Refresh</button>
+      </div>
+    </header>
+
+    <section id="adminUnauthorized" class="j-admin-unauthorized hidden">
+      <h2 class="font-serif">Platform admin access required</h2>
+      <p class="text-muted">Your account is signed in but is not on the platform admin allowlist.</p>
+      <a href="/" class="j-btn j-btn-primary">Return to Ditto</a>
+    </section>
+
+    <section id="adminApp" class="hidden">
+      <div class="j-admin-health">
+        <div class="j-card j-stat"><span class="j-stat-label">Total</span><span class="j-stat-value" id="healthTotal">—</span></div>
+        <div class="j-card j-stat"><span class="j-stat-label">Enabled</span><span class="j-stat-value" id="healthEnabled">—</span></div>
+        <div class="j-card j-stat"><span class="j-stat-label">Missing address</span><span class="j-stat-value" id="healthMissing">—</span></div>
+        <div class="j-card j-stat"><span class="j-stat-label">Last updated</span><span class="j-stat-value" id="healthUpdated">—</span></div>
+      </div>
+
+      <div class="j-card">
+        <table class="j-admin-table">
+          <thead>
+            <tr>
+              <th>Order</th>
+              <th>Name</th>
+              <th>Address</th>
+              <th>Enabled</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="adminAgentsBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/jungleDialog.js"></script>
+  <script src="/js/auth-bootstrap.js"></script>
+  <script src="/admin/admin.js"></script>
+  <script>
+    window.maybeStartApp = function adminMaybeStart() {
+      document.body.classList.remove('app-loading');
+      document.body.classList.add('app-ready');
+      if (typeof window.__adminBoot === 'function') window.__adminBoot();
+    };
+  </script>
+</body>
+</html>

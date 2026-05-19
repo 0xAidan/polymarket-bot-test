@@ -1,0 +1,44 @@
+@import url('/shared/jungle-brand.css');
+
+body {
+  min-height: 100vh;
+}
+
+.j-admin-wrap {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--space-lg);
+}
+
+.j-admin-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.j-admin-health {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+}
+
+.j-admin-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.j-admin-table th,
+.j-admin-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--jungle-border);
+  text-align: left;
+  height: var(--j-table-row-h);
+}
+
+.j-admin-unauthorized {
+  text-align: center;
+  padding: var(--space-3xl) var(--space-lg);
+}
