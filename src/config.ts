@@ -55,6 +55,8 @@ export const config = {
   authSessionAbsoluteDurationHours: parseInt(process.env.AUTH_SESSION_ABSOLUTE_DURATION_HOURS || '168', 10),
   authSessionRollingDurationHours: parseInt(process.env.AUTH_SESSION_ROLLING_DURATION_HOURS || '24', 10),
   apiSecret: process.env.API_SECRET || '',
+  /** Comma-separated OIDC emails with platform admin access (/admin, jungle-agents CRUD). */
+  platformAdminEmails: process.env.PLATFORM_ADMIN_EMAILS || '',
   // In production, fail closed by default if API_SECRET is missing.
   // Override with REQUIRE_API_SECRET=false only for controlled environments.
   requireApiSecret: (process.env.REQUIRE_API_SECRET || (process.env.NODE_ENV === 'production' ? 'true' : 'false')) === 'true',

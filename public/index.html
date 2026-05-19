@@ -38,82 +38,59 @@
     </div>
   </div>
 
-  <div id="appShell" class="app-shell">
-  <div class="desktop">
-    <!-- Main Window -->
-    <div class="win-window" id="mainWindow">
-      <!-- Title Bar -->
-      <div class="win-titlebar app-titlebar">
-        <div class="win-titlebar-icon app-mark">D</div>
-        <div class="app-title-lockup">
-          <div class="app-title-eyebrow">JUNGLE AGENTS</div>
-          <div class="win-titlebar-text">Ditto</div>
-        </div>
-        <div class="app-title-meta">
-          <div class="app-title-subtitle">Autonomous copy trading for prediction markets</div>
-          <div class="app-title-actions">
-            <span class="app-status-pill stopped" id="appHeaderStatus">Bot offline</span>
-          </div>
-        </div>
-        <div class="win-titlebar-buttons">
-          <button class="win-titlebar-btn" title="Minimize">_</button>
-          <button class="win-titlebar-btn" title="Maximize">&#9633;</button>
-          <button class="win-titlebar-btn" title="Close">X</button>
+  <div id="appShell" class="app-shell j-app">
+    <header class="j-topbar">
+      <div class="j-topbar-brand">
+        <div class="j-topbar-mark" aria-hidden="true">D</div>
+        <div>
+          <div class="j-topbar-eyebrow">JUNGLE AGENTS</div>
+          <div class="j-topbar-title font-serif">Ditto</div>
         </div>
       </div>
-
-      <!-- Menu Bar -->
-      <div class="win-menubar">
-        <button class="win-menu-item" id="menuBot" onclick="toggleBotMenu()" aria-label="Actions menu" tabindex="0">Actions</button>
-        <button class="win-menu-item" id="menuView" onclick="toggleViewMenu()" aria-label="Navigate menu" tabindex="0">Navigate</button>
-        <button class="win-menu-item" id="menuHelp" onclick="toggleHelpMenu()" aria-label="Guide menu" tabindex="0">Guide</button>
-        <button type="button" class="win-menu-item menu-logout hidden" id="menuLogout" onclick="handleLogout()" aria-label="Log out" tabindex="0">Log out</button>
+      <nav class="j-nav" aria-label="Primary">
+        <button type="button" class="j-nav-btn active" data-tab="dashboard">Home</button>
+        <button type="button" class="j-nav-btn" data-tab="jungle-agents">Jungle Agents</button>
+        <button type="button" class="j-nav-btn" data-tab="discovery">Discovery</button>
+        <button type="button" class="j-nav-btn" data-tab="wallets">Tracked Wallets</button>
+        <button type="button" class="j-nav-btn" data-tab="trading-wallets">Trading Wallets</button>
+        <button type="button" class="j-nav-btn nav-hidden" data-tab="platforms">Platforms</button>
+        <button type="button" class="j-nav-btn nav-hidden" data-tab="cross-platform">Cross-Platform</button>
+        <button type="button" class="j-nav-btn" data-tab="settings">Settings</button>
+        <button type="button" class="j-nav-btn" data-tab="diagnostics">Diagnostics</button>
+      </nav>
+      <div class="j-topbar-actions">
+        <span class="app-status-pill stopped" id="appHeaderStatus">Bot offline</span>
+        <button type="button" class="j-btn j-btn-primary j-btn-sm" id="startStopBtn" onclick="toggleBot()"><span id="startStopLabel">Start</span></button>
+        <span class="j-status-mini hidden" aria-hidden="true"><span class="status-indicator stopped" id="taskbarIndicator"></span><span id="taskbarStatus">Stopped</span></span>
+        <select id="tenantSwitcher" class="j-input j-input-sm hidden" aria-label="Active workspace" onchange="handleTenantWorkspaceChange(this.value)"></select>
+        <a href="/discovery-v3/" class="j-btn j-btn-ghost j-btn-sm">Discovery v3</a>
+        <a href="/admin" id="topbarAdminLink" class="j-btn j-btn-ghost j-btn-sm hidden">Admin</a>
+        <span class="j-topbar-clock" id="taskbarClock">--:--</span>
+        <button type="button" class="j-btn j-btn-ghost j-btn-sm hidden" id="topbarLogout" onclick="handleLogout()">Log out</button>
       </div>
-
-      <div id="tenantWorkspaceBar" class="hidden">
-        <span class="text-sm text-muted">Workspace:</span>
-        <select id="tenantSwitcher" class="win-input" aria-label="Active workspace" onchange="handleTenantWorkspaceChange(this.value)"></select>
-      </div>
-
-      <!-- Tab Navigation -->
-      <div class="app-nav-wrap">
-        <div class="win-tabs">
-          <button class="win-tab active" data-tab="dashboard" onclick="switchTab('dashboard')">Home</button>
-          <button class="win-tab" data-tab="discovery" onclick="switchTab('discovery')">Discovery</button>
-          <button class="win-tab" data-tab="wallets" onclick="switchTab('wallets')">Tracked Wallets</button>
-          <button class="win-tab" data-tab="trading-wallets" onclick="switchTab('trading-wallets')">Trading Wallets</button>
-          <button class="win-tab nav-hidden" data-tab="platforms" onclick="switchTab('platforms')">Platforms</button>
-          <button class="win-tab nav-hidden" data-tab="cross-platform" onclick="switchTab('cross-platform')">Cross-Platform</button>
-          <button class="win-tab" data-tab="settings" onclick="switchTab('settings')">Settings</button>
-          <button class="win-tab" data-tab="diagnostics" onclick="switchTab('diagnostics')">Diagnostics</button>
-        </div>
-      </div>
-
+    </header>
+    <main class="j-main">
       <!-- Tab Content -->
       <div class="win-body">
         <!-- ============================================================
              DASHBOARD TAB
              ============================================================ -->
         <div id="tab-dashboard" class="win-tab-panel active">
-          <div class="app-hero">
-            <div class="app-hero-copy">
-              <div class="app-section-kicker">Functional Site</div>
-              <h1 class="app-hero-title">A cleaner command center for following great traders.</h1>
-              <p class="app-hero-body">Ditto keeps the trading logic you already trust, but makes setup, wallet management, and daily use much easier to understand.</p>
-              <div class="app-hero-actions">
-                <button class="win-btn win-btn-primary" type="button" onclick="startSetupWizard(true)">Open Setup Guide</button>
-                <button class="win-btn" type="button" onclick="switchTab('wallets')">Add Tracked Wallet</button>
-                <button class="win-btn" type="button" onclick="switchTab('trading-wallets')">Add Trading Wallet</button>
+          <section class="j-home-compact">
+            <div class="j-home-head">
+              <h1 class="font-serif j-home-title">Command center</h1>
+              <div class="j-home-actions">
+                <button class="j-btn j-btn-primary j-btn-sm" type="button" onclick="startSetupWizard(true)">Setup guide</button>
+                <button class="j-btn j-btn-sm" type="button" onclick="switchTab('wallets')">Add wallet</button>
               </div>
             </div>
-            <div class="app-hero-side">
-              <div class="app-hero-aside-card">
-                <div class="app-section-kicker">At A Glance</div>
-                <div id="setupProgressSummary" class="app-hero-aside-title">Checking your setup status...</div>
-                <div id="setupProgressChecklist" class="setup-progress-list"></div>
-              </div>
+            <div id="setupProgressCard" class="j-card j-setup-card hidden">
+              <div class="app-section-kicker">Setup</div>
+              <div id="setupProgressSummary" class="j-setup-summary">Checking your setup status...</div>
+              <div id="setupProgressChecklist" class="setup-progress-list"></div>
             </div>
-          </div>
+            <div id="homeJungleAgentsTeaser" class="j-card hidden"></div>
+          </section>
 
           <!-- Wallet Info Bar -->
           <div class="wallet-info-bar">
@@ -435,6 +412,15 @@
               </div>
             </div>
           </div>
+        </div>
+
+
+        <div id="tab-jungle-agents" class="win-tab-panel">
+          <header class="j-section-header">
+            <h2 class="font-serif">Jungle Agents</h2>
+            <p id="jungleAgentsMeta" class="text-muted">Curated Olympics agents you can follow with one click.</p>
+          </header>
+          <div id="jungleAgentsGrid" class="j-agent-grid" aria-live="polite"></div>
         </div>
 
         <!-- ============================================================
@@ -1160,15 +1146,13 @@
   <!-- ============================================================
        WALLET CONFIGURATION MODAL
        ============================================================ -->
-  <div id="walletModal" class="win-modal-overlay hidden">
-    <div class="win-modal">
-      <div class="win-titlebar">
+  <div id="walletModal" class="j-drawer-backdrop hidden">
+    <aside class="j-drawer wallet-config-drawer" role="dialog" aria-modal="true">
+      <header class="j-drawer-header">
         <div class="win-titlebar-icon">&#9881;</div>
         <div class="win-titlebar-text" id="walletModalTitle">Configure Wallet</div>
-        <div class="win-titlebar-buttons">
-          <button class="win-titlebar-btn" onclick="closeWalletModal()">X</button>
-        </div>
-      </div>
+        <button type="button" class="j-btn j-btn-ghost" onclick="closeWalletModal()" aria-label="Close">×</button>
+      </header>
       <div class="win-modal-body" id="walletModalBody">
         <!-- Wallet Info -->
         <div class="flex-row gap-8 mb-8">
@@ -1421,12 +1405,12 @@
           </div>
         </div>
       </div>
-      <div class="win-modal-footer">
-        <button class="win-btn" onclick="closeWalletModal()">Discard</button>
-        <button class="win-btn" id="modalSaveBtn" onclick="saveWalletConfig()">Save Draft</button>
-        <button class="win-btn win-btn-primary win-btn-success" id="modalSaveEnableBtn" onclick="saveWalletConfigAndEnable()">Save &amp; Enable</button>
-      </div>
-    </div>
+      <footer class="j-drawer-footer">
+        <button class="j-btn" onclick="closeWalletModal()">Discard</button>
+        <button class="j-btn" id="modalSaveBtn" onclick="saveWalletConfig()">Save Draft</button>
+        <button class="j-btn j-btn-primary" id="modalSaveEnableBtn" onclick="saveWalletConfigAndEnable()">Save &amp; Enable</button>
+      </footer>
+    </aside>
   </div>
 
   <!-- Builder Credentials Modal -->
@@ -1644,6 +1628,7 @@
     </div>
   </div>
 
+    </main>
   </div>
 
   <!-- ============================================================
@@ -1666,24 +1651,6 @@
         </div>
       </div>
     </div>
-  </div>
-
-  <!-- Taskbar -->
-  <div class="taskbar">
-    <button class="start-btn" id="startStopBtn" onclick="toggleBot()">
-      <div class="start-logo"></div>
-      <span id="startStopLabel">Start</span>
-    </button>
-    <div class="taskbar-divider"></div>
-    <div class="taskbar-items">
-      <div class="taskbar-item active" id="taskbarCopyTrade" onclick="window.open('https://github.com/0xAidan/polymarket-bot-test', '_blank')" style="cursor:pointer;" title="Visit GitHub repository" tabindex="0" role="link" aria-label="Ditto - click to visit GitHub">Ditto // Jungle</div>
-    </div>
-    <div class="taskbar-status">
-      <div class="status-indicator stopped" id="taskbarIndicator"></div>
-      <span id="taskbarStatus">Stopped</span>
-    </div>
-    <div class="taskbar-divider"></div>
-    <div class="taskbar-clock" id="taskbarClock">--:--</div>
   </div>
 
   <!-- Wallet Detail Modal (Discovery) -->
@@ -1721,221 +1688,10 @@
   </div>
 
   <script src="/js/api.js"></script>
-  <script>
-    // Auth bootstrap runs before app.js so app initialization is gated by session state.
-    window.__authRequired = true;
-
-    function setAuthGateState(title, message, hint) {
-      const titleEl = document.getElementById('authGateTitle');
-      const messageEl = document.getElementById('authGateMessage');
-      const hintEl = document.getElementById('authGateHint');
-      if (titleEl && title) titleEl.textContent = title;
-      if (messageEl && message) messageEl.textContent = message;
-      if (hintEl && hint) hintEl.textContent = hint;
-    }
-
-    function setAuthGateActions({ show = false, allowLogin = true, allowLegacy = false } = {}) {
-      const actionsEl = document.getElementById('authGateActions');
-      const loginBtn = document.getElementById('authGateLoginBtn');
-      const legacyBtn = document.getElementById('authGateLegacyBtn');
-      if (!actionsEl) return;
-      actionsEl.classList.toggle('hidden', !show);
-      if (loginBtn) loginBtn.classList.toggle('hidden', !allowLogin);
-      if (legacyBtn) legacyBtn.classList.toggle('hidden', !allowLegacy);
-    }
-
-    function markAppShellReady() {
-      document.body.classList.remove('app-loading');
-      document.body.classList.add('app-ready');
-    }
-
-    function showAuthModal() {
-      setAuthGateActions({ show: false });
-      setAuthGateState(
-        'Hosted sign-in is unavailable here',
-        'This environment is using the local fallback access path instead of the normal hosted Ditto login.',
-        'Use the API secret only if you intentionally configured this environment for legacy access.'
-      );
-      document.getElementById('authModal').classList.remove('hidden');
-      document.getElementById('authError').classList.add('hidden');
-      document.getElementById('authTokenInput').value = '';
-      setTimeout(() => document.getElementById('authTokenInput').focus(), 100);
-    }
-
-    function hideAuthModal() {
-      document.getElementById('authModal').classList.add('hidden');
-    }
-
-    function redirectToMagicLinkLogin() {
-      const returnTo = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
-      window.location.href = `/auth/login?returnTo=${returnTo}`;
-    }
-
-    function escapeHtml(s) {
-      return String(s)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-    }
-
-    function setupTenantSwitcher(meData) {
-      const bar = document.getElementById('tenantWorkspaceBar');
-      const sel = document.getElementById('tenantSwitcher');
-      if (!bar || !sel) return;
-      if (!meData.tenants || meData.tenants.length <= 1) {
-        bar.classList.add('hidden');
-        return;
-      }
-      bar.classList.remove('hidden');
-      sel.innerHTML = meData.tenants.map((m) => {
-        const id = escapeHtml(m.tenantId);
-        const name = escapeHtml(m.tenantName || m.tenantSlug || m.tenantId);
-        const selected = m.tenantId === meData.activeTenant.tenantId ? ' selected' : '';
-        return `<option value="${id}"${selected}>${name}</option>`;
-      }).join('');
-    }
-
-    async function handleTenantWorkspaceChange(tenantId) {
-      if (!tenantId) return;
-      try {
-        const r = await fetch('/api/auth/switch-tenant', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tenantId })
-        });
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || 'Could not switch workspace');
-        sessionStorage.setItem('active_tenant_id', tenantId);
-        window.location.reload();
-      } catch (err) {
-        console.error(err);
-        if (typeof win95Dialog !== 'undefined' && win95Dialog.error) {
-          await win95Dialog.error(String(err.message || err));
-        }
-      }
-    }
-
-    function maybeStartApp() {
-      if (typeof initApp === 'function') {
-        initApp();
-        return;
-      }
-      window.__startAppOnReady = true;
-    }
-
-    async function submitAuthToken() {
-      const input = document.getElementById('authTokenInput');
-      const token = input.value.trim();
-      if (!token) return;
-
-      try {
-        const res = await fetch('/api/auth/check', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        if (res.ok) {
-          API.setToken(token);
-          hideAuthModal();
-          window.__authRequired = false;
-          markAppShellReady();
-          maybeStartApp();
-        } else {
-          document.getElementById('authError').classList.remove('hidden');
-          input.value = '';
-          input.focus();
-        }
-      } catch (_error) {
-        document.getElementById('authError').classList.remove('hidden');
-      }
-    }
-
-    document.getElementById('authTokenInput').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') submitAuthToken();
-    });
-
-    (async function checkAuth() {
-      try {
-        const res = await fetch('/api/auth/required', { credentials: 'same-origin' });
-        const data = await res.json();
-        window.__authMode = data.mode || 'legacy';
-        window.__hostedMultiTenant = !!data.hostedMultiTenant;
-
-        if (!data.required) {
-          window.__authRequired = false;
-          markAppShellReady();
-          maybeStartApp();
-          return;
-        }
-
-        if (data.mode === 'oidc') {
-          setAuthGateState(
-            'Checking your secure Ditto session',
-            'Ditto uses the hosted Jungle sign-in flow. If you are not already signed in, you will be redirected automatically.',
-            'This is the normal production login path for the product.'
-          );
-          const meResponse = await fetch('/api/auth/me', { credentials: 'same-origin' });
-          if (meResponse.ok) {
-            const meData = await meResponse.json();
-            window.__authRequired = false;
-            window.__hostedMultiTenant = meData.hostedMultiTenant !== undefined
-              ? !!meData.hostedMultiTenant
-              : !!data.hostedMultiTenant;
-            window.__currentUser = meData.user;
-            window.__currentTenant = meData.activeTenant;
-            if (meData.activeTenant && meData.activeTenant.tenantId) {
-              sessionStorage.setItem('active_tenant_id', meData.activeTenant.tenantId);
-            }
-            setupTenantSwitcher(meData);
-            window.__oidcSession = true;
-            const logoutBtn = document.getElementById('menuLogout');
-            if (logoutBtn) logoutBtn.classList.remove('hidden');
-            markAppShellReady();
-            maybeStartApp();
-            return;
-          }
-          redirectToMagicLinkLogin();
-          return;
-        }
-
-        // Legacy auth mode fallback
-        setAuthGateState(
-          'Legacy fallback access',
-          'This environment is not using hosted sign-in. If you need to open it locally, use the fallback API secret path.',
-          'This is only for internal or technical environments, not the normal Ditto product login.'
-        );
-        const existingToken = API.getToken();
-        if (existingToken) {
-          const check = await fetch('/api/auth/check', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${existingToken}`
-            }
-          });
-          if (check.ok) {
-            window.__authRequired = false;
-            maybeStartApp();
-            return;
-          }
-        }
-
-        showAuthModal();
-      } catch (error) {
-        console.warn('Could not check auth status:', error);
-        setAuthGateState(
-          'Sign-in check failed',
-          'Ditto could not confirm your hosted sign-in automatically. Retry the check or open the secure sign-in flow.',
-          'This usually means your session expired, the auth service is unavailable, or the environment is not fully configured yet.'
-        );
-        setAuthGateActions({ show: true, allowLogin: true, allowLegacy: false });
-      }
-    })();
-  </script>
+  <script src="/js/jungleDialog.js"></script>
+  <script src="/js/auth-bootstrap.js"></script>
+  <script src="/js/shell.js"></script>
+  <script src="/js/jungleAgents.js"></script>
   <script src="/js/app.js"></script>
   <script src="/js/tour.js"></script>
 </body>
