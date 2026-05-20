@@ -102,9 +102,11 @@ test('v3 API — endpoints return 200 with proper shape when flag on', async () 
       assert.ok(Array.isArray(tier.json.data));
       assert.equal(tier.json.data.length, 1);
       const row = tier.json.data[0];
-      for (const field of ['address', 'alias', 'tier', 'tierRank', 'score', 'volumeTotal', 'tradeCount', 'distinctMarkets', 'closedPositions', 'realizedPnl', 'hitRate', 'lastActiveTs', 'reasons', 'updatedAt']) {
+      for (const field of ['address', 'alias', 'profileUrl', 'tier', 'tierRank', 'score', 'volumeTotal', 'fillCount', 'tradeCount', 'distinctMarkets', 'closedPositions', 'realizedPnl', 'hitRate', 'lastActiveTs', 'reasons', 'updatedAt']) {
         assert.ok(field in row, `missing field: ${field}`);
       }
+      assert.equal(row.profileUrl, 'https://polymarket.com/@0xaaaa');
+      assert.ok(!('displaySource' in row), 'pipeline-only DTO must not expose displaySource');
       assert.ok(Array.isArray(row.reasons));
 
       // invalid tier → 400

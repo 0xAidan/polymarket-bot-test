@@ -10,12 +10,19 @@
 import { openDuckDB } from '../../src/discovery/v3/duckdbClient.js';
 import { getDuckDBPath } from '../../src/discovery/v3/featureFlag.js';
 
-// Wallets that showed extreme PnL relative to volume
+// Golden wallets — acceptance targets (Polymarket profile, May 2026)
+const GOLDEN_WALLETS = [
+  { label: 'Amber Falcon / dvisik', address: '0x2055b6a642839e86644d381c619aabc0afec1d9d' },
+  { label: 'Amber Hare / c000OLI0003', address: '0xfedc381bf3fb5d20433bb4a0216b15dbbc5c6398' },
+] as const;
+
+// Wallets that showed extreme PnL relative to volume (historical corruption probes)
 const PROBE_WALLETS = [
-  '0x6480542954b70a674a74bd1a6015dec362dc8dc5', // Sable Falcon: $2.3M vol, $60M PnL
-  '0xa61ef8773ec2e821962306ca87d4b57e39ff0abd', // Amber Otter: $24.7M vol, $23.4M PnL
-  '0xcf006e28309313be21b36d22bde515882182353f', // Sable Marlin: $314M vol, $310M PnL
-  '0xf247584e41117bbbe4cc06e4d2c95741792a5216', // Jade: $2.79B vol, $498M PnL
+  ...GOLDEN_WALLETS.map((g) => g.address),
+  '0x6480542954b70a674a74bd1a6015dec362dc8dc5',
+  '0xa61ef8773ec2e821962306ca87d4b57e39ff0abd',
+  '0xcf006e28309313be21b36d22bde515882182353f',
+  '0xf247584e41117bbbe4cc06e4d2c95741792a5216',
 ].map((a) => a.toLowerCase());
 
 async function main(): Promise<void> {
@@ -78,6 +85,24 @@ async function main(): Promise<void> {
     console.log('\nINTERPRETATION:');
     console.log('  mid_price_not_resolved > 0 = markets marked closed but outcome_prices is pre-resolution price.');
     console.log('  That causes resolution_payout to be fractional rather than 0 or 1 × token_balance.');
+
+    // ─── SECTION 3b: duplicate keys + volume for golden wallets ────────────────
+    console.log('\n══════ §3b: GOLDEN WALLET INTEGRITY ══════');
+    for (const g of GOLDEN_WALLETS) {
+      const addr = g.address.toLowerCase();
+      const integrity = await db.query<Record<string, unknown>>(`
+        SELECT
+          COUNT(*)::BIGINT AS row_count,
+          COUNT(DISTINCT (tx_hash, log_index))::BIGINT AS distinct_keys,
+          COUNT(*) - COUNT(DISTINCT (tx_hash, log_index)) AS duplicate_rows,
+          ROUND(SUM(usd_notional), 2) AS volume_usd,
+          MAX(usd_notional) AS max_notional
+        FROM discovery_activity_v3
+        WHERE LOWER(proxy_wallet) = '${addr}'
+      `);
+      console.log(`\n${g.label} (${addr}):`);
+      console.log(JSON.stringify(integrity[0], null, 2));
+    }
 
     // ─── SECTION 4: per-wallet PnL decomposition for probe wallets ─────────────
     console.log('\n══════ §4: PnL DECOMPOSITION (probe wallets) ══════');

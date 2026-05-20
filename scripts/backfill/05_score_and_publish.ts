@@ -60,6 +60,7 @@ import {
   buildCopyabilityFilterSql,
 } from '../../src/discovery/v3/pillarFeatures.js';
 import type { V3FeatureSnapshot } from '../../src/discovery/v3/types.js';
+import { fetchPublishProfileMeta } from '../../src/discovery/v3/publishEnrichment.js';
 
 function getSqlitePath(): string {
   const dataDir = process.env.DATA_DIR || './data';
@@ -314,6 +315,24 @@ async function main(): Promise<void> {
       s.copyable              = copy?.copyable ?? 1;
     }
 
+    const profileMeta = new Map<string, Awaited<ReturnType<typeof fetchPublishProfileMeta>>>();
+    const skipPredictions = process.env.SKIP_PUBLISH_PREDICTIONS === '1';
+    if (!skipPredictions) {
+      const enrichConcurrency = Number(process.env.PUBLISH_ENRICH_CONCURRENCY ?? 8);
+      console.log(`[05] fetching Polymarket predictions + profile names (${scores.length} wallets)…`);
+      for (let i = 0; i < scores.length; i += enrichConcurrency) {
+        const batch = scores.slice(i, i + enrichConcurrency);
+        const metas = await Promise.all(
+          batch.map((s) => fetchPublishProfileMeta(s.proxy_wallet))
+        );
+        for (let j = 0; j < batch.length; j++) {
+          profileMeta.set(batch[j].proxy_wallet, metas[j]);
+        }
+      }
+    } else {
+      console.log('[05] SKIP_PUBLISH_PREDICTIONS=1 — predictions_count/profile_name left null');
+    }
+
     const sqlitePath = getSqlitePath();
     mkdirSync(dirname(sqlitePath), { recursive: true });
     const db = new Database(sqlitePath);
@@ -329,10 +348,12 @@ async function main(): Promise<void> {
               last_active_ts, reasons_json, updated_at,
               composite_score, momentum_score, consistency_score, ditto_state,
               brier_score, avg_clv_1h, pct_positive_clv_1h,
-              top_category, cat_volume_share, maker_ratio, copyable)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+              top_category, cat_volume_share, maker_ratio, copyable,
+              predictions_count, profile_name)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         );
         for (const s of list) {
+          const meta = profileMeta.get(s.proxy_wallet);
           ins.run(
             s.proxy_wallet, s.tier, s.tier_rank, s.score, s.volume_total,
             s.trade_count, s.distinct_markets, s.closed_positions,
@@ -342,7 +363,9 @@ async function main(): Promise<void> {
             s.brier_score         ?? null, s.avg_clv_1h             ?? null,
             s.pct_positive_clv_1h ?? null,
             s.top_category        ?? null, s.cat_volume_share       ?? null,
-            s.maker_ratio         ?? null, s.copyable               ?? 1
+            s.maker_ratio         ?? null, s.copyable               ?? 1,
+            meta?.predictionsCount ?? null,
+            meta?.profileName ?? null
           );
         }
       });

@@ -6,12 +6,35 @@ import { openDuckDB } from '../src/discovery/v3/duckdbClient.ts';
 import { runV3DuckDBMigrations } from '../src/discovery/v3/duckdbSchema.ts';
 import { runV3SqliteMigrations } from '../src/discovery/v3/schema.ts';
 import {
+  dedupeNormalizedRows,
   normalizeOrderFilled,
   pollGoldskyOnce,
   createSqliteCursorStore,
   GoldskyClient,
   GoldskyOrderFilled,
 } from '../src/discovery/v3/goldskyListener.ts';
+
+test('dedupeNormalizedRows: keeps one row per tx_hash+log_index and drops huge notionals', () => {
+  const rows = normalizeOrderFilled({
+    id: 'e1',
+    transactionHash: '0xdup',
+    timestamp: '1700000000',
+    orderHash: '0x1234567890abcdef',
+    maker: '0xMAKER',
+    taker: '0xTAKER',
+    makerAssetId: '0',
+    takerAssetId: '999',
+    makerAmountFilled: '50',
+    takerAmountFilled: '100',
+    fee: '0',
+  });
+  const doubled = [...rows, ...rows.map((r) => ({ ...r }))];
+  const deduped = dedupeNormalizedRows(doubled);
+  assert.equal(deduped.length, 2);
+
+  const huge = { ...rows[0], usd_notional: 9_999_999, abs_size: 9_999_999 };
+  assert.equal(dedupeNormalizedRows([huge]).length, 0);
+});
 
 test('normalizeOrderFilled produces two rows (maker + taker) with unique log_index', () => {
   const ev: GoldskyOrderFilled = {

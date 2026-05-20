@@ -207,19 +207,36 @@ export async function insertNormalizedRows(
  * Much faster than row-by-row for backfill volumes (10-50x speedup).
  * Does NOT handle dedup — caller is responsible for avoiding overlaps.
  */
+const DEFAULT_MAX_NOTIONAL_USD = Number(process.env.GAP_MAX_NOTIONAL_USD ?? 250_000);
+
+/**
+ * Drop duplicate (tx_hash, log_index) within a batch and cap absurd notionals
+ * before insert. During backfill the UNIQUE index may be absent; live ingest
+ * relies on ON CONFLICT as a second line of defense.
+ */
+export function dedupeNormalizedRows(rows: NormalizedV3Row[]): NormalizedV3Row[] {
+  const maxNotional = DEFAULT_MAX_NOTIONAL_USD;
+  const byKey = new Map<string, NormalizedV3Row>();
+  for (const row of rows) {
+    if (row.usd_notional > maxNotional || row.abs_size > maxNotional) continue;
+    const key = `${row.tx_hash}\0${row.log_index}`;
+    if (!byKey.has(key)) byKey.set(key, row);
+  }
+  return [...byKey.values()];
+}
+
 export async function insertNormalizedRowsBatch(
   db: DuckDBClient,
   rows: NormalizedV3Row[]
 ): Promise<number> {
-  if (rows.length === 0) return 0;
-  const valueClauses = rows.map(
+  const deduped = dedupeNormalizedRows(rows);
+  if (deduped.length === 0) return 0;
+  const valueClauses = deduped.map(
     (r) =>
       `('${r.proxy_wallet.replace(/'/g, "''")}','${r.market_id.replace(/'/g, "''")}','${r.condition_id.replace(/'/g, "''")}',${r.event_id === null ? 'NULL' : `'${r.event_id.replace(/'/g, "''")}'`},${r.ts_unix},${r.block_number},'${r.tx_hash.replace(/'/g, "''")}',${r.log_index},'${r.role}','${r.side}',${r.price_yes},${r.usd_notional},${r.signed_size},${r.abs_size})`
   );
-  await db.exec(
-    `INSERT INTO discovery_activity_v3 VALUES ${valueClauses.join(',')}`
-  );
-  return rows.length;
+  await db.exec(`INSERT OR IGNORE INTO discovery_activity_v3 VALUES ${valueClauses.join(',')}`);
+  return deduped.length;
 }
 
 export interface PipelineCursorStore {

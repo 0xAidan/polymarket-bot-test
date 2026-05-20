@@ -1,14 +1,16 @@
 /**
  * Promotion gate for discovery v3.
  *
- * This script intentionally separates:
- * - hard integrity failures (must block promotion)
- * - coverage-aware API deltas (warnings, not blockers for known source gaps)
+ * Hard integrity failures block promotion. Golden-wallet display checks
+ * compare pipeline stats to Polymarket reference APIs (fail-closed).
  */
 import Database from 'better-sqlite3';
 import { openDuckDB } from '../../src/discovery/v3/duckdbClient.js';
 import { getDuckDBPath } from '../../src/discovery/v3/featureFlag.js';
-import { validateWalletAgainstDataApi } from '../../src/discovery/v3/dataApiValidator.js';
+import {
+  validateWalletAgainstDataApi,
+  validateWalletPromotionGate,
+} from '../../src/discovery/v3/dataApiValidator.js';
 
 interface DuckCount {
   c: number;
@@ -18,7 +20,14 @@ interface SnapshotWalletRow {
   proxy_wallet: string;
   volume_total: number;
   trade_count: number;
+  realized_pnl: number;
 }
+
+/** Acceptance wallets — must match Polymarket profile ballpark after clean harvest. */
+const GOLDEN_WALLETS: Array<{ label: string; address: string }> = [
+  { label: 'Amber Falcon / dvisik', address: '0x2055b6a642839e86644d381c619aabc0afec1d9d' },
+  { label: 'Amber Hare / c000OLI0003', address: '0xfedc381bf3fb5d20433bb4a0216b15dbbc5c6398' },
+];
 
 const getSqlitePath = (): string => {
   const dataDir = process.env.DATA_DIR || './data';
@@ -78,7 +87,7 @@ async function main(): Promise<void> {
            FROM discovery_feature_snapshots_v3
          ) t WHERE rn = 1
        )
-       SELECT proxy_wallet, volume_total, trade_count
+       SELECT proxy_wallet, volume_total, trade_count, realized_pnl
        FROM latest
        ORDER BY volume_total DESC
        LIMIT 5`
@@ -90,14 +99,46 @@ async function main(): Promise<void> {
         trade_count: Number(wallet.trade_count),
         volume_total: Number(wallet.volume_total),
       });
-      if (!result.ok) {
-        coverageWarnings++;
-      }
+      if (!result.ok) coverageWarnings++;
       const status = result.ok ? 'OK' : 'WARN';
       const capped = result.apiFullyPaginated === false ? ' [api-capped]' : '';
       console.log(
-        `[06-gate] ${wallet.proxy_wallet} ${status}${capped} ${result.reason ?? ''}`
+        `[06-gate] sample ${wallet.proxy_wallet} ${status}${capped} ${result.reason ?? ''}`
       );
+    }
+
+    console.log('[06-gate] golden wallet display checks…');
+    for (const golden of GOLDEN_WALLETS) {
+      const addr = golden.address.toLowerCase();
+      const [snap] = await duck.query<SnapshotWalletRow>(
+        `WITH latest AS (
+           SELECT * FROM (
+             SELECT *,
+                    ROW_NUMBER() OVER (PARTITION BY proxy_wallet ORDER BY snapshot_day DESC) AS rn
+             FROM discovery_feature_snapshots_v3
+           ) t WHERE rn = 1
+         )
+         SELECT proxy_wallet, volume_total, trade_count, realized_pnl
+         FROM latest WHERE LOWER(proxy_wallet) = '${addr}'`
+      );
+      if (!snap) {
+        failures.push(`${golden.label}: no snapshot row for ${addr}`);
+        continue;
+      }
+      const gate = await validateWalletPromotionGate(addr, {
+        volume_total: Number(snap.volume_total),
+        trade_count: Number(snap.trade_count),
+        realized_pnl: Number(snap.realized_pnl),
+      });
+      const status = gate.ok ? 'PASS' : 'FAIL';
+      console.log(
+        `[06-gate] golden ${golden.label} ${status} vol=${snap.volume_total} pnl=${snap.realized_pnl} ` +
+        `apiVol=${gate.apiVolume ?? 'n/a'} apiPnl=${gate.apiLifetimePnl ?? 'n/a'} traded=${gate.apiTradedCount ?? 'n/a'} ` +
+        `${gate.reason ?? ''}`
+      );
+      if (!gate.ok) {
+        failures.push(`${golden.label}: ${gate.reason ?? 'promotion gate failed'}`);
+      }
     }
 
     console.log('[06-gate] integrity summary', {
@@ -109,7 +150,7 @@ async function main(): Promise<void> {
     });
 
     if (failures.length > 0) {
-      console.error('[06-gate] BLOCKED: integrity failures detected');
+      console.error('[06-gate] BLOCKED: integrity or golden-wallet failures');
       for (const failure of failures) {
         console.error(` - ${failure}`);
       }
@@ -117,9 +158,7 @@ async function main(): Promise<void> {
       return;
     }
 
-    console.log(
-      '[06-gate] PASS: integrity checks succeeded. Coverage warnings are informational under the known-gap policy.'
-    );
+    console.log('[06-gate] PASS: integrity + golden wallet checks succeeded.');
   } finally {
     sqlite.close();
     await duck.close();

@@ -53,6 +53,8 @@ const ADDITIVE_COLUMN_MIGRATIONS: string[] = [
   // Phase 7: Signal integration
   `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN latest_signal TEXT DEFAULT NULL`,
   `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN latest_signal_ts INTEGER DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN predictions_count INTEGER DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN profile_name TEXT DEFAULT NULL`,
 ];
 
 export function runV3SqliteMigrations(db: Database.Database): void {

@@ -70,6 +70,14 @@ function fmtAge(ts) {
 
 function fmtScore(n) { return n != null ? Math.round(n).toString() : '—'; }
 
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 // ── Ditto chip ────────────────────────────────────────────────────────────────
 
 function dittoChip(s) {
@@ -118,6 +126,13 @@ function animateRings(container) {
 function walletCard(w, tier, displayScore) {
   const score   = displayScore ?? w.score ?? w.compositeScore ?? null;
   const pnlCls  = (w.realizedPnl ?? 0) >= 0 ? 'pos' : 'neg';
+  const profileUrl = w.profileUrl || `https://polymarket.com/@${w.address}`;
+  const profileSub = w.profileName
+    ? `<span class="cprofile">@${escapeHtml(w.profileName)}</span>`
+    : '';
+
+  const predictionsVal = w.predictionsCount ?? w.tradeCount;
+  const predictionsLbl = w.predictionsCount != null ? 'Predictions' : 'Fills';
 
   const pillars = [
     w.momentumScore    != null && `<div class="cpillar"><span class="cpillar-lbl">Heat</span><span class="cpillar-val">${fmtScore(w.momentumScore)}</span></div>`,
@@ -140,6 +155,7 @@ function walletCard(w, tier, displayScore) {
           <span class="crank">#${w.tierRank}</span>
         </div>
         <span class="caddr">${w.address}</span>
+        ${profileSub}
       </div>
     </div>
 
@@ -149,8 +165,8 @@ function walletCard(w, tier, displayScore) {
         <span class="cstat-val">${fmt$(w.volumeTotal)}</span>
       </div>
       <div class="cstat">
-        <span class="cstat-lbl">Trades</span>
-        <span class="cstat-val">${fmtN(w.tradeCount)}</span>
+        <span class="cstat-lbl">${predictionsLbl}</span>
+        <span class="cstat-val">${fmtN(predictionsVal)}</span>
       </div>
       <div class="cstat">
         <span class="cstat-lbl">Markets</span>
@@ -172,11 +188,14 @@ function walletCard(w, tier, displayScore) {
 
     <div class="ccta">
       <span class="ccta-meta">Last active: ${fmtAge(w.lastActiveTs)}</span>
-      <button class="cta-btn" data-address="${w.address}">Copy Trade</button>
+      <div class="ccta-btns">
+        <a class="cta-btn secondary profile-link" href="${profileUrl}" target="_blank" rel="noopener noreferrer" aria-label="View ${w.alias} on Polymarket">View on Polymarket</a>
+        <button class="cta-btn" data-address="${w.address}">Copy Trade</button>
+      </div>
     </div>
   `;
 
-  const btn = card.querySelector('.cta-btn');
+  const btn = card.querySelector('button.cta-btn[data-address]');
   if (!state.authed) {
     btn.textContent = 'Sign in to Copy';
     btn.classList.add('needs-auth');
