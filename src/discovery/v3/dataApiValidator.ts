@@ -72,6 +72,8 @@ interface ActivityEvent {
   price?: number;
 }
 
+const PAGE_FETCH_DELAY_MS = Number(process.env.PNL_PAGE_DELAY_MS ?? 80);
+
 export async function fetchPaginatedJson<T>(
   buildUrl: (offset: number, pageSize: number) => string,
   pageSize: number,
@@ -81,8 +83,23 @@ export async function fetchPaginatedJson<T>(
   const all: T[] = [];
   let fullyPaginated = true;
   for (let page = 0; page < maxPages; page++) {
+    if (page > 0 && PAGE_FETCH_DELAY_MS > 0) {
+      await new Promise((r) => setTimeout(r, PAGE_FETCH_DELAY_MS));
+    }
     const offset = page * pageSize;
     const res = await f(buildUrl(offset, pageSize));
+    if (res.status === 429) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const retry = await f(buildUrl(offset, pageSize));
+      if (!retry.ok) {
+        return { rows: all, fullyPaginated: false, httpError: `http ${retry.status}` };
+      }
+      const chunk = (await retry.json()) as T[];
+      if (!Array.isArray(chunk) || chunk.length === 0) break;
+      all.push(...chunk);
+      if (chunk.length < pageSize) break;
+      continue;
+    }
     if (!res.ok) {
       const isPaginationCap = (res.status === 400 || res.status >= 500) && all.length > 0;
       if (isPaginationCap) {
