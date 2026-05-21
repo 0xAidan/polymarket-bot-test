@@ -25,6 +25,10 @@ AUTH_SESSION_ROLLING_DURATION_HOURS=24
 # If left empty, the API is open (a warning will be printed on startup).
 # Legacy mode only. Prefer OIDC settings above for production SaaS usage.
 API_SECRET=your_api_secret_here
+
+# Platform admin emails (OIDC only) — comma-separated list for /admin and jungle-agents CRUD.
+# Legacy mode: matching API_SECRET bearer also grants platform admin.
+PLATFORM_ADMIN_EMAILS=aidannuge@gmail.com
 # Production safety guard (recommended true on hosted deployments)
 # When true and API_SECRET is missing, server startup fails closed.
 REQUIRE_API_SECRET=true

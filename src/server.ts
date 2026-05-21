@@ -24,6 +24,8 @@ import {
   syncUserFromOidc,
   writeAuthAuditLog
 } from './authStore.js';
+import { seedJungleAgentsIfMissing } from './jungleAgentsStore.js';
+import { resolveIsPlatformAdmin } from './platformAdmin.js';
 
 const log = createComponentLogger('Server');
 
@@ -36,6 +38,7 @@ export const getDiscoveryManager = (): DiscoveryManager | null => discoveryManag
  */
 export async function createServer(copyTrader: CopyTrader): Promise<express.Application> {
   await initDatabase();
+  await seedJungleAgentsIfMissing();
   const app = express();
   app.set('trust proxy', 1);
 
@@ -134,6 +137,33 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     return { user, memberships };
   };
 
+  const sendAuthCapabilities = (req: express.Request, res: express.Response): void => {
+    const hostedMultiTenant = isHostedMultiTenantMode();
+    if (config.authMode === 'oidc') {
+      const authenticated = Boolean(req.oidc?.isAuthenticated());
+      const email = typeof req.oidc?.user?.email === 'string' ? req.oidc.user.email : undefined;
+      res.json({
+        success: true,
+        mode: 'oidc',
+        authenticated,
+        isPlatformAdmin: authenticated && resolveIsPlatformAdmin(req),
+        email: authenticated ? email : undefined,
+        hostedMultiTenant,
+      });
+      return;
+    }
+
+    const token = req.headers.authorization?.replace(/^Bearer\s+/i, '').trim();
+    const authenticated = config.apiSecret ? token === config.apiSecret : true;
+    res.json({
+      success: true,
+      mode: 'legacy',
+      authenticated,
+      isPlatformAdmin: resolveIsPlatformAdmin(req),
+      hostedMultiTenant: isHostedMultiTenantMode(),
+    });
+  };
+
   // ─── Auth status endpoint (always open, tells frontend auth mode/requirements) ───
   app.get('/api/auth/required', (_req, res) => {
     const hostedMultiTenant = isHostedMultiTenantMode();
@@ -184,6 +214,8 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     app.use('/auth', authLimiter);
     app.use(auth(oidcConfig));
 
+    app.get('/api/auth/capabilities', sendAuthCapabilities);
+
     // Mount v3 BEFORE the global /api auth gate so reads are public.
     mountDiscoveryV3Public();
 
@@ -208,6 +240,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
         res.json({
           success: true,
           hostedMultiTenant: isHostedMultiTenantMode(),
+          isPlatformAdmin: resolveIsPlatformAdmin(req),
           user: {
             id: user.id,
             email: user.email,
@@ -289,6 +322,8 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     });
     log.info('🔐 OIDC authentication enabled (Auth0 session mode)');
   } else if (config.apiSecret) {
+    app.get('/api/auth/capabilities', sendAuthCapabilities);
+
     app.post('/api/auth/check', (req, res) => {
       const token = req.headers.authorization?.replace('Bearer ', '');
       if (token === config.apiSecret) {
@@ -326,6 +361,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
       throw new Error(message);
     }
     log.warn('⚠️  WARNING: API authentication is open in legacy mode.');
+    app.get('/api/auth/capabilities', sendAuthCapabilities);
     mountDiscoveryV3Public();
     app.use('/api', apiLimiter, (_req, _res, next) => {
       enterWithTenant(DEFAULT_TENANT_ID);
@@ -333,7 +369,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     });
   }
 
-  // API routes
+  // API routes (Jungle Agents routes are mounted inside createRoutes)
   app.use('/api', createRoutes(copyTrader));
   app.use('/api/olympics', createOlympicsRoutes());
   app.use('/api/discovery', createDiscoveryRoutes(discoveryControlPlane as any));
@@ -367,6 +403,10 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   // Serve dashboard UI (fallback for SPA-style routing)
   app.get('/', (req, res) => {
     res.sendFile(path.join(publicPath, 'index.html'));
+  });
+
+  app.get('/admin', (_req, res) => {
+    res.sendFile(path.join(publicPath, 'admin', 'index.html'));
   });
 
   return app;

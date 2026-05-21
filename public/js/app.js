@@ -233,6 +233,8 @@ function refreshCurrentTab() {
     case 'cross-platform':
       refreshExecutorStatus();
       break;
+    case 'jungle-agents':
+      break;
     case 'discovery':
       if (!discoveryRefreshTimer) {
         startDiscoveryRefresh();
@@ -333,6 +335,11 @@ const renderSetupProgress = (state) => {
   const summaryEl = document.getElementById('setupProgressSummary');
   const listEl = document.getElementById('setupProgressChecklist');
   const stepsEl = document.getElementById('setupWizardSteps');
+
+  const setupCard = document.getElementById('setupProgressCard');
+  if (setupCard) {
+    setupCard.classList.toggle('hidden', state.isComplete);
+  }
 
   if (summaryEl) {
     summaryEl.textContent = state.isComplete
@@ -517,6 +524,9 @@ async function loadAllData() {
       loadLadderStatus().catch(() => { })
     ]);
     await refreshSetupExperience(true);
+    if (typeof window.renderHomeJungleAgentTeaser === 'function') {
+      await window.renderHomeJungleAgentTeaser();
+    }
   } catch (error) {
     console.error('Error loading data:', error);
   }
@@ -530,7 +540,7 @@ function switchTab(tabName) {
   if (currentTab === 'discovery' && tabName !== 'discovery') {
     stopDiscoveryRefresh();
   }
-  document.querySelectorAll('.win-tab').forEach(btn => {
+  document.querySelectorAll('.win-tab, .j-nav-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tab === tabName);
   });
 
@@ -539,8 +549,13 @@ function switchTab(tabName) {
   });
 
   currentTab = tabName;
+  if (typeof window.onShellTabActivated === 'function') {
+    window.onShellTabActivated(tabName);
+  }
   refreshCurrentTab();
 }
+
+window.switchTab = switchTab;
 
 // ============================================================
 // DASHBOARD
@@ -1091,7 +1106,9 @@ async function openWalletModal(address) {
     refreshModalTagButtons(currentTags);
 
     updateModalPipeline();
-    document.getElementById('walletModal').classList.remove('hidden');
+    const modal = document.getElementById('walletModal');
+    modal.classList.remove('hidden');
+    document.body.classList.add('j-drawer-open');
     setupModalEventListeners();
   } catch (error) {
     await win95Dialog.error(`Failed to load wallet: ${error.message}`);
@@ -1210,7 +1227,8 @@ function updateSlippageBadge() {
 }
 
 function closeWalletModal() {
-  document.getElementById('walletModal').classList.add('hidden');
+  document.getElementById('walletModal')?.classList.add('hidden');
+  document.body.classList.remove('j-drawer-open');
   currentWalletAddress = null;
 }
 
