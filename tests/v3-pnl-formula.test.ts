@@ -509,6 +509,45 @@ test('Pillar SQL: all 5 pillars run on empty tables and return 0 rows', async ()
   } finally { await db.close(); }
 });
 
+// ─── Test 16b: duplicate (tx_hash, log_index) inflates aggregates ──────────────
+test('PnL: duplicate activity rows inflate volume (dedup prevents double-count)', async () => {
+  const baseRow = {
+    proxy_wallet: '0xDUP',
+    market_id: 'mdup',
+    tx_hash: 'txdup',
+    log_index: 0,
+    ts_unix: 1700001000,
+    side: 'BUY' as const,
+    price_yes: 0.5,
+    usd_notional: 100,
+    signed_size: 200,
+  };
+  const dbDup = await makeDb({
+    activityRows: [baseRow, { ...baseRow }],
+    marketRows: [{ market_id: 'mdup', closed: 0, end_date: null }],
+  });
+  try {
+    const dupVol = await dbDup.query<{ volume: number }>(`
+      SELECT ROUND(SUM(usd_notional), 2) AS volume
+      FROM discovery_activity_v3 WHERE proxy_wallet = '0xDUP'
+    `);
+    assert.equal(Number(dupVol[0].volume), 200, 'duplicate rows should double volume');
+  } finally {
+    await dbDup.close();
+  }
+
+  const dbClean = await makeDb({ activityRows: [baseRow], marketRows: [] });
+  try {
+    const cleanVol = await dbClean.query<{ volume: number }>(`
+      SELECT ROUND(SUM(usd_notional), 2) AS volume
+      FROM discovery_activity_v3 WHERE proxy_wallet = '0xDUP'
+    `);
+    assert.equal(Number(cleanVol[0].volume), 100, 'deduped single row volume');
+  } finally {
+    await dbClean.close();
+  }
+});
+
 // ─── Test 16: Risk DNA SQL returns expected percentile columns ─────────────────
 test('Pillar riskDNA: correct percentile results on synthetic data', async () => {
   const db = await openMemDb();

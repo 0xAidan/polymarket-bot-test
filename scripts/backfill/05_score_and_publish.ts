@@ -44,11 +44,23 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { openDuckDB } from '../../src/discovery/v3/duckdbClient.js';
-import { runV3DuckDBMigrationsBackfillNoIndex } from '../../src/discovery/v3/duckdbSchema.js';
+import {
+  runV3DuckDBMigrationsBackfillNoIndex,
+  runV3SnapshotAdditiveColumnMigrations,
+} from '../../src/discovery/v3/duckdbSchema.js';
 import { runV3SqliteMigrations } from '../../src/discovery/v3/schema.js';
 import { getDuckDBPath } from '../../src/discovery/v3/featureFlag.js';
 import { scoreTiers } from '../../src/discovery/v3/tierScoring.js';
+import { buildCompositeScoringQuery, type CompositeScoredRow } from '../../src/discovery/v3/compositeQueries.js';
+import { determineDittoState } from '../../src/discovery/v3/dittoEngine.js';
+import {
+  buildProbabilisticAccuracySql,
+  buildMarketEdgeCLVSql,
+  buildNicheKnowledgeSql,
+  buildCopyabilityFilterSql,
+} from '../../src/discovery/v3/pillarFeatures.js';
 import type { V3FeatureSnapshot } from '../../src/discovery/v3/types.js';
+import { fetchPublishProfileMeta } from '../../src/discovery/v3/publishEnrichment.js';
 
 function getSqlitePath(): string {
   const dataDir = process.env.DATA_DIR || './data';
@@ -68,14 +80,19 @@ async function main(): Promise<void> {
     // has ~800M rows and DuckDB 1.4.x CREATE INDEX would OOM.
     // See src/discovery/v3/duckdbSchema.ts for the full rationale.
     await runV3DuckDBMigrationsBackfillNoIndex((sql) => duck.exec(sql));
+    await runV3SnapshotAdditiveColumnMigrations((sql) => duck.exec(sql));
 
-    // Mirror 04_emit_snapshots' pragmas so any large operator (the
-    // ARG_MAX hash aggregate below, or its temp materialisation) can
-    // spill freely instead of hitting DuckDB's memory_limit. Same
-    // rationale as 04 — see that file's header comment for the full
-    // story on preserve_insertion_order and max_temp_directory_size.
+    // Memory/thread tuning — same knobs as 04_emit_snapshots.ts.
+    // Defaults target the 30GB production server.
+    // Override with env vars on smaller boxes (e.g. DUCKDB_MEMORY_LIMIT_GB=5 DUCKDB_THREADS=1).
+    const memLimit = process.env.DUCKDB_MEMORY_LIMIT_GB ?? '20';
+    const threads  = process.env.DUCKDB_THREADS          ?? '4';
+    const tempCap  = process.env.DUCKDB_MAX_TEMP_DIR_GB  ?? '100';
+    await duck.exec(`SET memory_limit = '${memLimit}GB'`);
+    await duck.exec(`SET threads = ${threads}`);
+    await duck.exec(`SET max_temp_directory_size = '${tempCap}GiB'`);
     await duck.exec('SET preserve_insertion_order = false');
-    await duck.exec("SET max_temp_directory_size = '100GiB'");
+    console.log(`[05] tuned: memory_limit=${memLimit}GB threads=${threads} temp_cap=${tempCap}GiB`);
 
     // (1) Build a one-row-per-wallet "latest snapshot" temp table using
     // ARG_MAX over GROUP BY. DuckDB executes this as a streaming hash
@@ -94,16 +111,20 @@ async function main(): Promise<void> {
          proxy_wallet,
          (ARG_MAX(
             STRUCT_PACK(
-              snapshot_day          := snapshot_day,
-              trade_count           := trade_count,
-              volume_total          := volume_total,
-              distinct_markets      := distinct_markets,
-              closed_positions      := closed_positions,
-              realized_pnl          := realized_pnl,
-              unrealized_pnl        := unrealized_pnl,
-              first_active_ts       := first_active_ts,
-              last_active_ts        := last_active_ts,
-              observation_span_days := observation_span_days
+              snapshot_day              := snapshot_day,
+              trade_count               := trade_count,
+              volume_total              := volume_total,
+              distinct_markets          := distinct_markets,
+              closed_positions          := closed_positions,
+              realized_pnl              := realized_pnl,
+              unrealized_pnl            := unrealized_pnl,
+              first_active_ts           := first_active_ts,
+              last_active_ts            := last_active_ts,
+              observation_span_days     := observation_span_days,
+              trade_count_90d           := CAST(COALESCE(trade_count_90d, 0) AS BIGINT),
+              volume_90d                := COALESCE(volume_90d, 0.0),
+              realized_pnl_90d          := COALESCE(realized_pnl_90d, 0.0),
+              closed_positions_positive := CAST(COALESCE(closed_positions_positive, 0) AS BIGINT)
             ),
             snapshot_day
           )) AS s
@@ -143,17 +164,21 @@ async function main(): Promise<void> {
       for (const row of batch) {
         const s = row.s as Record<string, unknown>;
         rows.push({
-          proxy_wallet:          row.proxy_wallet,
-          snapshot_day:          String(s.snapshot_day),
-          trade_count:           Number(s.trade_count),
-          volume_total:          Number(s.volume_total),
-          distinct_markets:      Number(s.distinct_markets),
-          closed_positions:      Number(s.closed_positions),
-          realized_pnl:          Number(s.realized_pnl),
-          unrealized_pnl:        Number(s.unrealized_pnl),
-          first_active_ts:       Number(s.first_active_ts),
-          last_active_ts:        Number(s.last_active_ts),
-          observation_span_days: Number(s.observation_span_days),
+          proxy_wallet:              row.proxy_wallet,
+          snapshot_day:              String(s.snapshot_day),
+          trade_count:               Number(s.trade_count),
+          volume_total:              Number(s.volume_total),
+          distinct_markets:          Number(s.distinct_markets),
+          closed_positions:          Number(s.closed_positions),
+          realized_pnl:              Number(s.realized_pnl),
+          unrealized_pnl:            Number(s.unrealized_pnl),
+          first_active_ts:           Number(s.first_active_ts),
+          last_active_ts:            Number(s.last_active_ts),
+          observation_span_days:     Number(s.observation_span_days),
+          trade_count_90d:           Number(s.trade_count_90d ?? 0),
+          volume_90d:                Number(s.volume_90d ?? 0),
+          realized_pnl_90d:          Number(s.realized_pnl_90d ?? 0),
+          closed_positions_positive: Number(s.closed_positions_positive ?? 0),
         });
       }
       cursor = batch[batch.length - 1].proxy_wallet;
@@ -167,12 +192,146 @@ async function main(): Promise<void> {
 
     console.log(`[05] scoring ${rows.length} wallets`);
     const now = Math.floor(Date.now() / 1000);
+
+    function ts(): string { return `${Math.round((Date.now() - t0) / 1000)}s`; }
+
+    // ── Skip flags — set to '1' to bypass expensive DuckDB scans on small boxes.
+    // All skipped pillars write NULL to their columns; the hourly refreshWorker
+    // fills them in once the bot is running.
+    //   SKIP_COMPOSITE=1  — skip composite/momentum/consistency/ditto scoring
+    //   SKIP_BRIER=1      — skip Brier score (probabilistic accuracy)
+    //   SKIP_NICHE=1      — skip niche/specialist category scoring
+    //   SKIP_COPY=1       — skip copyability maker-ratio filter
+    //   SKIP_CLV=1        — skip CLV self-join query (always skip on 8GB boxes)
+    const skipComposite = process.env.SKIP_COMPOSITE === '1';
+    const skipBrier     = process.env.SKIP_BRIER     === '1';
+    const skipNiche     = process.env.SKIP_NICHE     === '1';
+    const skipCopy      = process.env.SKIP_COPY      === '1';
+    const skipClv       = process.env.SKIP_CLV       === '1';
+
+    const compMap = new Map<string, CompositeScoredRow>();
+    if (skipComposite) {
+      console.log('[05] composite scores: skipped (SKIP_COMPOSITE=1)');
+    } else {
+      console.log('[05] computing composite scores…');
+      for (const c of await duck.query<CompositeScoredRow>(buildCompositeScoringQuery(now, 999_999))) {
+        compMap.set(c.proxy_wallet, c);
+      }
+      console.log(`[05] composite scores: ${compMap.size} wallets (${ts()})`);
+    }
+
+    interface BrierRow { proxy_wallet: string; brier_score: number | null }
+    const brierMap = new Map<string, number | null>();
+    if (skipBrier) {
+      console.log('[05] Brier scores: skipped (SKIP_BRIER=1)');
+    } else {
+      console.log('[05] computing Brier scores…');
+      for (const r of await duck.query<BrierRow>(buildProbabilisticAccuracySql())) {
+        brierMap.set(r.proxy_wallet, r.brier_score);
+      }
+      console.log(`[05] brier: ${brierMap.size} wallets (${ts()})`);
+    }
+
+    interface ClvRow { proxy_wallet: string; avg_clv_1h: number | null; pct_positive_clv_1h: number | null }
+    const clvMap = new Map<string, ClvRow>();
+    if (skipClv) {
+      console.log('[05] CLV scores: skipped (SKIP_CLV=1)');
+    } else {
+      console.log('[05] computing CLV scores (sampled, 1%, max 500k rows)…');
+      for (const r of await duck.query<ClvRow>(buildMarketEdgeCLVSql())) {
+        clvMap.set(r.proxy_wallet, r);
+      }
+      console.log(`[05] clv: ${clvMap.size} wallets (${ts()})`);
+    }
+
+    interface NicheRow { proxy_wallet: string; category: string; cat_pnl: number; cat_volume_share: number }
+    const nicheMap = new Map<string, NicheRow>();
+    if (skipNiche) {
+      console.log('[05] niche scores: skipped (SKIP_NICHE=1)');
+    } else {
+      console.log('[05] computing niche scores…');
+      for (const row of await duck.query<NicheRow>(buildNicheKnowledgeSql())) {
+        nicheMap.set(row.proxy_wallet, row);
+      }
+      console.log(`[05] niche: ${nicheMap.size} wallets (${ts()})`);
+    }
+
+    interface CopyRow { proxy_wallet: string; maker_ratio: number; copyable: number }
+    const copyMap = new Map<string, CopyRow>();
+    if (skipCopy) {
+      console.log('[05] copyability filter: skipped (SKIP_COPY=1)');
+    } else {
+      console.log('[05] computing copyability filter…');
+      let excludedCopyCount = 0;
+      for (const r of await duck.query<CopyRow>(buildCopyabilityFilterSql())) {
+        copyMap.set(r.proxy_wallet, r);
+        if (r.copyable === 0) excludedCopyCount++;
+      }
+      console.log(`[05] copyability: ${excludedCopyCount} wallets excluded (${ts()})`);
+    }
+
     const { scores, stats } = scoreTiers(
-      rows.map((r) => ({ snapshot: r, now_ts: now }))
+      rows.map((r) => {
+        const nicheRow = nicheMap.get(r.proxy_wallet);
+        return {
+          snapshot: r,
+          now_ts: now,
+          niche: nicheRow
+            ? { top_category: nicheRow.category, cat_volume_share: nicheRow.cat_volume_share, cat_pnl: nicheRow.cat_pnl }
+            : undefined,
+        };
+      })
     );
+    // Free snapshot array now that scoreTiers() has consumed it.
+    (rows as unknown[]).length = 0;
     console.log(
       `[05] eligibility: ${stats.eligible}/${stats.total} (rejection ${(stats.rejection_rate * 100).toFixed(1)}%)`
     );
+
+    for (const s of scores) {
+      const c = compMap.get(s.proxy_wallet);
+      s.composite_score   = c?.composite_score   ?? null;
+      s.momentum_score    = c?.momentum_score    ?? null;
+      s.consistency_score = c?.consistency_score ?? null;
+      s.ditto_state = c
+        ? determineDittoState({
+            trade_count: s.trade_count,
+            pnl_7d:      c.pnl_7d,
+            momentum_z:  c.momentum_z,
+            bet_size_cv: c.bet_size_cv,
+            tier_score:  s.score,
+          })
+        : null;
+
+      s.brier_score           = brierMap.get(s.proxy_wallet) ?? null;
+      const clv               = clvMap.get(s.proxy_wallet);
+      s.avg_clv_1h            = clv?.avg_clv_1h ?? null;
+      s.pct_positive_clv_1h   = clv?.pct_positive_clv_1h ?? null;
+      const niche             = nicheMap.get(s.proxy_wallet);
+      s.top_category          = niche?.category ?? null;
+      s.cat_volume_share      = niche?.cat_volume_share ?? null;
+      const copy              = copyMap.get(s.proxy_wallet);
+      s.maker_ratio           = copy?.maker_ratio ?? null;
+      s.copyable              = copy?.copyable ?? 1;
+    }
+
+    const profileMeta = new Map<string, Awaited<ReturnType<typeof fetchPublishProfileMeta>>>();
+    const skipPredictions = process.env.SKIP_PUBLISH_PREDICTIONS === '1';
+    if (!skipPredictions) {
+      const enrichConcurrency = Number(process.env.PUBLISH_ENRICH_CONCURRENCY ?? 8);
+      console.log(`[05] fetching Polymarket predictions + profile names (${scores.length} wallets)…`);
+      for (let i = 0; i < scores.length; i += enrichConcurrency) {
+        const batch = scores.slice(i, i + enrichConcurrency);
+        const metas = await Promise.all(
+          batch.map((s) => fetchPublishProfileMeta(s.proxy_wallet))
+        );
+        for (let j = 0; j < batch.length; j++) {
+          profileMeta.set(batch[j].proxy_wallet, metas[j]);
+        }
+      }
+    } else {
+      console.log('[05] SKIP_PUBLISH_PREDICTIONS=1 — predictions_count/profile_name left null');
+    }
 
     const sqlitePath = getSqlitePath();
     mkdirSync(dirname(sqlitePath), { recursive: true });
@@ -186,14 +345,27 @@ async function main(): Promise<void> {
           `INSERT INTO discovery_wallet_scores_v3
              (proxy_wallet, tier, tier_rank, score, volume_total, trade_count,
               distinct_markets, closed_positions, realized_pnl, hit_rate,
-              last_active_ts, reasons_json, updated_at)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+              last_active_ts, reasons_json, updated_at,
+              composite_score, momentum_score, consistency_score, ditto_state,
+              brier_score, avg_clv_1h, pct_positive_clv_1h,
+              top_category, cat_volume_share, maker_ratio, copyable,
+              predictions_count, profile_name)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         );
         for (const s of list) {
+          const meta = profileMeta.get(s.proxy_wallet);
           ins.run(
             s.proxy_wallet, s.tier, s.tier_rank, s.score, s.volume_total,
             s.trade_count, s.distinct_markets, s.closed_positions,
-            s.realized_pnl, s.hit_rate, s.last_active_ts, s.reasons_json, s.updated_at
+            s.realized_pnl, s.hit_rate, s.last_active_ts, s.reasons_json, s.updated_at,
+            s.composite_score     ?? null, s.momentum_score       ?? null,
+            s.consistency_score   ?? null, s.ditto_state           ?? null,
+            s.brier_score         ?? null, s.avg_clv_1h             ?? null,
+            s.pct_positive_clv_1h ?? null,
+            s.top_category        ?? null, s.cat_volume_share       ?? null,
+            s.maker_ratio         ?? null, s.copyable               ?? 1,
+            meta?.predictionsCount ?? null,
+            meta?.profileName ?? null
           );
         }
       });

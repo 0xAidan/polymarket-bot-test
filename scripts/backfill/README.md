@@ -40,7 +40,29 @@ tsx scripts/backfill/05_score_and_publish.ts
 
 # 7. 20-wallet spot check against the Data API
 tsx scripts/backfill/06_validate.ts
+
+# 8. Fill the ~55-day gap (March 5 2026 → now) from Goldsky live events
+#    Resumable — safe to Ctrl-C and re-run.
+tsx scripts/backfill/07_goldsky_gap_fill.ts
+
+# 9. After gap fill, rescore wallets with the new data
+tsx scripts/backfill/05_score_and_publish.ts
 ```
+
+## Data integrity (duplicates / inflated notionals)
+
+If cards show millions in PnL/volume, repair activity before re-emitting snapshots:
+
+```bash
+tsx scripts/backfill/dedup_gap_activity.ts      # May 2026 gap window
+# tsx scripts/backfill/dedup_activity_global.ts # full table if dupes elsewhere
+tsx scripts/backfill/04_emit_snapshots.ts
+tsx scripts/backfill/05_score_and_publish.ts
+tsx scripts/backfill/06_promotion_gate.ts       # golden-wallet + dupe checks
+tsx scripts/backfill/99_pnl_diagnostic.ts       # golden wallet §3b
+```
+
+See `docs/plans/discovery-display-accuracy.md`.
 
 ## Flags
 

@@ -9,7 +9,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { validateWalletAgainstDataApi } from '../src/discovery/v3/dataApiValidator.ts';
+import {
+  isDerivedPnlOutlier,
+  validateWalletAgainstDataApi,
+  validateWalletPromotionGate,
+} from '../src/discovery/v3/dataApiValidator.ts';
 
 type FetchImpl = typeof fetch;
 
@@ -233,4 +237,26 @@ test('validator: different trade_count is OK when volume matches (granularity di
   assert.equal(r.ok, true, 'volume match > trade_count mismatch');
   assert.equal(r.apiTradeCount, 10);
   assert.equal(r.derivedTradeCount, 50);
+});
+
+test('isDerivedPnlOutlier: flags millions vs hundreds profile PnL', () => {
+  assert.equal(isDerivedPnlOutlier(77_000_000, -646), true);
+  assert.equal(isDerivedPnlOutlier(83_000, 83_535), false);
+});
+
+test('promotion gate: fails when derived volume wildly exceeds API', async () => {
+  const fetchImpl = mockFetch((url) => {
+    if (url.includes('/traded?')) return { body: { traded: 115 } };
+    if (url.includes('/closed-positions?')) return { body: [{ realizedPnl: 83500 }] };
+    if (url.includes('/positions?')) return { body: [{ cashPnl: 35 }] };
+    if (url.includes('/v1/activity?')) return { body: [trade(1000)] };
+    return { body: [] };
+  });
+  const r = await validateWalletPromotionGate(
+    '0xfedc381bf3fb5d20433bb4a0216b15dbbc5c6398',
+    { trade_count: 166000, volume_total: 280_000_000, realized_pnl: 50_000_000 },
+    { fetchImpl }
+  );
+  assert.equal(r.ok, false);
+  assert.ok(r.reason?.includes('volume') || r.reason?.includes('PnL'));
 });

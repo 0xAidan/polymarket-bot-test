@@ -8,6 +8,7 @@ import { createRoutes } from './api/routes.js';
 import { CopyTrader } from './copyTrader.js';
 import { createDiscoveryRoutes } from './api/discoveryRoutes.js';
 import { createDiscoveryV3Router } from './api/discoveryRoutesV3.js';
+import { createOlympicsRoutes } from './api/olympicsRoutes.js';
 import { isDiscoveryV3Enabled } from './discovery/v3/featureFlag.js';
 import { initDatabase, getDatabase } from './database.js';
 import { DiscoveryManager } from './discovery/discoveryManager.js';
@@ -370,6 +371,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 
   // API routes (Jungle Agents routes are mounted inside createRoutes)
   app.use('/api', createRoutes(copyTrader));
+  app.use('/api/olympics', createOlympicsRoutes());
   app.use('/api/discovery', createDiscoveryRoutes(discoveryControlPlane as any));
 
   // NOTE: v3 router is mounted earlier (public read surface) so we do not

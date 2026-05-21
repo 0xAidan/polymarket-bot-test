@@ -73,17 +73,23 @@ export const V3_DUCKDB_DDL: string[] = [
     updated_at        TIMESTAMP
   )`,
   `CREATE TABLE IF NOT EXISTS discovery_feature_snapshots_v3 (
-    proxy_wallet          VARCHAR   NOT NULL,
-    snapshot_day          DATE      NOT NULL,
-    trade_count           BIGINT    NOT NULL,
-    volume_total          DOUBLE    NOT NULL,
-    distinct_markets      BIGINT    NOT NULL,
-    closed_positions      BIGINT    NOT NULL,
-    realized_pnl          DOUBLE    NOT NULL,
-    unrealized_pnl        DOUBLE    NOT NULL,
-    first_active_ts       UBIGINT   NOT NULL,
-    last_active_ts        UBIGINT   NOT NULL,
-    observation_span_days INTEGER   NOT NULL,
+    proxy_wallet              VARCHAR   NOT NULL,
+    snapshot_day              DATE      NOT NULL,
+    trade_count               BIGINT    NOT NULL,
+    volume_total              DOUBLE    NOT NULL,
+    distinct_markets          BIGINT    NOT NULL,
+    closed_positions          BIGINT    NOT NULL,
+    realized_pnl              DOUBLE    NOT NULL,
+    unrealized_pnl            DOUBLE    NOT NULL,
+    first_active_ts           UBIGINT   NOT NULL,
+    last_active_ts            UBIGINT   NOT NULL,
+    observation_span_days     INTEGER   NOT NULL,
+    -- Rolling 90-day columns for recency weighting (Phase 4)
+    trade_count_90d           BIGINT    DEFAULT 0,
+    volume_90d                DOUBLE    DEFAULT 0.0,
+    realized_pnl_90d          DOUBLE    DEFAULT 0.0,
+    -- True win rate numerator: how many (wallet,market) pairs closed profitably (Phase 1D)
+    closed_positions_positive BIGINT    DEFAULT 0,
     PRIMARY KEY (proxy_wallet, snapshot_day)
   )`,
 ];
@@ -112,6 +118,35 @@ export async function runV3DuckDBMigrationsBackfillNoIndex(
 ): Promise<void> {
   for (const stmt of V3_DUCKDB_DDL) {
     if (V3_ACTIVITY_INDEX_DDL.includes(stmt)) continue;
+    await exec(stmt);
+  }
+}
+
+/**
+ * Additive column migrations for `discovery_feature_snapshots_v3`.
+ *
+ * `CREATE TABLE IF NOT EXISTS` will not add new columns to an existing table.
+ * These ALTER TABLE statements are idempotent via `IF NOT EXISTS` — safe to run
+ * on a fresh table (columns already present = no-op) or an old one (adds them).
+ *
+ * Run these AFTER `runV3DuckDBMigrationsBackfillNoIndex` / `runV3DuckDBMigrations`
+ * in every script that writes snapshot rows.
+ */
+export const V3_SNAPSHOT_ADDITIVE_MIGRATIONS: string[] = [
+  `ALTER TABLE discovery_feature_snapshots_v3 ADD COLUMN IF NOT EXISTS trade_count_90d BIGINT DEFAULT 0`,
+  `ALTER TABLE discovery_feature_snapshots_v3 ADD COLUMN IF NOT EXISTS volume_90d DOUBLE DEFAULT 0.0`,
+  `ALTER TABLE discovery_feature_snapshots_v3 ADD COLUMN IF NOT EXISTS realized_pnl_90d DOUBLE DEFAULT 0.0`,
+  `ALTER TABLE discovery_feature_snapshots_v3 ADD COLUMN IF NOT EXISTS closed_positions_positive BIGINT DEFAULT 0`,
+];
+
+/**
+ * Apply additive snapshot column migrations. Idempotent — each ALTER is
+ * guarded by IF NOT EXISTS so it silently no-ops when the column already exists.
+ */
+export async function runV3SnapshotAdditiveColumnMigrations(
+  exec: (sql: string) => Promise<void>
+): Promise<void> {
+  for (const stmt of V3_SNAPSHOT_ADDITIVE_MIGRATIONS) {
     await exec(stmt);
   }
 }

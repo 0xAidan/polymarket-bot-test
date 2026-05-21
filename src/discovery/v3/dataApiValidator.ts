@@ -72,6 +72,34 @@ interface ActivityEvent {
   price?: number;
 }
 
+export async function fetchPaginatedJson<T>(
+  buildUrl: (offset: number, pageSize: number) => string,
+  pageSize: number,
+  maxPages: number,
+  f: typeof fetch
+): Promise<{ rows: T[]; fullyPaginated: boolean; httpError?: string }> {
+  const all: T[] = [];
+  let fullyPaginated = true;
+  for (let page = 0; page < maxPages; page++) {
+    const offset = page * pageSize;
+    const res = await f(buildUrl(offset, pageSize));
+    if (!res.ok) {
+      const isPaginationCap = (res.status === 400 || res.status >= 500) && all.length > 0;
+      if (isPaginationCap) {
+        fullyPaginated = false;
+        break;
+      }
+      return { rows: all, fullyPaginated: false, httpError: `http ${res.status}` };
+    }
+    const chunk = (await res.json()) as T[];
+    if (!Array.isArray(chunk) || chunk.length === 0) break;
+    all.push(...chunk);
+    if (chunk.length < pageSize) break;
+    if (page === maxPages - 1) fullyPaginated = false;
+  }
+  return { rows: all, fullyPaginated };
+}
+
 export interface ValidatorOptions {
   fetchImpl?: typeof fetch;
   /** Page size passed as `limit` to the API. Default 500 (API maximum). */
@@ -90,7 +118,7 @@ export interface ValidatorOptions {
  * stopped because of the page cap (wallet has more trades than we fetched).
  * Callers should treat `apiTradeCount` as a lower bound in that case.
  */
-async function fetchAllActivity(
+export async function fetchAllActivity(
   address: string,
   f: typeof fetch,
   pageSize: number,
@@ -222,4 +250,131 @@ export async function validateWalletAgainstDataApi(
       apiVolume: null,
     };
   }
+}
+
+/** Polymarket profile "Predictions" count (`GET /traded`). */
+export async function fetchTradedCount(
+  address: string,
+  f: typeof fetch = fetch
+): Promise<number | null> {
+  const res = await f(`${DATA_API}/traded?user=${encodeURIComponent(address.trim().toLowerCase())}`);
+  if (!res.ok) return null;
+  const body = (await res.json()) as { traded?: number };
+  const n = Number(body.traded);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Reference lifetime PnL: closed realizedPnl + open cashPnl (profile ballpark). */
+export async function fetchReferenceLifetimePnlUsd(
+  address: string,
+  f: typeof fetch = fetch
+): Promise<number | null> {
+  const closed = await fetchPaginatedJson<{ realizedPnl?: number }>(
+    (offset, limit) =>
+      `${DATA_API}/closed-positions?user=${encodeURIComponent(address)}&limit=${limit}&offset=${offset}`,
+    50,
+    400,
+    f
+  );
+  if (closed.httpError) return null;
+  const open = await fetchPaginatedJson<{ cashPnl?: number }>(
+    (offset, limit) =>
+      `${DATA_API}/positions?user=${encodeURIComponent(address)}&limit=${limit}&offset=${offset}`,
+    500,
+    40,
+    f
+  );
+  if (open.httpError) return null;
+  const closedSum = closed.rows.reduce((sum, row) => sum + Number(row.realizedPnl ?? 0), 0);
+  const openSum = open.rows.reduce((sum, row) => sum + Number(row.cashPnl ?? 0), 0);
+  return closedSum + openSum;
+}
+
+export interface PromotionGateDerived {
+  volume_total: number;
+  trade_count: number;
+  realized_pnl: number;
+}
+
+export interface PromotionGateResult {
+  ok: boolean;
+  reason?: string;
+  derivedVolume: number;
+  apiVolume: number | null;
+  derivedPnl: number;
+  apiLifetimePnl: number | null;
+  apiTradedCount: number | null;
+}
+
+/**
+ * Fail-closed promotion check for wallets shown on Discovery v3 cards.
+ * Catches corrupted harvest (duplicates / inflated notionals) before publish.
+ */
+export function isDerivedPnlOutlier(derivedPnl: number, referencePnl: number): boolean {
+  const absRef = Math.abs(referencePnl);
+  if (absRef < 10_000) {
+    if (Math.abs(derivedPnl - referencePnl) > 100_000) return true;
+    if (referencePnl !== 0) {
+      const ratio = derivedPnl / referencePnl;
+      if (ratio > 10 || ratio < 0.1) return true;
+    } else if (Math.abs(derivedPnl) > 100_000) {
+      return true;
+    }
+    return false;
+  }
+  const ratio = derivedPnl / referencePnl;
+  return ratio > 10 || ratio < 0.1;
+}
+
+export async function validateWalletPromotionGate(
+  address: string,
+  derived: PromotionGateDerived,
+  opts: ValidatorOptions = {}
+): Promise<PromotionGateResult> {
+  const volumeCheck = await validateWalletAgainstDataApi(
+    address,
+    { trade_count: derived.trade_count, volume_total: derived.volume_total },
+    opts
+  );
+  const f = opts.fetchImpl ?? fetch;
+  const [apiTradedCount, apiLifetimePnl] = await Promise.all([
+    fetchTradedCount(address, f),
+    fetchReferenceLifetimePnlUsd(address, f),
+  ]);
+
+  const base: PromotionGateResult = {
+    ok: volumeCheck.ok,
+    reason: volumeCheck.reason,
+    derivedVolume: derived.volume_total,
+    apiVolume: volumeCheck.apiVolume,
+    derivedPnl: derived.realized_pnl,
+    apiLifetimePnl,
+    apiTradedCount,
+  };
+
+  if (!volumeCheck.ok) {
+    base.ok = false;
+    return base;
+  }
+
+  if (apiLifetimePnl != null && isDerivedPnlOutlier(derived.realized_pnl, apiLifetimePnl)) {
+    return {
+      ...base,
+      ok: false,
+      reason: `derived PnL ${derived.realized_pnl.toFixed(2)} vs reference ${apiLifetimePnl.toFixed(2)} (>${10}x or <0.1x or >$100k off for small profiles)`,
+    };
+  }
+
+  if (
+    volumeCheck.apiVolume != null &&
+    derived.volume_total > Math.max(volumeCheck.apiVolume * 3, volumeCheck.apiVolume + 1_000_000)
+  ) {
+    return {
+      ...base,
+      ok: false,
+      reason: `derived volume ${derived.volume_total.toFixed(0)} >> api TRADE volume ${volumeCheck.apiVolume.toFixed(0)} (likely duplicate rows)`,
+    };
+  }
+
+  return base;
 }

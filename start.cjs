@@ -43,7 +43,8 @@ const bot = spawn('npx', ['tsx', 'watch', 'src/index.ts'], {
 
 const discoveryWorker = spawn('npx', ['tsx', 'watch', 'src/discovery/discoveryWorker.ts'], {
   stdio: 'inherit',
-  cwd: __dirname
+  cwd: __dirname,
+  shell: true
 });
 
 const shutdownChildren = () => {

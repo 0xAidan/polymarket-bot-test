@@ -121,7 +121,10 @@ export function buildNicheKnowledgeSql(): string {
       wt.total_volume
     FROM wallet_cat wc
     JOIN wallet_total wt ON wt.proxy_wallet = wc.proxy_wallet
-    ORDER BY wc.proxy_wallet, cat_volume DESC
+    -- QUALIFY keeps only the single top category per wallet, ranked by volume.
+    -- Without this, the query returns one row per (wallet, category) — up to
+    -- 8 categories × 2.4M wallets = ~19M rows in JS, causing heap OOM.
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY wc.proxy_wallet ORDER BY wc.cat_volume DESC) = 1
   `;
 }
 
@@ -213,15 +216,22 @@ export function buildProbabilisticAccuracySql(): string {
 export function buildMarketEdgeCLVSql(): string {
   return `
     WITH trade_entries AS (
-      -- Sample at most 10k trades per wallet to avoid quadratic explosion
-      -- on market makers with millions of fills. For production, add TABLESAMPLE.
+      -- Hard-capped sample: at most 500k rows, drawn with BERNOULLI(1%).
+      -- 1% of 900M = ~9M rows before the LIMIT; LIMIT caps it further.
+      -- The self-join is O(sample * market_activity), so keeping the sample
+      -- small is critical. Signal direction is preserved at this size.
       SELECT
         a.proxy_wallet,
         a.market_id,
         a.ts_unix                           AS entry_ts,
         a.price_yes                         AS entry_price,
         a.side
-      FROM discovery_activity_v3 a
+      FROM (
+        SELECT proxy_wallet, market_id, ts_unix, price_yes, side
+        FROM discovery_activity_v3
+        USING SAMPLE 1 PERCENT (bernoulli)
+        LIMIT 500000
+      ) a
       WHERE a.price_yes BETWEEN 0.01 AND 0.99  -- skip degenerate near-0/near-1 prices
     ),
     subsequent_1h AS (
@@ -381,8 +391,72 @@ export function buildMomentumHeatSql(nowTs?: number): string {
   `;
 }
 
+// ─── PILLAR 6: COPYABILITY FILTER ────────────────────────────────────────────
 /**
- * Convenience: run all five pillar queries against the given DuckDB instance
+ * Identifies market makers and high-frequency traders that are not practically
+ * copyable by a retail bot. The primary signal is `maker_ratio` — the fraction
+ * of trades filled as a maker (passive, resting limit orders). A wallet with
+ * maker_ratio > 0.7 is almost certainly running a market-making strategy;
+ * their fills arrive at prices unavailable to a taker.
+ *
+ * Secondary signal: `max_trades_per_day` — wallets placing 200+ trades/day
+ * are algorithmically active and hard to copy at any latency.
+ *
+ * Returns: (proxy_wallet, total_trades, maker_count, maker_ratio,
+ *           median_trade_usd, max_trades_per_day, copyable)
+ * where `copyable` = 1 if the wallet passes both gates, 0 otherwise.
+ *
+ * Thresholds (conservative):
+ *   MAKER_RATIO_MAX = 0.70   — above 70% maker = market maker
+ *   MAX_TRADES_PER_DAY = 200 — above 200 trades/day = algorithmic
+ */
+export const COPYABILITY_MAKER_RATIO_MAX    = 0.70;
+export const COPYABILITY_MAX_TRADES_PER_DAY = 200;
+
+export function buildCopyabilityFilterSql(): string {
+  // Single-pass approach: GROUP BY (proxy_wallet, day) once, then aggregate.
+  // The original 3-CTE approach did 3 full scans of the 900M row table
+  // (trade_stats + inner daily + outer daily_max). This does one scan into
+  // the daily_activity intermediate (~29M rows), then two tiny aggregations.
+  return `
+    WITH daily_activity AS (
+      SELECT
+        proxy_wallet,
+        CAST(TO_TIMESTAMP(ts_unix) AS DATE)          AS trade_day,
+        COUNT(*)                                     AS daily_count,
+        SUM(CASE WHEN role = 'maker' THEN 1 ELSE 0 END) AS maker_count_day
+      FROM discovery_activity_v3
+      GROUP BY proxy_wallet, CAST(TO_TIMESTAMP(ts_unix) AS DATE)
+    ),
+    wallet_stats AS (
+      SELECT
+        proxy_wallet,
+        SUM(daily_count)      AS total_trades,
+        SUM(maker_count_day)  AS maker_count,
+        MAX(daily_count)      AS max_trades_per_day
+      FROM daily_activity
+      GROUP BY proxy_wallet
+      HAVING SUM(daily_count) >= 5
+    )
+    SELECT
+      proxy_wallet,
+      total_trades,
+      maker_count,
+      ROUND(maker_count * 1.0 / NULLIF(total_trades, 0), 4) AS maker_ratio,
+      max_trades_per_day,
+      CASE
+        WHEN (maker_count * 1.0 / NULLIF(total_trades, 0)) > ${COPYABILITY_MAKER_RATIO_MAX}
+          OR max_trades_per_day > ${COPYABILITY_MAX_TRADES_PER_DAY}
+        THEN 0
+        ELSE 1
+      END AS copyable
+    FROM wallet_stats
+    ORDER BY maker_ratio DESC
+  `;
+}
+
+/**
+ * Convenience: run all pillar queries against the given DuckDB instance
  * and return the SQL strings (for testing or inspection).
  */
 export function allPillarSqls(opts?: { nowTs?: number }): Record<string, string> {
@@ -392,5 +466,6 @@ export function allPillarSqls(opts?: { nowTs?: number }): Record<string, string>
     marketEdgeCLV: buildMarketEdgeCLVSql(),
     riskDNA: buildRiskDNASql(),
     momentumHeat: buildMomentumHeatSql(opts?.nowTs),
+    copyabilityFilter: buildCopyabilityFilterSql(),
   };
 }

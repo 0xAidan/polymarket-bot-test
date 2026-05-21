@@ -4,271 +4,360 @@ const state = {
   tier: 'alpha',
   retryTimer: null,
   lastWallets: [],
-  authed: false, // filled in by refreshAuthStatus()
+  authed: false,
 };
 
 const statusEl = document.getElementById('status');
-const listEl = document.getElementById('wallet-list');
+const gridEl   = document.getElementById('wallet-grid');
 
-// Build the auth bar once. We keep the reference so we can re-render when
-// auth state changes (e.g. after a 401 on a mutation).
-const authBarEl = document.createElement('div');
-authBarEl.className = 'auth-bar';
-document.querySelector('.v3-header')?.appendChild(authBarEl);
+// ── Auth bar ──────────────────────────────────────────────────────────────────
+
+const authBarMount = document.getElementById('auth-bar-mount');
 
 function renderAuthBar() {
-  if (state.authed) {
-    authBarEl.innerHTML = `
-      <span class="auth-status">Signed in</span>
-      <a class="auth-link" href="/auth/logout">Log out</a>
-    `;
-  } else {
-    const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
-    authBarEl.innerHTML = `
-      <span class="auth-status">Viewing as guest — sign in to copy trade</span>
-      <a class="auth-link primary" href="/auth/login?returnTo=${returnTo}">Sign in</a>
-    `;
-  }
+  const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
+  authBarMount.innerHTML = state.authed
+    ? `<div class="auth-bar">
+         <span class="auth-status">Signed in</span>
+         <a class="auth-link" href="/auth/logout">Sign out</a>
+       </div>`
+    : `<div class="auth-bar">
+         <span class="auth-status">Viewing as guest</span>
+         <a class="auth-link primary" href="/auth/login?returnTo=${returnTo}">Sign in</a>
+       </div>`;
 }
 
 async function refreshAuthStatus() {
   try {
-    const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
-    state.authed = res.ok;
-  } catch (_e) {
-    state.authed = false;
-  }
+    state.authed = (await fetch('/api/auth/me', { credentials: 'same-origin' })).ok;
+  } catch { state.authed = false; }
   renderAuthBar();
 }
 
-function fmtNum(n) {
+// ── Mobile guide toggle ───────────────────────────────────────────────────────
+
+document.getElementById('guideToggle')?.addEventListener('click', (e) => {
+  const guide = document.querySelector('.guide');
+  const open = guide.classList.toggle('open');
+  e.currentTarget.textContent = open ? 'Hide guide' : 'Guide';
+  e.currentTarget.setAttribute('aria-expanded', String(open));
+});
+
+// ── Formatters ────────────────────────────────────────────────────────────────
+
+function fmt$(n) {
   if (n == null) return '—';
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + 'M';
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
-  return String(Math.round(n));
+  const abs = Math.abs(n), sign = n < 0 ? '-' : '';
+  if (abs >= 1_000_000) return sign + '$' + (abs / 1_000_000).toFixed(1) + 'M';
+  if (abs >= 1_000)     return sign + '$' + (abs / 1_000).toFixed(1) + 'K';
+  return sign + '$' + Math.round(abs);
 }
 
-function fmtPct(n) {
+function fmtN(n) {
   if (n == null) return '—';
-  return (n * 100).toFixed(1) + '%';
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000)     return (n / 1_000).toFixed(1) + 'K';
+  return String(Math.round(n));
 }
 
 function fmtAge(ts) {
   if (!ts) return '—';
-  const ageSec = Math.floor(Date.now() / 1000) - Number(ts);
-  if (ageSec < 3600) return `${Math.floor(ageSec / 60)}m ago`;
-  if (ageSec < 86400) return `${Math.floor(ageSec / 3600)}h ago`;
-  return `${Math.floor(ageSec / 86400)}d ago`;
+  const s = Math.floor(Date.now() / 1000) - Number(ts);
+  if (s < 3600)  return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
 }
 
-function walletCard(w) {
+function fmtScore(n) { return n != null ? Math.round(n).toString() : '—'; }
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ── Ditto chip ────────────────────────────────────────────────────────────────
+
+function dittoChip(s) {
+  const map = {
+    HOT_STREAK:           ['hot',        'HOT STREAK'],
+    COOLDOWN_PAUSED:      ['cooldown',   'COOLDOWN'],
+    SLOWING_REVERTING:    ['slowing',    'SLOWING'],
+    CONSISTENT_PERFORMER: ['consistent', 'CONSISTENT'],
+    NEW_UNRANKED:         ['unranked',   'NEW'],
+  };
+  const [cls, label] = map[s] ?? ['unranked', s.replace(/_/g, ' ')];
+  return `<span class="chip ${cls}">${label}</span>`;
+}
+
+// ── Score ring SVG ────────────────────────────────────────────────────────────
+
+function scoreRingSvg(score) {
+  // Circle r=21 → circumference = 2π×21 ≈ 132
+  const circ = 132;
+  const pct  = score != null ? Math.min(100, Math.max(0, score)) : 0;
+  const offset = circ * (1 - pct / 100);
+  return `
+    <div class="score-ring-wrap">
+      <svg class="score-ring" viewBox="0 0 52 52" aria-hidden="true">
+        <circle class="ring-track" cx="26" cy="26" r="21"/>
+        <circle class="ring-fill"  cx="26" cy="26" r="21"
+                data-offset="${offset}"
+                style="stroke-dashoffset:${circ}"/>
+      </svg>
+      <span class="ring-label">${score != null ? Math.round(score) : '?'}</span>
+    </div>`;
+}
+
+// Animate rings after insertion
+function animateRings(container) {
+  // rAF to let the browser paint the initial state first
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    container.querySelectorAll('.ring-fill[data-offset]').forEach((el) => {
+      el.style.strokeDashoffset = el.dataset.offset;
+    });
+  }));
+}
+
+// ── Wallet card ───────────────────────────────────────────────────────────────
+
+function walletCard(w, tier, displayScore) {
+  const score   = displayScore ?? w.score ?? w.compositeScore ?? null;
+  const pnlCls  = (w.realizedPnl ?? 0) >= 0 ? 'pos' : 'neg';
+  const profileUrl = w.profileUrl || `https://polymarket.com/@${w.address}`;
+  const profileSub = w.profileName
+    ? `<span class="cprofile">@${escapeHtml(w.profileName)}</span>`
+    : '';
+
+  const predictionsVal = w.predictionsCount ?? w.tradeCount;
+  const predictionsLbl = w.predictionsCount != null ? 'Predictions' : 'Fills';
+
+  const pillars = [
+    w.momentumScore    != null && `<div class="cpillar"><span class="cpillar-lbl">Heat</span><span class="cpillar-val">${fmtScore(w.momentumScore)}</span></div>`,
+    w.consistencyScore != null && `<div class="cpillar"><span class="cpillar-lbl">Risk DNA</span><span class="cpillar-val">${fmtScore(w.consistencyScore)}</span></div>`,
+    w.brierScore       != null && `<div class="cpillar"><span class="cpillar-lbl">Brier</span><span class="cpillar-val">${fmtScore(w.brierScore)}</span></div>`,
+    w.avgClv1h         != null && `<div class="cpillar"><span class="cpillar-lbl">CLV</span><span class="cpillar-val">${(w.avgClv1h * 100).toFixed(1)}%</span></div>`,
+    w.nicheScore       != null && `<div class="cpillar"><span class="cpillar-lbl">Niche</span><span class="cpillar-val">${fmtScore(w.nicheScore)}</span></div>`,
+  ].filter(Boolean).join('');
+
+  const reasonChips = (w.reasons || []).map((r) => `<span class="chip reason">${r}</span>`).join('');
+
   const card = document.createElement('div');
-  card.className = 'wallet-card';
+  card.className = `wcard tier-${tier}`;
   card.innerHTML = `
-    <div class="rank">#${w.tierRank}</div>
-    <div>
-      <div class="alias">${w.alias}</div>
-      <div class="address">${w.address}</div>
-      <div class="metrics">
-        <span>Vol <strong>$${fmtNum(w.volumeTotal)}</strong></span>
-        <span>Trades <strong>${fmtNum(w.tradeCount)}</strong></span>
-        <span>Markets <strong>${fmtNum(w.distinctMarkets)}</strong></span>
-        <span>Hit rate <strong>${fmtPct(w.hitRate)}</strong></span>
-        <span>PnL <strong>$${fmtNum(w.realizedPnl)}</strong></span>
-        <span class="last-active">Last active ${fmtAge(w.lastActiveTs)}</span>
-      </div>
-      <div class="chips">
-        <span class="chip eligible">eligible</span>
-        ${(w.reasons || []).map((r) => `<span class="chip">${r}</span>`).join('')}
+    <div class="chead">
+      ${scoreRingSvg(score)}
+      <div class="cident">
+        <div class="cident-row1">
+          <span class="cname">${w.alias}</span>
+          <span class="crank">#${w.tierRank}</span>
+        </div>
+        <span class="caddr">${w.address}</span>
+        ${profileSub}
       </div>
     </div>
-    <button class="cta-copy" data-address="${w.address}">Copy Trade</button>
+
+    <div class="cstats">
+      <div class="cstat">
+        <span class="cstat-lbl">Volume</span>
+        <span class="cstat-val">${fmt$(w.volumeTotal)}</span>
+      </div>
+      <div class="cstat">
+        <span class="cstat-lbl">${predictionsLbl}</span>
+        <span class="cstat-val">${fmtN(predictionsVal)}</span>
+      </div>
+      <div class="cstat">
+        <span class="cstat-lbl">Markets</span>
+        <span class="cstat-val">${fmtN(w.distinctMarkets)}</span>
+      </div>
+      <div class="cstat">
+        <span class="cstat-lbl">Lifetime PnL</span>
+        <span class="cstat-val ${pnlCls}">${fmt$(w.realizedPnl)}</span>
+      </div>
+    </div>
+
+    ${pillars ? `<div class="cpillars">${pillars}</div>` : ''}
+
+    <div class="cchips">
+      ${w.dittoState ? dittoChip(w.dittoState) : ''}
+      <span class="chip eligible">eligible</span>
+      ${reasonChips}
+    </div>
+
+    <div class="ccta">
+      <span class="ccta-meta">Last active: ${fmtAge(w.lastActiveTs)}</span>
+      <div class="ccta-btns">
+        <a class="cta-btn secondary profile-link" href="${profileUrl}" target="_blank" rel="noopener noreferrer" aria-label="View ${w.alias} on Polymarket">View on Polymarket</a>
+        <button class="cta-btn" data-address="${w.address}">Copy Trade</button>
+      </div>
+    </div>
   `;
-  const copyBtn = card.querySelector('.cta-copy');
+
+  const btn = card.querySelector('button.cta-btn[data-address]');
   if (!state.authed) {
-    copyBtn.textContent = 'Sign in to Copy';
-    copyBtn.classList.add('needs-auth');
+    btn.textContent = 'Sign in to Copy';
+    btn.classList.add('needs-auth');
+  } else {
+    btn.classList.add('primary');
   }
-  copyBtn.addEventListener('click', async () => {
+
+  btn.addEventListener('click', async () => {
     if (!state.authed) {
       const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
       window.location.href = `/auth/login?returnTo=${returnTo}`;
       return;
     }
+    btn.disabled = true;
+    btn.textContent = 'Adding…';
     try {
-      const result = await safeFetch(`${API}/track`, {
+      const r = await safeFetch(`${API}/track`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ address: w.address }),
       });
-      if (result.ok) {
-        const j = result.data;
-        statusEl.textContent = j.success ? `Tracking ${w.alias}` : `Error: ${j.error}`;
-      } else if (result.kind === 'auth_required') {
+      if (r.ok && r.data.success) {
+        btn.textContent = 'Tracking';
+        statusEl.textContent = `Now tracking ${w.alias}`;
+      } else if (r.kind === 'auth_required') {
         const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
-        window.location.href = `${result.loginUrl}?returnTo=${returnTo}`;
+        window.location.href = `${r.loginUrl}?returnTo=${returnTo}`;
       } else {
-        statusEl.textContent = result.message || 'Error tracking wallet';
+        btn.disabled = false;
+        btn.textContent = 'Copy Trade';
+        statusEl.innerHTML = `<span class="error">${r.data?.error || r.message || 'Error'}</span>`;
       }
     } catch (e) {
-      statusEl.textContent = `Error: ${e.message}`;
+      btn.disabled = false;
+      btn.textContent = 'Copy Trade';
+      statusEl.innerHTML = `<span class="error">${e.message}</span>`;
     }
   });
+
   return card;
 }
 
-/**
- * Fetch wrapper that:
- * - Always inspects status + content-type BEFORE trying JSON parse
- * - Returns a discriminated result instead of throwing on HTTP errors
- * - Surfaces 429 as a structured result so callers can show a retry banner
- */
-async function safeFetch(url, options = {}) {
-  let res;
-  try {
-    // Always include cookies so the Auth0 session is seen by the server when
-    // the user is signed in. Read endpoints don't need it, but mutations do.
-    res = await fetch(url, { credentials: 'same-origin', ...options });
-  } catch (e) {
-    return { ok: false, kind: 'network', message: `Network error: ${e.message}` };
-  }
+// ── Safe fetch ────────────────────────────────────────────────────────────────
 
-  // 401 → auth needed. For reads this should never happen (public). For
-  // mutations, surface a structured result so the caller can prompt login
-  // instead of the raw server message.
+async function safeFetch(url, opts = {}) {
+  let res;
+  try { res = await fetch(url, { credentials: 'same-origin', ...opts }); }
+  catch (e) { return { ok: false, kind: 'network', message: e.message }; }
+
   if (res.status === 401) {
     let loginUrl = '/auth/login';
-    try {
-      const body = await res.json();
-      if (body && typeof body.loginUrl === 'string') loginUrl = body.loginUrl;
-    } catch (_) { /* swallow */ }
-    state.authed = false;
-    renderAuthBar();
-    return { ok: false, kind: 'auth_required', loginUrl, message: 'Sign in to continue' };
+    try { const b = await res.json(); if (b?.loginUrl) loginUrl = b.loginUrl; } catch { /* swallow */ }
+    state.authed = false; renderAuthBar();
+    return { ok: false, kind: 'auth_required', loginUrl };
   }
 
-  const contentType = res.headers.get('content-type') || '';
-  const isJson = contentType.includes('application/json');
+  const isJson = (res.headers.get('content-type') || '').includes('application/json');
 
   if (res.status === 429) {
-    let retryAfterSec = Number(res.headers.get('Retry-After')) || 0;
-    let message = 'Rate-limited by server';
-    if (isJson) {
-      try {
-        const body = await res.json();
-        retryAfterSec = Number(body.retryAfterSec) || retryAfterSec;
-        message = body.message || body.error || message;
-      } catch (_) {
-        // non-fatal — use defaults
-      }
-    } else {
-      try { await res.text(); } catch (_) { /* swallow */ }
-    }
-    if (!retryAfterSec || retryAfterSec < 1) retryAfterSec = 15;
-    return { ok: false, kind: 'rate_limited', retryAfterSec, message };
+    let sec = Number(res.headers.get('Retry-After')) || 0;
+    if (isJson) { try { const b = await res.json(); sec = Number(b.retryAfterSec) || sec; } catch { /* swallow */ } }
+    return { ok: false, kind: 'rate_limited', retryAfterSec: Math.max(sec, 15) };
   }
 
   if (!res.ok) {
-    let bodyText = '';
-    try { bodyText = isJson ? JSON.stringify(await res.json()) : await res.text(); } catch (_) { /* swallow */ }
-    return {
-      ok: false,
-      kind: 'http_error',
-      status: res.status,
-      message: `HTTP ${res.status}${bodyText ? `: ${bodyText.slice(0, 200)}` : ''}`
-    };
+    let txt = '';
+    try { txt = isJson ? JSON.stringify(await res.json()) : await res.text(); } catch { /* swallow */ }
+    return { ok: false, kind: 'http_error', status: res.status, message: `HTTP ${res.status}${txt ? ': ' + txt.slice(0, 200) : ''}` };
   }
 
-  if (!isJson) {
-    const text = await res.text().catch(() => '');
-    return { ok: false, kind: 'bad_content_type', message: `Unexpected response: ${text.slice(0, 120)}` };
-  }
-
-  try {
-    const data = await res.json();
-    return { ok: true, data };
-  } catch (e) {
-    return { ok: false, kind: 'parse_error', message: `Invalid JSON: ${e.message}` };
-  }
+  if (!isJson) return { ok: false, kind: 'bad_content_type', message: 'Unexpected response' };
+  try { return { ok: true, data: await res.json() }; }
+  catch (e) { return { ok: false, kind: 'parse_error', message: e.message }; }
 }
 
-function renderWallets(wallets) {
-  listEl.innerHTML = '';
-  for (const w of wallets) listEl.appendChild(walletCard(w));
+// ── Render ────────────────────────────────────────────────────────────────────
+
+function renderWallets(wallets, tier) {
+  gridEl.innerHTML = '';
+
+  // Scores within a tier batch are tightly clustered (all top wallets land near
+  // the same percentile × dormancy multiplier). Normalize within the visible
+  // batch so the ring visually reflects rank rather than absolute score.
+  // #1 → 96, last → 20, to keep rings meaningfully filled and distinct.
+  const scores = wallets.map((w) => w.score ?? w.compositeScore ?? 0);
+  const maxS = Math.max(...scores) || 1;
+  const minS = Math.min(...scores);
+  const range = maxS - minS || 1;
+
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < wallets.length; i++) {
+    const raw = scores[i];
+    // Normalize to 20–96 so even the last card shows a meaningful ring arc.
+    const normalized = Math.round(20 + ((raw - minS) / range) * 76);
+    frag.appendChild(walletCard(wallets[i], tier, normalized));
+  }
+  gridEl.appendChild(frag);
+  animateRings(gridEl);
 }
+
+// ── Retry ─────────────────────────────────────────────────────────────────────
 
 function scheduleRetry(tier, delaySec) {
   if (state.retryTimer) clearTimeout(state.retryTimer);
-  let remaining = delaySec;
+  let rem = delaySec;
   const tick = () => {
-    if (remaining <= 0) {
-      loadTier(tier);
-      return;
-    }
-    // Preserve previously-loaded wallets so the UI never goes blank.
-    statusEl.innerHTML = `<span class="warn">Rate-limited, retrying in ${remaining}s...</span>`;
-    remaining -= 1;
+    if (rem <= 0) { loadTier(tier); return; }
+    statusEl.innerHTML = `<span class="warn">Rate-limited — retrying in ${rem}s</span>`;
+    rem--;
     state.retryTimer = setTimeout(tick, 1000);
   };
   tick();
 }
 
+// ── Load tier ─────────────────────────────────────────────────────────────────
+
 async function loadTier(tier) {
-  if (state.retryTimer) {
-    clearTimeout(state.retryTimer);
-    state.retryTimer = null;
-  }
-  // Only clear the list on first load — if we already have wallets, keep them
-  // visible while we re-fetch, so transient errors don't produce a blank UI.
-  if (state.lastWallets.length === 0) {
-    listEl.innerHTML = '';
-  }
-  statusEl.textContent = `Loading ${tier}...`;
+  if (state.retryTimer) { clearTimeout(state.retryTimer); state.retryTimer = null; }
+  if (!state.lastWallets.length) gridEl.innerHTML = '';
+  statusEl.textContent = `Loading ${tier}…`;
 
   const result = await safeFetch(`${API}/tier/${tier}?limit=50`);
 
   if (result.ok) {
-    const data = result.data;
-    if (!data.success) {
-      statusEl.innerHTML = `<span class="error">${data.error || 'unknown error'}</span>`;
-      return;
-    }
-    if (!Array.isArray(data.data) || data.data.length === 0) {
+    const { success, error, data, count } = result.data;
+    if (!success) { statusEl.innerHTML = `<span class="error">${error || 'Unknown error'}</span>`; return; }
+    if (!Array.isArray(data) || !data.length) {
       state.lastWallets = [];
-      listEl.innerHTML = '<div class="empty">No wallets scored yet. Run the backfill pipeline.</div>';
-      statusEl.textContent = `${tier}: 0 wallets`;
+      gridEl.innerHTML = `<div class="empty-state"><strong>No wallets scored yet</strong><p>Run the backfill pipeline to populate this tier.</p></div>`;
+      statusEl.textContent = `${tier} · 0 wallets`;
       return;
     }
-    state.lastWallets = data.data;
-    renderWallets(data.data);
-    statusEl.textContent = `${tier}: ${data.count} wallets`;
+    state.lastWallets = data;
+    renderWallets(data, tier);
+    statusEl.textContent = `${tier} · ${count} wallets`;
     return;
   }
 
-  if (result.kind === 'rate_limited') {
-    scheduleRetry(tier, result.retryAfterSec);
-    return;
-  }
-
+  if (result.kind === 'rate_limited') { scheduleRetry(tier, result.retryAfterSec); return; }
   if (result.kind === 'http_error' && result.status === 404) {
     statusEl.innerHTML = '<span class="error">Discovery v3 is not enabled on this server.</span>';
     return;
   }
-
-  // Any other error: keep prior wallets visible if we have them.
   statusEl.innerHTML = `<span class="error">${result.message || 'Fetch failed'}</span>`;
 }
 
+// ── Tier nav ──────────────────────────────────────────────────────────────────
+
 document.querySelectorAll('.tier-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.tier-btn').forEach((b) => b.classList.remove('active'));
+    document.querySelectorAll('.tier-btn').forEach((b) => {
+      b.classList.remove('active');
+      b.setAttribute('aria-selected', 'false');
+    });
     btn.classList.add('active');
+    btn.setAttribute('aria-selected', 'true');
     state.tier = btn.dataset.tier;
     state.lastWallets = [];
     loadTier(state.tier);
   });
 });
 
-// Render the auth bar immediately (as guest), then refresh from the server.
+// ── Boot ──────────────────────────────────────────────────────────────────────
 renderAuthBar();
 refreshAuthStatus().finally(() => loadTier(state.tier));

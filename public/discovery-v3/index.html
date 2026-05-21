@@ -4,22 +4,123 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Discovery v3 — Polymarket Copy Trader</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <header class="v3-header">
-    <h1>Discovery v3</h1>
-    <p class="subtitle">Tiered wallet discovery with point-in-time purity</p>
-    <nav class="tier-nav">
-      <button data-tier="alpha" class="tier-btn active">Alpha</button>
-      <button data-tier="whale" class="tier-btn">Whale</button>
-      <button data-tier="specialist" class="tier-btn">Specialist</button>
-    </nav>
-  </header>
-  <main>
-    <section id="status" class="status-bar"></section>
-    <section id="wallet-list"></section>
-  </main>
+
+  <!-- ── Sidebar ─────────────────────────────── -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-inner">
+
+      <div class="brand">
+        <span class="brand-name">Discovery</span>
+        <span class="brand-tag">v3</span>
+      </div>
+      <p class="brand-sub">Tiered wallet intelligence</p>
+
+      <div id="auth-bar-mount"></div>
+
+      <nav class="tier-nav" role="tablist">
+        <button class="tier-btn active" data-tier="alpha" role="tab">
+          <span class="tbtn-dot"></span>
+          <span class="tbtn-body">
+            <span class="tbtn-name">Alpha</span>
+            <span class="tbtn-desc">Early signal · high CLV</span>
+          </span>
+        </button>
+        <button class="tier-btn" data-tier="whale" role="tab">
+          <span class="tbtn-dot"></span>
+          <span class="tbtn-body">
+            <span class="tbtn-name">Whale</span>
+            <span class="tbtn-desc">Proven PnL · high volume</span>
+          </span>
+        </button>
+        <button class="tier-btn" data-tier="specialist" role="tab">
+          <span class="tbtn-dot"></span>
+          <span class="tbtn-body">
+            <span class="tbtn-name">Specialist</span>
+            <span class="tbtn-desc">Niche expert · category edge</span>
+          </span>
+        </button>
+      </nav>
+
+      <div class="rule"></div>
+
+      <!-- Tier guide -->
+      <div class="guide">
+        <p class="guide-eyebrow">Tier guide</p>
+
+        <div class="guide-entry alpha-entry">
+          <div class="guide-entry-hd"><span class="gd alpha-dot"></span><strong>Alpha</strong></div>
+          <p>Wallets that enter before price moves. High win rate, positive closing-line value, accurate probability estimates.</p>
+          <ul>
+            <li>CLV &gt; 0 — buying before consensus forms</li>
+            <li>Brier score below population median</li>
+            <li>Early entry on major markets</li>
+          </ul>
+        </div>
+
+        <div class="guide-entry whale-entry">
+          <div class="guide-entry-hd"><span class="gd whale-dot"></span><strong>Whale</strong></div>
+          <p>High-volume traders with consistent 90-day profitability. Their size convictions move prices.</p>
+          <ul>
+            <li>Avg trade $1K+, replicable liquidity</li>
+            <li>Positive realized PnL over 90 days</li>
+            <li>Consistent hit rate across markets</li>
+          </ul>
+        </div>
+
+        <div class="guide-entry specialist-entry">
+          <div class="guide-entry-hd"><span class="gd specialist-dot"></span><strong>Specialist</strong></div>
+          <p>Domain experts in one category. They outperform in their niche through context the market lacks.</p>
+          <ul>
+            <li>≥60% volume in one category</li>
+            <li>Edge rate above category baseline</li>
+          </ul>
+        </div>
+
+        <div class="rule"></div>
+
+        <p class="guide-eyebrow">Execution states</p>
+        <div class="state-list">
+          <div class="state-row"><span class="chip hot">HOT STREAK</span><span class="sd">Optimal copy window</span></div>
+          <div class="state-row"><span class="chip consistent">CONSISTENT</span><span class="sd">Steady long-term edge</span></div>
+          <div class="state-row"><span class="chip slowing">SLOWING</span><span class="sd">Performance declining</span></div>
+          <div class="state-row"><span class="chip cooldown">COOLDOWN</span><span class="sd">Temporarily paused</span></div>
+          <div class="state-row"><span class="chip unranked">NEW</span><span class="sd">Insufficient data</span></div>
+        </div>
+
+        <div class="rule"></div>
+
+        <p class="guide-eyebrow">Score columns</p>
+        <dl class="glossary">
+          <dt>Composite</dt><dd>Weighted blend of all pillars</dd>
+          <dt>Heat</dt><dd>Recent momentum vs baseline</dd>
+          <dt>Risk DNA</dt><dd>Sizing consistency over time</dd>
+          <dt>Brier</dt><dd>Probability accuracy</dd>
+          <dt>CLV</dt><dd>Edge at close vs entry price</dd>
+          <dt>Niche</dt><dd>Dominance in top category</dd>
+        </dl>
+      </div>
+
+    </div>
+  </aside>
+
+  <!-- ── Main ───────────────────────────────── -->
+  <div class="main">
+
+    <div class="topbar">
+      <div id="status" class="status"></div>
+      <button class="guide-toggle" id="guideToggle" aria-expanded="false">Guide</button>
+    </div>
+
+    <div id="wallet-grid" aria-live="polite"></div>
+
+  </div>
+
   <script src="./app.js" type="module"></script>
 </body>
 </html>

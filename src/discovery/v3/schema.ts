@@ -31,6 +31,32 @@ export const V3_SQLITE_DDL: string[] = [
   )`,
 ];
 
+/**
+ * Additive columns on the existing scores table.
+ * These ALTER TABLEs are idempotent — SQLite will error if the column
+ * already exists, so we catch and ignore.
+ */
+const ADDITIVE_COLUMN_MIGRATIONS: string[] = [
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN composite_score REAL DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN momentum_score REAL DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN consistency_score REAL DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN ditto_state TEXT DEFAULT NULL`,
+  // Phase 3: Brier / CLV / Niche pillars
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN brier_score REAL DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN avg_clv_1h REAL DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN pct_positive_clv_1h REAL DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN top_category TEXT DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN cat_volume_share REAL DEFAULT NULL`,
+  // Phase 6: Copyability
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN maker_ratio REAL DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN copyable INTEGER DEFAULT 1`,
+  // Phase 7: Signal integration
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN latest_signal TEXT DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN latest_signal_ts INTEGER DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN predictions_count INTEGER DEFAULT NULL`,
+  `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN profile_name TEXT DEFAULT NULL`,
+];
+
 export function runV3SqliteMigrations(db: Database.Database): void {
   // Pre-existing DBs (created before rev5, 2026-04-23) have
   // `discovery_wallet_scores_v3` with PRIMARY KEY (proxy_wallet) — a bug.
@@ -47,5 +73,14 @@ export function runV3SqliteMigrations(db: Database.Database): void {
   }
   for (const stmt of V3_SQLITE_DDL) {
     db.exec(stmt);
+  }
+
+  // Additive migration: add new columns if they don't exist yet.
+  for (const alter of ADDITIVE_COLUMN_MIGRATIONS) {
+    try {
+      db.exec(alter);
+    } catch (err) {
+      if (!/duplicate column/i.test((err as Error).message)) throw err;
+    }
   }
 }

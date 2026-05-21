@@ -3,6 +3,10 @@
  *
  * All routes are flag-gated. When `DISCOVERY_V3=false` the router returns
  * 404 for every path so the UI can't accidentally render.
+ *
+ * Display stats (volume, PnL, fills) come from the pipeline SQLite read model
+ * only — harvested DuckDB activity → snapshots → scores. Polymarket public
+ * APIs are used in backfill validators, not on the tier read path.
  */
 import { Router, Request, Response, NextFunction } from 'express';
 import type Database from 'better-sqlite3';
@@ -26,18 +30,45 @@ interface ScoreRow {
   last_active_ts: number;
   reasons_json: string;
   updated_at: number;
+  composite_score: number | null;
+  momentum_score: number | null;
+  consistency_score: number | null;
+  ditto_state: string | null;
+  predictions_count: number | null;
+  profile_name: string | null;
+  brier_score: number | null;
+  avg_clv_1h: number | null;
+  pct_positive_clv_1h: number | null;
+  top_category: string | null;
+  cat_volume_share: number | null;
+  maker_ratio: number | null;
+  copyable: number | null;
+}
+
+function buildProfileUrl(address: string): string {
+  return `https://polymarket.com/@${address.trim().toLowerCase()}`;
 }
 
 function dto(row: ScoreRow) {
   const reasons = safeJson(row.reasons_json, [] as string[]);
+  const fillCount = Number(row.trade_count);
+  const predictionsCount =
+    row.predictions_count != null ? Number(row.predictions_count) : null;
   return {
     address: row.proxy_wallet,
     alias: aliasFor(row.proxy_wallet),
+    profileName: row.profile_name ?? null,
+    profileUrl: buildProfileUrl(row.proxy_wallet),
     tier: row.tier,
     tierRank: row.tier_rank,
     score: row.score,
     volumeTotal: row.volume_total,
-    tradeCount: row.trade_count,
+    /** OrderFilled event count from our harvest (internal "fills"). */
+    fillCount,
+    /** Polymarket profile "Predictions" when populated at publish time. */
+    predictionsCount,
+    /** @deprecated Use fillCount / predictionsCount — kept for older clients. */
+    tradeCount: predictionsCount ?? fillCount,
     distinctMarkets: row.distinct_markets,
     closedPositions: row.closed_positions,
     realizedPnl: row.realized_pnl,
@@ -45,6 +76,17 @@ function dto(row: ScoreRow) {
     lastActiveTs: row.last_active_ts,
     reasons,
     updatedAt: row.updated_at,
+    compositeScore: row.composite_score,
+    momentumScore: row.momentum_score,
+    consistencyScore: row.consistency_score,
+    dittoState: row.ditto_state,
+    brierScore: row.brier_score ?? null,
+    avgClv1h: row.avg_clv_1h ?? null,
+    pctPositiveClv1h: row.pct_positive_clv_1h ?? null,
+    topCategory: row.top_category ?? null,
+    catVolumeShare: row.cat_volume_share ?? null,
+    makerRatio: row.maker_ratio ?? null,
+    copyable: row.copyable != null ? row.copyable === 1 : null,
   };
 }
 
@@ -57,7 +99,7 @@ function aliasFor(address: string): string {
   const animals = ['Otter', 'Falcon', 'Moth', 'Hare', 'Vulture', 'Lynx', 'Stoat', 'Marlin'];
   let h = 0;
   for (let i = 0; i < address.length; i++) h = (h * 31 + address.charCodeAt(i)) >>> 0;
-  return `${adjectives[h % adjectives.length]} ${animals[(h >> 3) % animals.length]}`;
+  return `${adjectives[h % adjectives.length]} ${animals[(h >>> 3) % animals.length]}`;
 }
 
 export interface V3RouterDeps {
@@ -66,22 +108,8 @@ export interface V3RouterDeps {
 
 /**
  * Gate for endpoints that MUTATE user state (track, watchlist, dismiss).
- *
- * Read-only discovery endpoints (tier lists, wallet lookups, health, cutover
- * status) are intentionally public so anyone with the link can see the
- * leaderboard without an Auth0 session. Any route that changes server-side
- * state on behalf of a user MUST use this gate so we never silently accept
- * an anonymous mutation.
- *
- * In OIDC mode we require `req.oidc.isAuthenticated()`. In legacy API-secret
- * mode the upstream `/api` middleware has already checked the bearer token
- * before we reach this router, so we let the request through. In fully-open
- * dev mode (`AUTH_MODE=legacy` with no `API_SECRET`) we also let it through,
- * matching existing behaviour for legacy routes.
  */
 export const requireAuthForMutations = (req: Request, res: Response, next: NextFunction): void => {
-  // Auth0 OIDC mode: express-openid-connect attaches `req.oidc`.
-  // When the session is missing, block mutation; read routes remain open.
   const oidc = (req as any).oidc;
   if (oidc && typeof oidc.isAuthenticated === 'function') {
     if (oidc.isAuthenticated()) {
@@ -95,7 +123,6 @@ export const requireAuthForMutations = (req: Request, res: Response, next: NextF
     });
     return;
   }
-  // Non-OIDC mode: upstream middleware has already vetted the request.
   next();
 };
 
@@ -111,7 +138,6 @@ export function createDiscoveryV3Router(deps: V3RouterDeps): Router {
   };
   router.use(flagGate);
 
-  // 1. GET /tier/:tier
   router.get('/tier/:tier', (req: Request, res: Response) => {
     const tier = req.params.tier as TierName;
     if (!VALID_TIERS.has(tier)) {
@@ -123,10 +149,10 @@ export function createDiscoveryV3Router(deps: V3RouterDeps): Router {
     const rows = deps.getDb()
       .prepare('SELECT * FROM discovery_wallet_scores_v3 WHERE tier = ? ORDER BY tier_rank ASC LIMIT ? OFFSET ?')
       .all(tier, limit, offset) as ScoreRow[];
-    res.json({ success: true, tier, count: rows.length, data: rows.map(dto) });
+    const data = rows.map((row) => dto(row));
+    res.json({ success: true, tier, count: data.length, data });
   });
 
-  // 2. GET /wallet/:address
   router.get('/wallet/:address', (req: Request, res: Response) => {
     const addr = req.params.address.toLowerCase();
     const rows = deps.getDb()
@@ -136,10 +162,9 @@ export function createDiscoveryV3Router(deps: V3RouterDeps): Router {
       res.status(404).json({ success: false, error: 'wallet not found in v3 scores' });
       return;
     }
-    res.json({ success: true, address: addr, tiers: rows.map(dto) });
+    res.json({ success: true, address: addr, tiers: rows.map((row) => dto(row)) });
   });
 
-  // 3. GET /compare?addresses=a,b,c,d
   router.get('/compare', (req: Request, res: Response) => {
     const raw = String(req.query.addresses ?? '');
     const addrs = raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean).slice(0, 4);
@@ -151,10 +176,9 @@ export function createDiscoveryV3Router(deps: V3RouterDeps): Router {
     const rows = deps.getDb()
       .prepare(`SELECT * FROM discovery_wallet_scores_v3 WHERE LOWER(proxy_wallet) IN (${placeholders})`)
       .all(...addrs) as ScoreRow[];
-    res.json({ success: true, addresses: addrs, data: rows.map(dto) });
+    res.json({ success: true, addresses: addrs, data: rows.map((row) => dto(row)) });
   });
 
-  // 4. GET /health
   router.get('/health', (_req: Request, res: Response) => {
     try {
       const counts = deps.getDb().prepare(
@@ -192,7 +216,6 @@ export function createDiscoveryV3Router(deps: V3RouterDeps): Router {
     }
   });
 
-  // 5. POST /watchlist (AUTH REQUIRED — mutation)
   router.post('/watchlist', requireAuthForMutations, (req: Request, res: Response) => {
     const address = String(req.body?.address ?? '').toLowerCase();
     if (!/^0x[0-9a-f]{40}$/.test(address)) {
@@ -202,24 +225,20 @@ export function createDiscoveryV3Router(deps: V3RouterDeps): Router {
     res.json({ success: true, address, action: 'watch' });
   });
 
-  // 6. DELETE /watchlist/:addr (AUTH REQUIRED — mutation)
   router.delete('/watchlist/:addr', requireAuthForMutations, (req: Request, res: Response) => {
     res.json({ success: true, address: req.params.addr.toLowerCase(), action: 'unwatch' });
   });
 
-  // 7. POST /dismiss (AUTH REQUIRED — mutation)
   router.post('/dismiss', requireAuthForMutations, (req: Request, res: Response) => {
     const address = String(req.body?.address ?? '').toLowerCase();
     res.json({ success: true, address, action: 'dismiss', until: req.body?.until ?? null });
   });
 
-  // 8. POST /track (AUTH REQUIRED — mutation)
   router.post('/track', requireAuthForMutations, (req: Request, res: Response) => {
     const address = String(req.body?.address ?? '').toLowerCase();
     res.json({ success: true, address, action: 'track' });
   });
 
-  // 9. GET /cutover-status — detailed cutover readiness (cf. Phase 4)
   router.get('/cutover-status', (_req: Request, res: Response) => {
     const db = deps.getDb();
     const tierCounts = db.prepare(
