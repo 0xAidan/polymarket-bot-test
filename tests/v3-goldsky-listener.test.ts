@@ -57,7 +57,7 @@ test('normalizeOrderFilled produces two rows (maker + taker) with unique log_ind
   const maker = rows[0];
   assert.equal(maker.proxy_wallet, '0xMAKER');
   assert.equal(maker.role, 'maker');
-  assert.equal(maker.side, 'BUY', 'maker delivering collateral = BUY');
+  assert.equal(maker.side, 'SELL', 'maker delivering USDC leg');
   assert.equal(maker.usd_notional, 50);
   assert.equal(maker.abs_size, 100);
   assert.equal(maker.price_yes, 0.5);
@@ -66,7 +66,7 @@ test('normalizeOrderFilled produces two rows (maker + taker) with unique log_ind
 
   const taker = rows[1];
   assert.equal(taker.role, 'taker');
-  assert.equal(taker.side, 'SELL');
+  assert.equal(taker.side, 'BUY', 'taker acquiring outcome tokens');
 });
 
 test('pollGoldskyOnce advances cursor + inserts rows + deduplicates via mock client', async () => {

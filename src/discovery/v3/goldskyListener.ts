@@ -121,8 +121,10 @@ export function normalizeOrderFilled(event: GoldskyOrderFilled): NormalizedV3Row
   const usdNotional = makerIsCollateral ? makerAmount : takerAmount;
   const size = makerIsCollateral ? takerAmount : makerAmount;
 
-  const makerSide: 'BUY' | 'SELL' = makerIsCollateral ? 'BUY' : 'SELL';
-  const takerSide: 'BUY' | 'SELL' = makerIsCollateral ? 'SELL' : 'BUY';
+  // User-centric sides (match Polymarket Data API /activity `side` for the wallet).
+  // When maker delivers USDC, taker acquires outcome tokens → taker BUY (not SELL).
+  const makerSide: 'BUY' | 'SELL' = makerIsCollateral ? 'SELL' : 'BUY';
+  const takerSide: 'BUY' | 'SELL' = makerIsCollateral ? 'BUY' : 'SELL';
   // These fields are not available from the Goldsky schema; use the
   // non-collateral asset ID as a best-effort market identifier.
   const assetBasedId = makerIsCollateral ? event.takerAssetId : event.makerAssetId;

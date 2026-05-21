@@ -196,7 +196,11 @@ export function buildSortedParquetToActivityDedupedSql(sortedParquetPath: string
         transaction_hash                                  AS tx_hash,
         CAST(log_index AS UINTEGER)                       AS log_index,
         LOWER(role)                                       AS role,
-        UPPER(direction)                                  AS side,
+        CASE
+          WHEN CAST(token_amount AS DOUBLE) > 0 THEN 'BUY'
+          WHEN CAST(token_amount AS DOUBLE) < 0 THEN 'SELL'
+          ELSE UPPER(direction)
+        END                                               AS side,
         CAST(price AS DOUBLE)                             AS price_yes,
         CAST(usd_amount AS DOUBLE)                        AS usd_notional,
         CAST(token_amount AS DOUBLE)                      AS signed_size,
@@ -258,7 +262,11 @@ export function buildSortedParquetToActivityRawSql(sortedParquetPath: string): s
       transaction_hash                                  AS tx_hash,
       CAST(log_index AS UINTEGER)                       AS log_index,
       LOWER(role)                                       AS role,
-      UPPER(direction)                                  AS side,
+      CASE
+        WHEN CAST(token_amount AS DOUBLE) > 0 THEN 'BUY'
+        WHEN CAST(token_amount AS DOUBLE) < 0 THEN 'SELL'
+        ELSE UPPER(direction)
+      END                                               AS side,
       CAST(price AS DOUBLE)                             AS price_yes,
       CAST(usd_amount AS DOUBLE)                        AS usd_notional,
       CAST(token_amount AS DOUBLE)                      AS signed_size,
@@ -388,7 +396,11 @@ export function buildEventIngestSql(sourceRef: string, limit?: number): string {
       transaction_hash                                  AS tx_hash,
       CAST(log_index AS UINTEGER)                       AS log_index,
       LOWER(role)                                       AS role,
-      UPPER(direction)                                  AS side,
+      CASE
+        WHEN CAST(token_amount AS DOUBLE) > 0 THEN 'BUY'
+        WHEN CAST(token_amount AS DOUBLE) < 0 THEN 'SELL'
+        ELSE UPPER(direction)
+      END                                               AS side,
       CAST(price AS DOUBLE)                             AS price_yes,
       CAST(usd_amount AS DOUBLE)                        AS usd_notional,
       CAST(token_amount AS DOUBLE)                      AS signed_size,
@@ -440,7 +452,11 @@ export function buildEventIngestSqlAntiJoin(sourceRef: string, limit?: number): 
       transaction_hash                                  AS tx_hash,
       CAST(log_index AS UINTEGER)                       AS log_index,
       LOWER(role)                                       AS role,
-      UPPER(direction)                                  AS side,
+      CASE
+        WHEN CAST(token_amount AS DOUBLE) > 0 THEN 'BUY'
+        WHEN CAST(token_amount AS DOUBLE) < 0 THEN 'SELL'
+        ELSE UPPER(direction)
+      END                                               AS side,
       CAST(price AS DOUBLE)                             AS price_yes,
       CAST(usd_amount AS DOUBLE)                        AS usd_notional,
       CAST(token_amount AS DOUBLE)                      AS signed_size,
@@ -511,7 +527,11 @@ export function buildEventIngestSqlAntiJoinChunked(
       transaction_hash                                  AS tx_hash,
       CAST(log_index AS UINTEGER)                       AS log_index,
       LOWER(role)                                       AS role,
-      UPPER(direction)                                  AS side,
+      CASE
+        WHEN CAST(token_amount AS DOUBLE) > 0 THEN 'BUY'
+        WHEN CAST(token_amount AS DOUBLE) < 0 THEN 'SELL'
+        ELSE UPPER(direction)
+      END                                               AS side,
       CAST(price AS DOUBLE)                             AS price_yes,
       CAST(usd_amount AS DOUBLE)                        AS usd_notional,
       CAST(token_amount AS DOUBLE)                      AS signed_size,
@@ -654,11 +674,14 @@ export function buildSnapshotEmitSql(): string {
       SELECT
         proxy_wallet,
         market_id,
-        SUM(CASE WHEN side = 'SELL' THEN usd_notional ELSE -usd_notional END) AS cash_flow,
-        -- Use abs_size × sign(side) so the net position is always correct even if
-        -- the source parquet has token_amount as an unsigned absolute fill amount.
-        -- (If token_amount IS already signed, this produces the same result.)
-        SUM(CASE WHEN side = 'BUY' THEN abs_size ELSE -abs_size END)           AS token_balance,
+        -- Prefer signed_size (parquet: +buy / -sell). Fall back to side if size is 0.
+        SUM(CASE
+          WHEN signed_size > 0 THEN -usd_notional
+          WHEN signed_size < 0 THEN usd_notional
+          WHEN side = 'SELL' THEN usd_notional
+          ELSE -usd_notional
+        END) AS cash_flow,
+        SUM(signed_size) AS token_balance,
         MIN(ts_unix)                                                            AS first_trade_ts,
         MAX(ts_unix)                                                            AS last_trade_ts
       FROM discovery_activity_v3

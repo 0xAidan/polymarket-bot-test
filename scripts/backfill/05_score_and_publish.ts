@@ -354,10 +354,11 @@ async function main(): Promise<void> {
         );
         for (const s of list) {
           const meta = profileMeta.get(s.proxy_wallet);
+          const displayPnl = meta?.profilePnlUsd ?? s.realized_pnl;
           ins.run(
             s.proxy_wallet, s.tier, s.tier_rank, s.score, s.volume_total,
             s.trade_count, s.distinct_markets, s.closed_positions,
-            s.realized_pnl, s.hit_rate, s.last_active_ts, s.reasons_json, s.updated_at,
+            displayPnl, s.hit_rate, s.last_active_ts, s.reasons_json, s.updated_at,
             s.composite_score     ?? null, s.momentum_score       ?? null,
             s.consistency_score   ?? null, s.ditto_state           ?? null,
             s.brier_score         ?? null, s.avg_clv_1h             ?? null,

@@ -4,9 +4,9 @@
  * All routes are flag-gated. When `DISCOVERY_V3=false` the router returns
  * 404 for every path so the UI can't accidentally render.
  *
- * Display stats (volume, PnL, fills) come from the pipeline SQLite read model
- * only — harvested DuckDB activity → snapshots → scores. Polymarket public
- * APIs are used in backfill validators, not on the tier read path.
+ * Display stats come from the pipeline SQLite read model (harvest → snapshots →
+ * publish). At publish time, `realized_pnl` is overwritten with Polymarket
+ * position PnL (closed realizedPnl + open cashPnl) when the API responds.
  */
 import { Router, Request, Response, NextFunction } from 'express';
 import type Database from 'better-sqlite3';

@@ -310,17 +310,30 @@ export interface PromotionGateResult {
  * Fail-closed promotion check for wallets shown on Discovery v3 cards.
  * Catches corrupted harvest (duplicates / inflated notionals) before publish.
  */
+/** Max absolute delta vs Polymarket position PnL before we treat derived as corrupt. */
+const PROFILE_PNL_ABS_TOLERANCE_USD = 25_000;
+/** Max relative delta for mid-size profiles (both |ref| and |derived| above floor). */
+const PROFILE_PNL_REL_TOLERANCE = 0.35;
+
 export function isDerivedPnlOutlier(derivedPnl: number, referencePnl: number): boolean {
   const absRef = Math.abs(referencePnl);
+  const absDelta = Math.abs(derivedPnl - referencePnl);
+  if (absDelta > PROFILE_PNL_ABS_TOLERANCE_USD && absDelta > absRef * 2) {
+    return true;
+  }
   if (absRef < 10_000) {
-    if (Math.abs(derivedPnl - referencePnl) > 100_000) return true;
+    if (absDelta > 100_000) return true;
     if (referencePnl !== 0) {
       const ratio = derivedPnl / referencePnl;
       if (ratio > 10 || ratio < 0.1) return true;
     } else if (Math.abs(derivedPnl) > 100_000) {
       return true;
     }
-    return false;
+    return absDelta > 5_000 && absDelta / Math.max(1, absRef) > 5;
+  }
+  if (absRef >= 10_000 && absDelta / absRef > PROFILE_PNL_REL_TOLERANCE) {
+    const ratio = derivedPnl / referencePnl;
+    if (ratio > 3 || ratio < 0.33) return true;
   }
   const ratio = derivedPnl / referencePnl;
   return ratio > 10 || ratio < 0.1;
