@@ -131,6 +131,7 @@ function walletCard(w, tier, displayScore) {
     ? `<span class="cprofile">@${escapeHtml(w.profileName)}</span>`
     : '';
 
+  const showFills = w.predictionsCount != null && w.fillCount != null;
   const predictionsVal = w.predictionsCount ?? w.tradeCount;
   const predictionsLbl = w.predictionsCount != null ? 'Predictions' : 'Fills';
 
@@ -168,6 +169,10 @@ function walletCard(w, tier, displayScore) {
         <span class="cstat-lbl">${predictionsLbl}</span>
         <span class="cstat-val">${fmtN(predictionsVal)}</span>
       </div>
+      ${showFills ? `<div class="cstat">
+        <span class="cstat-lbl">Fills</span>
+        <span class="cstat-val">${fmtN(w.fillCount)}</span>
+      </div>` : ''}
       <div class="cstat">
         <span class="cstat-lbl">Markets</span>
         <span class="cstat-val">${fmtN(w.distinctMarkets)}</span>

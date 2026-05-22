@@ -32,6 +32,14 @@ public/discovery-v3/app.js
 
 ## Repair pipeline (staging)
 
+**One command** (from repo root on the staging server):
+
+```bash
+bash scripts/backfill/repair_display_accuracy.sh
+```
+
+Manual steps (same order):
+
 ```bash
 sudo systemctl stop polymarket-discovery-worker-staging
 cd /opt/polymarket-bot-staging
@@ -41,17 +49,20 @@ npx tsx scripts/backfill/dedup_gap_activity.ts
 # Or full-table repair if dupes exist outside gap window:
 # npx tsx scripts/backfill/dedup_activity_global.ts
 
-# 2. Re-emit snapshots and publish scores
+# 2. Re-emit snapshots and publish scores (05 now excludes corrupt cards)
 npx tsx scripts/backfill/04_emit_snapshots.ts
-npx tsx scripts/backfill/05_score_and_publish.ts
+SKIP_COMPOSITE=1 SKIP_BRIER=1 SKIP_NICHE=1 SKIP_COPY=1 SKIP_CLV=1 \
+  npx tsx scripts/backfill/05_score_and_publish.ts
 
 # 3. Gates
-npx tsx scripts/backfill/06_validate.ts
 npx tsx scripts/backfill/06_promotion_gate.ts
-DUCKDB_PATH=... npm run verify:pnl:smoke
+npx tsx scripts/backfill/99_pnl_diagnostic.ts
 
 npm run build && sudo systemctl restart polymarket-app-staging
+npx tsx scripts/verify-staging-discovery-display.ts
 ```
+
+**Publish-time guard (code):** `05_score_and_publish.ts` calls `filterScoresForPublish()` so wallets with million-dollar PnL / fillCount ≫ predictions are not written to SQLite even before DuckDB repair completes.
 
 Diagnostics:
 

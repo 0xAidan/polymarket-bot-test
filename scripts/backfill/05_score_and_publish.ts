@@ -61,6 +61,7 @@ import {
 } from '../../src/discovery/v3/pillarFeatures.js';
 import type { V3FeatureSnapshot } from '../../src/discovery/v3/types.js';
 import { fetchPublishProfileMeta } from '../../src/discovery/v3/publishEnrichment.js';
+import { filterScoresForPublish } from '../../src/discovery/v3/publishQualityGate.js';
 
 function getSqlitePath(): string {
   const dataDir = process.env.DATA_DIR || './data';
@@ -333,6 +334,45 @@ async function main(): Promise<void> {
       console.log('[05] SKIP_PUBLISH_PREDICTIONS=1 — predictions_count/profile_name left null');
     }
 
+    const gateInput = scores.map((s) => {
+      const meta = profileMeta.get(s.proxy_wallet);
+      return {
+        proxy_wallet: s.proxy_wallet,
+        tier: s.tier,
+        volume_total: s.volume_total,
+        trade_count: s.trade_count,
+        realized_pnl: s.realized_pnl,
+        predictions_count: meta?.predictionsCount ?? null,
+      };
+    });
+    const { kept: keptKeys, excluded: gateExcluded } = await filterScoresForPublish(gateInput);
+    const keptSet = new Set(keptKeys.map((k) => k.proxy_wallet));
+    let publishScores = scores.filter((s) => keptSet.has(s.proxy_wallet));
+    if (gateExcluded.length > 0) {
+      console.warn(`[05] publish gate excluded ${gateExcluded.length} wallet(s):`);
+      for (const ex of gateExcluded.slice(0, 25)) {
+        console.warn(`  - ${ex.tier} ${ex.wallet}: ${ex.reason}`);
+      }
+      if (gateExcluded.length > 25) {
+        console.warn(`  … and ${gateExcluded.length - 25} more`);
+      }
+    }
+    const rerankByTier = new Map<string, typeof publishScores>();
+    for (const s of publishScores) {
+      const list = rerankByTier.get(s.tier) ?? [];
+      list.push(s);
+      rerankByTier.set(s.tier, list);
+    }
+    publishScores = [];
+    for (const [, list] of rerankByTier) {
+      list.sort((a, b) => a.tier_rank - b.tier_rank);
+      list.forEach((s, i) => {
+        s.tier_rank = i + 1;
+        publishScores.push(s);
+      });
+    }
+    console.log(`[05] publishing ${publishScores.length}/${scores.length} wallets after quality gate`);
+
     const sqlitePath = getSqlitePath();
     mkdirSync(dirname(sqlitePath), { recursive: true });
     const db = new Database(sqlitePath);
@@ -369,8 +409,8 @@ async function main(): Promise<void> {
           );
         }
       });
-      tx(scores);
-      console.log(`[05] wrote ${scores.length} score rows to ${sqlitePath}`);
+      tx(publishScores);
+      console.log(`[05] wrote ${publishScores.length} score rows to ${sqlitePath}`);
     } finally {
       db.close();
     }

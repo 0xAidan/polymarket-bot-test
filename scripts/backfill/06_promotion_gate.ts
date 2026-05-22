@@ -107,6 +107,40 @@ async function main(): Promise<void> {
       );
     }
 
+    console.log('[06-gate] alpha tier display checks (published SQLite)…');
+    const alphaRows = sqlite
+      .prepare(
+        `SELECT proxy_wallet, volume_total, trade_count, realized_pnl, predictions_count
+         FROM discovery_wallet_scores_v3
+         WHERE tier = 'alpha'
+         ORDER BY tier_rank ASC
+         LIMIT 25`
+      )
+      .all() as Array<{
+      proxy_wallet: string;
+      volume_total: number;
+      trade_count: number;
+      realized_pnl: number;
+      predictions_count: number | null;
+    }>;
+
+    for (const row of alphaRows) {
+      const gate = await validateWalletPromotionGate(row.proxy_wallet, {
+        volume_total: Number(row.volume_total),
+        trade_count: Number(row.trade_count),
+        realized_pnl: Number(row.realized_pnl),
+      });
+      const status = gate.ok ? 'PASS' : 'FAIL';
+      console.log(
+        `[06-gate] alpha rank sample ${row.proxy_wallet} ${status} ` +
+          `pnl=${row.realized_pnl} vol=${row.volume_total} fills=${row.trade_count} ` +
+          `pred=${row.predictions_count ?? 'n/a'} ${gate.reason ?? ''}`
+      );
+      if (!gate.ok) {
+        failures.push(`alpha tier ${row.proxy_wallet}: ${gate.reason ?? 'promotion gate failed'}`);
+      }
+    }
+
     console.log('[06-gate] golden wallet display checks…');
     for (const golden of GOLDEN_WALLETS) {
       const addr = golden.address.toLowerCase();
