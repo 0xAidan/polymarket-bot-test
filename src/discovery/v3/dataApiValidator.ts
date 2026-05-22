@@ -252,6 +252,20 @@ export async function validateWalletAgainstDataApi(
   }
 }
 
+/** Paginated TRADE-only volume from `/v1/activity` (matches promotion-gate reference). */
+export async function fetchReferenceTradeVolumeUsd(
+  address: string,
+  f: typeof fetch = fetch,
+  opts: ValidatorOptions = {}
+): Promise<number | null> {
+  const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
+  const maxPages = opts.maxPages ?? DEFAULT_MAX_PAGES;
+  const { events, httpError } = await fetchAllActivity(address, f, pageSize, maxPages);
+  if (httpError) return null;
+  const trades = events.filter((e) => e.type === 'TRADE');
+  return trades.reduce((sum, e) => sum + Number(e.usdcSize ?? 0), 0);
+}
+
 /** Polymarket profile "Predictions" count (`GET /traded`). */
 export async function fetchTradedCount(
   address: string,

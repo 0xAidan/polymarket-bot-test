@@ -2,13 +2,21 @@
  * Optional metadata fetched at score-publish time (not on API read path).
  * Populates Polymarket "Predictions" count and display name for UI labels.
  */
-import { fetchTradedCount } from './dataApiValidator.js';
+import {
+  fetchReferenceLifetimePnlUsd,
+  fetchReferenceTradeVolumeUsd,
+  fetchTradedCount,
+} from './dataApiValidator.js';
 
 const GAMMA_API = 'https://gamma-api.polymarket.com';
 
 export interface PublishProfileMeta {
   predictionsCount: number | null;
   profileName: string | null;
+  /** Polymarket reference lifetime PnL (closed + open), stored at publish for display. */
+  profilePnlUsd: number | null;
+  /** Paginated Data API TRADE volume sum, stored at publish for display. */
+  profileVolumeUsd: number | null;
 }
 
 export async function fetchPublishProfileMeta(
@@ -16,11 +24,13 @@ export async function fetchPublishProfileMeta(
   fetchImpl: typeof fetch = fetch
 ): Promise<PublishProfileMeta> {
   const proxyWallet = address.trim().toLowerCase();
-  const [predictionsCount, profileName] = await Promise.all([
+  const [predictionsCount, profileName, profilePnlUsd, profileVolumeUsd] = await Promise.all([
     fetchTradedCount(proxyWallet, fetchImpl),
     fetchGammaProfileName(proxyWallet, fetchImpl),
+    fetchReferenceLifetimePnlUsd(proxyWallet, fetchImpl),
+    fetchReferenceTradeVolumeUsd(proxyWallet, fetchImpl),
   ]);
-  return { predictionsCount, profileName };
+  return { predictionsCount, profileName, profilePnlUsd, profileVolumeUsd };
 }
 
 async function fetchGammaProfileName(

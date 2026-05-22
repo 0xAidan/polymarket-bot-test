@@ -15,6 +15,8 @@ export interface PublishScoreCandidate {
   trade_count: number;
   realized_pnl: number;
   predictions_count?: number | null;
+  /** When true, PnL/volume already replaced with Polymarket reference at publish. */
+  reference_display?: boolean;
 }
 
 export interface PublishFilterResult {
@@ -75,6 +77,10 @@ export async function filterScoresForPublish(
   const afterHeuristic: PublishScoreCandidate[] = [];
 
   for (const s of scores) {
+    if (s.reference_display) {
+      afterHeuristic.push(s);
+      continue;
+    }
     const reason = corruptionHeuristicReason(s);
     if (reason) {
       excluded.push({ wallet: s.proxy_wallet, tier: s.tier, reason: `heuristic: ${reason}` });

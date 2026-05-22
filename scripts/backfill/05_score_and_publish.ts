@@ -334,6 +334,20 @@ async function main(): Promise<void> {
       console.log('[05] SKIP_PUBLISH_PREDICTIONS=1 — predictions_count/profile_name left null');
     }
 
+    for (const s of scores) {
+      const meta = profileMeta.get(s.proxy_wallet);
+      let referenceDisplay = false;
+      if (meta?.profileVolumeUsd != null && Number.isFinite(meta.profileVolumeUsd)) {
+        s.volume_total = meta.profileVolumeUsd;
+        referenceDisplay = true;
+      }
+      if (meta?.profilePnlUsd != null && Number.isFinite(meta.profilePnlUsd)) {
+        s.realized_pnl = meta.profilePnlUsd;
+        referenceDisplay = true;
+      }
+      (s as { _referenceDisplay?: boolean })._referenceDisplay = referenceDisplay;
+    }
+
     const gateInput = scores.map((s) => {
       const meta = profileMeta.get(s.proxy_wallet);
       return {
@@ -343,6 +357,7 @@ async function main(): Promise<void> {
         trade_count: s.trade_count,
         realized_pnl: s.realized_pnl,
         predictions_count: meta?.predictionsCount ?? null,
+        reference_display: (s as { _referenceDisplay?: boolean })._referenceDisplay === true,
       };
     });
     const { kept: keptKeys, excluded: gateExcluded } = await filterScoresForPublish(gateInput);
