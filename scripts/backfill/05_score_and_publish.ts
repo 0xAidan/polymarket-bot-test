@@ -60,7 +60,11 @@ import {
   buildCopyabilityFilterSql,
 } from '../../src/discovery/v3/pillarFeatures.js';
 import type { V3FeatureSnapshot } from '../../src/discovery/v3/types.js';
-import { fetchPublishProfileMeta } from '../../src/discovery/v3/publishEnrichment.js';
+import {
+  fetchPublishProfileMetaLite,
+  fetchReferenceDisplayStats,
+  type PublishProfileMeta,
+} from '../../src/discovery/v3/publishEnrichment.js';
 import { filterScoresForPublish } from '../../src/discovery/v3/publishQualityGate.js';
 
 function getSqlitePath(): string {
@@ -316,7 +320,7 @@ async function main(): Promise<void> {
       s.copyable              = copy?.copyable ?? 1;
     }
 
-    const profileMeta = new Map<string, Awaited<ReturnType<typeof fetchPublishProfileMeta>>>();
+    const profileMeta = new Map<string, PublishProfileMeta>();
     const skipPredictions = process.env.SKIP_PUBLISH_PREDICTIONS === '1';
     if (!skipPredictions) {
       const enrichConcurrency = Number(process.env.PUBLISH_ENRICH_CONCURRENCY ?? 8);
@@ -324,7 +328,7 @@ async function main(): Promise<void> {
       for (let i = 0; i < scores.length; i += enrichConcurrency) {
         const batch = scores.slice(i, i + enrichConcurrency);
         const metas = await Promise.all(
-          batch.map((s) => fetchPublishProfileMeta(s.proxy_wallet))
+          batch.map((s) => fetchPublishProfileMetaLite(s.proxy_wallet))
         );
         for (let j = 0; j < batch.length; j++) {
           profileMeta.set(batch[j].proxy_wallet, metas[j]);
@@ -356,11 +360,19 @@ async function main(): Promise<void> {
 
     const keptSetFirst = new Set(keptKeys.map((k) => k.proxy_wallet));
     const fallbackApplied: string[] = [];
-    for (const s of scores) {
-      if (keptSetFirst.has(s.proxy_wallet)) continue;
+    const failedForFallback = scores.filter((s) => !keptSetFirst.has(s.proxy_wallet));
+    if (failedForFallback.length > 0) {
+      console.log(
+        `[05] fetching reference PnL/volume for ${failedForFallback.length} wallet(s) that failed pipeline gate…`
+      );
+    }
+    for (const s of failedForFallback) {
       const meta = profileMeta.get(s.proxy_wallet);
       const pipe = pipelineSnapshot.get(s.proxy_wallet);
       if (!pipe || !meta) continue;
+      const ref = await fetchReferenceDisplayStats(s.proxy_wallet);
+      meta.profilePnlUsd = ref.profilePnlUsd;
+      meta.profileVolumeUsd = ref.profileVolumeUsd;
       let changed = false;
       if (meta.profileVolumeUsd != null && Number.isFinite(meta.profileVolumeUsd)) {
         s.volume_total = meta.profileVolumeUsd;

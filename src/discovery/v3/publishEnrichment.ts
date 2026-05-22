@@ -19,18 +19,39 @@ export interface PublishProfileMeta {
   profileVolumeUsd: number | null;
 }
 
-export async function fetchPublishProfileMeta(
+/** Predictions + display name only (fast — used before pipeline gate). */
+export async function fetchPublishProfileMetaLite(
   address: string,
   fetchImpl: typeof fetch = fetch
 ): Promise<PublishProfileMeta> {
   const proxyWallet = address.trim().toLowerCase();
-  const [predictionsCount, profileName, profilePnlUsd, profileVolumeUsd] = await Promise.all([
+  const [predictionsCount, profileName] = await Promise.all([
     fetchTradedCount(proxyWallet, fetchImpl),
     fetchGammaProfileName(proxyWallet, fetchImpl),
+  ]);
+  return { predictionsCount, profileName, profilePnlUsd: null, profileVolumeUsd: null };
+}
+
+/** Full reference stats — only for wallets that fail the pipeline promotion gate. */
+export async function fetchReferenceDisplayStats(
+  address: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<Pick<PublishProfileMeta, 'profilePnlUsd' | 'profileVolumeUsd'>> {
+  const proxyWallet = address.trim().toLowerCase();
+  const [profilePnlUsd, profileVolumeUsd] = await Promise.all([
     fetchReferenceLifetimePnlUsd(proxyWallet, fetchImpl),
     fetchReferenceTradeVolumeUsd(proxyWallet, fetchImpl),
   ]);
-  return { predictionsCount, profileName, profilePnlUsd, profileVolumeUsd };
+  return { profilePnlUsd, profileVolumeUsd };
+}
+
+export async function fetchPublishProfileMeta(
+  address: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<PublishProfileMeta> {
+  const lite = await fetchPublishProfileMetaLite(address, fetchImpl);
+  const ref = await fetchReferenceDisplayStats(address, fetchImpl);
+  return { ...lite, ...ref };
 }
 
 async function fetchGammaProfileName(
