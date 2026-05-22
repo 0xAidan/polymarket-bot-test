@@ -15,12 +15,13 @@ function seedDb(): Database.Database {
     `INSERT INTO discovery_wallet_scores_v3
        (proxy_wallet, tier, tier_rank, score, volume_total, trade_count,
         distinct_markets, closed_positions, realized_pnl, hit_rate,
-        last_active_ts, reasons_json, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        last_active_ts, reasons_json, updated_at, profile_name)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
-  ins.run('0xaaaa', 'alpha', 1, 0.95, 1000000, 500, 80, 200, 5000, 0.61, 1700000000, '["high edge","breadth"]', 1700000100);
-  ins.run('0xbbbb', 'whale', 1, 0.90, 5000000, 100, 40, 50, 20000, 0.55, 1700000000, '["large volume"]', 1700000100);
-  ins.run('0xcccc', 'specialist', 1, 0.88, 200000, 80, 10, 40, 3000, 0.70, 1700000000, '["niche focus"]', 1700000100);
+  ins.run('0xaaaa', 'alpha', 1, 0.95, 1000000, 500, 80, 200, 5000, 0.61, 1700000000, '["high edge","breadth"]', 1700000100, 'traderone');
+  ins.run('0xeeee', 'alpha', 2, 0.90, 500000, 100, 40, 50, 2000, 0.55, 1700000000, '[]', 1700000100, null);
+  ins.run('0xbbbb', 'whale', 1, 0.90, 5000000, 100, 40, 50, 20000, 0.55, 1700000000, '["large volume"]', 1700000100, null);
+  ins.run('0xcccc', 'specialist', 1, 0.88, 200000, 80, 10, 40, 3000, 0.70, 1700000000, '["niche focus"]', 1700000100, null);
   db.prepare(
     'INSERT INTO pipeline_cursor (pipeline, last_block, last_ts_unix, updated_at) VALUES (?,?,?,?)'
   ).run('goldsky', 1234, 1700000000, 1700000100);
@@ -100,12 +101,15 @@ test('v3 API — endpoints return 200 with proper shape when flag on', async () 
       assert.equal(tier.json.success, true);
       assert.equal(tier.json.tier, 'alpha');
       assert.ok(Array.isArray(tier.json.data));
-      assert.equal(tier.json.data.length, 1);
-      const row = tier.json.data[0];
+      assert.equal(tier.json.data.length, 2);
+      const row = tier.json.data.find((r: { address: string }) => r.address === '0xaaaa');
+      assert.ok(row, 'seed wallet 0xaaaa');
       for (const field of ['address', 'alias', 'profileUrl', 'tier', 'tierRank', 'score', 'volumeTotal', 'fillCount', 'tradeCount', 'distinctMarkets', 'closedPositions', 'realizedPnl', 'hitRate', 'lastActiveTs', 'reasons', 'updatedAt']) {
         assert.ok(field in row, `missing field: ${field}`);
       }
-      assert.equal(row.profileUrl, 'https://polymarket.com/@0xaaaa');
+      assert.equal(row.profileUrl, 'https://polymarket.com/@traderone');
+      const noName = tier.json.data.find((r: { address: string }) => r.address === '0xeeee');
+      assert.equal(noName?.profileUrl, 'https://polymarket.com/profile/0xeeee');
       assert.ok(!('displaySource' in row), 'pipeline-only DTO must not expose displaySource');
       assert.ok(Array.isArray(row.reasons));
 

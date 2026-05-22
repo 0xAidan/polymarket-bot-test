@@ -338,20 +338,16 @@ export interface PromotionGateResult {
  * Fail-closed promotion check for wallets shown on Discovery v3 cards.
  * Catches corrupted harvest (duplicates / inflated notionals) before publish.
  */
+/** Display-tier tolerance: ≤5% relative or ≤$500 absolute (whichever is stricter). */
 export function isDerivedPnlOutlier(derivedPnl: number, referencePnl: number): boolean {
+  const absDiff = Math.abs(derivedPnl - referencePnl);
+  if (absDiff <= 500) return false;
   const absRef = Math.abs(referencePnl);
-  if (absRef < 10_000) {
-    if (Math.abs(derivedPnl - referencePnl) > 100_000) return true;
-    if (referencePnl !== 0) {
-      const ratio = derivedPnl / referencePnl;
-      if (ratio > 10 || ratio < 0.1) return true;
-    } else if (Math.abs(derivedPnl) > 100_000) {
-      return true;
-    }
-    return false;
+  if (absRef < 1) {
+    return absDiff > 500;
   }
-  const ratio = derivedPnl / referencePnl;
-  return ratio > 10 || ratio < 0.1;
+  const relErr = absDiff / absRef;
+  return relErr > 0.05;
 }
 
 export async function validateWalletPromotionGate(
@@ -389,7 +385,7 @@ export async function validateWalletPromotionGate(
     return {
       ...base,
       ok: false,
-      reason: `derived PnL ${derived.realized_pnl.toFixed(2)} vs reference ${apiLifetimePnl.toFixed(2)} (>${10}x or <0.1x or >$100k off for small profiles)`,
+      reason: `derived PnL ${derived.realized_pnl.toFixed(2)} vs reference ${apiLifetimePnl.toFixed(2)} (>5% relative or >$500 absolute)`,
     };
   }
 

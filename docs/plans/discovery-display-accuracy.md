@@ -83,7 +83,7 @@ npx tsx scripts/backfill/99_pnl_diagnostic.ts   # includes golden wallets §3b
 
 | Field | Source of truth | Polymarket reference | Acceptable drift |
 |-------|-----------------|----------------------|------------------|
-| **Lifetime PnL** (`realizedPnl`) | `discovery_feature_snapshots_v3` → SQLite after clean activity | Profile lifetime PnL: closed `realizedPnl` + open `cashPnl` (`fetchReferenceLifetimePnlUsd`) | Promotion gate: not >10× or <0.1× reference; not >$100k off on small profiles |
+| **Lifetime PnL** (`realizedPnl`) | `discovery_feature_snapshots_v3` → SQLite after clean activity | Profile lifetime PnL: closed `realizedPnl` + open `cashPnl` (`fetchReferenceLifetimePnlUsd`) | Display verify: ≤5% relative or ≤$500 absolute vs reference |
 | **Volume** (`volumeTotal`) | Pipeline TRADE notional sum | Paginated Data API `TRADE` events (`fetchReferenceTradeVolumeUsd`) | Within gate tolerance; 1% jitter if API pagination-capped |
 | **Predictions** (`predictionsCount`) | Polymarket `GET /traded` at publish only | Exact | Exact match when API returns |
 | **Fills** (`fillCount`) | Pipeline `trade_count` (OrderFilled rows) | N/A — never labeled as Predictions | Heuristic: fills ≪ 20× predictions |
@@ -101,7 +101,7 @@ npx tsx scripts/backfill/99_pnl_diagnostic.ts   # includes golden wallets §3b
 
 - `volumeTotal`, `realizedPnl`, `fillCount` — pipeline first; reference API only on publish-time fallback.
 - `predictionsCount` — from Polymarket `/traded` at **publish** time (05); UI label **Predictions**.
-- `profileUrl` — `https://polymarket.com/@{proxy_wallet}` (same address on card).
+- `profileUrl` — `https://polymarket.com/@{gamma_name}` when Gamma returns a `name` handle; else `https://polymarket.com/profile/{proxy_wallet}` (never `@0x…` — wrong profile).
 - `profileName` — optional Gamma subtitle.
 
 ## Verification

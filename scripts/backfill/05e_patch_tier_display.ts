@@ -7,7 +7,7 @@ import { fetchTradedCount } from '../../src/discovery/v3/dataApiValidator.js';
 import { runV3SqliteMigrations } from '../../src/discovery/v3/schema.js';
 
 const dataDir = process.env.DATA_DIR || './data';
-const perTier = Number(process.env.PATCH_TIER_LIMIT ?? 15);
+const perTier = Number(process.env.PATCH_TIER_LIMIT ?? 50);
 
 async function main(): Promise<void> {
   const db = new Database(`${dataDir}/copytrade.db`);
