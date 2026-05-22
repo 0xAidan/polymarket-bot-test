@@ -11,6 +11,9 @@ if systemctl is-active --quiet polymarket-discovery-worker-staging 2>/dev/null; 
   sudo systemctl stop polymarket-discovery-worker-staging
 fi
 
+echo "[repair] delete outlier notionals (global)…"
+npx tsx scripts/backfill/delete_outlier_notionals.ts
+
 echo "[repair] dedup gap window…"
 npx tsx scripts/backfill/dedup_gap_activity.ts
 

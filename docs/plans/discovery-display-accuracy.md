@@ -79,9 +79,27 @@ npx tsx scripts/backfill/99_pnl_diagnostic.ts   # includes golden wallets §3b
 
 `06_promotion_gate.ts` calls `validateWalletPromotionGate()` — fails if derived PnL is **>10× or <0.1×** reference, **>$100k** off for small profiles, or volume **>>** API TRADE sum.
 
+## Metric contract (source of truth per field)
+
+| Field | Source of truth | Polymarket reference | Acceptable drift |
+|-------|-----------------|----------------------|------------------|
+| **Lifetime PnL** (`realizedPnl`) | `discovery_feature_snapshots_v3` → SQLite after clean activity | Profile lifetime PnL: closed `realizedPnl` + open `cashPnl` (`fetchReferenceLifetimePnlUsd`) | Promotion gate: not >10× or <0.1× reference; not >$100k off on small profiles |
+| **Volume** (`volumeTotal`) | Pipeline TRADE notional sum | Paginated Data API `TRADE` events (`fetchReferenceTradeVolumeUsd`) | Within gate tolerance; 1% jitter if API pagination-capped |
+| **Predictions** (`predictionsCount`) | Polymarket `GET /traded` at publish only | Exact | Exact match when API returns |
+| **Fills** (`fillCount`) | Pipeline `trade_count` (OrderFilled rows) | N/A — never labeled as Predictions | Heuristic: fills ≪ 20× predictions |
+| **Ranking** (`tier`, `tier_rank`, `score`) | Pipeline snapshots + eligibility after clean harvest | Manual spot-check top 10 per tier | Order reflects real performance, not inflated snapshots |
+
+**API overlay policy (publish time):**
+
+- **Default:** pipeline PnL and volume from snapshots — no API substitution.
+- **Fallback only:** if `validateWalletPromotionGate` fails on pipeline stats, apply `profilePnlUsd` / `profileVolumeUsd` once and re-check; exclude if still failing.
+- **Never:** read-path API overlay on tier routes; never replace all wallets with API stats by default.
+
+**Cash-flow vs profile PnL:** Pipeline uses signed notional cash-flow over all fills. Polymarket profile uses positions API. After clean harvest, golden wallets must pass gate on **pipeline** numbers; fallback documents residual definition gap.
+
 ## API contract
 
-- `volumeTotal`, `realizedPnl`, `fillCount` — pipeline only.
+- `volumeTotal`, `realizedPnl`, `fillCount` — pipeline first; reference API only on publish-time fallback.
 - `predictionsCount` — from Polymarket `/traded` at **publish** time (05); UI label **Predictions**.
 - `profileUrl` — `https://polymarket.com/@{proxy_wallet}` (same address on card).
 - `profileName` — optional Gamma subtitle.
