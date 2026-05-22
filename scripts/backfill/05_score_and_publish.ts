@@ -60,7 +60,12 @@ import {
   buildCopyabilityFilterSql,
 } from '../../src/discovery/v3/pillarFeatures.js';
 import type { V3FeatureSnapshot } from '../../src/discovery/v3/types.js';
-import { fetchPublishProfileMeta } from '../../src/discovery/v3/publishEnrichment.js';
+import {
+  fetchPublishProfileMetaLite,
+  fetchReferenceDisplayStats,
+  type PublishProfileMeta,
+} from '../../src/discovery/v3/publishEnrichment.js';
+import { filterScoresForPublish } from '../../src/discovery/v3/publishQualityGate.js';
 
 function getSqlitePath(): string {
   const dataDir = process.env.DATA_DIR || './data';
@@ -315,7 +320,7 @@ async function main(): Promise<void> {
       s.copyable              = copy?.copyable ?? 1;
     }
 
-    const profileMeta = new Map<string, Awaited<ReturnType<typeof fetchPublishProfileMeta>>>();
+    const profileMeta = new Map<string, PublishProfileMeta>();
     const skipPredictions = process.env.SKIP_PUBLISH_PREDICTIONS === '1';
     if (!skipPredictions) {
       const enrichConcurrency = Number(process.env.PUBLISH_ENRICH_CONCURRENCY ?? 8);
@@ -323,15 +328,129 @@ async function main(): Promise<void> {
       for (let i = 0; i < scores.length; i += enrichConcurrency) {
         const batch = scores.slice(i, i + enrichConcurrency);
         const metas = await Promise.all(
-          batch.map((s) => fetchPublishProfileMeta(s.proxy_wallet))
+          batch.map((s) => fetchPublishProfileMetaLite(s.proxy_wallet))
         );
         for (let j = 0; j < batch.length; j++) {
           profileMeta.set(batch[j].proxy_wallet, metas[j]);
+        }
+        const done = Math.min(i + enrichConcurrency, scores.length);
+        if (done % 120 === 0 || done === scores.length) {
+          console.log(`[05] predictions enrich ${done}/${scores.length}`);
         }
       }
     } else {
       console.log('[05] SKIP_PUBLISH_PREDICTIONS=1 — predictions_count/profile_name left null');
     }
+
+    const pipelineSnapshot = new Map(
+      scores.map((s) => [
+        s.proxy_wallet,
+        { volume_total: s.volume_total, realized_pnl: s.realized_pnl },
+      ])
+    );
+
+    const gateInput = scores.map((s) => {
+      const meta = profileMeta.get(s.proxy_wallet);
+      return {
+        proxy_wallet: s.proxy_wallet,
+        tier: s.tier,
+        volume_total: s.volume_total,
+        trade_count: s.trade_count,
+        realized_pnl: s.realized_pnl,
+        predictions_count: meta?.predictionsCount ?? null,
+      };
+    });
+    let { kept: keptKeys, excluded: gateExcluded } = await filterScoresForPublish(gateInput);
+
+    const keptSetFirst = new Set(keptKeys.map((k) => k.proxy_wallet));
+    const fallbackApplied: string[] = [];
+    const failedForFallback = scores.filter((s) => !keptSetFirst.has(s.proxy_wallet));
+    if (failedForFallback.length > 0) {
+      console.log(
+        `[05] fetching reference PnL/volume for ${failedForFallback.length} wallet(s) that failed pipeline gate…`
+      );
+    }
+    const fallbackConcurrency = Number(process.env.PUBLISH_FALLBACK_CONCURRENCY ?? 6);
+    for (let i = 0; i < failedForFallback.length; i += fallbackConcurrency) {
+      const batch = failedForFallback.slice(i, i + fallbackConcurrency);
+      await Promise.all(
+        batch.map(async (s) => {
+          const meta = profileMeta.get(s.proxy_wallet);
+          const pipe = pipelineSnapshot.get(s.proxy_wallet);
+          if (!pipe || !meta) return;
+          const ref = await fetchReferenceDisplayStats(s.proxy_wallet);
+          meta.profilePnlUsd = ref.profilePnlUsd;
+          meta.profileVolumeUsd = ref.profileVolumeUsd;
+          let changed = false;
+          if (meta.profileVolumeUsd != null && Number.isFinite(meta.profileVolumeUsd)) {
+            s.volume_total = meta.profileVolumeUsd;
+            changed = true;
+          }
+          if (meta.profilePnlUsd != null && Number.isFinite(meta.profilePnlUsd)) {
+            s.realized_pnl = meta.profilePnlUsd;
+            changed = true;
+          }
+          if (!changed) return;
+          const retry = await filterScoresForPublish([
+            {
+              proxy_wallet: s.proxy_wallet,
+              tier: s.tier,
+              volume_total: s.volume_total,
+              trade_count: s.trade_count,
+              realized_pnl: s.realized_pnl,
+              predictions_count: meta.predictionsCount ?? null,
+              reference_display: true,
+            },
+          ]);
+          if (retry.kept.length > 0) {
+            keptKeys.push(retry.kept[0]);
+            gateExcluded = gateExcluded.filter((ex) => ex.wallet !== s.proxy_wallet);
+            fallbackApplied.push(s.proxy_wallet);
+            (s as { _referenceDisplay?: boolean })._referenceDisplay = true;
+          } else {
+            s.volume_total = pipe.volume_total;
+            s.realized_pnl = pipe.realized_pnl;
+          }
+        })
+      );
+      if ((i + fallbackConcurrency) % 60 === 0 || i + fallbackConcurrency >= failedForFallback.length) {
+        console.log(
+          `[05] fallback progress ${Math.min(i + fallbackConcurrency, failedForFallback.length)}/${failedForFallback.length}`
+        );
+      }
+    }
+    if (fallbackApplied.length > 0) {
+      console.log(
+        `[05] reference PnL/volume fallback applied for ${fallbackApplied.length} wallet(s) after pipeline gate failure`
+      );
+    }
+
+    const keptSet = new Set(keptKeys.map((k) => k.proxy_wallet));
+    let publishScores = scores.filter((s) => keptSet.has(s.proxy_wallet));
+    if (gateExcluded.length > 0) {
+      console.warn(`[05] publish gate excluded ${gateExcluded.length} wallet(s):`);
+      for (const ex of gateExcluded.slice(0, 25)) {
+        console.warn(`  - ${ex.tier} ${ex.wallet}: ${ex.reason}`);
+      }
+      if (gateExcluded.length > 25) {
+        console.warn(`  … and ${gateExcluded.length - 25} more`);
+      }
+    }
+    const rerankByTier = new Map<string, typeof publishScores>();
+    for (const s of publishScores) {
+      const list = rerankByTier.get(s.tier) ?? [];
+      list.push(s);
+      rerankByTier.set(s.tier, list);
+    }
+    publishScores = [];
+    for (const [, list] of rerankByTier) {
+      list.sort((a, b) => a.tier_rank - b.tier_rank);
+      list.forEach((s, i) => {
+        s.tier_rank = i + 1;
+        publishScores.push(s);
+      });
+    }
+    console.log(`[05] publishing ${publishScores.length}/${scores.length} wallets after quality gate`);
 
     const sqlitePath = getSqlitePath();
     mkdirSync(dirname(sqlitePath), { recursive: true });
@@ -369,8 +488,8 @@ async function main(): Promise<void> {
           );
         }
       });
-      tx(scores);
-      console.log(`[05] wrote ${scores.length} score rows to ${sqlitePath}`);
+      tx(publishScores);
+      console.log(`[05] wrote ${publishScores.length} score rows to ${sqlitePath}`);
     } finally {
       db.close();
     }

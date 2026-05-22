@@ -212,7 +212,8 @@ export async function validateWalletAgainstDataApi(
     let ok: boolean;
     let reason: string | undefined;
     if (!fullyPaginated) {
-      ok = derived.volume_total >= apiVolume;
+      // API may return a slightly higher partial sum on a later request (pagination jitter).
+      ok = derived.volume_total >= apiVolume * 0.99;
       if (!ok) {
         reason = `derived volume ${derived.volume_total.toFixed(2)} < api-lower-bound ${apiVolume.toFixed(2)} (api paginated to ${apiTradeCount} trades, more exist)`;
       }
@@ -252,12 +253,39 @@ export async function validateWalletAgainstDataApi(
   }
 }
 
+/** Paginated TRADE-only volume from `/v1/activity` (matches promotion-gate reference). */
+export async function fetchReferenceTradeVolumeUsd(
+  address: string,
+  f: typeof fetch = fetch,
+  opts: ValidatorOptions = {}
+): Promise<number | null> {
+  const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
+  const maxPages = opts.maxPages ?? DEFAULT_MAX_PAGES;
+  const { events, httpError } = await fetchAllActivity(address, f, pageSize, maxPages);
+  if (httpError) return null;
+  const trades = events.filter((e) => e.type === 'TRADE');
+  return trades.reduce((sum, e) => sum + Number(e.usdcSize ?? 0), 0);
+}
+
 /** Polymarket profile "Predictions" count (`GET /traded`). */
+const TRADED_FETCH_TIMEOUT_MS = Number(process.env.PUBLISH_FETCH_TIMEOUT_MS ?? 30_000);
+
 export async function fetchTradedCount(
   address: string,
   f: typeof fetch = fetch
 ): Promise<number | null> {
-  const res = await f(`${DATA_API}/traded?user=${encodeURIComponent(address.trim().toLowerCase())}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TRADED_FETCH_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await f(`${DATA_API}/traded?user=${encodeURIComponent(address.trim().toLowerCase())}`, {
+      signal: controller.signal,
+    });
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) return null;
   const body = (await res.json()) as { traded?: number };
   const n = Number(body.traded);

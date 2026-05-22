@@ -32,6 +32,14 @@ public/discovery-v3/app.js
 
 ## Repair pipeline (staging)
 
+**One command** (from repo root on the staging server):
+
+```bash
+bash scripts/backfill/repair_display_accuracy.sh
+```
+
+Manual steps (same order):
+
 ```bash
 sudo systemctl stop polymarket-discovery-worker-staging
 cd /opt/polymarket-bot-staging
@@ -41,17 +49,20 @@ npx tsx scripts/backfill/dedup_gap_activity.ts
 # Or full-table repair if dupes exist outside gap window:
 # npx tsx scripts/backfill/dedup_activity_global.ts
 
-# 2. Re-emit snapshots and publish scores
+# 2. Re-emit snapshots and publish scores (05 now excludes corrupt cards)
 npx tsx scripts/backfill/04_emit_snapshots.ts
-npx tsx scripts/backfill/05_score_and_publish.ts
+SKIP_COMPOSITE=1 SKIP_BRIER=1 SKIP_NICHE=1 SKIP_COPY=1 SKIP_CLV=1 \
+  npx tsx scripts/backfill/05_score_and_publish.ts
 
 # 3. Gates
-npx tsx scripts/backfill/06_validate.ts
 npx tsx scripts/backfill/06_promotion_gate.ts
-DUCKDB_PATH=... npm run verify:pnl:smoke
+npx tsx scripts/backfill/99_pnl_diagnostic.ts
 
 npm run build && sudo systemctl restart polymarket-app-staging
+npx tsx scripts/verify-staging-discovery-display.ts
 ```
+
+**Publish-time guard (code):** `05_score_and_publish.ts` calls `filterScoresForPublish()` so wallets with million-dollar PnL / fillCount ≫ predictions are not written to SQLite even before DuckDB repair completes.
 
 Diagnostics:
 
@@ -68,9 +79,27 @@ npx tsx scripts/backfill/99_pnl_diagnostic.ts   # includes golden wallets §3b
 
 `06_promotion_gate.ts` calls `validateWalletPromotionGate()` — fails if derived PnL is **>10× or <0.1×** reference, **>$100k** off for small profiles, or volume **>>** API TRADE sum.
 
+## Metric contract (source of truth per field)
+
+| Field | Source of truth | Polymarket reference | Acceptable drift |
+|-------|-----------------|----------------------|------------------|
+| **Lifetime PnL** (`realizedPnl`) | `discovery_feature_snapshots_v3` → SQLite after clean activity | Profile lifetime PnL: closed `realizedPnl` + open `cashPnl` (`fetchReferenceLifetimePnlUsd`) | Promotion gate: not >10× or <0.1× reference; not >$100k off on small profiles |
+| **Volume** (`volumeTotal`) | Pipeline TRADE notional sum | Paginated Data API `TRADE` events (`fetchReferenceTradeVolumeUsd`) | Within gate tolerance; 1% jitter if API pagination-capped |
+| **Predictions** (`predictionsCount`) | Polymarket `GET /traded` at publish only | Exact | Exact match when API returns |
+| **Fills** (`fillCount`) | Pipeline `trade_count` (OrderFilled rows) | N/A — never labeled as Predictions | Heuristic: fills ≪ 20× predictions |
+| **Ranking** (`tier`, `tier_rank`, `score`) | Pipeline snapshots + eligibility after clean harvest | Manual spot-check top 10 per tier | Order reflects real performance, not inflated snapshots |
+
+**API overlay policy (publish time):**
+
+- **Default:** pipeline PnL and volume from snapshots — no API substitution.
+- **Fallback only:** if `validateWalletPromotionGate` fails on pipeline stats, apply `profilePnlUsd` / `profileVolumeUsd` once and re-check; exclude if still failing.
+- **Never:** read-path API overlay on tier routes; never replace all wallets with API stats by default.
+
+**Cash-flow vs profile PnL:** Pipeline uses signed notional cash-flow over all fills. Polymarket profile uses positions API. After clean harvest, golden wallets must pass gate on **pipeline** numbers; fallback documents residual definition gap.
+
 ## API contract
 
-- `volumeTotal`, `realizedPnl`, `fillCount` — pipeline only.
+- `volumeTotal`, `realizedPnl`, `fillCount` — pipeline first; reference API only on publish-time fallback.
 - `predictionsCount` — from Polymarket `/traded` at **publish** time (05); UI label **Predictions**.
 - `profileUrl` — `https://polymarket.com/@{proxy_wallet}` (same address on card).
 - `profileName` — optional Gamma subtitle.

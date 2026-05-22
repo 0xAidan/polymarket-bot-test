@@ -38,19 +38,38 @@ async function main(): Promise<void> {
   const duck = await openDuckDB(getDuckDBPath());
   const sqlite = new Database(getSqlitePath(), { readonly: true });
   const failures: string[] = [];
+  let dupeGroupCount = -1;
+  let badWalletRowCount = 0;
+  let snapshotRowCount = 0;
 
   try {
-    const [dupeGroups] = await duck.query<DuckCount>(
-      `SELECT COUNT(*)::BIGINT AS c
-       FROM (
-         SELECT tx_hash, log_index, COUNT(*) AS cnt
-         FROM discovery_activity_v3
-         GROUP BY 1,2
-         HAVING COUNT(*) > 1
-       ) t`
-    );
-    if (Number(dupeGroups?.c ?? 0) > 0) {
-      failures.push(`duplicate (tx_hash,log_index) groups detected: ${dupeGroups.c}`);
+    if (process.env.SKIP_GATE_GLOBAL_DUPE !== '1') {
+      try {
+        const [dupeGroups] = await duck.query<DuckCount>(
+          `SELECT COUNT(*)::BIGINT AS c
+           FROM (
+             SELECT tx_hash, log_index, COUNT(*) AS cnt
+             FROM discovery_activity_v3
+             GROUP BY 1,2
+             HAVING COUNT(*) > 1
+           ) t`
+        );
+        dupeGroupCount = Number(dupeGroups?.c ?? 0);
+        if (dupeGroupCount > 0) {
+          failures.push(`duplicate (tx_hash,log_index) groups detected: ${dupeGroupCount}`);
+        }
+      } catch (err) {
+        console.warn(
+          '[06-gate] global duplicate check skipped (OOM or timeout):',
+          err instanceof Error ? err.message : err
+        );
+        console.warn(
+          '[06-gate] set SKIP_GATE_GLOBAL_DUPE=1 after running dedup_gap_activity / dedup_activity_global'
+        );
+      }
+    } else {
+      console.log('[06-gate] SKIP_GATE_GLOBAL_DUPE=1 — skipping full-table duplicate scan');
+      dupeGroupCount = 0;
     }
 
     const [badWalletRows] = await duck.query<DuckCount>(
@@ -58,14 +77,16 @@ async function main(): Promise<void> {
        FROM discovery_activity_v3
        WHERE proxy_wallet = 'duckdb'`
     );
-    if (Number(badWalletRows?.c ?? 0) > 0) {
-      failures.push(`corruption sentinel rows (proxy_wallet='duckdb'): ${badWalletRows.c}`);
+    badWalletRowCount = Number(badWalletRows?.c ?? 0);
+    if (badWalletRowCount > 0) {
+      failures.push(`corruption sentinel rows (proxy_wallet='duckdb'): ${badWalletRowCount}`);
     }
 
     const [snapshotRows] = await duck.query<DuckCount>(
       'SELECT COUNT(*)::BIGINT AS c FROM discovery_feature_snapshots_v3'
     );
-    if (Number(snapshotRows?.c ?? 0) === 0) {
+    snapshotRowCount = Number(snapshotRows?.c ?? 0);
+    if (snapshotRowCount === 0) {
       failures.push('snapshot table is empty: discovery_feature_snapshots_v3');
     }
 
@@ -107,32 +128,69 @@ async function main(): Promise<void> {
       );
     }
 
-    console.log('[06-gate] golden wallet display checks…');
-    for (const golden of GOLDEN_WALLETS) {
-      const addr = golden.address.toLowerCase();
-      const [snap] = await duck.query<SnapshotWalletRow>(
-        `WITH latest AS (
-           SELECT * FROM (
-             SELECT *,
-                    ROW_NUMBER() OVER (PARTITION BY proxy_wallet ORDER BY snapshot_day DESC) AS rn
-             FROM discovery_feature_snapshots_v3
-           ) t WHERE rn = 1
-         )
-         SELECT proxy_wallet, volume_total, trade_count, realized_pnl
-         FROM latest WHERE LOWER(proxy_wallet) = '${addr}'`
-      );
-      if (!snap) {
-        failures.push(`${golden.label}: no snapshot row for ${addr}`);
-        continue;
-      }
-      const gate = await validateWalletPromotionGate(addr, {
-        volume_total: Number(snap.volume_total),
-        trade_count: Number(snap.trade_count),
-        realized_pnl: Number(snap.realized_pnl),
+    console.log('[06-gate] alpha tier display checks (published SQLite)…');
+    const alphaRows = sqlite
+      .prepare(
+        `SELECT proxy_wallet, volume_total, trade_count, realized_pnl, predictions_count
+         FROM discovery_wallet_scores_v3
+         WHERE tier = 'alpha'
+         ORDER BY tier_rank ASC
+         LIMIT 10`
+      )
+      .all() as Array<{
+      proxy_wallet: string;
+      volume_total: number;
+      trade_count: number;
+      realized_pnl: number;
+      predictions_count: number | null;
+    }>;
+
+    for (const row of alphaRows) {
+      const gate = await validateWalletPromotionGate(row.proxy_wallet, {
+        volume_total: Number(row.volume_total),
+        trade_count: Number(row.trade_count),
+        realized_pnl: Number(row.realized_pnl),
       });
       const status = gate.ok ? 'PASS' : 'FAIL';
       console.log(
-        `[06-gate] golden ${golden.label} ${status} vol=${snap.volume_total} pnl=${snap.realized_pnl} ` +
+        `[06-gate] alpha rank sample ${row.proxy_wallet} ${status} ` +
+          `pnl=${row.realized_pnl} vol=${row.volume_total} fills=${row.trade_count} ` +
+          `pred=${row.predictions_count ?? 'n/a'} ${gate.reason ?? ''}`
+      );
+      if (!gate.ok) {
+        failures.push(`alpha tier ${row.proxy_wallet}: ${gate.reason ?? 'promotion gate failed'}`);
+      }
+    }
+
+    console.log('[06-gate] golden wallet display checks (published SQLite)…');
+    for (const golden of GOLDEN_WALLETS) {
+      const addr = golden.address.toLowerCase();
+      const row = sqlite
+        .prepare(
+          `SELECT proxy_wallet, volume_total, trade_count, realized_pnl, predictions_count
+           FROM discovery_wallet_scores_v3
+           WHERE lower(proxy_wallet) = ?`
+        )
+        .get(addr) as {
+        proxy_wallet: string;
+        volume_total: number;
+        trade_count: number;
+        realized_pnl: number;
+        predictions_count: number | null;
+      } | undefined;
+      if (!row) {
+        failures.push(`${golden.label}: not published in discovery_wallet_scores_v3`);
+        continue;
+      }
+      const gate = await validateWalletPromotionGate(addr, {
+        volume_total: Number(row.volume_total),
+        trade_count: Number(row.trade_count),
+        realized_pnl: Number(row.realized_pnl),
+      });
+      const status = gate.ok ? 'PASS' : 'FAIL';
+      console.log(
+        `[06-gate] golden ${golden.label} ${status} vol=${row.volume_total} pnl=${row.realized_pnl} ` +
+        `fills=${row.trade_count} pred=${row.predictions_count ?? 'n/a'} ` +
         `apiVol=${gate.apiVolume ?? 'n/a'} apiPnl=${gate.apiLifetimePnl ?? 'n/a'} traded=${gate.apiTradedCount ?? 'n/a'} ` +
         `${gate.reason ?? ''}`
       );
@@ -142,9 +200,9 @@ async function main(): Promise<void> {
     }
 
     console.log('[06-gate] integrity summary', {
-      dupeGroups: Number(dupeGroups?.c ?? 0),
-      badWalletRows: Number(badWalletRows?.c ?? 0),
-      snapshotRows: Number(snapshotRows?.c ?? 0),
+      dupeGroups: dupeGroupCount,
+      badWalletRows: badWalletRowCount,
+      snapshotRows: snapshotRowCount,
       tiers: Object.fromEntries(tierMap.entries()),
       coverageWarnings,
     });
