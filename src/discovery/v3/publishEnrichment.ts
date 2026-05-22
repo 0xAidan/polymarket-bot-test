@@ -9,6 +9,17 @@ import {
 } from './dataApiValidator.js';
 
 const GAMMA_API = 'https://gamma-api.polymarket.com';
+const FETCH_TIMEOUT_MS = Number(process.env.PUBLISH_FETCH_TIMEOUT_MS ?? 30_000);
+
+async function fetchWithTimeout(url: string, fetchImpl: typeof fetch): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetchImpl(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export interface PublishProfileMeta {
   predictionsCount: number | null;
@@ -59,7 +70,10 @@ async function fetchGammaProfileName(
   f: typeof fetch
 ): Promise<string | null> {
   try {
-    const res = await f(`${GAMMA_API}/public-profile?address=${encodeURIComponent(address)}`);
+    const res = await fetchWithTimeout(
+      `${GAMMA_API}/public-profile?address=${encodeURIComponent(address)}`,
+      f
+    );
     if (!res.ok) return null;
     const body = (await res.json()) as { name?: string; pseudonym?: string };
     return body.name ? String(body.name) : body.pseudonym ? String(body.pseudonym) : null;

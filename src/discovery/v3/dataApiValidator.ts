@@ -268,11 +268,24 @@ export async function fetchReferenceTradeVolumeUsd(
 }
 
 /** Polymarket profile "Predictions" count (`GET /traded`). */
+const TRADED_FETCH_TIMEOUT_MS = Number(process.env.PUBLISH_FETCH_TIMEOUT_MS ?? 30_000);
+
 export async function fetchTradedCount(
   address: string,
   f: typeof fetch = fetch
 ): Promise<number | null> {
-  const res = await f(`${DATA_API}/traded?user=${encodeURIComponent(address.trim().toLowerCase())}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TRADED_FETCH_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await f(`${DATA_API}/traded?user=${encodeURIComponent(address.trim().toLowerCase())}`, {
+      signal: controller.signal,
+    });
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) return null;
   const body = (await res.json()) as { traded?: number };
   const n = Number(body.traded);

@@ -333,6 +333,10 @@ async function main(): Promise<void> {
         for (let j = 0; j < batch.length; j++) {
           profileMeta.set(batch[j].proxy_wallet, metas[j]);
         }
+        const done = Math.min(i + enrichConcurrency, scores.length);
+        if (done % 120 === 0 || done === scores.length) {
+          console.log(`[05] predictions enrich ${done}/${scores.length}`);
+        }
       }
     } else {
       console.log('[05] SKIP_PUBLISH_PREDICTIONS=1 — predictions_count/profile_name left null');
@@ -366,42 +370,53 @@ async function main(): Promise<void> {
         `[05] fetching reference PnL/volume for ${failedForFallback.length} wallet(s) that failed pipeline gate…`
       );
     }
-    for (const s of failedForFallback) {
-      const meta = profileMeta.get(s.proxy_wallet);
-      const pipe = pipelineSnapshot.get(s.proxy_wallet);
-      if (!pipe || !meta) continue;
-      const ref = await fetchReferenceDisplayStats(s.proxy_wallet);
-      meta.profilePnlUsd = ref.profilePnlUsd;
-      meta.profileVolumeUsd = ref.profileVolumeUsd;
-      let changed = false;
-      if (meta.profileVolumeUsd != null && Number.isFinite(meta.profileVolumeUsd)) {
-        s.volume_total = meta.profileVolumeUsd;
-        changed = true;
-      }
-      if (meta.profilePnlUsd != null && Number.isFinite(meta.profilePnlUsd)) {
-        s.realized_pnl = meta.profilePnlUsd;
-        changed = true;
-      }
-      if (!changed) continue;
-      const retry = await filterScoresForPublish([
-        {
-          proxy_wallet: s.proxy_wallet,
-          tier: s.tier,
-          volume_total: s.volume_total,
-          trade_count: s.trade_count,
-          realized_pnl: s.realized_pnl,
-          predictions_count: meta.predictionsCount ?? null,
-          reference_display: true,
-        },
-      ]);
-      if (retry.kept.length > 0) {
-        keptKeys.push(retry.kept[0]);
-        gateExcluded = gateExcluded.filter((ex) => ex.wallet !== s.proxy_wallet);
-        fallbackApplied.push(s.proxy_wallet);
-        (s as { _referenceDisplay?: boolean })._referenceDisplay = true;
-      } else {
-        s.volume_total = pipe.volume_total;
-        s.realized_pnl = pipe.realized_pnl;
+    const fallbackConcurrency = Number(process.env.PUBLISH_FALLBACK_CONCURRENCY ?? 6);
+    for (let i = 0; i < failedForFallback.length; i += fallbackConcurrency) {
+      const batch = failedForFallback.slice(i, i + fallbackConcurrency);
+      await Promise.all(
+        batch.map(async (s) => {
+          const meta = profileMeta.get(s.proxy_wallet);
+          const pipe = pipelineSnapshot.get(s.proxy_wallet);
+          if (!pipe || !meta) return;
+          const ref = await fetchReferenceDisplayStats(s.proxy_wallet);
+          meta.profilePnlUsd = ref.profilePnlUsd;
+          meta.profileVolumeUsd = ref.profileVolumeUsd;
+          let changed = false;
+          if (meta.profileVolumeUsd != null && Number.isFinite(meta.profileVolumeUsd)) {
+            s.volume_total = meta.profileVolumeUsd;
+            changed = true;
+          }
+          if (meta.profilePnlUsd != null && Number.isFinite(meta.profilePnlUsd)) {
+            s.realized_pnl = meta.profilePnlUsd;
+            changed = true;
+          }
+          if (!changed) return;
+          const retry = await filterScoresForPublish([
+            {
+              proxy_wallet: s.proxy_wallet,
+              tier: s.tier,
+              volume_total: s.volume_total,
+              trade_count: s.trade_count,
+              realized_pnl: s.realized_pnl,
+              predictions_count: meta.predictionsCount ?? null,
+              reference_display: true,
+            },
+          ]);
+          if (retry.kept.length > 0) {
+            keptKeys.push(retry.kept[0]);
+            gateExcluded = gateExcluded.filter((ex) => ex.wallet !== s.proxy_wallet);
+            fallbackApplied.push(s.proxy_wallet);
+            (s as { _referenceDisplay?: boolean })._referenceDisplay = true;
+          } else {
+            s.volume_total = pipe.volume_total;
+            s.realized_pnl = pipe.realized_pnl;
+          }
+        })
+      );
+      if ((i + fallbackConcurrency) % 60 === 0 || i + fallbackConcurrency >= failedForFallback.length) {
+        console.log(
+          `[05] fallback progress ${Math.min(i + fallbackConcurrency, failedForFallback.length)}/${failedForFallback.length}`
+        );
       }
     }
     if (fallbackApplied.length > 0) {
