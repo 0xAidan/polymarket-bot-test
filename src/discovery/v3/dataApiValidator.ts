@@ -212,7 +212,8 @@ export async function validateWalletAgainstDataApi(
     let ok: boolean;
     let reason: string | undefined;
     if (!fullyPaginated) {
-      ok = derived.volume_total >= apiVolume;
+      // API may return a slightly higher partial sum on a later request (pagination jitter).
+      ok = derived.volume_total >= apiVolume * 0.99;
       if (!ok) {
         reason = `derived volume ${derived.volume_total.toFixed(2)} < api-lower-bound ${apiVolume.toFixed(2)} (api paginated to ${apiTradeCount} trades, more exist)`;
       }
