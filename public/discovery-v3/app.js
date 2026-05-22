@@ -126,7 +126,10 @@ function animateRings(container) {
 function walletCard(w, tier, displayScore) {
   const score   = displayScore ?? w.score ?? w.compositeScore ?? null;
   const pnlCls  = (w.realizedPnl ?? 0) >= 0 ? 'pos' : 'neg';
-  const profileUrl = w.profileUrl || `https://polymarket.com/@${w.address}`;
+  const profileUrl = w.profileUrl
+    || (w.profileName && !String(w.profileName).startsWith('0x')
+      ? `https://polymarket.com/@${w.profileName}`
+      : `https://polymarket.com/profile/${w.address}`);
   const profileSub = w.profileName
     ? `<span class="cprofile">@${escapeHtml(w.profileName)}</span>`
     : '';

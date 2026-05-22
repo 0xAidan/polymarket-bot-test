@@ -13,6 +13,7 @@ import type Database from 'better-sqlite3';
 import { isDiscoveryV3Enabled } from '../discovery/v3/featureFlag.js';
 import { getDiscoveryCoverageContract } from '../discovery/v3/coverageContract.js';
 import { TierName } from '../discovery/v3/types.js';
+import { buildPolymarketProfileUrl } from '../discovery/v3/profileUrl.js';
 
 const VALID_TIERS: ReadonlySet<TierName> = new Set(['alpha', 'whale', 'specialist']);
 
@@ -45,10 +46,6 @@ interface ScoreRow {
   copyable: number | null;
 }
 
-function buildProfileUrl(address: string): string {
-  return `https://polymarket.com/@${address.trim().toLowerCase()}`;
-}
-
 function dto(row: ScoreRow) {
   const reasons = safeJson(row.reasons_json, [] as string[]);
   const fillCount = Number(row.trade_count);
@@ -58,7 +55,7 @@ function dto(row: ScoreRow) {
     address: row.proxy_wallet,
     alias: aliasFor(row.proxy_wallet),
     profileName: row.profile_name ?? null,
-    profileUrl: buildProfileUrl(row.proxy_wallet),
+    profileUrl: buildPolymarketProfileUrl(row.proxy_wallet, row.profile_name),
     tier: row.tier,
     tierRank: row.tier_rank,
     score: row.score,
