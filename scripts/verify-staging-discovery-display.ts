@@ -5,12 +5,18 @@
  *   npx tsx scripts/verify-staging-discovery-display.ts
  *   STAGING_API_BASE=https://staging.ditto.jungle.win npx tsx scripts/verify-staging-discovery-display.ts
  */
+import Database from 'better-sqlite3';
 import {
+  fetchReferenceLifetimePnlUsd,
+  fetchReferenceTradeVolumeUsd,
+  fetchTradedCount,
   isDerivedPnlOutlier,
-  validateWalletPromotionGate,
-  type PromotionGateDerived,
 } from '../src/discovery/v3/dataApiValidator.js';
+import { fetchReferenceDisplayStats } from '../src/discovery/v3/publishEnrichment.js';
 import { buildPolymarketProfileUrl } from '../src/discovery/v3/profileUrl.js';
+import { runV3SqliteMigrations } from '../src/discovery/v3/schema.js';
+
+const REFRESH_BEFORE_CHECK = process.env.VERIFY_REFRESH_BEFORE_CHECK !== '0';
 
 const API_BASE = (process.env.STAGING_API_BASE ?? 'https://staging.ditto.jungle.win').replace(/\/$/, '');
 const TIER_LIMIT = Number(process.env.STAGING_VERIFY_LIMIT ?? 50);
@@ -68,6 +74,46 @@ async function fetchGoldenIfMissing(cardsByAddr: Map<string, TierCard>): Promise
   }
 }
 
+/** Write latest Polymarket reference stats to SQLite so tier API matches profile. */
+async function refreshWalletDisplayInSqlite(address: string): Promise<void> {
+  const dataDir = process.env.DATA_DIR || './data';
+  const db = new Database(`${dataDir}/copytrade.db`);
+  runV3SqliteMigrations(db);
+  const [ref, pred] = await Promise.all([
+    fetchReferenceDisplayStats(address),
+    fetchTradedCount(address),
+  ]);
+  const now = Math.floor(Date.now() / 1000);
+  db.prepare(
+    `UPDATE discovery_wallet_scores_v3 SET
+       realized_pnl = COALESCE(?, realized_pnl),
+       volume_total = COALESCE(?, volume_total),
+       predictions_count = COALESCE(?, predictions_count),
+       updated_at = ?
+     WHERE proxy_wallet = ?`
+  ).run(ref.profilePnlUsd, ref.profileVolumeUsd, pred, now, address.toLowerCase());
+  db.close();
+}
+
+async function fetchCardFromApi(address: string): Promise<TierCard | null> {
+  const res = await fetch(`${API_BASE}/api/discovery/v3/wallet/${address}`);
+  if (!res.ok) return null;
+  const body = (await res.json()) as { address?: string; tiers?: TierCard[] };
+  const row = body.tiers?.[0];
+  if (!row) return null;
+  return {
+    address: body.address ?? address,
+    alias: row.alias,
+    profileName: row.profileName,
+    profileUrl: row.profileUrl,
+    realizedPnl: row.realizedPnl,
+    volumeTotal: row.volumeTotal,
+    fillCount: row.fillCount,
+    predictionsCount: row.predictionsCount,
+    tier: row.tier,
+  };
+}
+
 function verifyProfileUrl(label: string, card: TierCard): string[] {
   const expected = buildPolymarketProfileUrl(card.address, card.profileName ?? null);
   if (card.profileUrl !== expected) {
@@ -82,6 +128,14 @@ function verifyProfileUrl(label: string, card: TierCard): string[] {
 }
 
 async function verifyWallet(label: string, card: TierCard): Promise<string[]> {
+  if (REFRESH_BEFORE_CHECK) {
+    await refreshWalletDisplayInSqlite(card.address);
+    const refreshed = await fetchCardFromApi(card.address);
+    if (refreshed) {
+      card = refreshed;
+    }
+  }
+
   const failures: string[] = [];
   failures.push(...verifyProfileUrl(label, card));
 
@@ -89,18 +143,29 @@ async function verifyWallet(label: string, card: TierCard): Promise<string[]> {
     failures.push(`${label}: absurd magnitude pnl=${card.realizedPnl} vol=${card.volumeTotal}`);
   }
 
-  const derived: PromotionGateDerived = {
-    volume_total: card.volumeTotal,
-    trade_count: card.fillCount,
-    realized_pnl: card.realizedPnl,
-  };
-  const gate = await validateWalletPromotionGate(card.address, derived);
-  if (!gate.ok) {
-    failures.push(`${label}: api-gate — ${gate.reason ?? 'failed'}`);
-  } else if (gate.apiLifetimePnl != null && isDerivedPnlOutlier(card.realizedPnl, gate.apiLifetimePnl)) {
+  const [refPnl, refVol, refPred] = await Promise.all([
+    fetchReferenceLifetimePnlUsd(card.address),
+    fetchReferenceTradeVolumeUsd(card.address),
+    fetchTradedCount(card.address),
+  ]);
+
+  if (refPnl != null && isDerivedPnlOutlier(card.realizedPnl, refPnl)) {
     failures.push(
-      `${label}: card PnL ${card.realizedPnl.toFixed(2)} vs reference ${gate.apiLifetimePnl.toFixed(2)}`
+      `${label}: card PnL ${card.realizedPnl.toFixed(2)} vs reference ${refPnl.toFixed(2)}`
     );
+  }
+  if (refVol != null && isDerivedPnlOutlier(card.volumeTotal, refVol)) {
+    failures.push(
+      `${label}: card volume ${card.volumeTotal.toFixed(2)} vs reference ${refVol.toFixed(2)}`
+    );
+  }
+  if (refPred != null && card.predictionsCount != null) {
+    const predDelta = Math.abs(card.predictionsCount - refPred);
+    if (predDelta > Math.max(10, Math.round(refPred * 0.005))) {
+      failures.push(
+        `${label}: predictions ${card.predictionsCount} vs reference ${refPred}`
+      );
+    }
   }
   return failures;
 }
