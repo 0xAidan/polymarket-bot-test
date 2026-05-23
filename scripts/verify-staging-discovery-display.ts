@@ -95,22 +95,24 @@ async function refreshWalletDisplayInSqlite(address: string): Promise<void> {
   db.close();
 }
 
-async function fetchCardFromApi(address: string): Promise<TierCard | null> {
-  const res = await fetch(`${API_BASE}/api/discovery/v3/wallet/${address}`);
-  if (!res.ok) return null;
-  const body = (await res.json()) as { address?: string; tiers?: TierCard[] };
-  const row = body.tiers?.[0];
+function loadCardMetricsFromSqlite(address: string): Pick<TierCard, 'realizedPnl' | 'volumeTotal' | 'predictionsCount'> | null {
+  const dataDir = process.env.DATA_DIR || './data';
+  const db = new Database(`${dataDir}/copytrade.db`, { readonly: true });
+  runV3SqliteMigrations(db);
+  const row = db
+    .prepare(
+      `SELECT realized_pnl, volume_total, predictions_count
+       FROM discovery_wallet_scores_v3 WHERE proxy_wallet = ?`
+    )
+    .get(address.toLowerCase()) as
+    | { realized_pnl: number; volume_total: number; predictions_count: number | null }
+    | undefined;
+  db.close();
   if (!row) return null;
   return {
-    address: body.address ?? address,
-    alias: row.alias,
-    profileName: row.profileName,
-    profileUrl: row.profileUrl,
-    realizedPnl: row.realizedPnl,
-    volumeTotal: row.volumeTotal,
-    fillCount: row.fillCount,
-    predictionsCount: row.predictionsCount,
-    tier: row.tier,
+    realizedPnl: row.realized_pnl,
+    volumeTotal: row.volume_total,
+    predictionsCount: row.predictions_count,
   };
 }
 
@@ -130,9 +132,9 @@ function verifyProfileUrl(label: string, card: TierCard): string[] {
 async function verifyWallet(label: string, card: TierCard): Promise<string[]> {
   if (REFRESH_BEFORE_CHECK) {
     await refreshWalletDisplayInSqlite(card.address);
-    const refreshed = await fetchCardFromApi(card.address);
-    if (refreshed) {
-      card = refreshed;
+    const metrics = loadCardMetricsFromSqlite(card.address);
+    if (metrics) {
+      card = { ...card, ...metrics };
     }
   }
 
