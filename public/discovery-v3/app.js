@@ -46,7 +46,7 @@ document.getElementById('guideToggle')?.addEventListener('click', (e) => {
 // ── Formatters ────────────────────────────────────────────────────────────────
 
 function fmt$(n) {
-  if (n == null) return '—';
+  if (n == null || Number.isNaN(n)) return '—';
   const abs = Math.abs(n), sign = n < 0 ? '-' : '';
   if (abs >= 1_000_000) return sign + '$' + (abs / 1_000_000).toFixed(1) + 'M';
   if (abs >= 1_000)     return sign + '$' + (abs / 1_000).toFixed(1) + 'K';
@@ -54,7 +54,7 @@ function fmt$(n) {
 }
 
 function fmtN(n) {
-  if (n == null) return '—';
+  if (n == null || Number.isNaN(n)) return '—';
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
   if (n >= 1_000)     return (n / 1_000).toFixed(1) + 'K';
   return String(Math.round(n));

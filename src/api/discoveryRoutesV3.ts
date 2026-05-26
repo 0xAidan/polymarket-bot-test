@@ -14,6 +14,10 @@ import { isDiscoveryV3Enabled } from '../discovery/v3/featureFlag.js';
 import { getDiscoveryCoverageContract } from '../discovery/v3/coverageContract.js';
 import { TierName } from '../discovery/v3/types.js';
 import { buildPolymarketProfileUrl } from '../discovery/v3/profileUrl.js';
+import {
+  isDisplayReferenceOverlayEnabled,
+  overlayDisplayStats,
+} from '../discovery/v3/displayStatsOverlay.js';
 
 const VALID_TIERS: ReadonlySet<TierName> = new Set(['alpha', 'whale', 'specialist']);
 
@@ -135,7 +139,7 @@ export function createDiscoveryV3Router(deps: V3RouterDeps): Router {
   };
   router.use(flagGate);
 
-  router.get('/tier/:tier', (req: Request, res: Response) => {
+  router.get('/tier/:tier', async (req: Request, res: Response) => {
     const tier = req.params.tier as TierName;
     if (!VALID_TIERS.has(tier)) {
       res.status(400).json({ success: false, error: `invalid tier: ${tier}` });
@@ -146,11 +150,14 @@ export function createDiscoveryV3Router(deps: V3RouterDeps): Router {
     const rows = deps.getDb()
       .prepare('SELECT * FROM discovery_wallet_scores_v3 WHERE tier = ? ORDER BY tier_rank ASC LIMIT ? OFFSET ?')
       .all(tier, limit, offset) as ScoreRow[];
-    const data = rows.map((row) => dto(row));
+    let data = rows.map((row) => dto(row));
+    if (isDisplayReferenceOverlayEnabled()) {
+      data = await overlayDisplayStats(data);
+    }
     res.json({ success: true, tier, count: data.length, data });
   });
 
-  router.get('/wallet/:address', (req: Request, res: Response) => {
+  router.get('/wallet/:address', async (req: Request, res: Response) => {
     const addr = req.params.address.toLowerCase();
     const rows = deps.getDb()
       .prepare('SELECT * FROM discovery_wallet_scores_v3 WHERE LOWER(proxy_wallet) = ?')
@@ -159,7 +166,11 @@ export function createDiscoveryV3Router(deps: V3RouterDeps): Router {
       res.status(404).json({ success: false, error: 'wallet not found in v3 scores' });
       return;
     }
-    res.json({ success: true, address: addr, tiers: rows.map((row) => dto(row)) });
+    let tiers = rows.map((row) => dto(row));
+    if (isDisplayReferenceOverlayEnabled()) {
+      tiers = await overlayDisplayStats(tiers);
+    }
+    res.json({ success: true, address: addr, tiers });
   });
 
   router.get('/compare', (req: Request, res: Response) => {

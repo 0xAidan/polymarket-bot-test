@@ -8,6 +8,7 @@ import {
   fetchReferenceDisplayStats,
   type PublishProfileMeta,
 } from './publishEnrichment.js';
+import { isDerivedPnlOutlier } from './dataApiValidator.js';
 import { filterScoresForPublish, type PublishScoreCandidate } from './publishQualityGate.js';
 import type { V3WalletScore } from './types.js';
 
@@ -165,7 +166,11 @@ export async function finalizeScoresForPublish(
       const batch = toPatch.slice(i, i + patchConcurrency);
       await Promise.all(
         batch.map(async (s) => {
-          const ref = await fetchReferenceDisplayStats(s.proxy_wallet);
+          let ref = await fetchReferenceDisplayStats(s.proxy_wallet);
+          for (let attempt = 0; attempt < 3 && ref.profilePnlUsd == null; attempt++) {
+            await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
+            ref = await fetchReferenceDisplayStats(s.proxy_wallet);
+          }
           if (ref.profilePnlUsd != null && Number.isFinite(ref.profilePnlUsd)) {
             s.realized_pnl = ref.profilePnlUsd;
           }
@@ -174,6 +179,35 @@ export async function finalizeScoresForPublish(
           }
         })
       );
+    }
+  }
+
+  const requireRef = process.env.DISCOVERY_V3_REQUIRE_REFERENCE_PNL !== '0';
+  if (requireRef) {
+    const before = publishScores.length;
+    const verified: V3WalletScore[] = [];
+    for (const s of publishScores) {
+      if (!displayTiers.includes(s.tier as (typeof displayTiers)[number])) {
+        verified.push(s);
+        continue;
+      }
+      const ref = await fetchReferenceDisplayStats(s.proxy_wallet);
+      if (ref.profilePnlUsd == null || !Number.isFinite(ref.profilePnlUsd)) {
+        gateExcluded.push({
+          wallet: s.proxy_wallet,
+          tier: s.tier,
+          reason: 'display-tier: no Polymarket reference PnL (rate limit or API error)',
+        });
+        continue;
+      }
+      if (isDerivedPnlOutlier(s.realized_pnl, ref.profilePnlUsd)) {
+        s.realized_pnl = ref.profilePnlUsd;
+      }
+      verified.push(s);
+    }
+    publishScores = verified;
+    if (before !== publishScores.length) {
+      log(`[publish] removed ${before - publishScores.length} display-tier row(s) without reference PnL`);
     }
   }
 
