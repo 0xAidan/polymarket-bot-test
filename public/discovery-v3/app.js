@@ -251,7 +251,10 @@ function walletCard(w, tier, displayScore) {
 async function safeFetch(url, opts = {}) {
   let res;
   try { res = await fetch(url, { credentials: 'same-origin', ...opts }); }
-  catch (e) { return { ok: false, kind: 'network', message: e.message }; }
+  catch (e) {
+    const msg = e?.name === 'TimeoutError' ? 'Request timed out — try again' : e.message;
+    return { ok: false, kind: 'network', message: msg };
+  }
 
   if (res.status === 401) {
     let loginUrl = '/auth/login';
@@ -325,7 +328,9 @@ async function loadTier(tier) {
   if (!state.lastWallets.length) gridEl.innerHTML = '';
   statusEl.textContent = `Loading ${tier}…`;
 
-  const result = await safeFetch(`${API}/tier/${tier}?limit=50`);
+  const result = await safeFetch(`${API}/tier/${tier}?limit=50`, {
+    signal: AbortSignal.timeout(45_000),
+  });
 
   if (result.ok) {
     const { success, error, data, count } = result.data;
