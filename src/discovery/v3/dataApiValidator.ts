@@ -292,30 +292,47 @@ export async function fetchTradedCount(
   return Number.isFinite(n) ? n : null;
 }
 
+const REFERENCE_FETCH_RETRIES = Number(process.env.REFERENCE_FETCH_RETRIES ?? 3);
+const REFERENCE_FETCH_RETRY_MS = Number(process.env.REFERENCE_FETCH_RETRY_MS ?? 800);
+
+const sleepMs = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 /** Reference lifetime PnL: closed realizedPnl + open cashPnl (profile ballpark). */
 export async function fetchReferenceLifetimePnlUsd(
   address: string,
   f: typeof fetch = fetch
 ): Promise<number | null> {
-  const closed = await fetchPaginatedJson<{ realizedPnl?: number }>(
-    (offset, limit) =>
-      `${DATA_API}/closed-positions?user=${encodeURIComponent(address)}&limit=${limit}&offset=${offset}`,
-    50,
-    400,
-    f
-  );
-  if (closed.httpError) return null;
-  const open = await fetchPaginatedJson<{ cashPnl?: number }>(
-    (offset, limit) =>
-      `${DATA_API}/positions?user=${encodeURIComponent(address)}&limit=${limit}&offset=${offset}`,
-    500,
-    40,
-    f
-  );
-  if (open.httpError) return null;
-  const closedSum = closed.rows.reduce((sum, row) => sum + Number(row.realizedPnl ?? 0), 0);
-  const openSum = open.rows.reduce((sum, row) => sum + Number(row.cashPnl ?? 0), 0);
-  return closedSum + openSum;
+  const fetchOnce = async (): Promise<number | null> => {
+    const closed = await fetchPaginatedJson<{ realizedPnl?: number }>(
+      (offset, limit) =>
+        `${DATA_API}/closed-positions?user=${encodeURIComponent(address)}&limit=${limit}&offset=${offset}`,
+      50,
+      400,
+      f
+    );
+    if (closed.httpError) return null;
+    const open = await fetchPaginatedJson<{ cashPnl?: number }>(
+      (offset, limit) =>
+        `${DATA_API}/positions?user=${encodeURIComponent(address)}&limit=${limit}&offset=${offset}`,
+      500,
+      40,
+      f
+    );
+    if (open.httpError) return null;
+    const closedSum = closed.rows.reduce((sum, row) => sum + Number(row.realizedPnl ?? 0), 0);
+    const openSum = open.rows.reduce((sum, row) => sum + Number(row.cashPnl ?? 0), 0);
+    return closedSum + openSum;
+  };
+
+  for (let attempt = 0; attempt < REFERENCE_FETCH_RETRIES; attempt++) {
+    const value = await fetchOnce();
+    if (value != null) return value;
+    if (attempt < REFERENCE_FETCH_RETRIES - 1) {
+      await sleepMs(REFERENCE_FETCH_RETRY_MS * (attempt + 1));
+    }
+  }
+  return null;
 }
 
 export interface PromotionGateDerived {

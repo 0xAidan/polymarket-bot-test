@@ -46,7 +46,7 @@ document.getElementById('guideToggle')?.addEventListener('click', (e) => {
 // ── Formatters ────────────────────────────────────────────────────────────────
 
 function fmt$(n) {
-  if (n == null) return '—';
+  if (n == null || Number.isNaN(n)) return '—';
   const abs = Math.abs(n), sign = n < 0 ? '-' : '';
   if (abs >= 1_000_000) return sign + '$' + (abs / 1_000_000).toFixed(1) + 'M';
   if (abs >= 1_000)     return sign + '$' + (abs / 1_000).toFixed(1) + 'K';
@@ -54,7 +54,7 @@ function fmt$(n) {
 }
 
 function fmtN(n) {
-  if (n == null) return '—';
+  if (n == null || Number.isNaN(n)) return '—';
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
   if (n >= 1_000)     return (n / 1_000).toFixed(1) + 'K';
   return String(Math.round(n));
@@ -251,7 +251,10 @@ function walletCard(w, tier, displayScore) {
 async function safeFetch(url, opts = {}) {
   let res;
   try { res = await fetch(url, { credentials: 'same-origin', ...opts }); }
-  catch (e) { return { ok: false, kind: 'network', message: e.message }; }
+  catch (e) {
+    const msg = e?.name === 'TimeoutError' ? 'Request timed out — try again' : e.message;
+    return { ok: false, kind: 'network', message: msg };
+  }
 
   if (res.status === 401) {
     let loginUrl = '/auth/login';
@@ -325,7 +328,9 @@ async function loadTier(tier) {
   if (!state.lastWallets.length) gridEl.innerHTML = '';
   statusEl.textContent = `Loading ${tier}…`;
 
-  const result = await safeFetch(`${API}/tier/${tier}?limit=50`);
+  const result = await safeFetch(`${API}/tier/${tier}?limit=50`, {
+    signal: AbortSignal.timeout(45_000),
+  });
 
   if (result.ok) {
     const { success, error, data, count } = result.data;

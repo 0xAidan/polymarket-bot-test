@@ -15,6 +15,7 @@ import { runV3SqliteMigrations } from './schema.js';
 import { runV3SnapshotAdditiveColumnMigrations } from './duckdbSchema.js';
 import { buildCompositeScoringQuery, type CompositeScoredRow } from './compositeQueries.js';
 import { determineDittoState } from './dittoEngine.js';
+import { finalizeScoresForPublish } from './finalizePublishScores.js';
 import {
   buildProbabilisticAccuracySql,
   buildMarketEdgeCLVSql,
@@ -225,6 +226,18 @@ export async function runRefreshOnce(options: RefreshWorkerOptions): Promise<Ref
     }
   }
 
+  const { scores: publishScores, profileMeta, excluded } = await finalizeScoresForPublish(scores, {
+    log: (msg) => log(msg),
+  });
+  if (excluded.length > 0) {
+    for (const ex of excluded.slice(0, 10)) {
+      log(`[v3-refresh] gate excluded ${ex.tier} ${ex.wallet}: ${ex.reason}`);
+    }
+    if (excluded.length > 10) {
+      log(`[v3-refresh] … and ${excluded.length - 10} more excluded`);
+    }
+  }
+
   const tx = sqlite.transaction((list: typeof scores) => {
     sqlite.prepare('DELETE FROM discovery_wallet_scores_v3').run();
     const ins = sqlite.prepare(
@@ -234,10 +247,12 @@ export async function runRefreshOnce(options: RefreshWorkerOptions): Promise<Ref
           last_active_ts, reasons_json, updated_at,
           composite_score, momentum_score, consistency_score, ditto_state,
           brier_score, avg_clv_1h, pct_positive_clv_1h,
-          top_category, cat_volume_share, maker_ratio, copyable)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          top_category, cat_volume_share, maker_ratio, copyable,
+          predictions_count, profile_name)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     );
     for (const s of list) {
+      const meta = profileMeta.get(s.proxy_wallet);
       ins.run(
         s.proxy_wallet, s.tier, s.tier_rank, s.score, s.volume_total,
         s.trade_count, s.distinct_markets, s.closed_positions,
@@ -247,13 +262,18 @@ export async function runRefreshOnce(options: RefreshWorkerOptions): Promise<Ref
         s.brier_score         ?? null, s.avg_clv_1h             ?? null,
         s.pct_positive_clv_1h ?? null,
         s.top_category        ?? null, s.cat_volume_share       ?? null,
-        s.maker_ratio         ?? null, s.copyable               ?? 1
+        s.maker_ratio         ?? null, s.copyable               ?? 1,
+        meta?.predictionsCount ?? null,
+        meta?.profileName ?? null
       );
     }
   });
-  tx(scores);
-  log(`[v3-refresh] wrote ${scores.length} rows (eligible ${stats.eligible}/${stats.total})`);
-  return { snapshotRows: Number(snapshotCount), scored: scores.length, eligible: stats.eligible };
+  tx(publishScores);
+  log(
+    `[v3-refresh] wrote ${publishScores.length} rows (eligible ${stats.eligible}/${stats.total}, ` +
+      `gate excluded ${excluded.length})`
+  );
+  return { snapshotRows: Number(snapshotCount), scored: publishScores.length, eligible: stats.eligible };
 }
 
 export interface RefreshLoopHandle {
