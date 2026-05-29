@@ -2250,6 +2250,7 @@ body.app-loading .app-shell {
 
 body.app-ready .app-shell {
   opacity: 1;
+  pointer-events: auto;
   transition: opacity 0.24s ease;
 }
 

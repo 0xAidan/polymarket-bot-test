@@ -10,7 +10,7 @@ const formatUsd = (value) => {
   return `$${Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 };
 
-const shortAddress = (address) => {
+const agentShortAddress = (address) => {
   if (!address) return '—';
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 };
@@ -90,7 +90,7 @@ const renderAgentCard = (agent) => {
       <div class="j-agent-address-row">
         ${agent.addressPending
     ? '<span class="j-badge j-badge-warn">Address pending</span>'
-    : `<code class="j-mono">${shortAddress(agent.polymarketAddress)}</code>
+    : `<code class="j-mono">${agentShortAddress(agent.polymarketAddress)}</code>
            <button type="button" class="j-btn j-btn-ghost j-btn-sm" data-copy-address="${agent.polymarketAddress}" aria-label="Copy address">Copy</button>`}
       </div>
       <footer class="j-agent-actions">
