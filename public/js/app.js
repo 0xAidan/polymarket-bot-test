@@ -178,6 +178,7 @@ function initApp() {
   if (window.__appInitialized) return;
   window.__appInitialized = true;
   console.log('Ditto initialized');
+  bindTabNavigation();
   if (typeof window.markAppShellReady === 'function') {
     window.markAppShellReady();
   }
@@ -207,6 +208,32 @@ function updateClock() {
   const h = now.getHours().toString().padStart(2, '0');
   const m = now.getMinutes().toString().padStart(2, '0');
   document.getElementById('taskbarClock').textContent = `${h}:${m}`;
+}
+
+function bindTabNavigation() {
+  const tabButtons = document.querySelectorAll('[data-tab]');
+  tabButtons.forEach((button) => {
+    if (button.dataset.tabBound === 'true') {
+      return;
+    }
+
+    const handleTabActivate = (event) => {
+      event.preventDefault();
+      const tabName = button.dataset.tab;
+      if (!tabName || typeof switchTab !== 'function') {
+        return;
+      }
+      switchTab(tabName);
+    };
+
+    button.addEventListener('click', handleTabActivate);
+    button.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        handleTabActivate(event);
+      }
+    });
+    button.dataset.tabBound = 'true';
+  });
 }
 
 function startAutoRefresh() {
