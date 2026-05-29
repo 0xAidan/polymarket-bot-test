@@ -8,68 +8,62 @@
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/admin/admin.css">
 </head>
-<body class="grid-pattern app-loading">
+<body class="grid-pattern app-loading j-admin-page">
   <div class="j-admin-layout">
-    <nav class="j-admin-nav" aria-label="Platform admin sections">
-      <div class="j-admin-nav-title">Platform Admin</div>
+    <aside class="j-admin-nav" aria-label="Platform admin sections">
+      <div class="j-admin-nav-brand">
+        <span class="app-section-kicker">Ditto</span>
+        <span class="j-admin-nav-title">Platform Admin</span>
+      </div>
       <a href="/admin" class="j-admin-nav-link active" aria-current="page">Jungle Agents</a>
       <span class="j-admin-nav-link j-admin-nav-disabled" title="Coming soon">System Health</span>
       <span class="j-admin-nav-link j-admin-nav-disabled" title="Coming soon">Tenants</span>
-    </nav>
+      <a href="/" class="j-admin-nav-link j-admin-nav-back">← Back to Ditto</a>
+    </aside>
 
-    <div class="j-admin-wrap">
-      <header class="j-admin-header">
-        <div>
-          <div class="app-section-kicker">Platform Admin</div>
-          <h1 class="font-serif">Jungle Agents</h1>
-          <p class="text-muted j-admin-subtitle">Paste all nine Polymarket addresses below, then click Save all addresses.</p>
-        </div>
-        <div class="j-topbar-actions">
-          <a href="/" class="j-btn">← Back to Ditto</a>
-          <button type="button" class="j-btn j-btn-primary" id="adminAddAgentBtn">Add agent</button>
-          <button type="button" class="j-btn" id="adminRefreshBtn">Refresh</button>
-        </div>
-      </header>
-
+    <main class="j-admin-main">
       <section id="adminUnauthorized" class="j-admin-unauthorized hidden">
-        <h2 class="font-serif">Platform admin access required</h2>
+        <h1 class="font-serif">Platform admin access required</h1>
         <p class="text-muted">Your account is signed in but is not on the platform admin allowlist.</p>
         <a href="/" class="j-btn j-btn-primary">Return to Ditto</a>
       </section>
 
       <section id="adminApp" class="hidden">
-        <div class="j-admin-health">
-          <div class="j-card j-stat"><span class="j-stat-label">Total</span><span class="j-stat-value" id="healthTotal">—</span></div>
-          <div class="j-card j-stat"><span class="j-stat-label">Enabled</span><span class="j-stat-value" id="healthEnabled">—</span></div>
-          <div class="j-card j-stat j-stat-warn"><span class="j-stat-label">Missing address</span><span class="j-stat-value" id="healthMissing">—</span></div>
-          <div class="j-card j-stat"><span class="j-stat-label">Last updated</span><span class="j-stat-value" id="healthUpdated">—</span></div>
+        <header class="j-admin-header">
+          <div>
+            <h1 class="font-serif j-admin-title">Jungle Agents</h1>
+            <p id="adminMetaLine" class="j-admin-meta text-muted">Loading roster…</p>
+          </div>
+          <div class="j-admin-header-actions">
+            <button type="button" class="j-btn" id="adminRefreshBtn">Refresh</button>
+            <button type="button" class="j-btn j-btn-primary" id="adminSaveAllBtn">Save all changes</button>
+          </div>
+        </header>
+
+        <div class="j-card j-admin-table-card glow-border">
+          <div class="j-admin-table-scroll">
+            <table class="j-admin-table" aria-label="Jungle Agents roster editor">
+              <thead>
+                <tr>
+                  <th class="col-order">#</th>
+                  <th class="col-agent">Agent</th>
+                  <th class="col-model">Model</th>
+                  <th class="col-wallet">Polymarket wallet</th>
+                  <th class="col-status">Status</th>
+                  <th class="col-live">Live</th>
+                  <th class="col-actions">Order</th>
+                </tr>
+              </thead>
+              <tbody id="adminAgentsBody"></tbody>
+            </table>
+          </div>
         </div>
 
-        <div class="j-admin-toolbar">
-          <label class="j-admin-filter">
-            <input type="checkbox" id="adminMissingOnlyFilter" />
-            Show missing addresses only
-          </label>
-          <button type="button" class="j-btn j-btn-primary" id="adminSaveAllAddressesBtn">Save all addresses</button>
-        </div>
-
-        <div class="j-card j-admin-table-wrap">
-          <table class="j-admin-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Name</th>
-                <th>Model</th>
-                <th>Polymarket address</th>
-                <th>On</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody id="adminAgentsBody"></tbody>
-          </table>
-        </div>
+        <p class="j-admin-hint text-muted">
+          Edit any row inline — names and wallets match the public Jungle Agents tab. Paste all nine wallet addresses, then click <strong>Save all changes</strong>.
+        </p>
       </section>
-    </div>
+    </main>
   </div>
 
   <script src="/js/api.js"></script>

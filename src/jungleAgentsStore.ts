@@ -215,6 +215,17 @@ export async function reorderAgents(orderedIds: string[]): Promise<JungleAgentRe
 
 export type BulkAddressUpdate = { id: string; polymarketAddress: string };
 
+export async function bulkUpdateAgents(updates: Array<Partial<JungleAgentRecord> & { id: string }>): Promise<JungleAgentRecord[]> {
+  if (!Array.isArray(updates) || updates.length === 0) {
+    throw new Error('updates must be a non-empty array');
+  }
+  for (const row of updates) {
+    const { id, ...patch } = row;
+    await updateAgent(id, patch);
+  }
+  return [...(await loadAgentsFile())].sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
 export async function bulkUpdateAddresses(updates: BulkAddressUpdate[]): Promise<JungleAgentRecord[]> {
   if (!Array.isArray(updates) || updates.length === 0) {
     throw new Error('updates must be a non-empty array');

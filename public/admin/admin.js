@@ -1,10 +1,9 @@
 /**
- * Platform admin — Jungle Agents CRUD with fast bulk address entry.
+ * Platform admin — Jungle Agents inline table editor (matches public roster order).
  */
 
 let adminAgents = [];
-let showMissingOnly = false;
-const addressDrafts = new Map();
+const rowDrafts = new Map();
 const perfSnapshots = new Map();
 
 const EVM_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -17,16 +16,33 @@ const escapeHtml = (value) => String(value)
 
 const isValidAddress = (addr) => !addr || EVM_RE.test(addr.trim());
 
-const sortAgentsForDisplay = (agents) => [...agents].sort((a, b) => {
-  const aMissing = !a.polymarketAddress ? 0 : 1;
-  const bMissing = !b.polymarketAddress ? 0 : 1;
-  if (aMissing !== bMissing) return aMissing - bMissing;
-  return a.sortOrder - b.sortOrder;
+const sortByRosterOrder = (agents) => [...agents].sort((a, b) => a.sortOrder - b.sortOrder);
+
+const defaultDraft = (agent) => ({
+  displayName: agent.displayName || '',
+  tagline: agent.tagline || '',
+  modelLabel: agent.modelLabel || '',
+  polymarketAddress: agent.polymarketAddress || '',
+  enabled: agent.enabled !== false,
 });
 
-const getDraftAddress = (agent) => {
-  if (addressDrafts.has(agent.id)) return addressDrafts.get(agent.id);
-  return agent.polymarketAddress || '';
+const getDraft = (agent) => {
+  if (!rowDrafts.has(agent.id)) {
+    rowDrafts.set(agent.id, defaultDraft(agent));
+  }
+  return rowDrafts.get(agent.id);
+};
+
+const draftChanged = (agent) => {
+  const d = getDraft(agent);
+  const saved = defaultDraft(agent);
+  return (
+    d.displayName.trim() !== saved.displayName.trim()
+    || d.tagline.trim() !== (saved.tagline || '').trim()
+    || d.modelLabel.trim() !== (saved.modelLabel || '').trim()
+    || d.polymarketAddress.trim() !== saved.polymarketAddress.trim()
+    || d.enabled !== saved.enabled
+  );
 };
 
 const showUnauthorized = () => {
@@ -39,109 +55,174 @@ const showAdminApp = () => {
   document.getElementById('adminApp')?.classList.remove('hidden');
 };
 
-const updateHealthStrip = (agents) => {
-  const enabled = agents.filter((a) => a.enabled).length;
+const updateMetaLine = (agents) => {
+  const el = document.getElementById('adminMetaLine');
+  if (!el) return;
+  const total = agents.length;
   const missing = agents.filter((a) => !a.polymarketAddress).length;
-  const updated = agents.reduce((max, a) => Math.max(max, a.updatedAtMs || 0), 0);
-  document.getElementById('healthTotal').textContent = String(agents.length);
-  document.getElementById('healthEnabled').textContent = String(enabled);
-  document.getElementById('healthMissing').textContent = String(missing);
-  document.getElementById('healthUpdated').textContent = updated
-    ? new Date(updated).toLocaleString()
-    : '—';
+  el.textContent = `${total} curated agents · ${missing} awaiting addresses`;
 };
 
 const fetchPerfSnapshot = async (agentId) => {
   try {
     const data = await API.getJungleAgentPerformance(agentId);
     if (data.success && data.portfolioValueUsd != null) {
-      perfSnapshots.set(agentId, `$${Number(data.portfolioValueUsd).toLocaleString(undefined, { maximumFractionDigits: 0 })} · ${data.positionCount ?? 0} positions`);
+      perfSnapshots.set(
+        agentId,
+        `Portfolio ${Number(data.portfolioValueUsd).toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} · ${data.positionCount ?? 0} positions`,
+      );
       renderTable();
     }
   } catch {
-    perfSnapshots.set(agentId, 'Performance unavailable');
-    renderTable();
+    perfSnapshots.delete(agentId);
   }
+};
+
+const statusBadge = (agent, draft) => {
+  if (!draft.enabled) {
+    return '<span class="j-admin-status-badge j-admin-status-badge--off">Hidden</span>';
+  }
+  if (!draft.polymarketAddress.trim()) {
+    return '<span class="j-admin-status-badge j-admin-status-badge--pending">Pending</span>';
+  }
+  return '<span class="j-admin-status-badge j-admin-status-badge--ready">Ready</span>';
+};
+
+const updateRowVisuals = (agentId) => {
+  const agent = adminAgents.find((a) => a.id === agentId);
+  const row = document.querySelector(`[data-agent-row="${agentId}"]`);
+  if (!agent || !row) return;
+  const draft = getDraft(agent);
+  row.classList.toggle('row-dirty', draftChanged(agent));
+  row.classList.toggle('row-missing', !draft.polymarketAddress.trim());
+  const statusCell = row.querySelector('.col-status');
+  if (statusCell) statusCell.innerHTML = statusBadge(agent, draft);
 };
 
 const renderTable = () => {
   const tbody = document.getElementById('adminAgentsBody');
   if (!tbody) return;
 
-  let visible = sortAgentsForDisplay(adminAgents);
-  if (showMissingOnly) {
-    visible = visible.filter((a) => !a.polymarketAddress);
-  }
+  const visible = sortByRosterOrder(adminAgents);
 
   tbody.innerHTML = visible.map((agent) => {
-    const draft = getDraftAddress(agent);
+    const draft = getDraft(agent);
+    const dirty = draftChanged(agent);
     const missing = !agent.polymarketAddress;
-    const invalid = draft && !isValidAddress(draft);
+    const addrInvalid = draft.polymarketAddress.trim() && !isValidAddress(draft.polymarketAddress);
     const perf = perfSnapshots.get(agent.id);
+    const initial = (draft.displayName || agent.displayName || '?').slice(0, 1).toUpperCase();
+
     return `
-    <tr class="${missing ? 'row-missing-address' : ''}" data-agent-row="${agent.id}">
-      <td>${agent.sortOrder}</td>
-      <td>
-        <strong>${escapeHtml(agent.displayName)}</strong>
-        ${missing ? '<span class="j-badge j-badge-warn" title="Missing address">pending</span>' : ''}
+    <tr class="${missing ? 'row-missing' : ''}${dirty ? ' row-dirty' : ''}" data-agent-row="${agent.id}">
+      <td class="col-order">${agent.sortOrder}</td>
+      <td class="col-agent">
+        <div class="j-admin-agent-cell">
+          <div class="j-admin-agent-avatar" aria-hidden="true">${escapeHtml(initial)}</div>
+          <div class="j-admin-agent-fields">
+            <input
+              type="text"
+              class="j-admin-field-input"
+              data-field="displayName"
+              data-agent-id="${agent.id}"
+              value="${escapeHtml(draft.displayName)}"
+              aria-label="Display name for ${escapeHtml(agent.displayName)}"
+            />
+            <input
+              type="text"
+              class="j-admin-field-input j-admin-field-input--tagline"
+              data-field="tagline"
+              data-agent-id="${agent.id}"
+              value="${escapeHtml(draft.tagline)}"
+              placeholder="Tagline (e.g. The Veteran Mind)"
+              aria-label="Tagline for ${escapeHtml(agent.displayName)}"
+            />
+          </div>
+        </div>
       </td>
-      <td>${escapeHtml(agent.modelLabel || '—')}</td>
-      <td>
-        <div class="j-admin-address-cell">
+      <td class="col-model">
+        <input
+          type="text"
+          class="j-admin-field-input"
+          data-field="modelLabel"
+          data-agent-id="${agent.id}"
+          value="${escapeHtml(draft.modelLabel)}"
+          placeholder="Model label"
+          aria-label="Model for ${escapeHtml(agent.displayName)}"
+        />
+      </td>
+      <td class="col-wallet">
+        <div class="j-admin-wallet-row">
           <input
             type="text"
-            class="j-input j-admin-address-input${invalid ? ' input-invalid' : ''}"
-            data-address-input="${agent.id}"
-            value="${escapeHtml(draft)}"
-            placeholder="0x… paste Polymarket proxy address"
-            aria-label="Polymarket address for ${escapeHtml(agent.displayName)}"
+            class="j-admin-field-input j-admin-field-input--mono${addrInvalid ? ' input-invalid' : ''}"
+            data-field="polymarketAddress"
+            data-agent-id="${agent.id}"
+            value="${escapeHtml(draft.polymarketAddress)}"
+            placeholder="0x… paste Polymarket proxy wallet"
             spellcheck="false"
             autocomplete="off"
+            aria-label="Polymarket wallet for ${escapeHtml(agent.displayName)}"
           />
-          <button type="button" class="j-btn j-btn-sm" data-copy-address="${agent.id}" title="Copy address" ${draft ? '' : 'disabled'}>Copy</button>
+          <button type="button" class="j-btn j-btn-sm" data-copy-address="${agent.id}" title="Copy wallet" ${draft.polymarketAddress.trim() ? '' : 'disabled'}>Copy</button>
         </div>
         ${perf ? `<div class="j-admin-perf">${escapeHtml(perf)}</div>` : ''}
       </td>
-      <td>${agent.enabled ? 'Yes' : 'No'}</td>
-      <td>
-        <button type="button" class="j-btn j-btn-sm" data-edit-agent="${agent.id}">Edit</button>
-        <button type="button" class="j-btn j-btn-sm" data-move-up="${agent.id}">↑</button>
-        <button type="button" class="j-btn j-btn-sm" data-move-down="${agent.id}">↓</button>
-        <button type="button" class="j-btn j-btn-sm" data-delete-agent="${agent.id}">Delete</button>
+      <td class="col-status">${statusBadge(agent, draft)}</td>
+      <td class="col-live">
+        <input type="checkbox" class="j-admin-live-check" data-field="enabled" data-agent-id="${agent.id}" ${draft.enabled ? 'checked' : ''} aria-label="Show ${escapeHtml(agent.displayName)} on public tab" />
+      </td>
+      <td class="col-actions">
+        <div class="j-admin-order-btns">
+          <button type="button" class="j-btn j-btn-sm" data-move-up="${agent.id}" title="Move up" aria-label="Move ${escapeHtml(agent.displayName)} up">↑</button>
+          <button type="button" class="j-btn j-btn-sm" data-move-down="${agent.id}" title="Move down" aria-label="Move ${escapeHtml(agent.displayName)} down">↓</button>
+        </div>
       </td>
     </tr>`;
   }).join('');
 
-  tbody.querySelectorAll('[data-address-input]').forEach((input) => {
-    input.addEventListener('input', (e) => {
-      const id = e.target.getAttribute('data-address-input');
-      addressDrafts.set(id, e.target.value.trim());
-      e.target.classList.toggle('input-invalid', e.target.value.trim() && !isValidAddress(e.target.value.trim()));
-      const copyBtn = tbody.querySelector(`[data-copy-address="${id}"]`);
-      if (copyBtn) copyBtn.disabled = !e.target.value.trim();
-    });
+  tbody.querySelectorAll('[data-field]').forEach((el) => {
+    const handler = (e) => {
+      const id = e.target.getAttribute('data-agent-id');
+      const field = e.target.getAttribute('data-field');
+      const agent = adminAgents.find((a) => a.id === id);
+      if (!agent) return;
+      const draft = getDraft(agent);
+      if (field === 'enabled') {
+        draft.enabled = e.target.checked;
+      } else {
+        draft[field] = e.target.value;
+        if (field === 'polymarketAddress') {
+          e.target.classList.toggle('input-invalid', e.target.value.trim() && !isValidAddress(e.target.value.trim()));
+          const copyBtn = tbody.querySelector(`[data-copy-address="${id}"]`);
+          if (copyBtn) copyBtn.disabled = !e.target.value.trim();
+        }
+      }
+      updateRowVisuals(id);
+    };
+    if (el.type === 'checkbox') {
+      el.addEventListener('change', handler);
+    } else {
+      el.addEventListener('input', handler);
+    }
   });
 
   tbody.querySelectorAll('[data-copy-address]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const id = btn.getAttribute('data-copy-address');
-      const val = getDraftAddress(adminAgents.find((a) => a.id === id) || { id });
+      const agent = adminAgents.find((a) => a.id === id);
+      if (!agent) return;
+      const val = getDraft(agent).polymarketAddress.trim();
       if (!val) return;
       try {
         await navigator.clipboard.writeText(val);
-        await win95Dialog.success('Address copied to clipboard');
+        await win95Dialog.success('Wallet copied');
       } catch {
         await win95Dialog.alert(val, 'Copy manually');
       }
     });
   });
 
-  tbody.querySelectorAll('[data-edit-agent]').forEach((btn) => {
-    btn.addEventListener('click', () => openEditDrawer(btn.getAttribute('data-edit-agent')));
-  });
-  tbody.querySelectorAll('[data-delete-agent]').forEach((btn) => {
-    btn.addEventListener('click', () => deleteAgent(btn.getAttribute('data-delete-agent')));
-  });
   tbody.querySelectorAll('[data-move-up]').forEach((btn) => {
     btn.addEventListener('click', () => moveAgent(btn.getAttribute('data-move-up'), -1));
   });
@@ -153,135 +234,70 @@ const renderTable = () => {
 const loadAdminAgents = async () => {
   const data = await API.getAdminJungleAgents();
   adminAgents = data.agents || [];
-  addressDrafts.clear();
-  updateHealthStrip(adminAgents);
+  rowDrafts.clear();
+  updateMetaLine(adminAgents);
   renderTable();
+  for (const agent of adminAgents) {
+    if (agent.polymarketAddress) {
+      fetchPerfSnapshot(agent.id);
+    }
+  }
 };
 
-const collectAddressUpdates = () => {
+const collectUpdates = () => {
   const updates = [];
   const invalid = [];
   for (const agent of adminAgents) {
-    const draft = getDraftAddress(agent).trim();
-    if (!isValidAddress(draft)) {
+    if (!draftChanged(agent)) continue;
+    const d = getDraft(agent);
+    const addr = d.polymarketAddress.trim();
+    if (!isValidAddress(addr)) {
       invalid.push(agent.displayName);
       continue;
     }
-    const saved = (agent.polymarketAddress || '').trim();
-    if (draft !== saved) {
-      updates.push({ id: agent.id, polymarketAddress: draft });
-    }
+    updates.push({
+      id: agent.id,
+      displayName: d.displayName.trim(),
+      tagline: d.tagline.trim() || undefined,
+      modelLabel: d.modelLabel.trim() || undefined,
+      polymarketAddress: addr,
+      enabled: d.enabled,
+    });
   }
   return { updates, invalid };
 };
 
-const saveAllAddresses = async () => {
-  const { updates, invalid } = collectAddressUpdates();
+const saveAllChanges = async () => {
+  const { updates, invalid } = collectUpdates();
   if (invalid.length > 0) {
-    await win95Dialog.error(`Invalid address format for: ${invalid.join(', ')}. Use 0x followed by 40 hex characters, or leave blank.`);
+    await win95Dialog.error(`Invalid wallet format for: ${invalid.join(', ')}. Use 0x plus 40 hex characters, or leave blank.`);
     return;
   }
   if (updates.length === 0) {
-    await win95Dialog.alert('No address changes to save.');
+    await win95Dialog.alert('No changes to save.');
     return;
   }
   try {
-    await API.bulkUpdateAdminJungleAddresses(updates);
-    addressDrafts.clear();
+    await API.bulkSaveAdminJungleAgents(updates);
+    rowDrafts.clear();
     await loadAdminAgents();
-    await win95Dialog.success(`Saved ${updates.length} address${updates.length === 1 ? '' : 'es'}.`);
-    for (const row of updates) {
-      if (row.polymarketAddress) {
-        fetchPerfSnapshot(row.id);
-      }
-    }
+    await win95Dialog.success(`Saved ${updates.length} agent${updates.length === 1 ? '' : 's'}.`);
   } catch (error) {
     await win95Dialog.error(error.message || 'Save failed');
   }
 };
 
 const moveAgent = async (id, direction) => {
-  const index = adminAgents.findIndex((a) => a.id === id);
+  const ordered = sortByRosterOrder(adminAgents);
+  const index = ordered.findIndex((a) => a.id === id);
   if (index < 0) return;
   const target = index + direction;
-  if (target < 0 || target >= adminAgents.length) return;
-  const ordered = [...adminAgents];
-  const [item] = ordered.splice(index, 1);
-  ordered.splice(target, 0, item);
-  await API.reorderAdminJungleAgents(ordered.map((a) => a.id));
+  if (target < 0 || target >= ordered.length) return;
+  const next = [...ordered];
+  const [item] = next.splice(index, 1);
+  next.splice(target, 0, item);
+  await API.reorderAdminJungleAgents(next.map((a) => a.id));
   await loadAdminAgents();
-};
-
-const deleteAgent = async (id) => {
-  const agent = adminAgents.find((a) => a.id === id);
-  if (!agent) return;
-  const ok = await win95Dialog.confirm(`Delete agent "${agent.displayName}"?`, 'Delete agent');
-  if (!ok) return;
-  await API.deleteAdminJungleAgent(id);
-  await win95Dialog.success('Agent deleted');
-  await loadAdminAgents();
-};
-
-const openEditDrawer = (id) => {
-  const isNew = !id;
-  const agent = isNew
-    ? {
-      displayName: '',
-      tagline: '',
-      modelLabel: '',
-      polymarketAddress: '',
-      olympicsProfileUrl: 'https://olympics.jungle.win/agents',
-      avatarUrl: '',
-      enabled: true,
-    }
-    : adminAgents.find((a) => a.id === id);
-
-  if (!agent) return;
-
-  const formHtml = `
-    <label class="j-label">Display name<input id="adminFieldName" class="j-input" value="${escapeHtml(agent.displayName || '')}" /></label>
-    <label class="j-label">Tagline<input id="adminFieldTagline" class="j-input" value="${escapeHtml(agent.tagline || '')}" /></label>
-    <label class="j-label">Model label<input id="adminFieldModel" class="j-input" value="${escapeHtml(agent.modelLabel || '')}" /></label>
-    <label class="j-label">Polymarket address<input id="adminFieldAddress" class="j-input" placeholder="0x…" value="${escapeHtml(agent.polymarketAddress || getDraftAddress(agent))}" /></label>
-    <label class="j-label">Olympics profile URL<input id="adminFieldOlympics" class="j-input" value="${escapeHtml(agent.olympicsProfileUrl || '')}" /></label>
-    <label class="j-label">Avatar URL<input id="adminFieldAvatar" class="j-input" value="${escapeHtml(agent.avatarUrl || '')}" /></label>
-    <label class="j-label"><input type="checkbox" id="adminFieldEnabled" ${agent.enabled !== false ? 'checked' : ''} /> Enabled</label>
-  `;
-
-  jungleDialog.openDrawer(isNew ? 'Add Jungle Agent' : `Edit ${agent.displayName}`, formHtml, [
-    { label: 'Save', value: 'save', primary: true },
-    { label: 'Cancel', value: null },
-  ]).then(async (action) => {
-    if (action !== 'save') return;
-    const addr = document.getElementById('adminFieldAddress')?.value.trim() || '';
-    if (!isValidAddress(addr)) {
-      await win95Dialog.error('Invalid Polymarket address. Use 0x followed by 40 hex characters, or leave blank.');
-      return;
-    }
-    const payload = {
-      displayName: document.getElementById('adminFieldName')?.value.trim(),
-      tagline: document.getElementById('adminFieldTagline')?.value.trim(),
-      modelLabel: document.getElementById('adminFieldModel')?.value.trim(),
-      polymarketAddress: addr,
-      olympicsProfileUrl: document.getElementById('adminFieldOlympics')?.value.trim(),
-      avatarUrl: document.getElementById('adminFieldAvatar')?.value.trim(),
-      enabled: document.getElementById('adminFieldEnabled')?.checked ?? true,
-    };
-    try {
-      if (isNew) {
-        await API.createAdminJungleAgent(payload);
-        await win95Dialog.success('Agent created');
-      } else {
-        await API.updateAdminJungleAgent(id, payload);
-        await win95Dialog.success('Agent updated');
-        if (addr) fetchPerfSnapshot(id);
-      }
-      addressDrafts.delete(id);
-      await loadAdminAgents();
-    } catch (error) {
-      await win95Dialog.error(error.message || 'Save failed');
-    }
-  });
 };
 
 const bootAdmin = async () => {
@@ -299,13 +315,11 @@ const bootAdmin = async () => {
   }
 };
 
-document.getElementById('adminAddAgentBtn')?.addEventListener('click', () => openEditDrawer(null));
-document.getElementById('adminRefreshBtn')?.addEventListener('click', () => loadAdminAgents().catch((e) => win95Dialog.error(e.message)));
-document.getElementById('adminSaveAllAddressesBtn')?.addEventListener('click', () => saveAllAddresses());
-document.getElementById('adminMissingOnlyFilter')?.addEventListener('change', (e) => {
-  showMissingOnly = e.target.checked;
-  renderTable();
+document.getElementById('adminRefreshBtn')?.addEventListener('click', () => {
+  rowDrafts.clear();
+  loadAdminAgents().catch((e) => win95Dialog.error(e.message));
 });
+document.getElementById('adminSaveAllBtn')?.addEventListener('click', () => saveAllChanges());
 
 document.addEventListener('DOMContentLoaded', () => {
   if (window.__authRequired) return;

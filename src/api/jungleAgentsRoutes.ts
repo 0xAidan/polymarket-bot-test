@@ -12,6 +12,7 @@ import {
   reorderAgents,
   updateAgent,
   bulkUpdateAddresses,
+  bulkUpdateAgents,
   type JungleAgentRecord,
 } from '../jungleAgentsStore.js';
 import { requirePlatformAdmin } from '../middleware/requirePlatformAdmin.js';
@@ -159,6 +160,20 @@ export function createJungleAgentsRouter(copyTrader: CopyTrader): Router {
         return;
       }
       const agents = await bulkUpdateAddresses(updates);
+      res.json({ success: true, agents });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  router.post('/admin/jungle-agents/bulk-save', requirePlatformAdmin, async (req: Request, res: Response) => {
+    try {
+      const updates = req.body?.updates;
+      if (!Array.isArray(updates)) {
+        res.status(400).json({ success: false, error: 'updates must be an array' });
+        return;
+      }
+      const agents = await bulkUpdateAgents(updates);
       res.json({ success: true, agents });
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
