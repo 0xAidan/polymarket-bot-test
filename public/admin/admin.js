@@ -46,13 +46,43 @@ const draftChanged = (agent) => {
 };
 
 const showUnauthorized = () => {
+  document.getElementById('adminLoading')?.classList.add('hidden');
   document.getElementById('adminUnauthorized')?.classList.remove('hidden');
   document.getElementById('adminApp')?.classList.add('hidden');
+  document.getElementById('adminComingSoon')?.classList.add('hidden');
 };
 
 const showAdminApp = () => {
+  document.getElementById('adminLoading')?.classList.add('hidden');
   document.getElementById('adminUnauthorized')?.classList.add('hidden');
+  document.getElementById('adminComingSoon')?.classList.add('hidden');
   document.getElementById('adminApp')?.classList.remove('hidden');
+  setActiveNav('agents');
+};
+
+const showComingSoon = (title, text) => {
+  document.getElementById('adminLoading')?.classList.add('hidden');
+  document.getElementById('adminUnauthorized')?.classList.add('hidden');
+  document.getElementById('adminApp')?.classList.add('hidden');
+  const panel = document.getElementById('adminComingSoon');
+  if (panel) {
+    panel.classList.remove('hidden');
+    const titleEl = document.getElementById('adminComingSoonTitle');
+    const textEl = document.getElementById('adminComingSoonText');
+    if (titleEl) titleEl.textContent = title;
+    if (textEl) textEl.textContent = text;
+  }
+};
+
+const setActiveNav = (section) => {
+  document.querySelectorAll('[data-admin-nav]').forEach((el) => {
+    const isActive = el.getAttribute('data-admin-nav') === section;
+    el.classList.toggle('active', isActive);
+    if (el.tagName === 'A') {
+      if (isActive) el.setAttribute('aria-current', 'page');
+      else el.removeAttribute('aria-current');
+    }
+  });
 };
 
 const updateMetaLine = (agents) => {
@@ -321,9 +351,33 @@ document.getElementById('adminRefreshBtn')?.addEventListener('click', () => {
 });
 document.getElementById('adminSaveAllBtn')?.addEventListener('click', () => saveAllChanges());
 
+document.querySelectorAll('[data-admin-nav]').forEach((el) => {
+  el.addEventListener('click', (e) => {
+    const section = el.getAttribute('data-admin-nav');
+    if (section === 'agents') {
+      e.preventDefault();
+      showAdminApp();
+      return;
+    }
+    e.preventDefault();
+    if (section === 'health') {
+      showComingSoon('System Health', 'Server health checks and uptime will live here in a future release.');
+      setActiveNav('health');
+      return;
+    }
+    if (section === 'tenants') {
+      showComingSoon('Tenants', 'Multi-tenant workspace management is planned but not built yet.');
+      setActiveNav('tenants');
+    }
+  });
+});
+
+document.getElementById('adminBackToAgentsBtn')?.addEventListener('click', () => showAdminApp());
+
 document.addEventListener('DOMContentLoaded', () => {
-  if (window.__authRequired) return;
-  bootAdmin();
+  if (!window.__authRequired) {
+    bootAdmin();
+  }
 });
 
 window.__adminBoot = bootAdmin;

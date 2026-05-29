@@ -63,6 +63,28 @@
   cursor: not-allowed;
 }
 
+.j-admin-nav-btn {
+  width: 100%;
+  text-align: left;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.j-admin-loading,
+.j-admin-coming-soon {
+  padding: var(--space-2xl) var(--space-lg);
+  max-width: 560px;
+}
+
+.j-admin-coming-soon h1 {
+  margin-bottom: var(--space-md);
+}
+
+.j-admin-coming-soon .j-btn {
+  margin-top: var(--space-lg);
+}
+
 .j-admin-nav-back {
   margin-top: auto;
   padding-top: var(--space-lg);
