@@ -177,6 +177,10 @@ const API = {
     return this.post('/admin/jungle-agents/reorder', { orderedIds });
   },
 
+  async bulkUpdateAdminJungleAddresses(updates) {
+    return this.post('/admin/jungle-agents/bulk-addresses', { updates });
+  },
+
   async removeWallet(address) {
     return this.delete(`/wallets/${address}`);
   },

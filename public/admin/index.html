@@ -9,48 +9,67 @@
   <link rel="stylesheet" href="/admin/admin.css">
 </head>
 <body class="grid-pattern app-loading">
-  <div class="j-admin-wrap">
-    <header class="j-admin-header">
-      <div>
-        <div class="app-section-kicker">Platform Admin</div>
-        <h1 class="font-serif">Jungle Agents</h1>
-      </div>
-      <div class="j-topbar-actions">
-        <a href="/" class="j-btn">← Back to Ditto</a>
-        <button type="button" class="j-btn j-btn-primary" id="adminAddAgentBtn">Add agent</button>
-        <button type="button" class="j-btn" id="adminRefreshBtn">Refresh</button>
-      </div>
-    </header>
+  <div class="j-admin-layout">
+    <nav class="j-admin-nav" aria-label="Platform admin sections">
+      <div class="j-admin-nav-title">Platform Admin</div>
+      <a href="/admin" class="j-admin-nav-link active" aria-current="page">Jungle Agents</a>
+      <span class="j-admin-nav-link j-admin-nav-disabled" title="Coming soon">System Health</span>
+      <span class="j-admin-nav-link j-admin-nav-disabled" title="Coming soon">Tenants</span>
+    </nav>
 
-    <section id="adminUnauthorized" class="j-admin-unauthorized hidden">
-      <h2 class="font-serif">Platform admin access required</h2>
-      <p class="text-muted">Your account is signed in but is not on the platform admin allowlist.</p>
-      <a href="/" class="j-btn j-btn-primary">Return to Ditto</a>
-    </section>
+    <div class="j-admin-wrap">
+      <header class="j-admin-header">
+        <div>
+          <div class="app-section-kicker">Platform Admin</div>
+          <h1 class="font-serif">Jungle Agents</h1>
+          <p class="text-muted j-admin-subtitle">Paste all nine Polymarket addresses below, then click Save all addresses.</p>
+        </div>
+        <div class="j-topbar-actions">
+          <a href="/" class="j-btn">← Back to Ditto</a>
+          <button type="button" class="j-btn j-btn-primary" id="adminAddAgentBtn">Add agent</button>
+          <button type="button" class="j-btn" id="adminRefreshBtn">Refresh</button>
+        </div>
+      </header>
 
-    <section id="adminApp" class="hidden">
-      <div class="j-admin-health">
-        <div class="j-card j-stat"><span class="j-stat-label">Total</span><span class="j-stat-value" id="healthTotal">—</span></div>
-        <div class="j-card j-stat"><span class="j-stat-label">Enabled</span><span class="j-stat-value" id="healthEnabled">—</span></div>
-        <div class="j-card j-stat"><span class="j-stat-label">Missing address</span><span class="j-stat-value" id="healthMissing">—</span></div>
-        <div class="j-card j-stat"><span class="j-stat-label">Last updated</span><span class="j-stat-value" id="healthUpdated">—</span></div>
-      </div>
+      <section id="adminUnauthorized" class="j-admin-unauthorized hidden">
+        <h2 class="font-serif">Platform admin access required</h2>
+        <p class="text-muted">Your account is signed in but is not on the platform admin allowlist.</p>
+        <a href="/" class="j-btn j-btn-primary">Return to Ditto</a>
+      </section>
 
-      <div class="j-card">
-        <table class="j-admin-table">
-          <thead>
-            <tr>
-              <th>Order</th>
-              <th>Name</th>
-              <th>Address</th>
-              <th>Enabled</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="adminAgentsBody"></tbody>
-        </table>
-      </div>
-    </section>
+      <section id="adminApp" class="hidden">
+        <div class="j-admin-health">
+          <div class="j-card j-stat"><span class="j-stat-label">Total</span><span class="j-stat-value" id="healthTotal">—</span></div>
+          <div class="j-card j-stat"><span class="j-stat-label">Enabled</span><span class="j-stat-value" id="healthEnabled">—</span></div>
+          <div class="j-card j-stat j-stat-warn"><span class="j-stat-label">Missing address</span><span class="j-stat-value" id="healthMissing">—</span></div>
+          <div class="j-card j-stat"><span class="j-stat-label">Last updated</span><span class="j-stat-value" id="healthUpdated">—</span></div>
+        </div>
+
+        <div class="j-admin-toolbar">
+          <label class="j-admin-filter">
+            <input type="checkbox" id="adminMissingOnlyFilter" />
+            Show missing addresses only
+          </label>
+          <button type="button" class="j-btn j-btn-primary" id="adminSaveAllAddressesBtn">Save all addresses</button>
+        </div>
+
+        <div class="j-card j-admin-table-wrap">
+          <table class="j-admin-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Name</th>
+                <th>Model</th>
+                <th>Polymarket address</th>
+                <th>On</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="adminAgentsBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
   </div>
 
   <script src="/js/api.js"></script>

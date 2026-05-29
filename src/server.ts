@@ -24,7 +24,7 @@ import {
   syncUserFromOidc,
   writeAuthAuditLog
 } from './authStore.js';
-import { seedJungleAgentsIfMissing } from './jungleAgentsStore.js';
+import { seedJungleAgentsIfMissing, migrateOlympicsConfigToJungleStore } from './jungleAgentsStore.js';
 import { resolveIsPlatformAdmin } from './platformAdmin.js';
 
 const log = createComponentLogger('Server');
@@ -39,6 +39,7 @@ export const getDiscoveryManager = (): DiscoveryManager | null => discoveryManag
 export async function createServer(copyTrader: CopyTrader): Promise<express.Application> {
   await initDatabase();
   await seedJungleAgentsIfMissing();
+  await migrateOlympicsConfigToJungleStore();
   const app = express();
   app.set('trust proxy', 1);
 
