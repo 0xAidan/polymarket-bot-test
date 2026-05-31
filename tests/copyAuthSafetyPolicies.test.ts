@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveStopLossPositionValue } from '../src/copyTrader.ts';
-import { resolveHostedTenantId } from '../src/walletMonitor.ts';
+import { resolveStopLossPositionValue } from '../src/stopLossPolicy.ts';
+import { resolveHostedTenantId } from '../src/tenantPolicy.ts';
 import { config } from '../src/config.ts';
 
 test('resolveStopLossPositionValue uses curPrice for valuation', () => {

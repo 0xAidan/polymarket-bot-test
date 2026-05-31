@@ -10,20 +10,10 @@ import {
 } from './tradeDiagnostics.js';
 import { DetectedTrade, TrackedWallet } from './types.js';
 import { createComponentLogger } from './logger.js';
-import { DEFAULT_TENANT_ID, runWithTenant } from './tenantContext.js';
-import { isHostedMultiTenantMode } from './hostedMode.js';
+import { runWithTenant } from './tenantContext.js';
+import { resolveHostedTenantId } from './tenantPolicy.js';
 
 const log = createComponentLogger('WalletMonitor');
-
-export const resolveHostedTenantId = (tenantId: string | undefined, context: string): string => {
-  if (tenantId) {
-    return tenantId;
-  }
-  if (isHostedMultiTenantMode()) {
-    throw new Error(`${context} is missing tenantId in hosted multi-tenant mode`);
-  }
-  return DEFAULT_TENANT_ID;
-};
 
 /**
  * Monitors wallet addresses for Polymarket trades
