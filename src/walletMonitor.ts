@@ -15,7 +15,7 @@ import { isHostedMultiTenantMode } from './hostedMode.js';
 
 const log = createComponentLogger('WalletMonitor');
 
-const resolveHostedTenantId = (tenantId: string | undefined, context: string): string => {
+export const resolveHostedTenantId = (tenantId: string | undefined, context: string): string => {
   if (tenantId) {
     return tenantId;
   }

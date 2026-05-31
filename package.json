@@ -15,7 +15,7 @@
     "dev:app": "node start.cjs",
     "discovery:dev": "APP_RUNTIME=discovery-worker node start.cjs",
     "build": "tsc",
-    "test": "node --test --import tsx tests/**/*.test.ts",
+    "test": "node --test --import tsx $(rg --files tests -g \"*.test.ts\")",
     "start": "node start.cjs",
     "start:app": "tsx src/index.ts",
     "start:discovery": "tsx src/discovery/discoveryWorker.ts",

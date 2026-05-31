@@ -16,7 +16,7 @@ import {
 } from './secureKeyManager.js';
 import { createComponentLogger } from './logger.js';
 import { Storage } from './storage.js';
-import { getTenantId, getTenantIdStrict } from './tenantContext.js';
+import { getTenantId, getTenantIdOrDefault, getTenantIdStrict } from './tenantContext.js';
 
 const log = createComponentLogger('WalletManager');
 
@@ -36,7 +36,7 @@ const ASSIGNMENTS_CONFIG_KEY = 'copyAssignments';
 // ============================================================================
 
 function scopedTenantId(): string {
-  return getTenantIdStrict();
+  return isHostedMultiTenantMode() ? getTenantIdStrict() : getTenantIdOrDefault();
 }
 
 function getOrCreateTenantState(): TenantWalletState {

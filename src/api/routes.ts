@@ -3240,6 +3240,26 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
+  // Hosted-safe diagnostic endpoint for geoblock eligibility.
+  // Unlike other test endpoints, this remains available in hosted mode because
+  // it is required to validate deployment-region compliance.
+  router.get('/test/geoblock', async (_req: Request, res: Response) => {
+    try {
+      const geoblock = await copyTrader.getPolymarketApi().getGeoblockStatus();
+      res.json({
+        success: true,
+        timestamp: new Date().toISOString(),
+        ...geoblock,
+        tradingAllowed: !geoblock.blocked,
+      });
+    } catch (error: any) {
+      res.status(503).json({
+        success: false,
+        error: error.message || 'Failed to fetch geoblock status',
+      });
+    }
+  });
+
   // Test endpoint to check balance for any address (for debugging)
   router.get('/test/balance/:address', async (req: Request, res: Response) => {
     if (isHostedMultiTenantMode()) {

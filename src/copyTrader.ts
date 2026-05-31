@@ -26,6 +26,22 @@ import { getTenantIdOrDefault, getTenantIdStrict } from './tenantContext.js';
 
 const log = createComponentLogger('CopyTrader');
 
+export const resolveStopLossPositionValue = (position: {
+  size?: string | number;
+  curPrice?: string | number;
+  asset?: string;
+  asset_id?: string;
+}): number => {
+  const size = parseFloat(String(position.size ?? '0'));
+  const curPrice = parseFloat(String(position.curPrice ?? 'NaN'));
+  if (!Number.isFinite(curPrice) || curPrice < 0) {
+    throw new Error(
+      `Cannot evaluate stop-loss safely because curPrice is missing/invalid for token ${position.asset || position.asset_id || 'unknown'}`
+    );
+  }
+  return size * curPrice;
+};
+
 /**
  * Main copy trading engine that coordinates monitoring and execution
  * Handles trade detection, execution, and performance tracking
@@ -1727,9 +1743,7 @@ export class CopyTrader {
       try {
         const positions = await this.monitor.getApi().getUserPositions(walletToCheck);
         for (const position of positions) {
-          const size = parseFloat(position.size || '0');
-          const price = parseFloat(position.curPrice || position.avgPrice || '0.5');
-          positionsValue += size * price;
+          positionsValue += resolveStopLossPositionValue(position);
         }
       } catch (error: any) {
         log.error(`[CopyTrader] Cannot fetch positions for stop-loss check — BLOCKING trades for safety: ${error.message}`);

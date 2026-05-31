@@ -111,6 +111,36 @@ export class PolymarketApi {
   }
 
   /**
+   * Check current server/client geoblock status from the official endpoint.
+   * This endpoint is hosted on polymarket.com, not the API subdomains.
+   */
+  async getGeoblockStatus(): Promise<{
+    blocked: boolean;
+    ip?: string;
+    country?: string;
+    region?: string;
+  }> {
+    const response = await axios.get('https://polymarket.com/api/geoblock', {
+      timeout: 10000,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    const payload = response.data ?? {};
+    const blocked = Boolean(payload.blocked);
+    const status = {
+      blocked,
+      ip: typeof payload.ip === 'string' ? payload.ip : undefined,
+      country: typeof payload.country === 'string' ? payload.country : undefined,
+      region: typeof payload.region === 'string' ? payload.region : undefined,
+    };
+    log.info(
+      `[API] Geoblock check: blocked=${status.blocked} country=${status.country || 'unknown'} region=${status.region || 'unknown'}`
+    );
+    return status;
+  }
+
+  /**
    * Get the proxy wallet address from Polymarket
    * Polymarket uses proxy wallets for trading, which is where funds are actually held
    * 

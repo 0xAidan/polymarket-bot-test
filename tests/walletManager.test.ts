@@ -196,11 +196,16 @@ describe('WalletManager', () => {
     (config as any).privateKey =
       '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 
-    await initWalletManager();
-    const result = await runWithTenant('tenant-hosted', () => unlockWallets('any-password'));
+    const result = await runWithTenant('tenant-hosted', async () => {
+      await initWalletManager();
+      return unlockWallets('any-password');
+    });
 
     assert.equal(result.migrated, false);
-    const wallets = await runWithTenant('tenant-hosted', () => Promise.resolve(getTradingWallets()));
+    const wallets = await runWithTenant('tenant-hosted', async () => {
+      await initWalletManager();
+      return getTradingWallets();
+    });
     assert.equal(wallets.length, 0);
   });
 
@@ -209,20 +214,19 @@ describe('WalletManager', () => {
     (config as any).authMode = 'oidc';
     (config as any).authSessionSecret = 'hosted-session-secret';
 
-    await initWalletManager();
-
-    const wallet = await runWithTenant('tenant-hosted', () => addTradingWallet('hosted', 'Hosted Wallet', TEST_KEY));
+    const wallet = await runWithTenant('tenant-hosted', async () => {
+      await initWalletManager();
+      return addTradingWallet('hosted', 'Hosted Wallet', TEST_KEY);
+    });
     assert.equal(wallet.address, TEST_ADDR);
 
     lockAllWallets();
 
-    const updatedWallet = await runWithTenant('tenant-hosted', () =>
-      updateWalletBuilderCredentials('hosted', {
-        apiKey: 'builder-key',
-        apiSecret: 'builder-secret',
-        apiPassphrase: 'builder-passphrase',
-      })
-    );
+    const updatedWallet = await runWithTenant('tenant-hosted', async () => updateWalletBuilderCredentials('hosted', {
+      apiKey: 'builder-key',
+      apiSecret: 'builder-secret',
+      apiPassphrase: 'builder-passphrase',
+    }));
 
     assert.equal(updatedWallet.hasCredentials, true);
   });
