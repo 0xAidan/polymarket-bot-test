@@ -5,10 +5,23 @@
 
 const readApiResponseViaCore = async (response) => {
   const helper = globalThis.ApiCore?.readApiResponse;
-  if (typeof helper !== 'function') {
-    throw new Error('API core helper is unavailable.');
+  if (typeof helper === 'function') {
+    return helper(response);
   }
-  return helper(response);
+  // Fallback so pages that forgot to load api-core.js still work.
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+  if (!response.ok) {
+    return { ok: false, error: data?.error || `HTTP ${response.status}`, data };
+  }
+  if (data && data.success === false) {
+    return { ok: false, error: data.error || 'Request failed', data };
+  }
+  return { ok: true, data };
 };
 
 const API = {
