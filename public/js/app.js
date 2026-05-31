@@ -358,39 +358,69 @@ const buildSetupGuideState = ({ status, walletsData, tradingData, lockData }) =>
   };
 };
 
+const SETUP_STEP_SHORT = {
+  session: 'Session',
+  'trading-wallet': 'Trading wallet',
+  'tracked-wallet': 'Tracked wallet',
+  'start-bot': 'Start bot',
+};
+
 const renderSetupProgress = (state) => {
   const summaryEl = document.getElementById('setupProgressSummary');
   const listEl = document.getElementById('setupProgressChecklist');
   const stepsEl = document.getElementById('setupWizardSteps');
-
   const setupCard = document.getElementById('setupProgressCard');
+  const setupAction = document.getElementById('setupStripAction');
+
   if (setupCard) {
     setupCard.classList.toggle('hidden', state.isComplete);
+    setupCard.classList.toggle('is-nearly-done', state.isReadyToStart && !state.isComplete);
   }
+
+  const incompleteCount = state.steps.filter((s) => !s.complete).length;
+  const showHint = incompleteCount <= 1 && !state.isComplete;
 
   if (summaryEl) {
-    summaryEl.textContent = state.isComplete
-      ? 'Ditto is configured and live.'
-      : state.nextStep.title;
+    if (showHint) {
+      summaryEl.textContent = state.nextStep.detail;
+      summaryEl.classList.remove('hidden');
+    } else {
+      summaryEl.textContent = '';
+      summaryEl.classList.add('hidden');
+    }
   }
 
-  const progressHtml = state.steps.map((step) => {
-    const className = step.complete
-      ? 'is-complete'
-      : step.key === state.nextStep.key ? 'is-active' : '';
-
-    return `
-      <div class="setup-progress-item ${className}">
-        <span class="setup-progress-dot"></span>
-        <div>
-          <div class="setup-progress-title">${step.title}</div>
-          <div class="setup-progress-meta">${step.detail}</div>
+  if (listEl) {
+    listEl.innerHTML = state.steps.map((step, index) => {
+      const className = step.complete
+        ? 'is-complete'
+        : step.key === state.nextStep.key ? 'is-active' : 'is-pending';
+      const shortLabel = SETUP_STEP_SHORT[step.key] || step.title;
+      return `
+        <div class="j-setup-step ${className}" title="${step.detail}">
+          <span class="j-setup-step-dot" aria-hidden="true"></span>
+          <span class="j-setup-step-label">${shortLabel}</span>
+          ${index < state.steps.length - 1 ? '<span class="j-setup-step-line" aria-hidden="true"></span>' : ''}
         </div>
-      </div>
-    `;
-  }).join('');
+      `;
+    }).join('');
+  }
 
-  if (listEl) listEl.innerHTML = progressHtml;
+  if (setupAction) {
+    if (state.isComplete) {
+      setupAction.classList.add('hidden');
+    } else {
+      setupAction.classList.remove('hidden');
+      setupAction.textContent = state.nextStep.key === 'start-bot' ? 'Start bot' : 'Continue setup';
+      setupAction.onclick = () => {
+        if (state.nextStep.key === 'start-bot') {
+          void toggleBot();
+          return;
+        }
+        switchTab(state.nextStep.action || 'dashboard');
+      };
+    }
+  }
 
   if (stepsEl) {
     stepsEl.innerHTML = state.steps.map((step, index) => {
@@ -579,6 +609,9 @@ function switchTab(tabName) {
   if (typeof window.onShellTabActivated === 'function') {
     window.onShellTabActivated(tabName);
   }
+  const mainEl = document.querySelector('.j-main');
+  if (mainEl) mainEl.scrollTop = 0;
+  window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
   refreshCurrentTab();
 }
 

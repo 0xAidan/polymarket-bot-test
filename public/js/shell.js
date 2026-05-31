@@ -27,7 +27,8 @@ window.onShellTabActivated = (tabName) => {
 
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.j-nav-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (event) => {
+      event.preventDefault();
       const tab = btn.dataset.tab;
       if (tab && typeof window.switchTab === 'function') {
         window.switchTab(tab);

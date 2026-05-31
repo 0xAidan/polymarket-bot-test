@@ -383,11 +383,18 @@ body {
 }
 
 .win-tab-panel {
-  display: none;
+  display: none !important;
 }
 
 .win-tab-panel.active {
   display: block;
+}
+
+.win-tab-panel.active.j-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-height: 0;
 }
 
 /* ============================================================
@@ -2479,8 +2486,9 @@ body.app-ready .auth-gate-screen {
 
 .win-body {
   max-height: none;
-  min-height: calc(100vh - 204px);
-  padding: 22px 22px 18px;
+  min-height: 0;
+  padding: 0;
+  background: transparent;
 }
 
 .app-hero {
@@ -2947,10 +2955,16 @@ body.app-ready .auth-gate-screen {
 .j-main {
   flex: 1;
   overflow: auto;
-  padding: 20px;
+  padding: 16px 20px 24px;
   max-width: 1500px;
   width: 100%;
   margin: 0 auto;
+}
+
+.win-body {
+  max-height: none;
+  min-height: 0;
+  padding: 0;
 }
 
 .j-card {
@@ -3108,10 +3122,144 @@ body.j-drawer-open { overflow: hidden; }
    DASHBOARD — Command center layout
    ============================================================ */
 .j-dashboard {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
   min-height: 0;
+}
+
+.j-setup-strip {
+  border: 1px solid var(--jungle-border);
+  border-radius: var(--j-radius-md);
+  background: rgba(229, 184, 11, 0.04);
+  padding: 10px 14px;
+  max-width: 100%;
+}
+
+.j-setup-strip.is-nearly-done {
+  background: rgba(0, 212, 170, 0.06);
+  border-color: rgba(0, 212, 170, 0.25);
+}
+
+.j-setup-strip-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.j-setup-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.j-setup-stepper::-webkit-scrollbar {
+  display: none;
+}
+
+.j-setup-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.j-setup-step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--jungle-border-strong);
+  background: rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.j-setup-step-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--jungle-text-dim);
+  white-space: nowrap;
+}
+
+.j-setup-step-line {
+  width: 16px;
+  height: 1px;
+  background: var(--jungle-border);
+  margin: 0 6px;
+  flex-shrink: 0;
+}
+
+.j-setup-step.is-complete .j-setup-step-dot {
+  background: var(--jungle-win);
+  border-color: var(--jungle-win);
+}
+
+.j-setup-step.is-complete .j-setup-step-label {
+  color: var(--jungle-text-muted);
+}
+
+.j-setup-step.is-active .j-setup-step-dot {
+  background: var(--jungle-gold);
+  border-color: var(--jungle-gold);
+  box-shadow: 0 0 8px rgba(229, 184, 11, 0.45);
+}
+
+.j-setup-step.is-active .j-setup-step-label {
+  color: var(--jungle-gold);
+  font-weight: 600;
+}
+
+.j-setup-strip-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--jungle-text-muted);
+  line-height: 1.4;
+}
+
+.j-dash-collapsible {
+  margin-top: 4px;
+}
+
+.j-dash-collapsible-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  color: var(--jungle-gold);
+}
+
+.j-dash-collapsible-summary::-webkit-details-marker {
+  display: none;
+}
+
+.j-dash-collapsible-summary::after {
+  content: '▾';
+  font-size: 12px;
+  color: var(--jungle-text-muted);
+  transition: transform 0.15s ease;
+}
+
+.j-dash-collapsible[open] .j-dash-collapsible-summary::after {
+  transform: rotate(180deg);
+}
+
+.j-dash-collapsible-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--jungle-text-dim);
+  letter-spacing: 0.04em;
+}
+
+.j-dash-collapsible-body {
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--jungle-border);
 }
 
 .j-dash-header {
@@ -3120,6 +3268,7 @@ body.j-drawer-open { overflow: hidden; }
   align-items: flex-end;
   gap: var(--space-md);
   flex-wrap: wrap;
+  margin-bottom: 2px;
 }
 
 .j-dash-eyebrow {
@@ -3409,13 +3558,13 @@ body.j-drawer-open { overflow: hidden; }
 .j-trade-panel {
   display: flex;
   flex-direction: column;
-  min-height: min(68vh, 720px);
+  min-height: min(62vh, 640px);
 }
 
 .j-trade-scroll {
   flex: 1;
-  min-height: 420px;
-  max-height: min(68vh, 720px);
+  min-height: 360px;
+  max-height: min(62vh, 640px);
   overflow: auto;
   overscroll-behavior: contain;
 }

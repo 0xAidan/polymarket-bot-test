@@ -87,10 +87,12 @@
             </div>
           </header>
 
-          <div id="setupProgressCard" class="j-panel j-setup-card hidden">
-            <div class="app-section-kicker">Setup</div>
-            <div id="setupProgressSummary" class="j-setup-summary">Checking your setup status...</div>
-            <div id="setupProgressChecklist" class="setup-progress-list"></div>
+          <div id="setupProgressCard" class="j-setup-strip hidden" role="status" aria-live="polite">
+            <div class="j-setup-strip-inner">
+              <div id="setupProgressChecklist" class="j-setup-stepper" aria-label="Setup progress"></div>
+              <button type="button" class="j-btn j-btn-primary j-btn-sm" id="setupStripAction">Continue setup</button>
+            </div>
+            <p id="setupProgressSummary" class="j-setup-strip-hint hidden"></p>
           </div>
 
           <section class="j-dash-hero" aria-label="Wallet and performance summary">
@@ -204,17 +206,15 @@
             </aside>
           </div>
 
-          <!-- Ladder Exits -->
-          <div class="win-group" data-tour="ladder-exits">
-            <div class="win-group-title">Ladder Exits (Take-Profit)</div>
+          <!-- Ladder Exits (collapsed by default) -->
+          <details class="j-panel j-dash-collapsible" data-tour="ladder-exits">
+            <summary class="j-dash-collapsible-summary">
+              <span class="font-serif">Ladder exits</span>
+              <span class="j-dash-collapsible-meta">Take-profit · <span id="ladderPriceMonitorStatus">OFF</span> · <span id="ladderModeStatus">PAPER</span></span>
+            </summary>
+            <div class="j-dash-collapsible-body">
             <div class="flex-between mb-8">
-              <div>
-                <span class="text-sm text-muted">Price Monitor:</span>
-                <span id="ladderPriceMonitorStatus" class="win-badge">OFF</span>
-                <span class="text-sm text-muted" style="margin-left:8px;">Mode:</span>
-                <span id="ladderModeStatus" class="win-badge">PAPER</span>
-                <button class="win-btn" style="padding:0 4px;min-width:auto;font-size:11px;margin-left:2px;" onclick="openPaperModeModal()" title="What is Paper Mode?" aria-label="What is Paper Mode?" tabindex="0">?</button>
-              </div>
+              <div class="text-sm text-muted">Configure staged take-profit exits on open positions.</div>
               <div class="flex-row gap-4">
                 <button class="win-btn win-btn-sm" onclick="toggleLadderLiveMode()">Toggle Live</button>
                 <button class="win-btn win-btn-sm" onclick="openCreateLadderForm()">+ New Ladder</button>
@@ -271,7 +271,8 @@
             <div id="activeLaddersList">
               <div class="text-center text-muted" style="padding:12px;">No active ladders</div>
             </div>
-          </div>
+            </div>
+          </details>
         </div>
 
         <!-- ============================================================
