@@ -29,13 +29,11 @@ const makeApp = () => {
   app.use(express.json());
   app.use('/api', createJungleAgentsRoutes({
     getPolymarketApi: () => ({
-      getPortfolioValue: async () => ({
-        totalValue: 1000,
-        usdcBalance: 500,
-        positionsValue: 500,
+      getPolymarketProfilePortfolio: async () => ({
+        portfolioValueUsd: 1000,
         positionCount: 3,
         proxyWallet: null,
-        positions: [],
+        source: 'polymarket_value_api' as const,
       }),
     }) as any,
   }));

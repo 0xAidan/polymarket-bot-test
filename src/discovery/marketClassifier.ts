@@ -126,6 +126,7 @@ const ENTERTAINMENT_KEYWORDS = [
   'super bowl halftime',
 ];
 const HIGH_INFORMATION_CATEGORIES: DiscoveryMarketCategory[] = [
+  'sports',
   'politics',
   'macro',
   'company',

@@ -199,7 +199,7 @@ Use a table, not cards, as the primary desktop presentation.
 ```text
 +------------------------------------------------------------------------------------------------+
 | Leaderboard                                                                                   |
-| Filters: [All categories] [30d] [All strategies] [Trust > Medium] [Sort: Discovery]         |
+| Filters: [All categories] [30d] [All strategies] [Trust > Medium] [Sort: Trust]             |
 +------------------------------------------------------------------------------------------------+
 | Wallet      | Strategy      | Discovery | Trust | Copyability | Confidence | Why             |
 | Silver Otter| Info          | 86        | 72    | 81          | Medium     | Early politics  |

@@ -28,15 +28,35 @@ const HIGH_INFORMATION_CATEGORIES = new Set([
   'company',
   'legal',
   'geopolitics',
+  'sports',
 ]);
 
 const clamp = (value: number, min = 0, max = 100): number => Math.max(min, Math.min(max, value));
+
+export const computeProfitabilityScore = (input: {
+  realizedWinRate: number;
+  realizedPnl: number;
+  closedPositionsCount: number;
+  marketSelectionScore: number;
+}): number => {
+  const pnlPenalty = input.closedPositionsCount >= 3 && input.realizedPnl < 0
+    ? Math.min(40, Math.abs(input.realizedPnl) / 4 + 20)
+    : 0;
+
+  return clamp(
+    input.realizedWinRate * 0.55 +
+      (input.realizedPnl > 0 ? Math.min(35, input.realizedPnl / 20) : 0) +
+      input.marketSelectionScore * 0.1 -
+      pnlPenalty,
+  );
+};
 
 export const buildDiscoveryFeatureSnapshot = (
   input: FeatureEngineInput,
 ): DiscoveryFeatureSnapshot => {
   const { validation, candidates, latestTradePrice, currentPrice, focusCategory } = input;
   const supportingSignals = candidates.filter((candidate) => Number(candidate.sourceMetric ?? 0) > 0).length;
+  const sportsPriorityBoost = focusCategory === 'sports' ? 10 : 0;
 
   const earlyEntryScore = (() => {
     if (!Number.isFinite(latestTradePrice) || !Number.isFinite(currentPrice) || Number(latestTradePrice) <= 0) {
@@ -49,6 +69,7 @@ export const buildDiscoveryFeatureSnapshot = (
   const categoryFocusScore = clamp(
     (focusCategory ? 45 : 25) +
       (HIGH_INFORMATION_CATEGORIES.has(focusCategory ?? '') ? 20 : 0) +
+      sportsPriorityBoost +
       Math.min(20, supportingSignals * 4),
   );
   const convictionScore = clamp(
@@ -59,6 +80,7 @@ export const buildDiscoveryFeatureSnapshot = (
   );
   const marketSelectionScore = clamp(
     (HIGH_INFORMATION_CATEGORIES.has(focusCategory ?? '') ? 70 : 45) +
+      sportsPriorityBoost +
       Math.min(20, validation.marketsTouched * 2),
   );
 

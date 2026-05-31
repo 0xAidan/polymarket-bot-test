@@ -352,6 +352,7 @@ export interface DiscoveryConfig {
   marketCount: number;
   statsIntervalMs: number;
   retentionDays: number;
+  readMode: 'v2-with-v1-fallback' | 'v2-primary';
 }
 
 export const DEFAULT_DISCOVERY_CONFIG: DiscoveryConfig = {
@@ -361,6 +362,7 @@ export const DEFAULT_DISCOVERY_CONFIG: DiscoveryConfig = {
   marketCount: 50,
   statsIntervalMs: 300_000, // 5 min
   retentionDays: 90,
+  readMode: 'v2-with-v1-fallback',
 };
 
 // ---------------------------------------------------------------------------

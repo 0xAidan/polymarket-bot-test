@@ -109,6 +109,23 @@ export const buildDiscoveryMethodologyPayload = (): Record<string, unknown> => (
     stack: ['discoveryScore', 'trustScore', 'copyabilityScore', 'confidenceBucket', 'strategyClass'],
     discoveryGateLogic: 'profitability + focus + copyability gates must all pass',
     buckets: ['emerging', 'trusted', 'copyable', 'watch_only', 'suppressed'],
+    definitions: {
+      discoveryScore: 'Should this wallet surface right now based on signal quality and timing.',
+      trustScore: 'How credible the wallet looks across realized outcomes, breadth, and behavior.',
+      copyabilityScore: 'How realistic it is for a normal follower to mirror the wallet without bad execution.',
+      confidenceBucket: 'How much evidence supports the current read. This is evidence strength, not win probability.',
+      strategyClass: 'What kind of wallet this appears to be, such as informational directional or structural arbitrage.',
+    },
+    bucketDefinitions: {
+      emerging: 'Strong discovery signal with acceptable trust, but still earlier or less proven than a trusted wallet.',
+      trusted: 'Good discovery score plus strong trust. Worth serious attention.',
+      copyable: 'Trusted and realistically mirrorable under current market conditions.',
+      watch_only: 'Interesting enough to monitor, but not yet a clear copy target.',
+      suppressed: 'Too weak, noisy, or suspicious to surface as a default candidate.',
+    },
+    uiOverlays: {
+      tracked: 'Tracked is a UI overlay showing wallets already promoted into Ditto. It is not a separate scoring bucket.',
+    },
   },
   allocationPolicy: {
     states: ['NEW', 'CONSISTENT', 'HOT_STREAK', 'COOLDOWN', 'PAUSED'],

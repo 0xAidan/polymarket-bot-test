@@ -22,7 +22,7 @@ import {
   getPositionsByAddress,
 } from '../discovery/statsStore.js';
 import { classifyDiscoveryMarket } from '../discovery/marketClassifier.js';
-import { getRecentWalletReasons, getWalletReasons } from '../discovery/discoveryScorer.js';
+import { getWalletReasons } from '../discovery/discoveryScorer.js';
 import { getWalletValidation } from '../discovery/walletValidator.js';
 import { getValidEvmAddress } from '../addressUtils.js';
 import { dismissDiscoveryAlertV2, getDiscoveryAlertsV2 } from '../discovery/v2DataStore.js';
@@ -115,21 +115,29 @@ const normalizeWalletDetailProfile = (
   address: string,
   rawProfile?: Record<string, unknown>
 ): { profileAddress?: string; profileUrl?: string } => {
-  const profileAddress = getValidEvmAddress(
+  const routeAddress = getValidEvmAddress(address);
+  const profileFromApi = getValidEvmAddress(
     rawProfile?.address ??
     rawProfile?.walletAddress ??
     rawProfile?.publicAddress ??
     rawProfile?.proxyWallet
   );
 
-  if (!profileAddress || profileAddress !== address.toLowerCase()) {
-    return {};
+  if (profileFromApi && profileFromApi === String(address).toLowerCase()) {
+    return {
+      profileAddress: profileFromApi,
+      profileUrl: `https://polymarket.com/profile/${profileFromApi}`,
+    };
   }
 
-  return {
-    profileAddress,
-    profileUrl: `https://polymarket.com/profile/${profileAddress}`,
-  };
+  if (routeAddress) {
+    return {
+      profileAddress: routeAddress,
+      profileUrl: `https://polymarket.com/profile/${routeAddress}`,
+    };
+  }
+
+  return {};
 };
 
 export const buildWalletPositionsResponse = (
@@ -195,16 +203,25 @@ export const applyDiscoveryWalletScore = <T extends {
 export const sortWalletsForResponse = <T extends {
   whaleScore?: number;
   discoveryScore?: number;
+  trustScore?: number;
+  copyabilityScore?: number;
   roiPct?: number | null;
   lastActive?: number;
   tradeCount7d?: number;
   volume7d?: number;
 }>(
   wallets: T[],
-  sort: 'volume' | 'trades' | 'recent' | 'score' | 'roi',
+  sort: 'volume' | 'trades' | 'recent' | 'score' | 'roi' | 'trust',
 ): T[] => {
   const sorted = [...wallets];
   sorted.sort((a, b) => {
+    if (sort === 'trust') {
+      return (
+        (Number(b.trustScore) || 0) - (Number(a.trustScore) || 0) ||
+        (Number(b.copyabilityScore) || 0) - (Number(a.copyabilityScore) || 0) ||
+        (Number(b.discoveryScore ?? b.whaleScore) || 0) - (Number(a.discoveryScore ?? a.whaleScore) || 0)
+      );
+    }
     if (sort === 'score') return (Number(b.discoveryScore ?? b.whaleScore) || 0) - (Number(a.discoveryScore ?? a.whaleScore) || 0);
     if (sort === 'roi') return (b.roiPct ?? Number.NEGATIVE_INFINITY) - (a.roiPct ?? Number.NEGATIVE_INFINITY);
     if (sort === 'recent') return (b.lastActive || 0) - (a.lastActive || 0);
@@ -227,15 +244,15 @@ const DISCOVERY_CATEGORY_LABELS: Record<string, string> = {
   other: 'Other',
 };
 const DISCOVERY_CATEGORY_PRIORITY: Record<string, number> = {
-  politics: 0,
-  macro: 1,
-  company: 2,
-  legal: 3,
-  geopolitics: 4,
-  event: 5,
-  entertainment: 6,
-  other: 7,
-  sports: 8,
+  sports: 0,
+  politics: 1,
+  macro: 2,
+  company: 3,
+  legal: 4,
+  geopolitics: 5,
+  event: 6,
+  entertainment: 7,
+  other: 8,
   crypto: 9,
 };
 
@@ -275,6 +292,150 @@ export const buildDiscoveryWalletExplanation = <T extends {
   return parts.join(' + ');
 };
 
+export const buildDiscoveryReasonRowsFromWallet = (wallet: {
+  address?: string;
+  reasonDetails?: Array<{ reasonType?: string; reasonCode?: string; message?: string; createdAt?: number }>;
+  supportingReasons?: string[];
+  supportingReasonChips?: string[];
+  cautionFlags?: string[];
+  warningReasons?: string[];
+  reasonCodes?: string[];
+  updatedAt?: number;
+}) => {
+  if (Array.isArray(wallet.reasonDetails) && wallet.reasonDetails.length > 0) {
+    return wallet.reasonDetails.map((reason, index) => ({
+      address: String(wallet.address || '').toLowerCase(),
+      reasonType: String(reason.reasonType || 'warning') as 'supporting' | 'warning' | 'rejection',
+      reasonCode: String(reason.reasonCode || `reason_${index + 1}`),
+      message: String(reason.message || '').trim(),
+      createdAt: Number(reason.createdAt || wallet.updatedAt || Date.now()),
+    })).filter((reason) => reason.message);
+  }
+
+  const address = String(wallet.address || '').toLowerCase();
+  const updatedAt = Number(wallet.updatedAt || Date.now());
+  const supportingReasons = Array.isArray(wallet.supportingReasons) && wallet.supportingReasons.length > 0
+    ? wallet.supportingReasons
+    : Array.isArray(wallet.supportingReasonChips)
+      ? wallet.supportingReasonChips
+      : [];
+  const cautionFlags = Array.isArray(wallet.cautionFlags) && wallet.cautionFlags.length > 0
+    ? wallet.cautionFlags
+    : Array.isArray(wallet.warningReasons)
+      ? wallet.warningReasons
+      : [];
+  const reasonCodes = Array.isArray(wallet.reasonCodes) ? wallet.reasonCodes : [];
+
+  const supportingRows = supportingReasons.map((reason, index) => ({
+    address,
+    reasonType: 'supporting' as const,
+    reasonCode: String(reasonCodes[index] || `supporting_reason_${index + 1}`),
+    message: String(reason || '').trim(),
+    createdAt: updatedAt,
+  })).filter((reason) => reason.message);
+
+  const warningRows = cautionFlags.map((flag, index) => ({
+    address,
+    reasonType: 'warning' as const,
+    reasonCode: `caution_flag_${index + 1}`,
+    message: String(flag || '').trim(),
+    createdAt: updatedAt,
+  })).filter((reason) => reason.message);
+
+  return [...supportingRows, ...warningRows];
+};
+
+export const buildDiscoverySignalRowsFromWallets = (wallets: Array<{
+  address?: string;
+  focusCategory?: string;
+  reasonDetails?: Array<{ reasonType?: string; reasonCode?: string; message?: string; createdAt?: number; marketTitle?: string }>;
+  supportingMarkets?: string[];
+  supportingReasons?: string[];
+  supportingReasonChips?: string[];
+  cautionFlags?: string[];
+  warningReasons?: string[];
+  reasonCodes?: string[];
+  updatedAt?: number;
+}>) => wallets.flatMap((wallet) => {
+  const walletCategory = typeof wallet.focusCategory === 'string' && wallet.focusCategory
+    ? (wallet.focusCategory.toLowerCase() as DiscoveryMarketCategory)
+    : undefined;
+  if (Array.isArray(wallet.reasonDetails) && wallet.reasonDetails.length > 0) {
+    return wallet.reasonDetails.map((reason, index) => ({
+      id: `${String(wallet.address || '').toLowerCase()}:reason:${index}`,
+      signalType: String(reason.reasonCode || 'DISCOVERY_REASON').toUpperCase(),
+      severity: reason.reasonType === 'rejection' ? 'high' : reason.reasonType === 'warning' ? 'medium' : 'low',
+      address: String(wallet.address || '').toLowerCase(),
+      title: String(reason.reasonCode || 'DISCOVERY_REASON').toUpperCase(),
+      description: String(reason.message || '').trim(),
+      detectedAt: Number(reason.createdAt || wallet.updatedAt || Date.now()),
+      canDismiss: false,
+      marketTitle: reason.marketTitle || wallet.supportingMarkets?.[0],
+      category: walletCategory,
+    })).filter((signal) => signal.description);
+  }
+
+  const supportingReasons = Array.isArray(wallet.supportingReasons) && wallet.supportingReasons.length > 0
+    ? wallet.supportingReasons
+    : Array.isArray(wallet.supportingReasonChips)
+      ? wallet.supportingReasonChips
+      : [];
+  const cautionFlags = Array.isArray(wallet.cautionFlags) && wallet.cautionFlags.length > 0
+    ? wallet.cautionFlags
+    : Array.isArray(wallet.warningReasons)
+      ? wallet.warningReasons
+      : [];
+  const marketTitle = wallet.supportingMarkets?.[0];
+  const updatedAt = Number(wallet.updatedAt || Date.now());
+
+  const supportingRows = supportingReasons.map((reason, index) => ({
+    id: `${String(wallet.address || '').toLowerCase()}:supporting:${index}`,
+    signalType: String(wallet.reasonCodes?.[index] || 'DISCOVERY_SUPPORTING_REASON').toUpperCase(),
+    severity: 'low',
+    address: String(wallet.address || '').toLowerCase(),
+    title: String(wallet.reasonCodes?.[index] || 'DISCOVERY_SUPPORTING_REASON').toUpperCase(),
+    description: String(reason || '').trim(),
+    detectedAt: updatedAt,
+    canDismiss: false,
+    marketTitle,
+    category: walletCategory,
+  })).filter((signal) => signal.description);
+
+  const cautionRows = cautionFlags.map((flag, index) => ({
+    id: `${String(wallet.address || '').toLowerCase()}:warning:${index}`,
+    signalType: 'DISCOVERY_CAUTION',
+    severity: 'medium',
+    address: String(wallet.address || '').toLowerCase(),
+    title: 'DISCOVERY_CAUTION',
+    description: String(flag || '').trim(),
+    detectedAt: updatedAt,
+    canDismiss: false,
+    marketTitle,
+    category: walletCategory,
+  })).filter((signal) => signal.description);
+
+  return [...supportingRows, ...cautionRows];
+}).sort((a, b) => Number(b.detectedAt || 0) - Number(a.detectedAt || 0));
+
+export const buildAllocationPolicyInputFromWallet = (wallet: Record<string, unknown>) => {
+  const separateScores = wallet.separateScores && typeof wallet.separateScores === 'object'
+    ? (wallet.separateScores as Record<string, unknown>)
+    : {};
+
+  return {
+    address: String(wallet.address || '').toLowerCase(),
+    discoveryScore: Number(wallet.discoveryScore ?? wallet.whaleScore ?? 0),
+    trustScore: Number(wallet.trustScore ?? separateScores.trust ?? 0),
+    copyabilityScore: Number(wallet.copyabilityScore ?? separateScores.copyability ?? 0),
+    confidenceBucket: (String(wallet.confidence || 'low').toLowerCase() as 'low' | 'medium' | 'high'),
+    strategyClass: normalizeStrategyClass(wallet.strategyClass),
+    cautionFlags: Array.isArray(wallet.cautionFlags)
+      ? wallet.cautionFlags.map((value: unknown) => String(value))
+      : [],
+    updatedAt: Number(wallet.updatedAt || 0),
+  };
+};
+
 export const shouldIncludeDiscoveryWallet = <T extends {
   whaleScore?: number;
   discoveryScore?: number;
@@ -298,14 +459,49 @@ export const matchesDiscoveryFocusFilter = <T extends {
   volume7d?: number;
 }>(
   wallet: T,
-  focus: 'all-real-world' | 'high-information',
+  focus: 'all-real-world' | 'high-information' | 'sports-first',
 ): boolean => {
+  if (focus === 'sports-first') {
+    return wallet.focusCategory === 'sports';
+  }
   if (focus !== 'high-information') return true;
   const volume7d = Number(wallet.volume7d || 0);
   const highInformationVolume7d = Number(wallet.highInformationVolume7d || 0);
   if (volume7d <= 0) return false;
-  if (['politics', 'macro', 'company', 'legal', 'geopolitics'].includes(wallet.focusCategory || '')) return true;
+  if (['sports', 'politics', 'macro', 'company', 'legal', 'geopolitics'].includes(wallet.focusCategory || '')) return true;
   return highInformationVolume7d / volume7d >= 0.6;
+};
+
+const applyDiscoveryPresentationFilters = <T extends {
+  discoveryScore?: number;
+  whaleScore?: number;
+  heatIndicator?: string;
+  primaryReason?: string;
+  reasonCodes?: string[];
+  supportingReasonChips?: string[];
+  cautionFlags?: string[];
+}>(
+  wallets: T[],
+  filters?: { minScore?: number; heat?: string; hasSignals?: boolean },
+): T[] => {
+  return wallets.filter((wallet) => {
+    const discoveryScore = Number(wallet.discoveryScore ?? wallet.whaleScore ?? 0);
+    if (filters?.minScore !== undefined && discoveryScore < filters.minScore) {
+      return false;
+    }
+    if (filters?.heat && String(wallet.heatIndicator || '').toUpperCase() !== String(filters.heat).toUpperCase()) {
+      return false;
+    }
+    if (filters?.hasSignals) {
+      const reasonCodes = Array.isArray(wallet.reasonCodes) ? wallet.reasonCodes : [];
+      const supportingReasonChips = Array.isArray(wallet.supportingReasonChips) ? wallet.supportingReasonChips : [];
+      const cautionFlags = Array.isArray(wallet.cautionFlags) ? wallet.cautionFlags : [];
+      if (reasonCodes.length === 0 && supportingReasonChips.length === 0 && cautionFlags.length === 0) {
+        return false;
+      }
+    }
+    return true;
+  });
 };
 
 const annotateDiscoveryWallet = <T extends {
@@ -334,7 +530,7 @@ const filterDiscoveryWalletsForPresentation = <T extends {
   lastSignalAt?: number;
 }>(
   wallets: T[],
-  focus: 'all-real-world' | 'high-information',
+  focus: 'all-real-world' | 'high-information' | 'sports-first',
   includeAll: boolean,
 ): Array<T & { whySurfaced: string }> => {
   return wallets
@@ -355,7 +551,7 @@ export const paginateDiscoveryWalletsForPresentation = <T extends {
 }>(
   wallets: T[],
   options: {
-    focus: 'all-real-world' | 'high-information';
+    focus: 'all-real-world' | 'high-information' | 'sports-first';
     includeAll: boolean;
     limit: number;
     offset: number;
@@ -381,6 +577,7 @@ export const buildDiscoveryOverview = (
     severity?: string;
     marketTitle?: string;
     detectedAt?: number;
+    category?: DiscoveryMarketCategory;
   }>,
   days: number,
 ) => {
@@ -392,7 +589,7 @@ export const buildDiscoveryOverview = (
   const surfacedWallets = wallets.filter(shouldIncludeDiscoveryWallet);
   const surfacedCutoff = Date.now() - 24 * 3600 * 1000;
   const signalCutoff = Date.now() - days * 86400 * 1000;
-  const highInformationCategories = new Set(['politics', 'macro', 'company', 'legal', 'geopolitics']);
+  const highInformationCategories = new Set(['sports', 'politics', 'macro', 'company', 'legal', 'geopolitics']);
   const surfacedToday = surfacedWallets.filter((wallet) => normalizeTimestamp(wallet.lastActive) >= surfacedCutoff);
   const highInformationWallets = surfacedWallets.filter((wallet) => highInformationCategories.has(wallet.focusCategory || ''));
   const strongSignalCounts = new Map<string, number>();
@@ -413,7 +610,10 @@ export const buildDiscoveryOverview = (
 
   const signalCountsByCategory = [...signals.reduce((acc, signal) => {
     if (Number(signal.detectedAt || 0) < signalCutoff) return acc;
-    const category = classifyDiscoveryMarket({ title: signal.marketTitle }).category || 'event';
+    const category =
+      signal.category
+      ?? classifyDiscoveryMarket({ title: signal.marketTitle }).category
+      ?? 'event';
     acc.set(category, (acc.get(category) ?? 0) + 1);
     return acc;
   }, new Map<string, number>()).entries()]
@@ -453,6 +653,146 @@ export const buildDiscoveryOverview = (
   };
 };
 
+export const buildDiscoveryHomePayload = (
+  manager: Pick<DiscoveryRoutesController, 'getStatus' | 'getWallets'>,
+  options: {
+    sort: 'volume' | 'trades' | 'recent' | 'score' | 'roi' | 'trust';
+    limit: number;
+    offset: number;
+    focus: 'all-real-world' | 'high-information' | 'sports-first';
+    includeAll: boolean;
+    days: number;
+    filters?: { minScore?: number; heat?: string; hasSignals?: boolean };
+  },
+) => {
+  const normalizeTimestamp = (value?: number): number => {
+    const timestamp = Number(value || 0);
+    if (!timestamp) return 0;
+    return timestamp < 1_000_000_000_000 ? timestamp * 1000 : timestamp;
+  };
+  const walletMarketTitleByAddress = new Map<string, string>();
+
+  const rawBatchSize = Math.min(Math.max(options.limit * 3, 50), 200);
+  let rawOffset = 0;
+  let filteredWallets: Array<any> = [];
+  let globalWallets: Array<any> = [];
+
+  while (true) {
+    const batch = manager.getWallets(options.sort, rawBatchSize, rawOffset) as any[];
+    if (batch.length === 0) break;
+    const filteredBatch = applyDiscoveryPresentationFilters(
+      filterDiscoveryWalletsForPresentation(batch, options.focus, options.includeAll),
+      options.filters,
+    );
+    filteredWallets = filteredWallets.concat(filteredBatch);
+    for (const wallet of filteredBatch) {
+      if (Array.isArray(wallet.supportingMarkets) && wallet.supportingMarkets[0]) {
+        walletMarketTitleByAddress.set(String(wallet.address || '').toLowerCase(), String(wallet.supportingMarkets[0]));
+      }
+    }
+    rawOffset += batch.length;
+    if (batch.length < rawBatchSize) break;
+  }
+
+  rawOffset = 0;
+  while (true) {
+    const batch = manager.getWallets(options.sort, rawBatchSize, rawOffset) as any[];
+    if (batch.length === 0) break;
+    const presentationBatch = filterDiscoveryWalletsForPresentation(batch, options.focus, false);
+    globalWallets = globalWallets.concat(presentationBatch);
+    for (const wallet of presentationBatch) {
+      if (Array.isArray(wallet.supportingMarkets) && wallet.supportingMarkets[0]) {
+        walletMarketTitleByAddress.set(String(wallet.address || '').toLowerCase(), String(wallet.supportingMarkets[0]));
+      }
+    }
+    rawOffset += batch.length;
+    if (batch.length < rawBatchSize) break;
+  }
+
+  const wallets = filteredWallets.slice(options.offset, options.offset + options.limit).map((wallet) => ({
+    ...wallet,
+    positionDataSource: 'derived' as const,
+  }));
+
+  let reasonSignals: Array<{
+    id: number;
+    signalType: string;
+    severity: string;
+    address: string;
+    title: string;
+    description: string;
+    detectedAt: number;
+    canDismiss: boolean;
+    marketTitle?: string;
+  }> = [];
+
+  reasonSignals = buildDiscoverySignalRowsFromWallets(globalWallets)
+    .slice(0, 30)
+    .map((signal, index) => ({
+      ...signal,
+      id: index + 1,
+      marketTitle: signal.marketTitle || walletMarketTitleByAddress.get(String(signal.address || '').toLowerCase()),
+    }));
+
+  const overviewSignals = buildDiscoverySignalRowsFromWallets(globalWallets).map((signal) => ({
+    address: signal.address,
+    severity: signal.severity,
+    marketTitle: signal.marketTitle,
+    detectedAt: signal.detectedAt,
+    signalType: signal.signalType,
+    description: signal.description,
+  }));
+  const signals = reasonSignals.slice(0, 10);
+  const marketCounts = new Map<string, {
+    market_title: string;
+    wallets: Set<string>;
+    signal_count: number;
+    signal_types: Set<string>;
+    first_detected: number;
+  }>();
+  const cutoff = Date.now() - options.days * 86400 * 1000;
+  for (const wallet of globalWallets) {
+    if (normalizeTimestamp(wallet.updatedAt) < cutoff) continue;
+    if (!Array.isArray(wallet.supportingMarkets)) continue;
+    for (const marketTitle of wallet.supportingMarkets) {
+      const entry = marketCounts.get(marketTitle) ?? {
+        market_title: marketTitle,
+        wallets: new Set<string>(),
+        signal_count: 0,
+        signal_types: new Set<string>(),
+        first_detected: normalizeTimestamp(wallet.updatedAt),
+      };
+      entry.wallets.add(String(wallet.address || ''));
+      entry.signal_count += 1;
+      entry.signal_types.add('DISCOVERY_REASON');
+      entry.first_detected = Math.min(entry.first_detected, normalizeTimestamp(wallet.updatedAt));
+      marketCounts.set(marketTitle, entry);
+    }
+  }
+
+  const markets = [...marketCounts.values()]
+    .sort((a, b) => b.signal_count - a.signal_count)
+    .slice(0, 10)
+    .map((entry) => ({
+      market_title: entry.market_title,
+      signal_count: entry.signal_count,
+      wallets: [...entry.wallets].join(','),
+      signal_types: [...entry.signal_types].join(','),
+      first_detected: entry.first_detected || 0,
+    }));
+
+  return {
+    success: true,
+    apiVersion: 'v2',
+    fetchedAt: Date.now(),
+    status: manager.getStatus(),
+    wallets,
+    overview: buildDiscoveryOverview(globalWallets, overviewSignals as any, options.days),
+    signals,
+    markets,
+  };
+};
+
 /** Ensure DB is initialized before any discovery route (e.g. when user saves config before copy trader has started). */
 const ensureDatabase = async (_req: Request, _res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -473,7 +813,7 @@ type DiscoveryRoutesController = {
     stats: { totalWallets: number; totalTrades: number; uptimeMs: number };
   };
   getWallets(
-    sort: 'volume' | 'trades' | 'recent' | 'score' | 'roi',
+    sort: 'volume' | 'trades' | 'recent' | 'score' | 'roi' | 'trust',
     limit: number,
     offset: number,
     filters?: { minScore?: number; heat?: string; hasSignals?: boolean }
@@ -497,15 +837,23 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
 
   const getWalletSnapshot = (address: string): Record<string, unknown> | null => {
     const normalized = address.toLowerCase();
-    const wallets = manager.getWallets('score', 500, 0) as Array<Record<string, unknown>>;
-    return wallets.find((wallet) => String(wallet.address || '').toLowerCase() === normalized) ?? null;
+    const trustWallets = manager.getWallets('trust', 2000, 0) as Array<Record<string, unknown>>;
+    const scoreWallets = manager.getWallets('score', 2000, 0) as Array<Record<string, unknown>>;
+    const seen = new Set<string>();
+    const mergedWallets = [...trustWallets, ...scoreWallets].filter((wallet) => {
+      const key = String(wallet.address || '').toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    return mergedWallets.find((wallet) => String(wallet.address || '').toLowerCase() === normalized) ?? null;
   };
 
   const serializeWalletProfile = (address: string): Record<string, unknown> | null => {
     const wallet = getWalletSnapshot(address);
     if (!wallet) return null;
     const validation = getWalletValidation(address);
-    const reasons = getWalletReasons(address);
+    const reasons = buildDiscoveryReasonRowsFromWallet(wallet);
     const allocationState = getAllocationPolicyState(address);
     const watchlistEntry = getDiscoveryWatchlistEntry(address);
     return {
@@ -523,12 +871,16 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
   router.get('/wallets', (req: Request, res: Response) => {
     void (async () => {
       try {
-        const sort = (req.query.sort as 'volume' | 'trades' | 'recent' | 'score' | 'roi') || 'volume';
+        const sort = (req.query.sort as 'volume' | 'trades' | 'recent' | 'score' | 'roi' | 'trust') || 'trust';
         const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
         const offset = parseInt(req.query.offset as string) || 0;
         const hydratePositions = req.query.hydratePositions === 'true';
         const includeAll = req.query.includeAll === 'true';
-        const focus = req.query.focus === 'high-information' ? 'high-information' : 'all-real-world';
+        const focus = req.query.focus === 'sports-first'
+          ? 'sports-first'
+          : req.query.focus === 'high-information'
+            ? 'high-information'
+            : 'all-real-world';
         const filters: { minScore?: number; heat?: string; hasSignals?: boolean } = {};
         if (req.query.minScore !== undefined) filters.minScore = parseFloat(req.query.minScore as string);
         if (req.query.heat) filters.heat = req.query.heat as string;
@@ -540,10 +892,13 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
         let filteredWallets: Array<any> = [];
 
         while (filteredWallets.length < requiredCount) {
-          const batch = manager.getWallets(sort, rawBatchSize, rawOffset, filters);
+          const batch = manager.getWallets(sort, rawBatchSize, rawOffset);
           if (batch.length === 0) break;
           filteredWallets = filteredWallets.concat(
-            filterDiscoveryWalletsForPresentation(batch as any[], focus, includeAll)
+            applyDiscoveryPresentationFilters(
+              filterDiscoveryWalletsForPresentation(batch as any[], focus, includeAll),
+              filters,
+            )
           );
           rawOffset += batch.length;
           if (batch.length < rawBatchSize) break;
@@ -585,6 +940,37 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
         res.status(500).json({ success: false, error: err.message });
       }
     })();
+  });
+
+  router.get('/home', (req: Request, res: Response) => {
+    try {
+      const sort = (req.query.sort as 'volume' | 'trades' | 'recent' | 'score' | 'roi' | 'trust') || 'trust';
+      const limit = Math.min(parseInt(req.query.limit as string, 10) || 50, 200);
+      const offset = Math.max(parseInt(req.query.offset as string, 10) || 0, 0);
+      const includeAll = req.query.includeAll === 'true';
+      const focus = req.query.focus === 'sports-first'
+        ? 'sports-first'
+        : req.query.focus === 'high-information'
+          ? 'high-information'
+          : 'all-real-world';
+      const days = Math.min(parseInt(req.query.days as string, 10) || 7, 14);
+      const filters: { minScore?: number; heat?: string; hasSignals?: boolean } = {};
+      if (req.query.minScore !== undefined) filters.minScore = parseFloat(req.query.minScore as string);
+      if (req.query.heat) filters.heat = req.query.heat as string;
+      if (req.query.hasSignals === 'true') filters.hasSignals = true;
+
+      res.json(buildDiscoveryHomePayload(manager, {
+        sort,
+        limit,
+        offset,
+        focus,
+        includeAll,
+        days,
+        filters,
+      }));
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
 
   router.get('/wallets/:address/profile', (req: Request, res: Response) => {
@@ -675,12 +1061,22 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
       const signalType = req.query.signalType ? String(req.query.signalType) : undefined;
       const walletAddress = req.query.walletAddress ? String(req.query.walletAddress) : undefined;
       const onlyUndismissed = req.query.includeDismissed === 'true' ? false : true;
-      const alerts = getDiscoveryAlertsV2(limit, offset, {
+      let alerts = getDiscoveryAlertsV2(limit, offset, {
         severity,
         signalType,
         walletAddress,
         onlyUndismissed,
       });
+      if (alerts.length === 0) {
+        const fallbackSignals = buildDiscoverySignalRowsFromWallets(
+          manager.getWallets('trust', 1000, 0) as Array<Record<string, unknown>>
+        );
+        alerts = fallbackSignals
+          .filter((signal) => !severity || signal.severity === severity)
+          .filter((signal) => !signalType || signal.signalType === signalType)
+          .filter((signal) => !walletAddress || signal.address === walletAddress.toLowerCase())
+          .slice(offset, offset + limit);
+      }
       res.json({ success: true, alerts });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -768,23 +1164,7 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
         ? wallets.filter((wallet) => addresses.includes(String(wallet.address || '').toLowerCase()))
         : wallets;
       const result = evaluateAndPersistAllocationPolicies(
-        scopedWallets.map((wallet) => {
-          const separateScores = wallet.separateScores && typeof wallet.separateScores === 'object'
-            ? (wallet.separateScores as Record<string, unknown>)
-            : {};
-          return {
-            address: String(wallet.address || '').toLowerCase(),
-            discoveryScore: Number(wallet.discoveryScore ?? wallet.whaleScore ?? 0),
-            trustScore: Number(wallet.trustScore ?? separateScores.trust ?? 0),
-            copyabilityScore: Number(wallet.copyabilityScore ?? separateScores.copyability ?? 0),
-            confidenceBucket: (String(wallet.confidence || 'low').toLowerCase() as 'low' | 'medium' | 'high'),
-            strategyClass: normalizeStrategyClass(wallet.strategyClass),
-            cautionFlags: Array.isArray(wallet.cautionFlags)
-              ? wallet.cautionFlags.map((value: unknown) => String(value))
-              : [],
-            updatedAt: Number(wallet.updatedAt || 0),
-          };
-        })
+        scopedWallets.map((wallet) => buildAllocationPolicyInputFromWallet(wallet))
       );
       res.json({ success: true, result });
     } catch (err: any) {
@@ -800,19 +1180,16 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
       const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
       const offset = parseInt(req.query.offset as string) || 0;
       const severity = req.query.severity as string | undefined;
-      const reasonSignals = getRecentWalletReasons(limit * 3, offset).map((reason, index) => ({
+      const reasonSignals = buildDiscoverySignalRowsFromWallets(
+        manager.getWallets('trust', 1000, 0) as Array<Record<string, unknown>>
+      ).map((signal, index) => ({
+        ...signal,
         id: offset + index + 1,
-        signalType: reason.reasonCode,
-        severity: reason.reasonType === 'rejection' ? 'high' : reason.reasonType === 'warning' ? 'medium' : 'low',
-        address: reason.address,
-        title: reason.reasonCode,
-        description: reason.message,
-        detectedAt: reason.createdAt,
-        canDismiss: false,
       }));
-      const signals = severity
-        ? reasonSignals.filter((signal) => signal.severity === severity).slice(0, limit)
-        : reasonSignals.slice(0, limit);
+      const scopedSignals = severity
+        ? reasonSignals.filter((signal) => signal.severity === severity)
+        : reasonSignals;
+      const signals = scopedSignals.slice(offset, offset + limit);
       res.json({ success: true, signals });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -858,16 +1235,7 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
     try {
       const days = Math.min(parseInt(req.query.days as string) || 7, 14);
       const wallets = manager.getWallets('score', 1000, 0) as any[];
-      const signals: any[] = wallets.flatMap((wallet) =>
-        (wallet.warningReasons || []).map((reason: string, index: number) => ({
-          address: wallet.address,
-          severity: 'high',
-          marketTitle: wallet.supportingMarkets?.[index] || wallet.supportingMarkets?.[0],
-          detectedAt: wallet.updatedAt,
-          signalType: 'DISCOVERY_REASON',
-          description: reason,
-        }))
-      );
+      const signals = buildDiscoverySignalRowsFromWallets(wallets);
       res.json({
         success: true,
         overview: buildDiscoveryOverview(wallets as any, signals as any, days),
@@ -927,15 +1295,13 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
   // -----------------------------------------------------------------------
   router.get('/wallets/:address/signals', (req: Request, res: Response) => {
     try {
-      const signals = getWalletReasons(req.params.address.toLowerCase()).map((reason, index) => ({
-        id: index + 1,
-        signalType: reason.reasonCode,
-        severity: reason.reasonType === 'rejection' ? 'high' : reason.reasonType === 'warning' ? 'medium' : 'low',
-        address: reason.address,
-        title: reason.reasonCode,
-        description: reason.message,
-        detectedAt: reason.createdAt,
-      }));
+      const wallet = getWalletSnapshot(req.params.address.toLowerCase());
+      const signals = wallet
+        ? buildDiscoverySignalRowsFromWallets([wallet]).map((signal, index) => ({
+            ...signal,
+            id: index + 1,
+          }))
+        : [];
       res.json({ success: true, signals });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -997,6 +1363,7 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
       if (body.marketCount !== undefined) updates.marketCount = parseInt(body.marketCount, 10);
       if (body.statsIntervalMs !== undefined) updates.statsIntervalMs = parseInt(body.statsIntervalMs, 10);
       if (body.retentionDays !== undefined) updates.retentionDays = parseInt(body.retentionDays, 10);
+    if (body.readMode === 'v2-primary' || body.readMode === 'v2-with-v1-fallback') updates.readMode = body.readMode;
 
       const newConfig = await manager.updateConfig(updates);
       res.json({
@@ -1093,14 +1460,31 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
     void (async () => {
       try {
         const address = req.params.address.toLowerCase();
+        const snapshot = getWalletSnapshot(address);
+        if (!snapshot) {
+          res.status(409).json({ success: false, error: 'Wallet is not ready for Safari tracking yet.' });
+          return;
+        }
         try {
           await Storage.addWallet(address);
         } catch {
           /* already tracked */
         }
-        await Storage.toggleWalletActive(address, true);
+        const existingWallet = await Storage.getWallet(address);
+        const nextTags = [...new Set([...(existingWallet?.tags || []), 'discovery'])];
+        await Storage.updateWalletTags(address, nextTags);
         markWalletTracked(address, true);
-        res.json({ success: true });
+        evaluateAndPersistAllocationPolicies([buildAllocationPolicyInputFromWallet(snapshot)]);
+
+        let activated = true;
+        let message: string | undefined;
+        try {
+          await Storage.toggleWalletActive(address, true);
+        } catch (error: any) {
+          activated = false;
+          message = error.message || 'Tracked, but wallet still needs copy-trading configuration before activation.';
+        }
+        res.json({ success: true, activated, message });
       } catch (err: any) {
         res.status(500).json({ success: false, error: err.message });
       }

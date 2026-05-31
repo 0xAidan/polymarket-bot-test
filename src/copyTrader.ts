@@ -29,6 +29,44 @@ import { getAllocationPolicyState } from './allocation/policyEngine.js';
 
 const log = createComponentLogger('CopyTrader');
 
+export const evaluateAllocationGate = (
+  walletTags: string[] | undefined,
+  allocationState: { state?: string; targetWeight?: number; pauseReason?: string } | null,
+): { allowed: boolean; weight: number; reason?: string } => {
+  const normalizedTags = Array.isArray(walletTags)
+    ? walletTags.map((tag) => String(tag || '').trim().toLowerCase()).filter(Boolean)
+    : [];
+  const isDiscoveryTracked = normalizedTags.includes('discovery');
+
+  if (!allocationState) {
+    if (isDiscoveryTracked) {
+      return {
+        allowed: false,
+        weight: 0,
+        reason: 'Discovery-tracked wallet has no allocation policy state yet.',
+      };
+    }
+    return {
+      allowed: true,
+      weight: 1,
+    };
+  }
+
+  const weight = Math.max(0, Math.min(2, Number(allocationState.targetWeight || 0)));
+  if (allocationState.state === 'PAUSED' || weight <= 0) {
+    return {
+      allowed: false,
+      weight: 0,
+      reason: allocationState.pauseReason || `Allocation policy is ${allocationState.state || 'PAUSED'} for this wallet`,
+    };
+  }
+
+  return {
+    allowed: true,
+    weight,
+  };
+};
+
 /**
  * Main copy trading engine that coordinates monitoring and execution
  * Handles trade detection, execution, and performance tracking
@@ -248,7 +286,8 @@ export class CopyTrader {
     // This prevents executing trades from wallets that were removed or never tracked
     const activeWallets = await Storage.getActiveWallets();
     const tradeWalletLower = trade.walletAddress.toLowerCase();
-    const isWalletTracked = activeWallets.some(w => w.address.toLowerCase() === tradeWalletLower);
+    const trackedWallet = activeWallets.find(w => w.address.toLowerCase() === tradeWalletLower);
+    const isWalletTracked = Boolean(trackedWallet);
     
     if (!isWalletTracked) {
       log.error(`\n❌ [CopyTrader] SECURITY: Trade from wallet ${trade.walletAddress.substring(0, 8)}... is NOT in active tracked wallets!`);
@@ -342,16 +381,13 @@ export class CopyTrader {
     }
 
     const allocationState = getAllocationPolicyState(trade.walletAddress);
-    let allocationWeight = allocationState
-      ? Math.max(0, Math.min(2, Number(allocationState.targetWeight || 0)))
-      : 1;
-
-    // Combine standard allocation with Ditto multiplier
-    allocationWeight = allocationWeight * dittoMultiplier;
-
-    if ((allocationState?.state === 'PAUSED') || allocationWeight <= 0) {
-      const blockedReason = allocationState?.pauseReason
-        || `Allocation policy is ${allocationState?.state || 'PAUSED'} for this wallet`;
+    const allocationGate = evaluateAllocationGate(trackedWallet?.tags, allocationState);
+    let allocationWeight = allocationGate.weight * dittoMultiplier;
+    if (!allocationGate.allowed || allocationWeight <= 0) {
+      const blockedReason = allocationGate.reason
+        || (allocationWeight <= 0
+          ? 'Allocation weight is zero after Ditto adjustment.'
+          : 'Allocation policy blocked this wallet.');
       log.info(`[CopyTrader] ⏸️ Allocation policy blocked trade for ${trade.walletAddress.slice(0, 10)}...: ${blockedReason}`);
       await this.performanceTracker.recordTrade({
         timestamp: new Date(),

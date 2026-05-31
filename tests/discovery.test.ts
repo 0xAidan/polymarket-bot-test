@@ -24,10 +24,17 @@ import {
   shouldExposeDiscoverySignal,
 } from '../src/discovery/statsStore.ts';
 import {
+  computeConfidenceBucket,
+  resolveDiscoverySurfaceBucket,
+} from '../src/discovery/strategyClassifier.ts';
+import {
   applyAuthoritativeWalletSummary,
+  buildAllocationPolicyInputFromWallet,
   buildWalletPositionsResponse,
   applyDiscoveryWalletScore,
   buildDiscoveryOverview,
+  buildDiscoveryReasonRowsFromWallet,
+  buildDiscoverySignalRowsFromWallets,
   buildDiscoveryWalletExplanation,
   matchesDiscoveryFocusFilter,
   paginateDiscoveryWalletsForPresentation,
@@ -63,6 +70,7 @@ test('classifyMarketEntry keeps sports markets eligible for emerging and sharp-w
   assert.equal(classified.isRecurring, true);
   assert.equal(classified.emergingEligible, true);
   assert.equal(classified.sharpWalletEligible, true);
+  assert.equal(classified.highInformationPriority, true);
 });
 
 test('classifyMarketEntry keeps event-driven non-sports markets eligible for emerging discovery', () => {
@@ -491,6 +499,74 @@ test('sortWalletsForResponse reorders hydrated wallets by the latest score', () 
   assert.equal(sorted[1]?.address, '0x1');
 });
 
+test('sortWalletsForResponse supports trust-first ordering', () => {
+  const sorted = sortWalletsForResponse([
+    { address: '0x1', discoveryScore: 90, trustScore: 55, copyabilityScore: 95 },
+    { address: '0x2', discoveryScore: 70, trustScore: 82, copyabilityScore: 60 },
+    { address: '0x3', discoveryScore: 70, trustScore: 82, copyabilityScore: 88 },
+  ] as any, 'trust' as any);
+
+  assert.equal(sorted[0]?.address, '0x3');
+  assert.equal(sorted[1]?.address, '0x2');
+  assert.equal(sorted[2]?.address, '0x1');
+});
+
+test('resolveDiscoverySurfaceBucket suppresses low-copyability emerging wallets even with high confidence', () => {
+  const bucket = resolveDiscoverySurfaceBucket({
+    discoveryScore: 58,
+    trustScore: 68,
+    copyabilityScore: 42,
+    strategyClass: 'informational_directional',
+    failedGates: [],
+    confidenceBucket: 'high',
+  });
+
+  assert.equal(bucket, 'watch_only');
+});
+
+test('resolveDiscoverySurfaceBucket requires acceptable trust before surfacing as emerging', () => {
+  const bucket = resolveDiscoverySurfaceBucket({
+    discoveryScore: 72,
+    trustScore: 42,
+    copyabilityScore: 66,
+    strategyClass: 'informational_directional',
+    failedGates: [],
+    confidenceBucket: 'medium',
+  });
+
+  assert.equal(bucket, 'watch_only');
+});
+
+test('computeConfidenceBucket still promotes broad recent evidence to high confidence', () => {
+  const bucket = computeConfidenceBucket({
+    observationCount: 24,
+    distinctMarkets: 11,
+    recencyHours: 8,
+    strategyClass: 'informational_directional',
+  });
+
+  assert.equal(bucket, 'high');
+});
+
+test('computeProfitabilityScore keeps negative realized performers below the profitability gate', async () => {
+  const featureEngine = await import('../src/discovery/featureEngine.ts') as Record<string, unknown>;
+  assert.equal(typeof featureEngine.computeProfitabilityScore, 'function');
+
+  const score = (featureEngine.computeProfitabilityScore as (input: {
+    realizedWinRate: number;
+    realizedPnl: number;
+    closedPositionsCount: number;
+    marketSelectionScore: number;
+  }) => number)({
+    realizedWinRate: 82,
+    realizedPnl: -120,
+    closedPositionsCount: 6,
+    marketSelectionScore: 70,
+  });
+
+  assert.ok(score < 55);
+});
+
 test('buildDiscoveryWalletExplanation summarizes category focus and strongest evidence', () => {
   const explanation = buildDiscoveryWalletExplanation({
     focusCategory: 'macro',
@@ -504,6 +580,90 @@ test('buildDiscoveryWalletExplanation summarizes category focus and strongest ev
   assert.match(explanation, /Macro/i);
   assert.match(explanation, /high-information/i);
   assert.match(explanation, /conviction build/i);
+});
+
+test('buildDiscoveryReasonRowsFromWallet preserves supporting and caution evidence from v2 wallet state', () => {
+  const reasons = buildDiscoveryReasonRowsFromWallet({
+    address: '0xabc',
+    primaryReason: 'Strong sports edge',
+    supportingReasons: ['Early entry', 'Repeat conviction'],
+    cautionFlags: ['Thin liquidity'],
+    reasonCodes: ['early_entry', 'repeat_conviction'],
+    updatedAt: 1710000000,
+  });
+
+  assert.equal(reasons.length, 3);
+  assert.equal(reasons[0]?.reasonType, 'supporting');
+  assert.equal(reasons[0]?.reasonCode, 'early_entry');
+  assert.equal(reasons[1]?.reasonCode, 'repeat_conviction');
+  assert.equal(reasons[2]?.reasonType, 'warning');
+  assert.equal(reasons[2]?.message, 'Thin liquidity');
+});
+
+test('buildDiscoverySignalRowsFromWallets derives feed signals from v2 wallet semantics', () => {
+  const signals = buildDiscoverySignalRowsFromWallets([
+    {
+      address: '0xabc',
+      supportingMarkets: ['Lakers vs Celtics'],
+      supportingReasons: ['Early entry'],
+      cautionFlags: ['Thin liquidity'],
+      updatedAt: 1710000000,
+      reasonCodes: ['early_entry'],
+    },
+  ]);
+
+  assert.equal(signals.length, 2);
+  assert.equal(signals[0]?.address, '0xabc');
+  assert.equal(signals[0]?.severity, 'low');
+  assert.equal(signals[0]?.marketTitle, 'Lakers vs Celtics');
+  assert.equal(signals[1]?.severity, 'medium');
+  assert.equal(signals[1]?.description, 'Thin liquidity');
+});
+
+test('buildDiscoverySignalRowsFromWallets sorts newest signals first across wallets', () => {
+  const signals = buildDiscoverySignalRowsFromWallets([
+    {
+      address: '0xolder',
+      supportingMarkets: ['Older market'],
+      supportingReasons: ['Older reason'],
+      updatedAt: 1710000000,
+      reasonCodes: ['older_reason'],
+    },
+    {
+      address: '0xnewer',
+      supportingMarkets: ['Newer market'],
+      supportingReasons: ['Newer reason'],
+      updatedAt: 1710000600,
+      reasonCodes: ['newer_reason'],
+    },
+  ]);
+
+  assert.equal(signals[0]?.address, '0xnewer');
+  assert.equal(signals[1]?.address, '0xolder');
+});
+
+test('buildAllocationPolicyInputFromWallet maps Safari wallet semantics into allocation inputs', () => {
+  const input = buildAllocationPolicyInputFromWallet({
+    address: '0xabc',
+    discoveryScore: 72,
+    trustScore: 68,
+    copyabilityScore: 61,
+    confidence: 'high',
+    strategyClass: 'informational_directional',
+    cautionFlags: ['Thin liquidity'],
+    updatedAt: 1710000000,
+  } as any);
+
+  assert.deepEqual(input, {
+    address: '0xabc',
+    discoveryScore: 72,
+    trustScore: 68,
+    copyabilityScore: 61,
+    confidenceBucket: 'high',
+    strategyClass: 'informational_directional',
+    cautionFlags: ['Thin liquidity'],
+    updatedAt: 1710000000,
+  });
 });
 
 test('shouldIncludeDiscoveryWallet hides low-evidence wallets from the default feed', () => {
@@ -537,6 +697,12 @@ test('shouldIncludeDiscoveryWallet hides low-evidence wallets from the default f
 });
 
 test('matchesDiscoveryFocusFilter narrows to high-information wallets when requested', () => {
+  assert.equal(matchesDiscoveryFocusFilter({
+    highInformationVolume7d: 1000,
+    volume7d: 10000,
+    focusCategory: 'sports',
+  }, 'high-information'), true);
+
   assert.equal(matchesDiscoveryFocusFilter({
     highInformationVolume7d: 9000,
     volume7d: 10000,
@@ -600,6 +766,226 @@ test('buildDiscoveryOverview summarizes surfaced wallet quality and category mix
   assert.equal(overview.quality.walletsWithTwoStrongSignals, 1);
   assert.equal(overview.quality.trackedWallets, 1);
   assert.equal(overview.surfacedByCategory[0]?.category, 'macro');
+});
+
+test('buildDiscoveryHomePayload bundles critical discovery sections into one response', async () => {
+  const routesModule = await import('../src/api/discoveryRoutes.ts');
+  assert.equal(typeof (routesModule as any).buildDiscoveryHomePayload, 'function');
+
+  const now = Date.now();
+  const manager = {
+    getStatus() {
+      return {
+        enabled: true,
+        chainListener: { connected: true, lastEventAt: now, reconnectCount: 0 },
+        apiPoller: { running: true, lastPollAt: now, marketsMonitored: 12 },
+        stats: { totalWallets: 2, totalTrades: 20, uptimeMs: 45_000 },
+      };
+    },
+    getWallets() {
+      return [
+        {
+          address: '0x1',
+          discoveryScore: 81,
+          whaleScore: 81,
+          volume7d: 15000,
+          tradeCount7d: 9,
+          lastActive: now,
+          lastSignalAt: now,
+          updatedAt: now,
+          isTracked: true,
+          focusCategory: 'sports',
+          warningReasons: ['Conviction building in NBA markets'],
+          supportingMarkets: ['Lakers vs Celtics'],
+        },
+        {
+          address: '0x2',
+          discoveryScore: 62,
+          whaleScore: 62,
+          volume7d: 9000,
+          tradeCount7d: 6,
+          lastActive: now,
+          updatedAt: now,
+          isTracked: false,
+          focusCategory: 'sports',
+          warningReasons: ['Repeated participation'],
+          supportingMarkets: ['Warriors vs Suns'],
+        },
+      ];
+    },
+  };
+
+  const payload = (routesModule as any).buildDiscoveryHomePayload(manager, {
+    sort: 'score',
+    limit: 10,
+    offset: 0,
+    focus: 'all-real-world',
+    includeAll: false,
+    days: 7,
+  });
+
+  assert.equal(payload.success, true);
+  assert.equal(payload.apiVersion, 'v2');
+  assert.equal(payload.status.enabled, true);
+  assert.equal(payload.wallets.length, 2);
+  assert.equal(payload.overview.quality.walletsSurfacedToday, 2);
+  assert.ok(Array.isArray(payload.signals));
+  assert.ok(Array.isArray(payload.markets));
+});
+
+test('buildDiscoveryHomePayload keeps overview counts global even when wallet page is truncated', async () => {
+  const routesModule = await import('../src/api/discoveryRoutes.ts');
+  assert.equal(typeof (routesModule as any).buildDiscoveryHomePayload, 'function');
+
+  const now = Date.now();
+  const allWallets = Array.from({ length: 80 }, (_, index) => ({
+    address: `0x${String(index + 1).padStart(40, '0')}`,
+    discoveryScore: 70 - (index % 5),
+    whaleScore: 70 - (index % 5),
+    volume7d: 10000,
+    tradeCount7d: 6,
+    lastActive: now,
+    lastSignalAt: now,
+    updatedAt: now,
+    isTracked: index < 3,
+    focusCategory: 'sports',
+    warningReasons: ['Signal'],
+    supportingMarkets: [`Market ${index + 1}`],
+  }));
+  allWallets.push({
+    address: `0x${'9'.repeat(40)}`,
+    discoveryScore: 55,
+    whaleScore: 55,
+    volume7d: 10000,
+    tradeCount7d: 6,
+    lastActive: now - 20 * 86400 * 1000,
+    updatedAt: now - 20 * 86400 * 1000,
+    isTracked: false,
+    focusCategory: 'sports',
+    warningReasons: ['Old signal'],
+    supportingMarkets: ['Stale market'],
+  });
+
+  const manager = {
+    getStatus() {
+      return {
+        enabled: true,
+        chainListener: { connected: true, lastEventAt: now, reconnectCount: 0 },
+        apiPoller: { running: true, lastPollAt: now, marketsMonitored: 12 },
+        stats: { totalWallets: allWallets.length, totalTrades: 500, uptimeMs: 45_000 },
+      };
+    },
+    getWallets(_sort: string, limit: number, offset: number) {
+      return allWallets.slice(offset, offset + limit);
+    },
+  };
+
+  const payload = (routesModule as any).buildDiscoveryHomePayload(manager, {
+    sort: 'score',
+    limit: 50,
+    offset: 0,
+    focus: 'all-real-world',
+    includeAll: false,
+    days: 7,
+  });
+
+  assert.equal(payload.wallets.length, 50);
+  assert.equal(payload.overview.quality.walletsSurfacedToday, 80);
+  assert.equal(payload.overview.quality.trackedWallets, 3);
+  assert.equal(payload.overview.signalCountsByCategory[0]?.count, 80);
+  assert.equal(payload.markets.some((market: { market_title: string }) => market.market_title === 'Stale market'), false);
+});
+
+test('buildDiscoveryHomePayload honors sports-first focus for the default home scope', async () => {
+  const routesModule = await import('../src/api/discoveryRoutes.ts');
+  assert.equal(typeof (routesModule as any).buildDiscoveryHomePayload, 'function');
+
+  const now = Date.now();
+  const wallets = [
+    {
+      address: '0xsports',
+      discoveryScore: 75,
+      whaleScore: 75,
+      volume7d: 12000,
+      tradeCount7d: 7,
+      lastActive: now,
+      lastSignalAt: now,
+      updatedAt: now,
+      isTracked: false,
+      focusCategory: 'sports',
+      warningReasons: ['Sports signal'],
+      supportingMarkets: ['Lakers vs Celtics'],
+    },
+    {
+      address: '0xmacro',
+      discoveryScore: 82,
+      whaleScore: 82,
+      volume7d: 18000,
+      tradeCount7d: 9,
+      lastActive: now,
+      lastSignalAt: now,
+      updatedAt: now,
+      isTracked: false,
+      focusCategory: 'macro',
+      warningReasons: ['Macro signal'],
+      supportingMarkets: ['Will the Fed cut rates?'],
+    },
+  ];
+
+  const manager = {
+    getStatus() {
+      return {
+        enabled: true,
+        chainListener: { connected: true, lastEventAt: now, reconnectCount: 0 },
+        apiPoller: { running: true, lastPollAt: now, marketsMonitored: 2 },
+        stats: { totalWallets: wallets.length, totalTrades: 20, uptimeMs: 10_000 },
+      };
+    },
+    getWallets() {
+      return wallets;
+    },
+  };
+
+  const payload = (routesModule as any).buildDiscoveryHomePayload(manager, {
+    sort: 'trust',
+    limit: 50,
+    offset: 0,
+    focus: 'sports-first',
+    includeAll: false,
+    days: 7,
+  });
+
+  assert.equal(payload.wallets.length, 1);
+  assert.equal(payload.wallets[0]?.focusCategory, 'sports');
+  assert.equal(payload.overview.surfacedByCategory[0]?.category, 'sports');
+});
+
+test('buildDiscoveryOverview uses explicit signal category when provided', () => {
+  const now = Date.now();
+  const overview = buildDiscoveryOverview(
+    [
+      {
+        address: '0x1',
+        whaleScore: 32,
+        volume7d: 12000,
+        tradeCount7d: 7,
+        lastActive: now,
+        focusCategory: 'sports',
+      },
+    ] as any,
+    [
+      {
+        address: '0x1',
+        severity: 'low',
+        detectedAt: now,
+        category: 'sports',
+        marketTitle: undefined,
+      },
+    ] as any,
+    7,
+  );
+
+  assert.ok(overview.signalCountsByCategory.some((row) => row.category === 'sports' && row.count >= 1));
 });
 
 test('paginateDiscoveryWalletsForPresentation paginates after filtering hidden wallets', () => {
