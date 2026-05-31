@@ -16,7 +16,7 @@
     },
     {
       tab: 'dashboard',
-      target: '.app-hero',
+      target: '.j-dash-header',
       title: 'Home',
       body: 'The home screen is your command center. Use the setup guide, quick actions, and recent activity here first.'
     },
@@ -28,9 +28,15 @@
     },
     {
       tab: 'dashboard',
-      target: '.wallet-info-bar',
+      target: '.j-dash-hero',
       title: 'Live Status',
-      body: 'Your wallet summary, key metrics, and recent copied trades all live in this top section.'
+      body: 'Your wallet balance and compact performance stats live here. Tap All stats to expand the full breakdown.'
+    },
+    {
+      tab: 'dashboard',
+      target: '.j-trade-panel',
+      title: 'Trade History',
+      body: 'Recent copy attempts across tracked wallets. Click any row for full trade details.'
     },
     {
       tab: 'dashboard',

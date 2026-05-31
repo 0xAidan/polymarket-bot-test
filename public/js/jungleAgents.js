@@ -70,7 +70,7 @@ const handleFollowAgent = async (agent) => {
   }
 };
 
-const renderAgentCard = (agent) => {
+const renderAgentRow = (agent) => {
   const address = agent.polymarketAddress?.toLowerCase() || '';
   const isFollowing = address && trackedAddressSet.has(address);
   const followDisabled = agent.addressPending || isFollowing;
@@ -81,16 +81,16 @@ const renderAgentCard = (agent) => {
     : `<span class="j-agent-avatar-fallback">${agent.displayName.slice(0, 1)}</span>`;
 
   return `
-    <article class="j-agent-card j-card" data-agent-id="${agent.id}">
-      <header class="j-agent-card-head">
+    <article class="j-agent-row" data-agent-id="${agent.id}">
+      <div class="j-agent-row-identity">
         <div class="j-agent-avatar">${avatar}</div>
         <div>
           <h3 class="j-agent-name font-serif">${agent.displayName}</h3>
           <p class="j-agent-tagline text-muted">${agent.tagline || ''}</p>
           ${agent.modelLabel ? `<span class="j-badge">${agent.modelLabel}</span>` : ''}
         </div>
-      </header>
-      <div class="j-agent-stats" data-agent-stat="${agent.id}">
+      </div>
+      <div class="j-agent-row-stats" data-agent-stat="${agent.id}">
         <span class="j-stat skeleton">Loading stats…</span>
       </div>
       <div class="j-agent-address-row">
@@ -99,15 +99,18 @@ const renderAgentCard = (agent) => {
     : `<code class="j-mono">${agentShortAddress(agent.polymarketAddress)}</code>
            <button type="button" class="j-btn j-btn-ghost j-btn-sm" data-copy-address="${agent.polymarketAddress}" aria-label="Copy address">Copy</button>`}
       </div>
-      <footer class="j-agent-actions">
+      <footer class="j-agent-row-actions">
         ${profileUrl
-    ? `<a class="j-btn" href="${profileUrl}" target="_blank" rel="noopener noreferrer">View on Polymarket</a>`
-    : '<span class="j-btn" aria-disabled="true" style="opacity:0.45;pointer-events:none">View on Polymarket</span>'}
-        <button type="button" class="j-btn j-btn-primary" data-follow-agent="${agent.id}" ${followDisabled ? 'disabled' : ''}>${followLabel}</button>
+    ? `<a class="j-btn j-btn-sm" href="${profileUrl}" target="_blank" rel="noopener noreferrer">Polymarket</a>`
+    : '<span class="j-btn j-btn-sm" aria-disabled="true" style="opacity:0.45;pointer-events:none">Polymarket</span>'}
+        <button type="button" class="j-btn j-btn-primary j-btn-sm" data-follow-agent="${agent.id}" ${followDisabled ? 'disabled' : ''}>${followLabel}</button>
       </footer>
     </article>
   `;
 };
+
+/** Card layout alias — roster rows used in the grid */
+const renderAgentCard = (agent) => renderAgentRow(agent);
 
 window.initJungleAgentsTab = async (force = false) => {
   const grid = document.getElementById('jungleAgentsGrid');
@@ -129,7 +132,7 @@ window.initJungleAgentsTab = async (force = false) => {
       grid.innerHTML = '<p class="text-muted">No Jungle Agents are enabled yet.</p>';
       return;
     }
-    grid.innerHTML = agents.map(renderAgentCard).join('');
+    grid.innerHTML = agents.map(renderAgentRow).join('');
 
     grid.querySelectorAll('[data-copy-address]').forEach((btn) => {
       btn.addEventListener('click', async () => {
@@ -166,27 +169,66 @@ window.renderHomeJungleAgentTeaser = async () => {
   if (!row) return;
   try {
     const data = await API.getJungleAgents();
-    const agents = (data.agents || []).slice(0, 3);
+    const agents = (data.agents || []).slice(0, 4);
     if (!agents.length) {
       row.classList.add('hidden');
       return;
     }
     row.classList.remove('hidden');
     row.innerHTML = `
-      <div class="j-teaser-head">
-        <h3 class="font-serif">Jungle Agents</h3>
+      <header class="j-roster-head">
+        <h3 class="j-roster-title font-serif">Jungle Agents</h3>
         <button type="button" class="j-btn j-btn-ghost j-btn-sm" onclick="switchTab('jungle-agents')">View all</button>
+      </header>
+      <div class="j-roster-list">
+        ${agents.map((a) => {
+    const avatar = a.avatarUrl
+      ? `<img src="${a.avatarUrl}" alt="" />`
+      : `<span class="j-roster-avatar-fallback">${a.displayName.slice(0, 1)}</span>`;
+    return `
+          <button type="button" class="j-roster-item" onclick="switchTab('jungle-agents')" aria-label="Open ${a.displayName} in Jungle Agents">
+            <div class="j-roster-avatar">${avatar}</div>
+            <div class="j-roster-body">
+              <div class="j-roster-name">${a.displayName}</div>
+              <div class="j-roster-tagline">${a.tagline || a.modelLabel || 'Curated copy agent'}</div>
+            </div>
+            ${a.modelLabel ? `<span class="j-roster-badge">${a.modelLabel}</span>` : '<span class="j-roster-badge">Agent</span>'}
+          </button>`;
+  }).join('')}
       </div>
-      <div class="j-teaser-grid">
-        ${agents.map((a) => `
-          <button type="button" class="j-teaser-card" onclick="switchTab('jungle-agents')">
-            <strong>${a.displayName}</strong>
-            <span class="text-muted">${a.tagline || a.modelLabel || 'Curated agent'}</span>
-          </button>
-        `).join('')}
-      </div>
+      <footer class="j-roster-foot">
+        <button type="button" class="j-btn j-btn-sm" onclick="switchTab('jungle-agents')">Browse full roster →</button>
+      </footer>
     `;
   } catch {
     row.classList.add('hidden');
   }
 };
+
+const METRICS_EXPANDED_KEY = 'ditto_metrics_expanded';
+
+const initDashboardMetricsToggle = () => {
+  const btn = document.getElementById('metricsToggleBtn');
+  const panel = document.getElementById('metricsDetailPanel');
+  if (!btn || !panel) return;
+
+  const applyExpanded = (expanded) => {
+    btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    btn.querySelector('.j-metrics-toggle-label').textContent = expanded ? 'Hide stats' : 'All stats';
+    panel.hidden = !expanded;
+    panel.classList.toggle('is-open', expanded);
+  };
+
+  const saved = localStorage.getItem(METRICS_EXPANDED_KEY) === 'true';
+  applyExpanded(saved);
+
+  btn.addEventListener('click', () => {
+    const next = btn.getAttribute('aria-expanded') !== 'true';
+    applyExpanded(next);
+    localStorage.setItem(METRICS_EXPANDED_KEY, next ? 'true' : 'false');
+  });
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  initDashboardMetricsToggle();
+});

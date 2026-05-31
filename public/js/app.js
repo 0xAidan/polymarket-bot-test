@@ -631,7 +631,10 @@ function updateStatusUI(data) {
   document.getElementById('statusBarMode').textContent = data.monitoringMode || 'Polling';
 
   if (data.wallets) {
-    document.getElementById('walletsTracked').textContent = data.wallets.active;
+    const activeCount = String(data.wallets.active);
+    document.getElementById('walletsTracked').textContent = activeCount;
+    const quickTracked = document.getElementById('quickWalletsTracked');
+    if (quickTracked) quickTracked.textContent = activeCount;
     const intervalSec = data.polling && data.polling.interval ? Math.round(data.polling.interval / 1000) : null;
     const modeText = intervalSec ? `Data source: Polymarket API, polling every ${intervalSec}s` : `${data.monitoringMode || 'polling'} mode`;
     document.getElementById('statusBarMain').textContent = `${data.wallets.active} wallet(s) tracked | ${modeText}`;
@@ -661,11 +664,26 @@ async function loadWalletBalance() {
 async function loadPerformance() {
   try {
     const data = await API.getPerformance();
-    document.getElementById('successRate').textContent = `${(data.successRate || 0).toFixed(1)}%`;
-    document.getElementById('totalTrades').textContent = data.totalTrades || 0;
-    document.getElementById('avgLatency').textContent = `${Math.round(data.averageLatencyMs || 0)}ms`;
-    document.getElementById('successfulTrades').textContent = data.successfulTrades || 0;
-    document.getElementById('failedTrades').textContent = data.failedTrades || 0;
+    const successRate = `${(data.successRate || 0).toFixed(1)}%`;
+    const totalTrades = String(data.totalTrades || 0);
+    const avgLatency = `${Math.round(data.averageLatencyMs || 0)}ms`;
+    const successful = String(data.successfulTrades || 0);
+    const failed = String(data.failedTrades || 0);
+
+    const setText = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+    };
+
+    setText('successRate', successRate);
+    setText('totalTrades', totalTrades);
+    setText('avgLatency', avgLatency);
+    setText('successfulTrades', successful);
+    setText('failedTrades', failed);
+
+    setText('quickSuccessRate', successRate);
+    setText('quickTotalTrades', totalTrades);
+    setText('quickAvgLatency', avgLatency);
   } catch (error) {
     console.error('Error loading performance:', error);
   }
@@ -717,12 +735,16 @@ async function loadTrades() {
         ? `<span class="status-pill failed">${rejectReason}</span>`
         : `<span class="status-pill ${trade.success ? 'success' : (trade.status === 'pending' ? 'pending' : 'failed')}">${trade.status || (trade.success ? 'OK' : 'FAIL')}</span>`;
 
+      const side = (trade.side || 'BUY').toUpperCase();
+      const sideClass = side === 'SELL' ? 'is-sell' : 'is-buy';
+      const sideBadge = `<span class="j-trade-side ${sideClass}">${side}</span>`;
+
       return `<tr class="clickable-row" onclick="openTradeDetailModal(${idx})" tabindex="0" role="button" aria-label="View trade details">
-        <td>${new Date(trade.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
-        <td>${trade.walletLabel || trade.walletAddress.slice(0, 8)}...${(trade.walletTags && trade.walletTags.length > 0) ? ' ' + trade.walletTags.map(t => `<span class="tag-badge ${TAG_COLOR_MAP[t] || ''}">${t}</span>`).join('') : ''}</td>
-        <td title="${trade.marketId || ''}">${trade.marketName || trade.marketId?.slice(0, 12) + '...'}</td>
-        <td>${trade.outcome} ${trade.side || 'BUY'}</td>
-        <td>${amountDisplay}</td>
+        <td class="j-trade-time">${new Date(trade.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
+        <td class="j-trade-wallet">${trade.walletLabel || trade.walletAddress.slice(0, 8)}...${(trade.walletTags && trade.walletTags.length > 0) ? ' ' + trade.walletTags.map(t => `<span class="tag-badge ${TAG_COLOR_MAP[t] || ''}">${t}</span>`).join('') : ''}</td>
+        <td class="j-trade-market" title="${trade.marketId || ''}">${trade.marketName || trade.marketId?.slice(0, 12) + '...'}</td>
+        <td>${sideBadge} <span class="text-muted">${trade.outcome || ''}</span></td>
+        <td class="j-trade-amount">${amountDisplay}</td>
         <td>${statusLabel}</td>
       </tr>`;
     }).join('');

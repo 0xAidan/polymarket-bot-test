@@ -2895,10 +2895,18 @@ body.app-ready .auth-gate-screen {
 
 .j-nav {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-wrap: nowrap;
+  gap: 4px;
   flex: 1;
   justify-content: center;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 2px 0;
+}
+
+.j-nav::-webkit-scrollbar {
+  display: none;
 }
 
 .j-nav-btn {
@@ -2910,6 +2918,8 @@ body.app-ready .auth-gate-screen {
   padding: 8px 12px;
   border-radius: var(--j-radius-sm);
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .j-nav-btn:hover,
@@ -3089,4 +3099,637 @@ body.j-drawer-open { overflow: hidden; }
   .j-teaser-grid { grid-template-columns: 1fr; }
   .j-drawer-backdrop { align-items: flex-end; }
   .j-drawer { width: 100%; max-height: 85vh; border-left: none; border-top: 1px solid var(--jungle-border-strong); }
+  .j-dash-grid { grid-template-columns: 1fr; }
+  .j-dash-aside { order: -1; }
+  .j-trade-scroll { min-height: 320px; max-height: min(52vh, 520px); }
+}
+
+/* ============================================================
+   DASHBOARD — Command center layout
+   ============================================================ */
+.j-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-height: 0;
+}
+
+.j-dash-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.j-dash-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--jungle-gold);
+  margin-bottom: 4px;
+}
+
+.j-dash-title {
+  font-size: clamp(26px, 4vw, 34px);
+  line-height: 1.05;
+  font-weight: 400;
+}
+
+.j-dash-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.j-panel {
+  background: var(--jungle-bg-card);
+  border: 1px solid var(--jungle-border);
+  border-radius: var(--j-radius-lg);
+  overflow: hidden;
+  box-shadow: var(--j-shadow-1);
+}
+
+.j-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--jungle-border);
+  background: linear-gradient(180deg, rgba(229, 184, 11, 0.04), transparent);
+}
+
+.j-panel-head-compact {
+  padding: 14px 16px 10px;
+}
+
+.j-panel-title {
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1.15;
+  color: var(--jungle-gold);
+}
+
+.j-panel-sub {
+  font-size: 12px;
+  color: var(--jungle-text-muted);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.j-panel-meta {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--jungle-text-dim);
+  white-space: nowrap;
+  padding-top: 4px;
+}
+
+.j-panel-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 16px;
+  border-top: 1px solid var(--jungle-border);
+  background: rgba(0, 0, 0, 0.12);
+}
+
+/* Hero: wallet + inline quick stats */
+.j-dash-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.j-dash-wallet-card {
+  padding: 14px 16px;
+  border-radius: var(--j-radius-md);
+  background: linear-gradient(135deg, rgba(229, 184, 11, 0.07), rgba(28, 29, 46, 0.95));
+}
+
+.j-dash-wallet-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.j-dash-wallet-label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--jungle-text-muted);
+}
+
+.j-dash-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--jungle-win);
+  box-shadow: 0 0 8px rgba(0, 212, 170, 0.55);
+}
+
+.j-dash-wallet-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.j-dash-wallet-addr {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--jungle-gold-light);
+  letter-spacing: 0.02em;
+}
+
+.j-dash-wallet-balance {
+  text-align: right;
+}
+
+.j-dash-balance {
+  display: block;
+  font-family: var(--font-serif);
+  font-size: clamp(22px, 3vw, 28px);
+  line-height: 1.1;
+  color: var(--jungle-text);
+}
+
+.j-dash-balance-delta {
+  display: block;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.j-dash-balance-delta.positive { color: var(--jungle-win); }
+.j-dash-balance-delta.negative { color: var(--jungle-loss); }
+
+.j-dash-quickstats {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border: 1px solid var(--jungle-border);
+  border-radius: var(--j-radius-md);
+  background: var(--jungle-bg-card);
+  overflow: hidden;
+}
+
+.j-quickstat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 8px;
+  border-right: 1px solid var(--jungle-border);
+  min-width: 0;
+}
+
+.j-quickstat-val {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--jungle-text);
+  line-height: 1.2;
+}
+
+.j-quickstat-lbl {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--jungle-text-dim);
+}
+
+.j-metrics-toggle {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 14px;
+  border: none;
+  background: rgba(229, 184, 11, 0.06);
+  color: var(--jungle-gold);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.j-metrics-toggle:hover {
+  background: rgba(229, 184, 11, 0.14);
+}
+
+.j-metrics-toggle[aria-expanded="true"] {
+  background: rgba(229, 184, 11, 0.18);
+}
+
+.j-metrics-toggle[aria-expanded="true"] .j-metrics-chevron {
+  transform: rotate(180deg);
+}
+
+.j-metrics-chevron {
+  font-size: 12px;
+  transition: transform 0.2s ease;
+}
+
+/* Collapsible full metrics */
+.j-dash-metrics-detail {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 0.28s ease, opacity 0.2s ease, margin 0.2s ease;
+  margin-top: -8px;
+}
+
+.j-dash-metrics-detail.is-open {
+  max-height: 120px;
+  opacity: 1;
+  margin-top: 0;
+}
+
+.j-metrics-compact-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  padding: 2px 0 4px;
+}
+
+.j-metric-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 6px;
+  border-radius: var(--j-radius-sm);
+  border: 1px solid var(--jungle-border);
+  background: var(--jungle-bg-elevated);
+}
+
+.j-metric-chip-val {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--jungle-text);
+}
+
+.j-metric-chip-lbl {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--jungle-text-dim);
+  text-align: center;
+}
+
+.j-metric-chip.is-win .j-metric-chip-val { color: var(--jungle-win); }
+.j-metric-chip.is-loss .j-metric-chip-val { color: var(--jungle-loss); }
+
+/* Main grid: trade history dominates */
+.j-dash-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  gap: var(--space-md);
+  align-items: start;
+  flex: 1;
+  min-height: 0;
+}
+
+.j-dash-primary {
+  min-width: 0;
+  min-height: 0;
+}
+
+.j-trade-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: min(68vh, 720px);
+}
+
+.j-trade-scroll {
+  flex: 1;
+  min-height: 420px;
+  max-height: min(68vh, 720px);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.j-trade-table {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.j-trade-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--jungle-bg-surface);
+  padding: 11px 14px;
+}
+
+.j-trade-table td {
+  padding: 11px 14px;
+  font-size: 13px;
+  vertical-align: middle;
+}
+
+.j-trade-table tr.clickable-row {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.j-trade-table tr.clickable-row:hover td {
+  background: rgba(229, 184, 11, 0.06);
+}
+
+.j-trade-table tr.empty-row td {
+  text-align: center;
+  color: var(--jungle-text-muted);
+  padding: 48px 20px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.j-trade-side {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.j-trade-side.is-buy {
+  color: var(--jungle-win);
+  border: 1px solid rgba(0, 212, 170, 0.35);
+  background: rgba(0, 212, 170, 0.1);
+}
+
+.j-trade-side.is-sell {
+  color: var(--jungle-loss);
+  border: 1px solid rgba(255, 107, 107, 0.35);
+  background: rgba(255, 107, 107, 0.1);
+}
+
+.j-dash-aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+/* Home Jungle Agents roster */
+.j-agents-roster {
+  padding: 0;
+}
+
+.j-roster-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--jungle-border);
+}
+
+.j-roster-title {
+  font-size: 18px;
+  color: var(--jungle-gold);
+  line-height: 1.1;
+}
+
+.j-roster-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.j-roster-item {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 12px 14px;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.j-roster-item:last-child {
+  border-bottom: none;
+}
+
+.j-roster-item:hover {
+  background: rgba(229, 184, 11, 0.06);
+}
+
+.j-roster-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--j-radius-sm);
+  border: 1px solid var(--jungle-border-strong);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: rgba(229, 184, 11, 0.08);
+}
+
+.j-roster-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.j-roster-avatar-fallback {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  color: var(--jungle-gold);
+}
+
+.j-roster-body {
+  min-width: 0;
+}
+
+.j-roster-name {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.2;
+  color: var(--jungle-text);
+}
+
+.j-roster-tagline {
+  font-size: 11px;
+  color: var(--jungle-text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.j-roster-badge {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--jungle-gold);
+  border: 1px solid var(--jungle-border);
+  border-radius: 999px;
+  padding: 3px 7px;
+  white-space: nowrap;
+}
+
+.j-roster-foot {
+  padding: 10px 14px;
+  border-top: 1px solid var(--jungle-border);
+  text-align: center;
+}
+
+.j-issues-panel .j-issues-list {
+  padding: 8px 14px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Jungle Agents full tab — roster rows */
+.j-agents-tab-header {
+  margin-bottom: var(--space-lg);
+}
+
+.j-agents-tab-title {
+  font-size: clamp(28px, 4vw, 36px);
+  line-height: 1.05;
+  margin: 4px 0 8px;
+}
+
+.j-agents-tab-meta {
+  font-size: 13px;
+  color: var(--jungle-text-muted);
+  max-width: 52ch;
+  line-height: 1.5;
+}
+
+.j-agent-roster {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.j-agent-row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 18px;
+  border: 1px solid var(--jungle-border);
+  border-radius: var(--j-radius-md);
+  background: var(--jungle-bg-card);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.j-agent-row:hover {
+  border-color: var(--jungle-border-strong);
+  box-shadow: 0 0 20px rgba(229, 184, 11, 0.08);
+}
+
+.j-agent-row-identity {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  min-width: 0;
+}
+
+.j-agent-row .j-agent-avatar {
+  width: 56px;
+  height: 56px;
+}
+
+.j-agent-row .j-agent-name {
+  font-size: 20px;
+}
+
+.j-agent-row-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
+
+.j-agent-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.j-setup-card {
+  padding: 16px 18px;
+}
+
+@media (max-width: 1100px) {
+  .j-dash-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .j-metrics-compact-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .j-agent-row {
+    grid-template-columns: 56px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+  }
+
+  .j-agent-row-stats {
+    grid-column: 1 / -1;
+    padding-left: 70px;
+  }
+
+  .j-agent-row-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    padding-left: 70px;
+  }
+}
+
+@media (max-width: 640px) {
+  .j-dash-quickstats {
+    flex-wrap: wrap;
+  }
+
+  .j-quickstat {
+    flex: 1 1 22%;
+    border-right: none;
+    border-bottom: 1px solid var(--jungle-border);
+  }
+
+  .j-metrics-toggle {
+    flex: 1 1 100%;
+    flex-direction: row;
+    gap: 6px;
+    padding: 10px;
+    border-top: 1px solid var(--jungle-border);
+  }
+
+  .j-metrics-compact-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .j-agent-row {
+    grid-template-columns: 48px 1fr;
+  }
+
+  .j-agent-row-stats,
+  .j-agent-row-actions {
+    padding-left: 62px;
+  }
 }
