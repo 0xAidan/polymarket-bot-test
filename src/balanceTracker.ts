@@ -250,7 +250,7 @@ export class BalanceTracker {
           new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))
         ]);
         
-        const balanceNumber = parseFloat((ethers as any).utils.formatUnits(balance, USDC_DECIMALS));
+        const balanceNumber = parseFloat(ethers.formatUnits(balance, USDC_DECIMALS));
         this.lastRpcCallTime = Date.now();
         
         if (balanceNumber > 0) {
@@ -305,7 +305,7 @@ export class BalanceTracker {
       // Normalize address to checksummed format for consistent querying
       let normalizedAddress: string;
       try {
-        normalizedAddress = (ethers as any).utils.getAddress(address);
+        normalizedAddress = ethers.getAddress(address);
       } catch {
         // If address is invalid, use as-is and let the contract call fail
         normalizedAddress = address;

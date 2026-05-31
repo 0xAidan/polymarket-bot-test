@@ -14,7 +14,7 @@ const addrTopic = (addr: string): string =>
 test('orderFilledLogToV3Rows emits maker + taker rows with real log_index', () => {
   const maker = '0x1111111111111111111111111111111111111111';
   const taker = '0x2222222222222222222222222222222222222222';
-  const data = ethers.utils.defaultAbiCoder.encode(ORDER_FILLED_DATA_TYPES_V2, [
+  const data = ethers.AbiCoder.defaultAbiCoder().encode(ORDER_FILLED_DATA_TYPES_V2, [
     0,
     '999',
     50_000_000,

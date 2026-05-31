@@ -26,18 +26,18 @@ const CONTRACT_V1 = '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E';
 test('topic0 constants are pinned to the correct keccak256 values', () => {
   assert.equal(
     ORDER_FILLED_TOPIC0_V1,
-    ethers.utils.id('OrderFilled(bytes32,address,address,uint256,uint256,uint256,uint256,uint256)'),
+    ethers.id('OrderFilled(bytes32,address,address,uint256,uint256,uint256,uint256,uint256)'),
   );
   assert.equal(
     ORDER_FILLED_TOPIC0_V2,
-    ethers.utils.id('OrderFilled(bytes32,address,address,uint8,uint256,uint256,uint256,uint256,bytes32,bytes32)'),
+    ethers.id('OrderFilled(bytes32,address,address,uint8,uint256,uint256,uint256,uint256,bytes32,bytes32)'),
   );
 });
 
 test('parseOrderFilledLog decodes a V2 BUY OrderFilled log', () => {
   const builder = '0x' + '00'.repeat(32);
   const metadata = '0x' + '11'.repeat(32);
-  const data = ethers.utils.defaultAbiCoder.encode(ORDER_FILLED_DATA_TYPES_V2, [
+  const data = ethers.AbiCoder.defaultAbiCoder().encode(ORDER_FILLED_DATA_TYPES_V2, [
     0,            // side: 0 = BUY
     TOKEN_ID,
     100_000_000,  // makerAmountFilled (100 pUSD, 6 decimals)
@@ -74,7 +74,7 @@ test('parseOrderFilledLog decodes a V2 BUY OrderFilled log', () => {
 });
 
 test('parseOrderFilledLog decodes a V2 SELL OrderFilled log', () => {
-  const data = ethers.utils.defaultAbiCoder.encode(ORDER_FILLED_DATA_TYPES_V2, [
+  const data = ethers.AbiCoder.defaultAbiCoder().encode(ORDER_FILLED_DATA_TYPES_V2, [
     1,            // side: 1 = SELL
     TOKEN_ID,
     50_000_000,   // makerAmountFilled (50 conditional tokens)
@@ -102,7 +102,7 @@ test('parseOrderFilledLog decodes a V2 SELL OrderFilled log', () => {
 
 test('parseOrderFilledLog still decodes a V1 OrderFilled log unchanged', () => {
   // V1 BUY: maker is providing USDC, so makerAssetId = 0, takerAssetId = tokenId
-  const data = ethers.utils.defaultAbiCoder.encode(ORDER_FILLED_DATA_TYPES_V1, [
+  const data = ethers.AbiCoder.defaultAbiCoder().encode(ORDER_FILLED_DATA_TYPES_V1, [
     0,            // makerAssetId: 0 = collateral side (BUY)
     TOKEN_ID,     // takerAssetId
     100_000_000,

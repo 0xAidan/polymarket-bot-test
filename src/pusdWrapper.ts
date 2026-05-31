@@ -58,7 +58,7 @@ export async function ensurePusdReady(
   }
 
   try {
-    const provider = signer.provider as ethers.providers.Provider;
+    const provider = signer.provider as ethers.Provider;
     if (!provider) {
       log.warn('[pUSD] No provider on signer; skipping auto-wrap');
       attempted.add(key);
@@ -69,8 +69,8 @@ export async function ensurePusdReady(
     const usdceRead = new ethers.Contract(USDCE_ADDRESS, ERC20_ABI, provider);
     const pusd = new ethers.Contract(PUSD_ADDRESS, ERC20_ABI, provider);
 
-    const minWrap = ethers.utils.parseUnits('1', 6);
-    const minPusd = ethers.utils.parseUnits('0.5', 6);
+    const minWrap = ethers.parseUnits('1', 6);
+    const minPusd = ethers.parseUnits('0.5', 6);
     const wrapTarget = funder.toLowerCase() === eoa.toLowerCase() ? eoa : funder;
 
     const [eoaUsdceRaw, funderUsdceRaw, funderPusdRaw, allowanceRaw] = await Promise.all([
@@ -80,23 +80,23 @@ export async function ensurePusdReady(
       usdceOnEoa.allowance(eoa, COLLATERAL_ONRAMP_ADDRESS),
     ]);
 
-    if (funderPusdRaw.gte(minPusd)) {
+    if (funderPusdRaw >= minPusd) {
       log.info(
-        `[pUSD] Funder ${funder.substring(0, 10)}… already has pUSD (${ethers.utils.formatUnits(funderPusdRaw, 6)}) — no wrap needed`,
+        `[pUSD] Funder ${funder.substring(0, 10)}… already has pUSD (${ethers.formatUnits(funderPusdRaw, 6)}) — no wrap needed`,
       );
       attempted.add(key);
       return { ready: true };
     }
 
     // EOA holds USDC.e — wrap to funder (proxy) when signature type 2, else to EOA.
-    if (eoaUsdceRaw.gte(minWrap)) {
+    if (eoaUsdceRaw >= minWrap) {
       log.info(
-        `[pUSD] Auto-wrapping ${ethers.utils.formatUnits(eoaUsdceRaw, 6)} USDC.e → pUSD for ${wrapTarget}`,
+        `[pUSD] Auto-wrapping ${ethers.formatUnits(eoaUsdceRaw, 6)} USDC.e → pUSD for ${wrapTarget}`,
       );
 
-      if (allowanceRaw.lt(eoaUsdceRaw)) {
+      if (allowanceRaw < eoaUsdceRaw) {
         log.info('[pUSD] Approving CollateralOnramp to spend USDC.e');
-        const approveTx = await usdceOnEoa.approve(COLLATERAL_ONRAMP_ADDRESS, ethers.constants.MaxUint256);
+        const approveTx = await usdceOnEoa.approve(COLLATERAL_ONRAMP_ADDRESS, ethers.MaxUint256);
         await approveTx.wait(1);
       }
 
@@ -111,11 +111,11 @@ export async function ensurePusdReady(
     // Proxy/funder holds USDC.e but EOA cannot move it — user must wrap via Polymarket UI.
     if (
       funder.toLowerCase() !== eoa.toLowerCase()
-      && funderUsdceRaw.gte(minWrap)
+      && funderUsdceRaw >= minWrap
       && (signatureType === 2 || signatureType === 1)
     ) {
       const msg =
-        `[pUSD] ${ethers.utils.formatUnits(funderUsdceRaw, 6)} USDC.e sits on proxy/funder ${funder.substring(0, 10)}… ` +
+        `[pUSD] ${ethers.formatUnits(funderUsdceRaw, 6)} USDC.e sits on proxy/funder ${funder.substring(0, 10)}… ` +
         'but the bot signer cannot wrap it on-chain. Open polymarket.com once to convert your balance to pUSD.';
       log.warn(msg);
       return { ready: false, needsManualWrap: true, message: msg };
@@ -125,7 +125,7 @@ export async function ensurePusdReady(
       `[pUSD] ${eoa.substring(0, 10)}… / ${funder.substring(0, 10)}… holds <$1 USDC.e on EOA — no auto-wrap (pUSD on funder=${funderPusdRaw.toString()})`,
     );
     attempted.add(key);
-    return { ready: funderPusdRaw.gt(0) };
+    return { ready: funderPusdRaw > 0n };
   } catch (err: any) {
     log.warn(`[pUSD] Auto-wrap skipped/failed (non-fatal): ${err?.message ?? err}`);
     return { ready: false, message: err?.message ?? String(err) };
