@@ -119,7 +119,7 @@ export async function getClobClientForTradingWallet(
   // Best-effort: auto-wrap any USDC.e on the EOA into pUSD so V2 trading is ready.
   // Never throw — failures are logged and ignored, since the user may have pUSD already.
   try {
-    await ensurePusdReady(signer, funderAddress, log);
+    await ensurePusdReady(signer, funderAddress, log, signatureType);
   } catch (err: any) {
     log.warn(`[pUSD] ensurePusdReady threw despite internal guard (non-fatal): ${err?.message ?? err}`);
   }
@@ -139,4 +139,9 @@ export function clearClobClientCache(): void {
 
 export function evictClobClientCacheEntry(tenantId: string, tradingWalletId: string): void {
   cache.delete(cacheKey(tenantId, tradingWalletId));
+}
+
+/** All cached per-tenant CLOB clients (for session heartbeats). */
+export function getCachedClobClients(): PolymarketClobClient[] {
+  return [...cache.values()];
 }

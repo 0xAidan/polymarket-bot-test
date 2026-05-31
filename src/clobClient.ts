@@ -28,6 +28,7 @@ export class PolymarketClobClient {
   private isInitialized = false;
   private resolvedFunderAddress: string | null = null;
   private builderCode: string | null = null;
+  private lastHeartbeatId = '';
   private readonly USDC_DECIMALS = 1_000_000; // 10^6
 
   /**
@@ -401,6 +402,26 @@ export class PolymarketClobClient {
       return funderAddress;
     }
     return null;
+  }
+
+  /**
+   * POST /v1/heartbeats — keeps the CLOB session alive so resting GTC orders
+   * are not mass-cancelled after ~10s of inactivity.
+   */
+  async postHeartbeat(): Promise<void> {
+    if (!this.client) {
+      await this.initialize();
+    }
+    if (!this.client) {
+      throw new Error('CLOB client not initialized');
+    }
+    const result = await this.client.postHeartbeat(this.lastHeartbeatId);
+    if (result?.heartbeat_id) {
+      this.lastHeartbeatId = result.heartbeat_id;
+    }
+    if (result?.error_msg) {
+      log.warn({ detail: result.error_msg }, '[CLOB] Heartbeat returned error_msg');
+    }
   }
 
   async getOpenOrders(): Promise<any[]> {

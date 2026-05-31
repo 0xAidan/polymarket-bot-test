@@ -36,7 +36,7 @@ alwaysApply: true
 | Database | JSON files (default) OR SQLite | `STORAGE_BACKEND` env var (`json` | `sqlite`) |
 | SQLite lib | better-sqlite3 | 12.6 |
 | Blockchain | Polygon chain via ethers 5 + viem 2 | |
-| Polymarket SDK | @polymarket/clob-client 5.2, builder-signing-sdk/relayer-client 0.0.8 | |
+| Polymarket SDK | @polymarket/clob-client-v2 1.0.2, builder-relayer-client 0.0.8 | V2 orders via builderCode (not HMAC on POST /order) |
 | Real-time data | Polling + WebSocket utilities (ws 8.14) | |
 | HTTP client | axios 1.6 | |
 | Logging | pino 10.3 | structured JSON logs |
@@ -195,9 +195,10 @@ All loaded from `.env` in project root via `dotenv`. See `ENV_EXAMPLE.txt` for t
 | Variable | Purpose |
 |----------|---------|
 | `PRIVATE_KEY` | Main wallet private key (hex, with or without 0x prefix). **Not required** in hosted multi-tenant mode (`AUTH_MODE=oidc` + `STORAGE_BACKEND=sqlite`); tenants use encrypted keystores. |
-| `POLYMARKET_BUILDER_API_KEY` | Builder API key (get from polymarket.com/settings?tab=builder) |
-| `POLYMARKET_BUILDER_SECRET` | Builder API secret |
-| `POLYMARKET_BUILDER_PASSPHRASE` | Builder API passphrase |
+| `POLYMARKET_BUILDER_CODE` | — | V2 order attribution (from polymarket.com/settings → Builder Profile) |
+| `POLYMARKET_BUILDER_API_KEY` | Builder API key (relayer redeem/merge only — NOT used for V2 order placement) |
+| `POLYMARKET_BUILDER_SECRET` | Builder API secret (relayer only) |
+| `POLYMARKET_BUILDER_PASSPHRASE` | Builder API passphrase (relayer only) |
 
 ### Important
 | Variable | Default | Purpose |
@@ -241,7 +242,11 @@ This project uses a **MetaMask/Rabby EOA** with a **Polymarket proxy wallet**:
 ## 6. ARCHITECTURE & DATA FLOW
 
 ### Core copy-trading flow
-- **Hosted multi-tenant**: trades resolve **copy assignments** → **trading wallet IDs**; CLOB clients come from `clobClientFactory` per `(tenant, tradingWalletId)`. No server `.env` signer. Legacy single-user may still use one global wallet when no assignments exist.
+- **Hosted multi-tenant**: trades resolve copy assignments → trading wallet IDs; CLOB clients from `clobClientFactory` per `(tenant, tradingWalletId)`.
+- **V2 trading**: `@polymarket/clob-client-v2`, collateral is **pUSD**, `POLYMARKET_BUILDER_CODE` on orders
+- **CLOB heartbeat**: `clobHeartbeatManager.ts` pings POST `/v1/heartbeats` every 7s while copy trading runs
+- **Trade detection**: Data API `GET /activity?type=TRADE` (not `/trades` — takerOnly would hide maker fills)
+- **Legacy removed**: `PolymarketApi.placeOrder()` throws — use `TradeExecutor` / SDK only
 ```
 [Tracked Wallets on Polymarket]
        │

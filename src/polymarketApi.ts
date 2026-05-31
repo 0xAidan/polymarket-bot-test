@@ -518,19 +518,13 @@ export class PolymarketApi {
   }
 
   /**
-   * Get user's trade history from Polymarket Data API
-   * Uses the correct endpoint: GET /trades?user={proxyWalletAddress}
-   * 
-   * Polymarket Data API returns trades with these fields:
+   * Get user's trade history from Polymarket Data API.
+   * Uses GET /activity?type=TRADE (not GET /trades — takerOnly defaults would hide maker fills).
+   *
+   * Activity rows include:
    * - asset: token ID
-   * - conditionId: market ID  
-   * - side: "BUY" or "SELL"
-   * - size: trade size
-   * - price: trade price
-   * - timestamp: ISO timestamp
-   * - outcome: "Yes" or "No"
-   * - outcomeIndex: 0=Yes, 1=No
-   * - transactionHash: optional tx hash
+   * - conditionId: market ID
+   * - side, size, price, timestamp, outcome, outcomeIndex, transactionHash
    */
   async getUserTrades(userAddress: string, limit = 50): Promise<any[]> {
     return this.retryRequest(async () => {
@@ -675,95 +669,18 @@ export class PolymarketApi {
   }
 
   /**
-   * Place an order via CLOB API.
-   * NOTE: this is a fallback path; the primary order path is via the V2 SDK in clobClient.ts.
-   * V2 ignores POLY_BUILDER_* HMAC headers — builder attribution is now via builderCode field.
+   * @deprecated Removed — use TradeExecutor / PolymarketClobClient V2 SDK only.
+   * Raw POST /order without EIP-712 signing is not valid under CLOB V2.
    */
-  async placeOrder(orderParams: {
+  async placeOrder(_orderParams: {
     tokenId: string;
     side: 'BUY' | 'SELL';
     size: string;
     price: string;
-  }): Promise<any> {
-    if (!this.signer) {
-      await this.initialize();
-    }
-
-    try {
-      // CLOB API order format
-      const order = {
-        token_id: orderParams.tokenId,
-        side: orderParams.side.toLowerCase(),
-        size: orderParams.size,
-        price: orderParams.price,
-      };
-
-      if (!this.signer) {
-        throw new Error('Signer not initialized');
-      }
-
-      const path = '/order';
-
-      log.info(`Placing order via CLOB API (fallback path; primary path is the SDK)...`);
-      log.info({ detail: JSON.stringify(order, null, 2) }, `Order details`);
-      log.info(`Using endpoint: ${path}`);
-
-      const response = await this.clobApiClient.post(path, order, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      log.info({ detail: JSON.stringify(response.data, null, 2) }, `Order placed successfully! Response`);
-      return response.data;
-    } catch (error: any) {
-      // Provide more detailed error information
-      let errorMessage = 'Failed to place order';
-      
-      if (error.response) {
-        // HTTP error response
-        const status = error.response.status;
-        const data = error.response.data;
-        
-        if (status === 400) {
-          errorMessage = `Invalid order: ${data?.message || JSON.stringify(data)}`;
-        } else if (status === 401 || status === 403) {
-          errorMessage = `Authentication failed: ${data?.message || 'Invalid credentials'}`;
-        } else if (status === 429) {
-          errorMessage = `Rate limited: ${data?.message || 'Too many requests'}`;
-        } else if (status >= 500) {
-          errorMessage = `Server error (${status}): ${data?.message || 'Internal server error'}`;
-        } else {
-          errorMessage = `HTTP ${status}: ${data?.message || JSON.stringify(data)}`;
-        }
-      } else if (error.request) {
-        // Request made but no response
-        errorMessage = `Network error: No response from server (${error.code || 'unknown'})`;
-      } else {
-        errorMessage = error.message || 'Unknown error';
-      }
-      
-      log.error('❌ Order placement failed!');
-      log.error(`Error: ${errorMessage}`);
-      log.error(`Status: ${error.response?.status || 'N/A'}`);
-      if (error.response?.data) {
-        log.error({ detail: JSON.stringify(error.response.data, null, 2) }, 'Full error response')
-      }
-      if (error.response?.headers) {
-        log.error({ detail: JSON.stringify(error.response.headers, null, 2) }, 'Response headers')
-      }
-      // Note: order and authHeaders may be out of scope here, so we log what we can
-      log.error({
-        url: `${this.clobApiClient.defaults.baseURL}/order`,
-        method: 'POST'
-      }, 'Request that failed');
-      
-      // Create a more informative error
-      const enhancedError = new Error(errorMessage);
-      (enhancedError as any).originalError = error;
-      (enhancedError as any).response = error.response;
-      throw enhancedError;
-    }
+  }): Promise<never> {
+    throw new Error(
+      'PolymarketApi.placeOrder() is disabled. Use TradeExecutor or PolymarketClobClient.createAndPostOrder() (CLOB V2 SDK).',
+    );
   }
 
 }

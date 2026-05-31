@@ -9,14 +9,15 @@
  * our app. Without this auto-wrap, their first post-cutover trade would fail
  * with "insufficient pUSD balance" even though they have plenty of USDC.e.
  *
- * This helper runs once per signer per process (right after the V2 CLOB client
- * initializes) and silently approves the CollateralOnramp + wraps any USDC.e
- * ≥ $1 sitting on the EOA into pUSD. It is idempotent and never throws —
- * failures are logged at warn level and ignored, because users may already
- * have pUSD via another path (Bridge auto-wrap on deposit, manual wrap, etc.).
+ * This helper runs once per signer+funder per process (right after the V2 CLOB
+ * client initializes) and silently approves the CollateralOnramp + wraps any
+ * USDC.e ≥ $1 into pUSD. It is idempotent and never throws — failures are
+ * logged at warn level and ignored, because users may already have pUSD via
+ * another path (Bridge auto-wrap on deposit, manual wrap, etc.).
  */
 import * as ethers from 'ethers';
 import { createComponentLogger } from './logger.js';
+import { getValidEvmAddress } from './addressUtils.js';
 
 // V2 collateral plumbing on Polygon
 const PUSD_ADDRESS = '0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB';
@@ -33,69 +34,100 @@ const ONRAMP_ABI = [
   'function wrap(address _asset, address _to, uint256 _amount) external',
 ];
 
-// In-memory dedupe so we only attempt once per signer per process
+// In-memory dedupe so we only attempt once per signer+funder per process
 const attempted = new Set<string>();
+
+export interface PusdReadyResult {
+  ready: boolean;
+  needsManualWrap?: boolean;
+  message?: string;
+}
 
 export async function ensurePusdReady(
   signer: ethers.Wallet,
-  _funderAddress: string,
+  funderAddress: string,
   parentLog: ReturnType<typeof createComponentLogger>,
-): Promise<void> {
+  signatureType = 0,
+): Promise<PusdReadyResult> {
   const log = parentLog;
-  // Auto-wrap targets the EOA's USDC.e, not the proxy. Proxies on Polymarket
-  // are wallet-factory deployed and typically don't hold USDC.e directly when
-  // API trading from a magic/EOA path. If users keep funds on a proxy, their
-  // proxy is managed by Polymarket's UI wrap path on first interaction.
   const eoa = signer.address;
-  const key = eoa.toLowerCase();
-  if (attempted.has(key)) return;
+  const funder = getValidEvmAddress(funderAddress) || eoa;
+  const key = `${eoa.toLowerCase()}:${funder.toLowerCase()}`;
+  if (attempted.has(key)) {
+    return { ready: true };
+  }
 
   try {
     const provider = signer.provider as ethers.providers.Provider;
     if (!provider) {
       log.warn('[pUSD] No provider on signer; skipping auto-wrap');
-      // No provider is a structural condition that won't change for the
-      // lifetime of this signer — record so we don't keep re-checking.
       attempted.add(key);
-      return;
+      return { ready: false, message: 'No RPC provider on signer' };
     }
 
-    const usdce = new ethers.Contract(USDCE_ADDRESS, ERC20_ABI, signer);
+    const usdceOnEoa = new ethers.Contract(USDCE_ADDRESS, ERC20_ABI, signer);
+    const usdceRead = new ethers.Contract(USDCE_ADDRESS, ERC20_ABI, provider);
     const pusd = new ethers.Contract(PUSD_ADDRESS, ERC20_ABI, provider);
 
-    const [usdceBalRaw, pusdBalRaw, allowanceRaw] = await Promise.all([
-      usdce.balanceOf(eoa),
-      pusd.balanceOf(eoa),
-      usdce.allowance(eoa, COLLATERAL_ONRAMP_ADDRESS),
+    const minWrap = ethers.utils.parseUnits('1', 6);
+    const minPusd = ethers.utils.parseUnits('0.5', 6);
+    const wrapTarget = funder.toLowerCase() === eoa.toLowerCase() ? eoa : funder;
+
+    const [eoaUsdceRaw, funderUsdceRaw, funderPusdRaw, allowanceRaw] = await Promise.all([
+      usdceOnEoa.balanceOf(eoa),
+      usdceRead.balanceOf(funder),
+      pusd.balanceOf(funder),
+      usdceOnEoa.allowance(eoa, COLLATERAL_ONRAMP_ADDRESS),
     ]);
 
-    // Only wrap if we have meaningful USDC.e (>= $1) sitting on the EOA
-    const minWrap = ethers.utils.parseUnits('1', 6);
-    if (usdceBalRaw.lt(minWrap)) {
-      log.info(`[pUSD] EOA ${eoa.substring(0, 10)}… holds <$1 USDC.e — no auto-wrap needed (pUSD bal=${pusdBalRaw.toString()})`);
-      // Below threshold counts as "done" — mark attempted so we don't poll again.
+    if (funderPusdRaw.gte(minPusd)) {
+      log.info(
+        `[pUSD] Funder ${funder.substring(0, 10)}… already has pUSD (${ethers.utils.formatUnits(funderPusdRaw, 6)}) — no wrap needed`,
+      );
       attempted.add(key);
-      return;
+      return { ready: true };
     }
 
-    log.info(`[pUSD] Auto-wrapping ${ethers.utils.formatUnits(usdceBalRaw, 6)} USDC.e → pUSD for ${eoa}`);
+    // EOA holds USDC.e — wrap to funder (proxy) when signature type 2, else to EOA.
+    if (eoaUsdceRaw.gte(minWrap)) {
+      log.info(
+        `[pUSD] Auto-wrapping ${ethers.utils.formatUnits(eoaUsdceRaw, 6)} USDC.e → pUSD for ${wrapTarget}`,
+      );
 
-    if (allowanceRaw.lt(usdceBalRaw)) {
-      log.info(`[pUSD] Approving CollateralOnramp to spend USDC.e`);
-      const approveTx = await usdce.approve(COLLATERAL_ONRAMP_ADDRESS, ethers.constants.MaxUint256);
-      await approveTx.wait(1);
+      if (allowanceRaw.lt(eoaUsdceRaw)) {
+        log.info('[pUSD] Approving CollateralOnramp to spend USDC.e');
+        const approveTx = await usdceOnEoa.approve(COLLATERAL_ONRAMP_ADDRESS, ethers.constants.MaxUint256);
+        await approveTx.wait(1);
+      }
+
+      const onramp = new ethers.Contract(COLLATERAL_ONRAMP_ADDRESS, ONRAMP_ABI, signer);
+      const wrapTx = await onramp.wrap(USDCE_ADDRESS, wrapTarget, eoaUsdceRaw);
+      await wrapTx.wait(1);
+      log.info(`[pUSD] ✓ Wrapped — tx ${wrapTx.hash}`);
+      attempted.add(key);
+      return { ready: true };
     }
 
-    const onramp = new ethers.Contract(COLLATERAL_ONRAMP_ADDRESS, ONRAMP_ABI, signer);
-    const wrapTx = await onramp.wrap(USDCE_ADDRESS, eoa, usdceBalRaw);
-    await wrapTx.wait(1);
-    log.info(`[pUSD] ✓ Wrapped — tx ${wrapTx.hash}`);
-    // Only mark attempted AFTER the wrap succeeds. Transient failures (RPC
-    // blip, gas estimation, revert) leave the wallet retryable on next init.
+    // Proxy/funder holds USDC.e but EOA cannot move it — user must wrap via Polymarket UI.
+    if (
+      funder.toLowerCase() !== eoa.toLowerCase()
+      && funderUsdceRaw.gte(minWrap)
+      && (signatureType === 2 || signatureType === 1)
+    ) {
+      const msg =
+        `[pUSD] ${ethers.utils.formatUnits(funderUsdceRaw, 6)} USDC.e sits on proxy/funder ${funder.substring(0, 10)}… ` +
+        'but the bot signer cannot wrap it on-chain. Open polymarket.com once to convert your balance to pUSD.';
+      log.warn(msg);
+      return { ready: false, needsManualWrap: true, message: msg };
+    }
+
+    log.info(
+      `[pUSD] ${eoa.substring(0, 10)}… / ${funder.substring(0, 10)}… holds <$1 USDC.e on EOA — no auto-wrap (pUSD on funder=${funderPusdRaw.toString()})`,
+    );
     attempted.add(key);
+    return { ready: funderPusdRaw.gt(0) };
   } catch (err: any) {
     log.warn(`[pUSD] Auto-wrap skipped/failed (non-fatal): ${err?.message ?? err}`);
-    // Do NOT mark attempted on failure — the next ensurePusdReady() call
-    // (e.g. on next process start, or a subsequent tenant init) should retry.
+    return { ready: false, message: err?.message ?? String(err) };
   }
 }

@@ -90,7 +90,11 @@ export class PositionLifecycleManager {
 
   private assertLifecycleSupported(): void {
     if (isHostedMultiTenantMode()) {
-      throw new Error('Position lifecycle automation is disabled in hosted multi-tenant mode until tenant-scoped execution is implemented.');
+      throw new Error(
+        'Auto-redeem and auto-merge (position lifecycle) are not available in hosted multi-tenant mode yet. ' +
+          'Each tenant would need their own relayer credentials and Safe wallet setup. ' +
+          'Copy trading still works; redeem winning positions manually on polymarket.com.',
+      );
     }
   }
 

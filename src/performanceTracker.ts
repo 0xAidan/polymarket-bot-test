@@ -176,6 +176,8 @@ export class PerformanceTracker {
    * Record a trade execution
    */
   async recordTrade(metrics: Omit<TradeMetrics, 'id'>): Promise<void> {
+    // V2 note: Polymarket deducts trading fees in USDC at match time. PnL here
+    // uses configured trade size × price and may not reflect exact post-fee fills.
     const tenantId = scopedTenantId();
     await this.ensureTenantLoaded(tenantId);
     const tenantMetrics = this.getMetricsStore(tenantId);

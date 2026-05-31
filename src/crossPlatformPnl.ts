@@ -182,6 +182,8 @@ export class CrossPlatformPnlTracker {
     return {
       matchedMarkets: this.matchedMarkets.length,
       pnlSnapshots: this.pnlHistory.length,
+      // Polymarket V2 fees are deducted in USDC at match time; cross-platform PnL is pre-fee estimate.
+      feeModelNote: 'Polymarket V2 trading fees (USDC at match) are not subtracted from these estimates.',
       latestPnl: latest ? {
         totalPnl: latest.totalPnl,
         totalPositions: latest.totalPositions,

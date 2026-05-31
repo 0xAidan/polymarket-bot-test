@@ -271,21 +271,14 @@ export class WalletMonitor {
   }
 
   /**
-   * Parse trade data from API into DetectedTrade format
-   * FIXED: Uses correct Polymarket Data API field names
-   * 
-   * Polymarket /trades API returns:
+   * Parse trade data from Data API /activity rows into DetectedTrade format.
+   *
+   * GET /activity?type=TRADE returns:
    * {
    *   "asset": "12345...",        // token ID
    *   "conditionId": "0xabc...",  // market ID (condition ID)
-   *   "side": "BUY" or "SELL",    // trade side
-   *   "size": 123,                // trade size
-   *   "price": 0.65,              // trade price
-   *   "timestamp": "2024-...",    // ISO timestamp
-   *   "outcome": "Yes" or "No",   // outcome name
-   *   "outcomeIndex": 0 or 1,     // 0=Yes, 1=No
-   *   "title": "Market Title",
-   *   "transactionHash": "0x..."  // optional tx hash
+   *   "side": "BUY" or "SELL",
+   *   "size", "price", "timestamp", "outcome", "outcomeIndex", "title", "transactionHash"
    * }
    */
   private async parseTradeData(
@@ -374,7 +367,7 @@ export class WalletMonitor {
         timestamp: tradeTimestamp,
         transactionHash: trade.transactionHash || trade.id || `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         tokenId,
-        negRisk: (trade as any).negativeRisk ?? undefined, // CLOB client looks up when undefined
+        negRisk: (trade as any).negativeRisk ?? (trade as any).negRisk ?? undefined,
         positionKey: buildPositionKey({ marketId, tokenId, outcome }),
         // Per-wallet trade config (ALL settings, not just sizing)
         tradeSizingMode: wallet.tradeSizingMode,
