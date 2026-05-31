@@ -9,6 +9,7 @@ let refreshInterval = null;
 let botRunning = false;
 let setupGuideState = null;
 let setupGuideAction = 'dashboard';
+let jungleAgentPresetCache = [];
 
 const SETUP_GUIDE_COMPLETED_KEY = 'ditto_setup_completed_v1';
 const SETUP_GUIDE_SESSION_DISMISS_KEY = 'ditto_setup_dismissed_session_v1';
@@ -896,10 +897,124 @@ function applyWalletTagFilter() {
   });
 }
 
+function renderJungleAgentCategoryOptions(categories = []) {
+  const select = document.getElementById('jungleAgentCategoryFilter');
+  if (!select) return;
+  const current = select.value || 'ALL';
+  const unique = ['ALL', ...new Set(categories.filter(Boolean))];
+  select.innerHTML = unique.map((category) => (
+    `<option value="${category}">${category === 'ALL' ? 'All' : category}</option>`
+  )).join('');
+  if (unique.includes(current)) {
+    select.value = current;
+  } else {
+    select.value = 'ALL';
+  }
+}
+
+function renderJungleAgentPresets() {
+  const container = document.getElementById('jungleAgentPresetList');
+  const select = document.getElementById('jungleAgentCategoryFilter');
+  if (!container || !select) return;
+
+  if (!Array.isArray(jungleAgentPresetCache) || jungleAgentPresetCache.length === 0) {
+    container.innerHTML = '<div class="text-center text-muted" style="padding:12px;">No presets available yet.</div>';
+    return;
+  }
+
+  const activeCategory = select.value || 'ALL';
+  const filtered = jungleAgentPresetCache.filter((agent) => (
+    activeCategory === 'ALL' || (agent.category || 'Uncategorized') === activeCategory
+  ));
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="text-center text-muted" style="padding:12px;">No presets in this category.</div>';
+    return;
+  }
+
+  container.innerHTML = filtered.map((agent) => {
+    const avatar = agent.avatarUrl
+      ? `<img src="${agent.avatarUrl}" alt="${agent.displayName}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;border:1px solid var(--win-dark);">`
+      : '<div style="width:28px;height:28px;border-radius:50%;border:1px solid var(--win-dark);display:flex;align-items:center;justify-content:center;font-size:12px;">?</div>';
+
+    const address = agent.polymarketAddress || '';
+    const shortAddress = address
+      ? `${address.slice(0, 10)}...${address.slice(-8)}`
+      : 'Address missing';
+
+    const disabled = !address ? 'disabled' : '';
+    return `
+      <div class="wallet-entry" style="margin-bottom:6px;">
+        <div class="wallet-entry-info">
+          <div class="wallet-entry-address" style="display:flex;align-items:center;gap:8px;">
+            ${avatar}
+            <div>
+              <div><strong>${agent.displayName}</strong> <span class="win-badge">${agent.category || 'Uncategorized'}</span></div>
+              <div class="text-sm text-muted">${agent.modelLabel || 'No model label'} - ${shortAddress}</div>
+            </div>
+          </div>
+        </div>
+        <div class="wallet-entry-actions">
+          <button class="win-btn win-btn-sm" onclick="oneClickTrackJungleAgent('${agent.id}')" ${disabled}>Track</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function loadJungleAgentPresets(forceRefresh = false) {
+  const container = document.getElementById('jungleAgentPresetList');
+  if (!container) return;
+
+  if (!forceRefresh && jungleAgentPresetCache.length > 0) {
+    renderJungleAgentPresets();
+    return;
+  }
+
+  try {
+    const data = await API.get('/jungle-agents');
+    jungleAgentPresetCache = (data.agents || []).map((agent) => ({
+      ...agent,
+      category: agent.category || 'Uncategorized'
+    }));
+    const categories = data?.meta?.categories || jungleAgentPresetCache.map((agent) => agent.category);
+    renderJungleAgentCategoryOptions(categories);
+    renderJungleAgentPresets();
+  } catch (error) {
+    container.innerHTML = '<div class="text-center text-muted" style="padding:12px;">Preset roster unavailable.</div>';
+  }
+}
+
+async function oneClickTrackJungleAgent(agentId) {
+  const agent = jungleAgentPresetCache.find((entry) => entry.id === agentId);
+  if (!agent) {
+    await win95Dialog.error('Agent preset not found.');
+    return;
+  }
+  if (!agent.polymarketAddress) {
+    await win95Dialog.alert('This preset does not have a wallet address yet.');
+    return;
+  }
+
+  try {
+    await API.post('/wallets', {
+      address: agent.polymarketAddress,
+      label: agent.displayName,
+      tags: [agent.category || 'Uncategorized']
+    });
+    await win95Dialog.success(`${agent.displayName} added to tracked wallets.`);
+    lastWalletHash = '';
+    await loadWallets(true);
+  } catch (error) {
+    await win95Dialog.error(`Failed to add preset wallet: ${error.message}`);
+  }
+}
+
 async function loadWallets(forceRebuild = false) {
   try {
     const data = await API.getWallets();
     const list = document.getElementById('walletsList');
+    await loadJungleAgentPresets();
 
     if (!data.wallets || data.wallets.length === 0) {
       lastWalletHash = '';
@@ -1427,6 +1542,29 @@ async function testClobConnectivity() {
     html += `<br><strong>Diagnosis:</strong> ${data.summary.diagnosis}`;
     resultsDiv.innerHTML = html;
   } catch (error) { resultsDiv.innerHTML = `<div class="text-danger">Test failed: ${error.message}</div>`; }
+}
+
+async function testGeoblockStatus() {
+  const resultsDiv = document.getElementById('geoblockTestResults');
+  resultsDiv.innerHTML = '<div class="text-center text-muted">Checking region eligibility...</div>';
+  resultsDiv.classList.remove('hidden');
+
+  try {
+    const data = await API.testGeoblockStatus();
+    const badgeClass = data.tradingAllowed ? 'text-success' : 'text-danger';
+    const badgeText = data.tradingAllowed ? 'ALLOWED' : 'BLOCKED';
+    const country = data.country || 'unknown';
+    const region = data.region || 'unknown';
+    const ip = data.ip || 'unknown';
+
+    resultsDiv.innerHTML = `
+      <div><strong>Status:</strong> <span class="${badgeClass}">${badgeText}</span></div>
+      <div class="text-sm text-muted">Country: ${country} | Region: ${region} | IP: ${ip}</div>
+      ${data.tradingAllowed ? '' : '<div class="text-danger" style="margin-top:4px;">This deployment region cannot place trades. Move to an eligible region before going live.</div>'}
+    `;
+  } catch (error) {
+    resultsDiv.innerHTML = `<div class="text-danger">Geoblock check failed: ${error.message}</div>`;
+  }
 }
 
 async function loadFailedTrades() {

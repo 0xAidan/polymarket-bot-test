@@ -172,7 +172,7 @@ describe('SecureKeyManager', () => {
     const migrated = await migrateEnvPrivateKey('secret');
     assert.equal(migrated, null);
 
-    const ids = await listStoredWalletIds();
+    const ids = await runWithTenant('tenant-hosted', () => listStoredWalletIds());
     assert.deepEqual(ids, []);
   });
 

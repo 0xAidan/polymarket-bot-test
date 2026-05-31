@@ -29,10 +29,41 @@ export class TradeExecutor {
   private api: PolymarketApi;
   private clobClient: PolymarketClobClient;
   private isAuthenticated = false;
+  private lastGeoblockCheckAt = 0;
+  private lastGeoblockBlocked: boolean | null = null;
+  private readonly geoblockCacheMs = 5 * 60 * 1000;
 
   constructor() {
     this.api = new PolymarketApi();
     this.clobClient = new PolymarketClobClient();
+  }
+
+  private async assertTradingRegionAllowed(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastGeoblockCheckAt < this.geoblockCacheMs) {
+      if (this.lastGeoblockBlocked === true) {
+        throw new Error('Trading blocked by Polymarket geoblock policy for this server region.');
+      }
+      return;
+    }
+
+    try {
+      const geoblock = await this.api.getGeoblockStatus();
+      this.lastGeoblockCheckAt = now;
+      this.lastGeoblockBlocked = geoblock.blocked;
+      if (geoblock.blocked) {
+        throw new Error(
+          `Trading blocked by Polymarket geoblock policy (country=${geoblock.country || 'unknown'}, region=${geoblock.region || 'unknown'}).`
+        );
+      }
+    } catch (error: any) {
+      if (error?.message?.includes('geoblock policy')) {
+        throw error;
+      }
+      this.lastGeoblockCheckAt = now;
+      this.lastGeoblockBlocked = null;
+      throw new Error(`Cannot verify Polymarket geoblock status: ${error?.message || 'unknown error'}`);
+    }
   }
 
   /**
@@ -97,6 +128,7 @@ export class TradeExecutor {
 
     try {
       const clobClient = await this.resolveClobClientForOrder(order);
+      await this.assertTradingRegionAllowed();
 
       log.info(`\n${'='.repeat(60)}`);
       log.info(`🚀 [Execute] EXECUTING TRADE`);
@@ -114,8 +146,9 @@ export class TradeExecutor {
       // Use tokenId directly if provided (bypasses Gamma API entirely)
       // This is the critical fix - Gamma API doesn't accept conditionId format
       const tokenId: string | undefined = order.tokenId;
-      const tickSize: string = '0.01';  // Default tick size for most Polymarket markets
-      const negRisk: boolean = order.negRisk ?? false;
+      // Let the CLOB client fetch authoritative market tickSize/negRisk when unavailable.
+      const tickSize: string | undefined = undefined;
+      const negRisk: boolean | undefined = order.negRisk;
 
       if (!tokenId) {
         // Token ID is required - fail if not provided
@@ -125,8 +158,8 @@ export class TradeExecutor {
       }
 
       log.info(`   Token ID: ${tokenId}`);
-      log.info(`   Tick Size: ${tickSize}`);
-      log.info(`   Neg Risk: ${negRisk}`);
+      log.info(`   Tick Size: ${tickSize || 'auto (from market metadata)'}`);
+      log.info(`   Neg Risk: ${negRisk ?? 'auto (from market metadata)'}`);
       log.info(`${'='.repeat(60)}`)
 
       // Validate price and amount
@@ -193,9 +226,11 @@ export class TradeExecutor {
       // Round size to 2 decimal places to avoid floating-point issues; CLOB client handles price tick alignment
       const rawSize = size;
       size = parseFloat(size.toFixed(2));
+
+      const minOrderSize = await clobClient.getMinOrderSize(tokenId);
       
-      if (size < 0.01) {
-        throw new Error(`Order size too small after rounding: ${size}. Minimum is 0.01`);
+      if (size < minOrderSize) {
+        throw new Error(`Order size too small after rounding: ${size}. Minimum is ${minOrderSize}`);
       }
       
       log.info(`[Execute] Size rounded: ${rawSize} -> ${size} (price ${price} sent to CLOB for tick alignment)`);
@@ -312,7 +347,7 @@ export class TradeExecutor {
               }));
               log.error(`[Execute]    IMPORTANT: If this keeps happening, you may need to:`);
               log.error(`[Execute]    1. Regenerate your Builder API credentials at https://polymarket.com/settings?tab=builder`);
-              log.error(`[Execute]    2. Verify POLYMARKET_SIGNATURE_TYPE matches your wallet type (0=EOA, 1=email, 2=MetaMask+proxy)`);
+              log.error(`[Execute]    2. Verify POLYMARKET_SIGNATURE_TYPE matches your wallet type (0=EOA, 1=proxy, 2=safe, 3=deposit wallet)`);
               log.error(`[Execute]    3. Verify POLYMARKET_FUNDER_ADDRESS is your Polymarket proxy wallet address`);
               throw retryError;
             }

@@ -7,6 +7,7 @@ import { getSigner, isWalletUnlocked } from './secureKeyManager.js';
 import { RelayClient, RelayerTxType } from '@polymarket/builder-relayer-client';
 import { BuilderConfig } from '@polymarket/builder-signing-sdk';
 import { createComponentLogger } from './logger.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
 
 const log = createComponentLogger('PositionLifecycle');
 
@@ -87,7 +88,14 @@ export class PositionLifecycleManager {
     this.lifecycleConfig = { ...DEFAULT_CONFIG };
   }
 
+  private assertLifecycleSupported(): void {
+    if (isHostedMultiTenantMode()) {
+      throw new Error('Position lifecycle automation is disabled in hosted multi-tenant mode until tenant-scoped execution is implemented.');
+    }
+  }
+
   async start(): Promise<void> {
+    this.assertLifecycleSupported();
     if (this.isRunning) return;
     this.isRunning = true;
 
@@ -128,6 +136,7 @@ export class PositionLifecycleManager {
   }
 
   async checkAndProcess(): Promise<RedemptionResult[]> {
+    this.assertLifecycleSupported();
     this.lastCheckTime = Date.now();
     const results: RedemptionResult[] = [];
 
@@ -196,6 +205,7 @@ export class PositionLifecycleManager {
    * resolve but yield nothing).
    */
   async getRedeemablePositions(): Promise<RedeemablePosition[]> {
+    this.assertLifecycleSupported();
     const results: RedeemablePosition[] = [];
 
     try {
@@ -461,6 +471,7 @@ export class PositionLifecycleManager {
    * to force an immediate check outside the scheduled interval.
    */
   async triggerCheck(): Promise<void> {
+    this.assertLifecycleSupported();
     if (!this.isRunning) return;
     if (!this.lifecycleConfig.autoRedeemEnabled && !this.lifecycleConfig.autoMergeEnabled) return;
 
@@ -491,6 +502,7 @@ export class PositionLifecycleManager {
   }
 
   async updateConfig(updates: Partial<LifecycleConfig>): Promise<void> {
+    this.assertLifecycleSupported();
     Object.assign(this.lifecycleConfig, updates);
     await this.saveConfig();
 
@@ -505,6 +517,7 @@ export class PositionLifecycleManager {
   }
 
   async redeemAll(): Promise<RedemptionResult[]> {
+    this.assertLifecycleSupported();
     const positions = await this.getRedeemablePositions();
     const results: RedemptionResult[] = [];
 
