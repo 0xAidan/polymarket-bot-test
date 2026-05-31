@@ -184,6 +184,11 @@ DATA_DIR=./data
  * Check if configuration exists and is valid
  */
 function isConfigured(): boolean {
+  if (isHostedMultiTenantMode()) {
+    log.info('[DEBUG] Hosted multi-tenant mode — server PRIVATE_KEY not required');
+    return true;
+  }
+
   const envPath = join(PROJECT_ROOT, '.env');
 
   log.info(`[DEBUG] Checking for .env at: ${envPath}`);
