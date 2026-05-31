@@ -3750,103 +3750,245 @@ body.j-drawer-open { overflow: hidden; }
   line-height: 1.5;
 }
 
-/* Jungle Agents full tab — roster rows */
-.j-agents-tab-header {
-  margin-bottom: var(--space-lg);
+/* ============================================================
+   SHARED PAGE SHELL (all tabs except dashboard)
+   ============================================================ */
+.win-tab-panel.active.j-page {
+  display: flex !important;
+  flex-direction: column;
+  gap: 14px;
 }
 
-.j-agents-tab-title {
-  font-size: clamp(28px, 4vw, 36px);
+.j-page-header {
+  margin-bottom: 2px;
+}
+
+.j-page-title {
+  font-size: clamp(26px, 4vw, 34px);
   line-height: 1.05;
+  font-weight: 400;
   margin: 4px 0 8px;
 }
 
-.j-agents-tab-meta {
+.j-page-sub {
   font-size: 13px;
   color: var(--jungle-text-muted);
-  max-width: 52ch;
-  line-height: 1.5;
+  max-width: 56ch;
+  line-height: 1.55;
+  margin: 0;
 }
 
+.j-page-link {
+  color: var(--jungle-gold);
+  text-decoration: none;
+}
+
+.j-page-link:hover {
+  text-decoration: underline;
+}
+
+.j-page .win-group {
+  border-radius: var(--j-radius-lg);
+  background: var(--jungle-bg-card);
+  box-shadow: var(--j-shadow-1);
+  margin-bottom: 0;
+  padding: 16px 18px;
+  overflow: hidden;
+  border: 1px solid var(--jungle-border);
+}
+
+.j-page .win-group-title {
+  font-size: 18px;
+  padding: 0;
+  margin-bottom: 12px;
+  color: var(--jungle-gold);
+}
+
+.j-page .metrics-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 8px;
+  margin-bottom: 0;
+  padding: 0;
+}
+
+.j-page .metric-box {
+  min-height: 0;
+  padding: 10px 8px;
+}
+
+.j-page .metric-box .metric-value {
+  font-size: 16px;
+}
+
+.j-page .metric-box .metric-label {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+
+/* Jungle Agents — agent cards */
 .j-agent-roster {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
-.j-agent-row {
-  display: grid;
-  grid-template-columns: 56px minmax(0, 1.2fr) minmax(0, 1fr) auto;
-  gap: 16px;
-  align-items: center;
-  padding: 16px 18px;
-  border: 1px solid var(--jungle-border);
-  border-radius: var(--j-radius-md);
-  background: var(--jungle-bg-card);
+.j-agent-card-v2 {
+  padding: 0;
+  overflow: hidden;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.j-agent-row:hover {
+.j-agent-card-v2:hover {
   border-color: var(--jungle-border-strong);
-  box-shadow: 0 0 20px rgba(229, 184, 11, 0.08);
+  box-shadow: 0 0 24px rgba(229, 184, 11, 0.1);
 }
 
-.j-agent-row-identity {
+.j-agent-card-v2-main {
   display: flex;
-  gap: 14px;
-  align-items: center;
+  gap: 16px;
+  padding: 16px 18px;
+  align-items: flex-start;
+}
+
+.j-agent-card-v2 .j-agent-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--j-radius-md);
+  border: 1px solid var(--jungle-border-strong);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: rgba(229, 184, 11, 0.08);
+}
+
+.j-agent-card-v2-body {
+  flex: 1;
   min-width: 0;
 }
 
-.j-agent-row .j-agent-avatar {
-  width: 56px;
-  height: 56px;
-}
-
-.j-agent-row .j-agent-name {
-  font-size: 20px;
-}
-
-.j-agent-row-stats {
+.j-agent-card-v2-head {
   display: flex;
+  align-items: center;
+  gap: 10px;
   flex-wrap: wrap;
-  gap: 12px 16px;
+  margin-bottom: 4px;
 }
 
-.j-agent-row-actions {
+.j-agent-card-v2 .j-agent-name {
+  font-size: 22px;
+  line-height: 1.15;
+  margin: 0;
+  color: var(--jungle-text);
+}
+
+.j-agent-model-badge {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--jungle-gold);
+  border: 1px solid var(--jungle-border);
+  border-radius: 999px;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+
+.j-agent-card-v2 .j-agent-tagline {
+  font-size: 13px;
+  color: var(--jungle-text-muted);
+  margin: 0 0 12px;
+  line-height: 1.45;
+}
+
+.j-agent-card-v2-stats {
   display: flex;
+  gap: 10px;
   flex-wrap: wrap;
+}
+
+.j-agent-stat-box {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 88px;
+  padding: 8px 12px;
+  border-radius: var(--j-radius-sm);
+  border: 1px solid var(--jungle-border);
+  background: var(--jungle-bg-elevated);
+}
+
+.j-agent-stat-box.is-loading {
+  opacity: 0.6;
+}
+
+.j-agent-stat-val {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--jungle-gold-light);
+  line-height: 1.2;
+}
+
+.j-agent-stat-lbl {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--jungle-text-dim);
+}
+
+.j-agent-card-v2-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 18px;
+  border-top: 1px solid var(--jungle-border);
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.j-agent-card-v2-address {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  justify-content: flex-end;
+  min-width: 0;
+}
+
+.j-agent-card-v2-address .j-mono {
+  font-size: 12px;
+  color: var(--jungle-text-muted);
+}
+
+.j-agent-card-v2-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
 }
 
 .j-setup-card {
   padding: 16px 18px;
 }
 
-@media (max-width: 1100px) {
-  .j-dash-hero {
-    grid-template-columns: 1fr;
+@media (max-width: 720px) {
+  .j-agent-card-v2-main {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .j-metrics-compact-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .j-agent-card-v2-footer {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .j-agent-row {
-    grid-template-columns: 56px minmax(0, 1fr);
-    grid-template-rows: auto auto;
+  .j-agent-card-v2-actions {
+    margin-left: 0;
+    width: 100%;
   }
 
-  .j-agent-row-stats {
-    grid-column: 1 / -1;
-    padding-left: 70px;
-  }
-
-  .j-agent-row-actions {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
-    padding-left: 70px;
+  .j-agent-card-v2-actions .j-btn {
+    flex: 1;
   }
 }
 
@@ -3871,14 +4013,5 @@ body.j-drawer-open { overflow: hidden; }
 
   .j-metrics-compact-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .j-agent-row {
-    grid-template-columns: 48px 1fr;
-  }
-
-  .j-agent-row-stats,
-  .j-agent-row-actions {
-    padding-left: 62px;
   }
 }

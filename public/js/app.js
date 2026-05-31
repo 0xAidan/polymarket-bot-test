@@ -262,6 +262,9 @@ function refreshCurrentTab() {
       refreshExecutorStatus();
       break;
     case 'jungle-agents':
+      if (typeof window.initJungleAgentsTab === 'function') {
+        window.initJungleAgentsTab(true);
+      }
       break;
     case 'discovery':
       if (!discoveryRefreshTimer) {

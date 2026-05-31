@@ -34,17 +34,23 @@ const refreshTrackedSet = async () => {
 const loadAgentPerformance = async (agentId) => {
   const statEl = document.querySelector(`[data-agent-stat="${agentId}"]`);
   if (!statEl) return;
+  const renderStats = (portfolio, positions) => {
+    statEl.innerHTML = `
+      <div class="j-agent-stat-box">
+        <span class="j-agent-stat-val">${portfolio}</span>
+        <span class="j-agent-stat-lbl">Portfolio</span>
+      </div>
+      <div class="j-agent-stat-box">
+        <span class="j-agent-stat-val">${positions}</span>
+        <span class="j-agent-stat-lbl">Positions</span>
+      </div>
+    `;
+  };
   try {
     const perf = await API.getJungleAgentPerformance(agentId);
-    statEl.innerHTML = `
-      <span class="j-stat"><span class="j-stat-label">Portfolio</span><span class="j-stat-value">${formatUsd(perf.portfolioValueUsd)}</span></span>
-      <span class="j-stat"><span class="j-stat-label">Positions</span><span class="j-stat-value">${perf.positionCount ?? '—'}</span></span>
-    `;
+    renderStats(formatUsd(perf.portfolioValueUsd), perf.positionCount ?? '—');
   } catch {
-    statEl.innerHTML = `
-      <span class="j-stat"><span class="j-stat-label">Portfolio</span><span class="j-stat-value">—</span></span>
-      <span class="j-stat"><span class="j-stat-label">Positions</span><span class="j-stat-value">—</span></span>
-    `;
+    renderStats('—', '—');
   }
 };
 
@@ -81,29 +87,33 @@ const renderAgentRow = (agent) => {
     : `<span class="j-agent-avatar-fallback">${agent.displayName.slice(0, 1)}</span>`;
 
   return `
-    <article class="j-agent-row" data-agent-id="${agent.id}">
-      <div class="j-agent-row-identity">
+    <article class="j-agent-card-v2 j-panel" data-agent-id="${agent.id}">
+      <div class="j-agent-card-v2-main">
         <div class="j-agent-avatar">${avatar}</div>
-        <div>
-          <h3 class="j-agent-name font-serif">${agent.displayName}</h3>
-          <p class="j-agent-tagline text-muted">${agent.tagline || ''}</p>
-          ${agent.modelLabel ? `<span class="j-badge">${agent.modelLabel}</span>` : ''}
+        <div class="j-agent-card-v2-body">
+          <div class="j-agent-card-v2-head">
+            <h3 class="j-agent-name font-serif">${agent.displayName}</h3>
+            ${agent.modelLabel ? `<span class="j-agent-model-badge">${agent.modelLabel}</span>` : ''}
+          </div>
+          ${agent.tagline ? `<p class="j-agent-tagline">${agent.tagline}</p>` : ''}
+          <div class="j-agent-card-v2-stats" data-agent-stat="${agent.id}">
+            <div class="j-agent-stat-box is-loading"><span class="j-agent-stat-lbl">Loading stats…</span></div>
+          </div>
         </div>
       </div>
-      <div class="j-agent-row-stats" data-agent-stat="${agent.id}">
-        <span class="j-stat skeleton">Loading stats…</span>
-      </div>
-      <div class="j-agent-address-row">
-        ${agent.addressPending
+      <footer class="j-agent-card-v2-footer">
+        <div class="j-agent-card-v2-address">
+          ${agent.addressPending
     ? '<span class="j-badge j-badge-warn">Address pending</span>'
     : `<code class="j-mono">${agentShortAddress(agent.polymarketAddress)}</code>
-           <button type="button" class="j-btn j-btn-ghost j-btn-sm" data-copy-address="${agent.polymarketAddress}" aria-label="Copy address">Copy</button>`}
-      </div>
-      <footer class="j-agent-row-actions">
-        ${profileUrl
+             <button type="button" class="j-btn j-btn-ghost j-btn-sm" data-copy-address="${agent.polymarketAddress}" aria-label="Copy address">Copy</button>`}
+        </div>
+        <div class="j-agent-card-v2-actions">
+          ${profileUrl
     ? `<a class="j-btn j-btn-sm" href="${profileUrl}" target="_blank" rel="noopener noreferrer">Polymarket</a>`
     : '<span class="j-btn j-btn-sm" aria-disabled="true" style="opacity:0.45;pointer-events:none">Polymarket</span>'}
-        <button type="button" class="j-btn j-btn-primary j-btn-sm" data-follow-agent="${agent.id}" ${followDisabled ? 'disabled' : ''}>${followLabel}</button>
+          <button type="button" class="j-btn j-btn-primary j-btn-sm" data-follow-agent="${agent.id}" ${followDisabled ? 'disabled' : ''}>${followLabel}</button>
+        </div>
       </footer>
     </article>
   `;
