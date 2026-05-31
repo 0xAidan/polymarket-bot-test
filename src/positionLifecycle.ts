@@ -365,15 +365,15 @@ export class PositionLifecycleManager {
       let callData: string;
 
       if (pos.negRisk) {
-        const iface = new ethers.utils.Interface(NEG_RISK_ABI);
-        const amounts = [ethers.utils.parseUnits(pos.size.toString(), 6), 0];
+        const iface = new ethers.Interface(NEG_RISK_ABI);
+        const amounts = [ethers.parseUnits(pos.size.toString(), 6), 0];
         callData = iface.encodeFunctionData('redeemPositions', [pos.conditionId, amounts]);
         targetContract = NEG_RISK_ADAPTER_ADDRESS;
       } else {
-        const iface = new ethers.utils.Interface(CTF_ABI);
+        const iface = new ethers.Interface(CTF_ABI);
         callData = iface.encodeFunctionData('redeemPositions', [
           PUSD_ADDRESS,
-          ethers.constants.HashZero,
+          ethers.ZeroHash,
           pos.conditionId,
           [1, 2],
         ]);
@@ -433,11 +433,11 @@ export class PositionLifecycleManager {
         return { ...baseResult, error: `Wallet "${pos.walletId}" not found or not unlocked` };
       }
 
-      const iface = new ethers.utils.Interface(CTF_ABI);
-      const mergeAmount = ethers.utils.parseUnits(pos.size.toString(), 6);
+      const iface = new ethers.Interface(CTF_ABI);
+      const mergeAmount = ethers.parseUnits(pos.size.toString(), 6);
       const callData = iface.encodeFunctionData('mergePositions', [
         PUSD_ADDRESS,
-        ethers.constants.HashZero,
+        ethers.ZeroHash,
         pos.conditionId,
         [1, 2],
         mergeAmount,

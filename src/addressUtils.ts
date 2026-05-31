@@ -18,7 +18,7 @@ export const getValidEvmAddress = (value: unknown): string | null => {
   }
 
   try {
-    return (ethers as any).utils.getAddress(raw).toLowerCase();
+    return ethers.getAddress(raw).toLowerCase();
   } catch {
     return null;
   }

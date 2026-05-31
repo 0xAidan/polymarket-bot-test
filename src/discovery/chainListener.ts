@@ -292,7 +292,7 @@ export function parseOrderFilledLog(log: any): OrderFilledEvent | null {
   };
 
   if (topic0 === ORDER_FILLED_TOPIC0_V2.toLowerCase()) {
-    const decoded = ethers.utils.defaultAbiCoder.decode(ORDER_FILLED_DATA_TYPES_V2, log.data);
+    const decoded = ethers.AbiCoder.defaultAbiCoder().decode(ORDER_FILLED_DATA_TYPES_V2, log.data);
     const sideRaw = Number(decoded[0]);
     const side: 0 | 1 = sideRaw === 0 ? 0 : 1;
     return {
@@ -309,7 +309,7 @@ export function parseOrderFilledLog(log: any): OrderFilledEvent | null {
   }
 
   if (topic0 === ORDER_FILLED_TOPIC0_V1.toLowerCase()) {
-    const decoded = ethers.utils.defaultAbiCoder.decode(ORDER_FILLED_DATA_TYPES_V1, log.data);
+    const decoded = ethers.AbiCoder.defaultAbiCoder().decode(ORDER_FILLED_DATA_TYPES_V1, log.data);
     return {
       version: 'v1',
       ...baseFields,

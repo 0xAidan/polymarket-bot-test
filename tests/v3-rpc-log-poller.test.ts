@@ -27,7 +27,7 @@ test('pollRpcLogsOnce advances block cursor and inserts decoded rows', async () 
 
   const maker = '0x1111111111111111111111111111111111111111';
   const taker = '0x2222222222222222222222222222222222222222';
-  const data = ethers.utils.defaultAbiCoder.encode(ORDER_FILLED_DATA_TYPES_V2, [
+  const data = ethers.AbiCoder.defaultAbiCoder().encode(ORDER_FILLED_DATA_TYPES_V2, [
     0,
     '999',
     50_000_000,
