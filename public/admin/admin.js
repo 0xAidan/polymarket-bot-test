@@ -1,0 +1,408 @@
+/**
+ * Platform admin — Jungle Agents inline table editor (matches public roster order).
+ */
+
+let adminAgents = [];
+const rowDrafts = new Map();
+const perfSnapshots = new Map();
+
+const EVM_RE = /^0x[a-fA-F0-9]{40}$/;
+
+const escapeHtml = (value) => String(value)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;');
+
+const isValidAddress = (addr) => !addr || EVM_RE.test(addr.trim());
+
+const sortByRosterOrder = (agents) => [...agents].sort((a, b) => a.sortOrder - b.sortOrder);
+
+const defaultDraft = (agent) => ({
+  displayName: agent.displayName || '',
+  tagline: agent.tagline || '',
+  modelLabel: agent.modelLabel || '',
+  polymarketAddress: agent.polymarketAddress || '',
+  enabled: agent.enabled !== false,
+});
+
+const getDraft = (agent) => {
+  if (!rowDrafts.has(agent.id)) {
+    rowDrafts.set(agent.id, defaultDraft(agent));
+  }
+  return rowDrafts.get(agent.id);
+};
+
+const draftChanged = (agent) => {
+  const d = getDraft(agent);
+  const saved = defaultDraft(agent);
+  return (
+    d.displayName.trim() !== saved.displayName.trim()
+    || d.tagline.trim() !== (saved.tagline || '').trim()
+    || d.modelLabel.trim() !== (saved.modelLabel || '').trim()
+    || d.polymarketAddress.trim() !== saved.polymarketAddress.trim()
+    || d.enabled !== saved.enabled
+  );
+};
+
+const showUnauthorized = () => {
+  document.getElementById('adminLoading')?.classList.add('hidden');
+  document.getElementById('adminUnauthorized')?.classList.remove('hidden');
+  document.getElementById('adminApp')?.classList.add('hidden');
+  document.getElementById('adminComingSoon')?.classList.add('hidden');
+};
+
+const showAdminApp = () => {
+  document.getElementById('adminLoading')?.classList.add('hidden');
+  document.getElementById('adminUnauthorized')?.classList.add('hidden');
+  document.getElementById('adminComingSoon')?.classList.add('hidden');
+  document.getElementById('adminApp')?.classList.remove('hidden');
+  setActiveNav('agents');
+};
+
+const showComingSoon = (title, text) => {
+  document.getElementById('adminLoading')?.classList.add('hidden');
+  document.getElementById('adminUnauthorized')?.classList.add('hidden');
+  document.getElementById('adminApp')?.classList.add('hidden');
+  const panel = document.getElementById('adminComingSoon');
+  if (panel) {
+    panel.classList.remove('hidden');
+    const titleEl = document.getElementById('adminComingSoonTitle');
+    const textEl = document.getElementById('adminComingSoonText');
+    if (titleEl) titleEl.textContent = title;
+    if (textEl) textEl.textContent = text;
+  }
+};
+
+const setActiveNav = (section) => {
+  document.querySelectorAll('[data-admin-nav]').forEach((el) => {
+    const isActive = el.getAttribute('data-admin-nav') === section;
+    el.classList.toggle('active', isActive);
+    if (el.tagName === 'A') {
+      if (isActive) el.setAttribute('aria-current', 'page');
+      else el.removeAttribute('aria-current');
+    }
+  });
+};
+
+const updateMetaLine = (agents) => {
+  const el = document.getElementById('adminMetaLine');
+  if (!el) return;
+  const total = agents.length;
+  const missing = agents.filter((a) => !a.polymarketAddress).length;
+  el.textContent = `${total} curated agents · ${missing} awaiting addresses`;
+};
+
+const fetchPerfSnapshot = async (agentId) => {
+  try {
+    const data = await API.getJungleAgentPerformance(agentId);
+    if (data.success && data.portfolioValueUsd != null) {
+      perfSnapshots.set(
+        agentId,
+        `Portfolio ${Number(data.portfolioValueUsd).toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} · ${data.positionCount ?? 0} positions`,
+      );
+      renderTable();
+    }
+  } catch {
+    perfSnapshots.delete(agentId);
+  }
+};
+
+const statusBadge = (agent, draft) => {
+  if (!draft.enabled) {
+    return '<span class="j-admin-status-badge j-admin-status-badge--off">Hidden</span>';
+  }
+  if (!draft.polymarketAddress.trim()) {
+    return '<span class="j-admin-status-badge j-admin-status-badge--pending">Pending</span>';
+  }
+  return '<span class="j-admin-status-badge j-admin-status-badge--ready">Ready</span>';
+};
+
+const updateRowVisuals = (agentId) => {
+  const agent = adminAgents.find((a) => a.id === agentId);
+  const row = document.querySelector(`[data-agent-row="${agentId}"]`);
+  if (!agent || !row) return;
+  const draft = getDraft(agent);
+  row.classList.toggle('row-dirty', draftChanged(agent));
+  row.classList.toggle('row-missing', !draft.polymarketAddress.trim());
+  const statusCell = row.querySelector('.col-status');
+  if (statusCell) statusCell.innerHTML = statusBadge(agent, draft);
+};
+
+const renderTable = () => {
+  const tbody = document.getElementById('adminAgentsBody');
+  if (!tbody) return;
+
+  const visible = sortByRosterOrder(adminAgents);
+
+  tbody.innerHTML = visible.map((agent) => {
+    const draft = getDraft(agent);
+    const dirty = draftChanged(agent);
+    const missing = !agent.polymarketAddress;
+    const addrInvalid = draft.polymarketAddress.trim() && !isValidAddress(draft.polymarketAddress);
+    const perf = perfSnapshots.get(agent.id);
+    const initial = (draft.displayName || agent.displayName || '?').slice(0, 1).toUpperCase();
+
+    return `
+    <tr class="${missing ? 'row-missing' : ''}${dirty ? ' row-dirty' : ''}" data-agent-row="${agent.id}">
+      <td class="col-order">${agent.sortOrder}</td>
+      <td class="col-agent">
+        <div class="j-admin-agent-cell">
+          <div class="j-admin-agent-avatar" aria-hidden="true">${escapeHtml(initial)}</div>
+          <div class="j-admin-agent-fields">
+            <input
+              type="text"
+              class="j-admin-field-input"
+              data-field="displayName"
+              data-agent-id="${agent.id}"
+              value="${escapeHtml(draft.displayName)}"
+              aria-label="Display name for ${escapeHtml(agent.displayName)}"
+            />
+            <input
+              type="text"
+              class="j-admin-field-input j-admin-field-input--tagline"
+              data-field="tagline"
+              data-agent-id="${agent.id}"
+              value="${escapeHtml(draft.tagline)}"
+              placeholder="Tagline (e.g. The Veteran Mind)"
+              aria-label="Tagline for ${escapeHtml(agent.displayName)}"
+            />
+          </div>
+        </div>
+      </td>
+      <td class="col-model">
+        <input
+          type="text"
+          class="j-admin-field-input"
+          data-field="modelLabel"
+          data-agent-id="${agent.id}"
+          value="${escapeHtml(draft.modelLabel)}"
+          placeholder="Model label"
+          aria-label="Model for ${escapeHtml(agent.displayName)}"
+        />
+      </td>
+      <td class="col-wallet">
+        <div class="j-admin-wallet-row">
+          <input
+            type="text"
+            class="j-admin-field-input j-admin-field-input--mono${addrInvalid ? ' input-invalid' : ''}"
+            data-field="polymarketAddress"
+            data-agent-id="${agent.id}"
+            value="${escapeHtml(draft.polymarketAddress)}"
+            placeholder="0x… paste Polymarket proxy wallet"
+            spellcheck="false"
+            autocomplete="off"
+            aria-label="Polymarket wallet for ${escapeHtml(agent.displayName)}"
+          />
+          <button type="button" class="j-btn j-btn-sm" data-copy-address="${agent.id}" title="Copy wallet" ${draft.polymarketAddress.trim() ? '' : 'disabled'}>Copy</button>
+        </div>
+        ${perf ? `<div class="j-admin-perf">${escapeHtml(perf)}</div>` : ''}
+      </td>
+      <td class="col-status">${statusBadge(agent, draft)}</td>
+      <td class="col-live">
+        <input type="checkbox" class="j-admin-live-check" data-field="enabled" data-agent-id="${agent.id}" ${draft.enabled ? 'checked' : ''} aria-label="Show ${escapeHtml(agent.displayName)} on public tab" />
+      </td>
+      <td class="col-actions">
+        <div class="j-admin-order-btns">
+          <button type="button" class="j-btn j-btn-sm" data-move-up="${agent.id}" title="Move up" aria-label="Move ${escapeHtml(agent.displayName)} up">↑</button>
+          <button type="button" class="j-btn j-btn-sm" data-move-down="${agent.id}" title="Move down" aria-label="Move ${escapeHtml(agent.displayName)} down">↓</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  tbody.querySelectorAll('[data-field]').forEach((el) => {
+    const handler = (e) => {
+      const id = e.target.getAttribute('data-agent-id');
+      const field = e.target.getAttribute('data-field');
+      const agent = adminAgents.find((a) => a.id === id);
+      if (!agent) return;
+      const draft = getDraft(agent);
+      if (field === 'enabled') {
+        draft.enabled = e.target.checked;
+      } else {
+        draft[field] = e.target.value;
+        if (field === 'polymarketAddress') {
+          e.target.classList.toggle('input-invalid', e.target.value.trim() && !isValidAddress(e.target.value.trim()));
+          const copyBtn = tbody.querySelector(`[data-copy-address="${id}"]`);
+          if (copyBtn) copyBtn.disabled = !e.target.value.trim();
+        }
+      }
+      updateRowVisuals(id);
+    };
+    if (el.type === 'checkbox') {
+      el.addEventListener('change', handler);
+    } else {
+      el.addEventListener('input', handler);
+    }
+  });
+
+  tbody.querySelectorAll('[data-copy-address]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-copy-address');
+      const agent = adminAgents.find((a) => a.id === id);
+      if (!agent) return;
+      const val = getDraft(agent).polymarketAddress.trim();
+      if (!val) return;
+      try {
+        await navigator.clipboard.writeText(val);
+        await win95Dialog.success('Wallet copied');
+      } catch {
+        await win95Dialog.alert(val, 'Copy manually');
+      }
+    });
+  });
+
+  tbody.querySelectorAll('[data-move-up]').forEach((btn) => {
+    btn.addEventListener('click', () => moveAgent(btn.getAttribute('data-move-up'), -1));
+  });
+  tbody.querySelectorAll('[data-move-down]').forEach((btn) => {
+    btn.addEventListener('click', () => moveAgent(btn.getAttribute('data-move-down'), 1));
+  });
+};
+
+const loadAdminAgents = async () => {
+  const data = await API.getAdminJungleAgents();
+  adminAgents = data.agents || [];
+  rowDrafts.clear();
+  updateMetaLine(adminAgents);
+  renderTable();
+  for (const agent of adminAgents) {
+    if (agent.polymarketAddress) {
+      fetchPerfSnapshot(agent.id);
+    }
+  }
+};
+
+const collectUpdates = () => {
+  const updates = [];
+  const invalid = [];
+  for (const agent of adminAgents) {
+    if (!draftChanged(agent)) continue;
+    const d = getDraft(agent);
+    const addr = d.polymarketAddress.trim();
+    if (!isValidAddress(addr)) {
+      invalid.push(agent.displayName);
+      continue;
+    }
+    updates.push({
+      id: agent.id,
+      displayName: d.displayName.trim(),
+      tagline: d.tagline.trim() || undefined,
+      modelLabel: d.modelLabel.trim() || undefined,
+      polymarketAddress: addr,
+      enabled: d.enabled,
+    });
+  }
+  return { updates, invalid };
+};
+
+const saveAllChanges = async () => {
+  const { updates, invalid } = collectUpdates();
+  if (invalid.length > 0) {
+    await win95Dialog.error(`Invalid wallet format for: ${invalid.join(', ')}. Use 0x plus 40 hex characters, or leave blank.`);
+    return;
+  }
+  if (updates.length === 0) {
+    await win95Dialog.alert('No changes to save.');
+    return;
+  }
+  try {
+    await API.bulkSaveAdminJungleAgents(updates);
+    rowDrafts.clear();
+    await loadAdminAgents();
+    await win95Dialog.success(`Saved ${updates.length} agent${updates.length === 1 ? '' : 's'}.`);
+  } catch (error) {
+    await win95Dialog.error(error.message || 'Save failed');
+  }
+};
+
+const moveAgent = async (id, direction) => {
+  const ordered = sortByRosterOrder(adminAgents);
+  const index = ordered.findIndex((a) => a.id === id);
+  if (index < 0) return;
+  const target = index + direction;
+  if (target < 0 || target >= ordered.length) return;
+  const next = [...ordered];
+  const [item] = next.splice(index, 1);
+  next.splice(target, 0, item);
+  await API.reorderAdminJungleAgents(next.map((a) => a.id));
+  await loadAdminAgents();
+};
+
+const syncMissingFromPolymarket = async () => {
+  try {
+    const data = await API.syncAdminJungleAgentsFromPolymarket();
+    rowDrafts.clear();
+    await loadAdminAgents();
+    const synced = data.synced ?? 0;
+    const unresolved = data.unresolved ?? [];
+    if (synced > 0) {
+      await win95Dialog.success(`Synced ${synced} wallet address${synced === 1 ? '' : 'es'} from Polymarket.`);
+      return;
+    }
+    if (unresolved.length > 0) {
+      await win95Dialog.alert(
+        `No new addresses found. Still missing: ${unresolved.join(', ')}. Paste KING's wallet manually if it is not on Polymarket yet.`,
+        'Sync complete'
+      );
+      return;
+    }
+    await win95Dialog.alert('All agents already have wallet addresses.');
+  } catch (error) {
+    await win95Dialog.error(error.message || 'Polymarket sync failed');
+  }
+};
+
+const bootAdmin = async () => {
+  try {
+    const caps = await API.getCapabilities();
+    if (!caps.isPlatformAdmin) {
+      showUnauthorized();
+      return;
+    }
+    showAdminApp();
+    await loadAdminAgents();
+  } catch (error) {
+    console.error(error);
+    showUnauthorized();
+  }
+};
+
+document.getElementById('adminRefreshBtn')?.addEventListener('click', () => {
+  rowDrafts.clear();
+  loadAdminAgents().catch((e) => win95Dialog.error(e.message));
+});
+document.getElementById('adminSyncPolymarketBtn')?.addEventListener('click', () => syncMissingFromPolymarket());
+document.getElementById('adminSaveAllBtn')?.addEventListener('click', () => saveAllChanges());
+
+document.querySelectorAll('[data-admin-nav]').forEach((el) => {
+  el.addEventListener('click', (e) => {
+    const section = el.getAttribute('data-admin-nav');
+    if (section === 'agents') {
+      e.preventDefault();
+      showAdminApp();
+      return;
+    }
+    e.preventDefault();
+    if (section === 'health') {
+      showComingSoon('System Health', 'Server health checks and uptime will live here in a future release.');
+      setActiveNav('health');
+      return;
+    }
+    if (section === 'tenants') {
+      showComingSoon('Tenants', 'Multi-tenant workspace management is planned but not built yet.');
+      setActiveNav('tenants');
+    }
+  });
+});
+
+document.getElementById('adminBackToAgentsBtn')?.addEventListener('click', () => showAdminApp());
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (!window.__authRequired) {
+    bootAdmin();
+  }
+});
+
+window.__adminBoot = bootAdmin;

@@ -10,7 +10,7 @@
     "discovery:worker": "tsx src/discovery/discoveryWorker.ts",
     "dev:discovery": "tsx watch src/discovery/discoveryWorker.ts",
     "dev:app": "node start.cjs",
-    "discovery:dev": "APP_RUNTIME=discovery-worker node start.cjs",
+    "discovery:dev": "tsx watch src/discovery/discoveryWorker.ts",
     "build": "tsc",
     "test": "node --test --import tsx tests/**/*.test.ts",
     "start": "node start.cjs",
@@ -19,7 +19,14 @@
     "start:prod:app": "node dist/index.js",
     "start:prod:discovery": "node dist/discovery/discoveryWorker.js",
     "lint": "eslint src --ext .ts",
-    "validate:egress": "node scripts/validate-polymarket-egress.mjs"
+    "validate:egress": "node scripts/validate-polymarket-egress.mjs",
+    "verify:pnl": "DUCKDB_MEMORY_LIMIT_GB=${DUCKDB_MEMORY_LIMIT_GB:-5} DUCKDB_TEMP_DIR=${DUCKDB_TEMP_DIR:-/mnt/HC_Volume_105468668/duckdb_tmp} npx tsx scripts/verify-pnl-vs-polymarket-api.ts",
+    "verify:pnl:smoke": "DUCKDB_MEMORY_LIMIT_GB=${DUCKDB_MEMORY_LIMIT_GB:-5} DUCKDB_TEMP_DIR=${DUCKDB_TEMP_DIR:-/mnt/HC_Volume_105468668/duckdb_tmp} npx tsx scripts/verify-pnl-vs-polymarket-api.ts --wallets 5",
+    "verify:pnl:full": "DUCKDB_MEMORY_LIMIT_GB=${DUCKDB_MEMORY_LIMIT_GB:-5} DUCKDB_TEMP_DIR=${DUCKDB_TEMP_DIR:-/mnt/HC_Volume_105468668/duckdb_tmp} npx tsx scripts/verify-pnl-vs-polymarket-api.ts --wallets 20",
+    "verify:pnl:dry-run": "DUCKDB_MEMORY_LIMIT_GB=${DUCKDB_MEMORY_LIMIT_GB:-5} DUCKDB_TEMP_DIR=${DUCKDB_TEMP_DIR:-/mnt/HC_Volume_105468668/duckdb_tmp} npx tsx scripts/verify-pnl-vs-polymarket-api.ts --dry-run",
+    "verify:promotion-gate": "DUCKDB_MEMORY_LIMIT_GB=${DUCKDB_MEMORY_LIMIT_GB:-5} DUCKDB_TEMP_DIR=${DUCKDB_TEMP_DIR:-/mnt/HC_Volume_105468668/duckdb_tmp} npx tsx scripts/backfill/06_promotion_gate.ts",
+    "verify:staging-display": "npx tsx scripts/verify-staging-discovery-display.ts",
+    "verify:soak": "DUCKDB_MEMORY_LIMIT_GB=${DUCKDB_MEMORY_LIMIT_GB:-5} DUCKDB_TEMP_DIR=${DUCKDB_TEMP_DIR:-/mnt/HC_Volume_105468668/duckdb_tmp} npx tsx scripts/backfill/07_soak_report.ts"
   },
   "keywords": [
     "polymarket",
@@ -32,8 +39,7 @@
   "dependencies": {
     "@ethersproject/signing-key": "^5.8.0",
     "@polymarket/builder-relayer-client": "^0.0.8",
-    "@polymarket/builder-signing-sdk": "^0.0.8",
-    "@polymarket/clob-client": "^5.2.3",
+    "@polymarket/clob-client-v2": "1.0.2",
     "@privy-io/server-auth": "^1.20.0",
     "@types/express-rate-limit": "^5.1.3",
     "axios": "^1.6.2",
@@ -41,6 +47,7 @@
     "cors": "^2.8.5",
     "date-fns": "^3.0.6",
     "dotenv": "^16.3.1",
+    "duckdb": "^1.4.4",
     "ethers": "^5.8.0",
     "express": "^4.18.2",
     "express-openid-connect": "^2.20.1",

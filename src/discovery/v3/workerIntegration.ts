@@ -1,0 +1,102 @@
+/**
+ * Thin bootstrap that `discoveryWorker.ts` calls behind the DISCOVERY_V3 flag.
+ * Owns the DuckDB connection, Goldsky listener interval, and refresh loop.
+ * No-op when the flag is off.
+ */
+import { mkdirSync } from 'fs';
+import { dirname } from 'path';
+import type Database from 'better-sqlite3';
+import { parseNullableBooleanInput } from '../../utils/booleanParsing.js';
+import { isDiscoveryV3Enabled, getDuckDBPath } from './featureFlag.js';
+import { openDuckDB, DuckDBClient } from './duckdbClient.js';
+import {
+  runV3DuckDBMigrations,
+  runV3DuckDBMigrationsBackfillNoIndex,
+} from './duckdbSchema.js';
+import { applyV3SqliteMigrationsIfEnabled } from './migrations.js';
+import {
+  createGoldskyClient,
+  createSqliteCursorStore,
+  pollGoldskyOnce,
+} from './goldskyListener.js';
+import { startRefreshLoop, RefreshLoopHandle } from './refreshWorker.js';
+
+export interface V3WorkerHandle {
+  stop(): Promise<void>;
+  duck: DuckDBClient;
+}
+
+export interface V3WorkerOptions {
+  sqlite: Database.Database;
+  goldskyIntervalMs?: number;
+  refreshIntervalMs?: number;
+  log?: (msg: string) => void;
+}
+
+/** Large backfilled DBs: creating ART indexes on discovery_activity_v3 can OOM (DuckDB 1.4.x). */
+const skipActivityArtIndexes = (): boolean =>
+  parseNullableBooleanInput(process.env.DISCOVERY_V3_SKIP_ACTIVITY_ART_INDEXES) === true;
+
+export async function startDiscoveryV3Worker(
+  opts: V3WorkerOptions
+): Promise<V3WorkerHandle | null> {
+  if (!isDiscoveryV3Enabled()) return null;
+  const log = opts.log ?? ((m: string) => console.log(m));
+
+  applyV3SqliteMigrationsIfEnabled(opts.sqlite);
+
+  const dbPath = getDuckDBPath();
+  mkdirSync(dirname(dbPath), { recursive: true });
+  const duck = await openDuckDB(dbPath);
+  if (skipActivityArtIndexes()) {
+    log(
+      '[v3] skip activity ART indexes (DISCOVERY_V3_SKIP_ACTIVITY_ART_INDEXES); live dupes need offline index or dedup'
+    );
+    await runV3DuckDBMigrationsBackfillNoIndex((sql) => duck.exec(sql));
+  } else {
+    await runV3DuckDBMigrations((sql) => duck.exec(sql));
+  }
+  log(`[v3] DuckDB open at ${dbPath}`);
+  log(
+    `[v3] coverage contract source=${process.env.DISCOVERY_V3_HISTORICAL_BACKFILL_SOURCE || 'huggingface:SII-WANGZJ/Polymarket_data/users.parquet'} max_ts=${process.env.DISCOVERY_V3_HISTORICAL_COVERAGE_MAX_TS || '1772668800'}`
+  );
+
+  // Goldsky live listener
+  const client = createGoldskyClient();
+  const cursor = createSqliteCursorStore(opts.sqlite);
+  const goldskyInterval = opts.goldskyIntervalMs ?? 5 * 60 * 1000;
+  let goldskyRunning = false;
+  const goldskyTimer = setInterval(() => {
+    if (goldskyRunning) return;
+    goldskyRunning = true;
+    void (async () => {
+      try {
+        const r = await pollGoldskyOnce({ duck, cursor, client });
+        if (r.fetched > 0) log(`[v3-goldsky] fetched=${r.fetched} inserted=${r.inserted} cursor=${r.newCursor}`);
+      } catch (err) {
+        log(`[v3-goldsky] error: ${(err as Error).message}`);
+      } finally {
+        goldskyRunning = false;
+      }
+    })();
+  }, goldskyInterval);
+
+  // Refresh loop
+  const refresh: RefreshLoopHandle = startRefreshLoop({
+    duck,
+    sqlite: opts.sqlite,
+    intervalMs: opts.refreshIntervalMs,
+    log,
+  });
+
+  log('[v3] live ingest + refresh loop started');
+
+  return {
+    duck,
+    async stop(): Promise<void> {
+      clearInterval(goldskyTimer);
+      refresh.stop();
+      await duck.close();
+    },
+  };
+}

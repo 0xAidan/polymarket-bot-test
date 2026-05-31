@@ -25,6 +25,10 @@ AUTH_SESSION_ROLLING_DURATION_HOURS=24
 # If left empty, the API is open (a warning will be printed on startup).
 # Legacy mode only. Prefer OIDC settings above for production SaaS usage.
 API_SECRET=your_api_secret_here
+
+# Platform admin emails (OIDC only) — comma-separated list for /admin and jungle-agents CRUD.
+# Legacy mode: matching API_SECRET bearer also grants platform admin.
+PLATFORM_ADMIN_EMAILS=aidannuge@gmail.com
 # Production safety guard (recommended true on hosted deployments)
 # When true and API_SECRET is missing, server startup fails closed.
 REQUIRE_API_SECRET=true
@@ -33,15 +37,19 @@ REQUIRE_API_SECRET=true
 PRIVATE_KEY=your_private_key_here
 
 # ============================================================
-# Polymarket Builder API credentials (REQUIRED for trading!)
+# Polymarket V2 Builder code (OPTIONAL — for order attribution only)
 # ============================================================
-# Without these, your orders WILL BE BLOCKED by Cloudflare.
-# Get these from: https://polymarket.com/settings?tab=builder
-# 
-# 1. Go to polymarket.com and log in
-# 2. Click your profile -> Settings -> Builder tab
-# 3. Create new API keys
-# 4. Copy the values below
+# In V2, builder attribution is via a single short builderCode string.
+# Without it, orders place successfully but you lose attribution.
+# Get it from: https://polymarket.com/settings → Builder Profile
+POLYMARKET_BUILDER_CODE=your_builder_code_from_polymarket_settings_here
+
+# ============================================================
+# Legacy Builder HMAC credentials (still used by gasless redeem/merge relayer)
+# ============================================================
+# These are NOT used for order placement under V2 — only the gasless
+# RelayClient (redeem/merge transactions) still validates them.
+# Safe to leave blank if you don't use auto-redeem/auto-merge.
 POLYMARKET_BUILDER_API_KEY=your_builder_api_key_here
 POLYMARKET_BUILDER_SECRET=your_builder_secret_here
 POLYMARKET_BUILDER_PASSPHRASE=your_builder_passphrase_here
@@ -98,3 +106,15 @@ STORAGE_BACKEND=json
 
 # Optional: Master password for encrypted wallet/keystore unlock (multi-wallet mode)
 MASTER_PASSWORD=
+
+# ============================================================
+# Discovery Engine v3 (additive, behind feature flag)
+# ============================================================
+# When true, v3 schema migrations run and v3 ingest/worker/API/UI are active
+# alongside legacy v1/v2 discovery. Default false.
+DISCOVERY_V3=false
+# Path to the DuckDB sidecar file used by the v3 analytics pipeline.
+DUCKDB_PATH=./data/discovery_v3.duckdb
+# Large backfill: skip CREATE INDEX on discovery_activity_v3 (ART indexes must fit in RAM during build).
+# When true, Goldsky live ingest cannot rely on UNIQUE(tx_hash, log_index) for duplicate swallowing.
+DISCOVERY_V3_SKIP_ACTIVITY_ART_INDEXES=false

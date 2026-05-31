@@ -39,6 +39,7 @@ import { createComponentLogger } from '../logger.js';
 import { isHostedMultiTenantMode } from '../hostedMode.js';
 import { DEFAULT_TENANT_ID, getTenantId, runWithTenant } from '../tenantContext.js';
 import { listTenantIdsWithLadderOrStopLossActivity } from '../database.js';
+import { createJungleAgentsRouter } from './jungleAgentsRoutes.js';
 
 const log = createComponentLogger('Routes');
 
@@ -280,7 +281,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // Add a wallet to track
   router.post('/wallets', async (req: Request, res: Response) => {
     try {
-      const { address } = req.body;
+      const { address, label } = req.body;
 
       if (!address || typeof address !== 'string') {
         return res.status(400).json({
@@ -298,6 +299,10 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       }
 
       await Storage.addWallet(address);
+
+      if (label && typeof label === 'string' && label.trim()) {
+        await Storage.updateWalletLabel(address, label.trim());
+      }
 
       // Reload wallets in the monitor so the new wallet is tracked immediately
       await copyTrader.reloadWallets();
@@ -3246,6 +3251,8 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       });
     }
   });
+
+  router.use(createJungleAgentsRouter(copyTrader));
 
   return router;
 }

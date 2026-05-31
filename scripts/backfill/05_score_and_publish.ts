@@ -1,0 +1,505 @@
+/**
+ * Phase 1.5 step 5: read the most recent snapshot per wallet from DuckDB,
+ * apply eligibility gates, compute tier scores, write top-N per tier to
+ * the SQLite hot read model (`discovery_wallet_scores_v3`).
+ *
+ * 2026-04-27 fix — "05-score-and-publish-oom":
+ *   On the 8GB Hetzner staging box this script OOM'd inside DuckDB with
+ *
+ *     Out of Memory Error: could not allocate block of size 256.0 KiB
+ *     (5.5 GiB/5.5 GiB used)
+ *
+ *   Three independent issues were compounding; all three are fixed here:
+ *
+ *   (1) The original "latest snapshot per wallet" query used
+ *       ROW_NUMBER() OVER (PARTITION BY proxy_wallet ORDER BY snapshot_day DESC)
+ *       wrapped in WHERE rn = 1. That window function forces DuckDB to
+ *       materialise the entire partitioned + sorted result before it can
+ *       drop non-latest rows — a multi-GB peak on the v3 snapshot table.
+ *       Replaced with a streaming hash aggregate using ARG_MAX(struct,
+ *       snapshot_day): one row per wallet, no global sort, no window
+ *       materialisation.
+ *
+ *   (2) The DuckDB pragmas that 04_emit_snapshots.ts set after its OOM
+ *       (preserve_insertion_order=false, max_temp_directory_size='100GiB')
+ *       were missing here. Without max_temp_directory_size pinned,
+ *       DuckDB defaults the spill cap to ~90% of FREE disk at spill time,
+ *       which on a crowded volume computes a tiny (~7 GB) cap and the
+ *       sort hits OOM instead of spilling. Mirrored 04's settings so any
+ *       remaining large operator can spill freely on the staging volume.
+ *
+ *   (3) The result of the latest-snapshot query was buffered into a single
+ *       JS array via DuckDB's `conn.all(...)`, doubling peak memory while
+ *       DuckDB was still holding its own working set. We now stream the
+ *       latest-snapshot rows into JS in keyset-paginated batches off a
+ *       small temp table (one row per wallet, fits easily in RAM) and
+ *       only assemble the array in JS — DuckDB releases its working set
+ *       before we ever materialise on the Node side.
+ *
+ *   Eligibility filtering and tier scoring are unchanged: scoreTiers
+ *   computes z-scores across the entire eligible cohort and keeps a
+ *   global top-N per tier, so it must run once over the full set.
+ */
+import Database from 'better-sqlite3';
+import { mkdirSync } from 'fs';
+import { join, dirname } from 'path';
+import { openDuckDB } from '../../src/discovery/v3/duckdbClient.js';
+import {
+  runV3DuckDBMigrationsBackfillNoIndex,
+  runV3SnapshotAdditiveColumnMigrations,
+} from '../../src/discovery/v3/duckdbSchema.js';
+import { runV3SqliteMigrations } from '../../src/discovery/v3/schema.js';
+import { getDuckDBPath } from '../../src/discovery/v3/featureFlag.js';
+import { scoreTiers } from '../../src/discovery/v3/tierScoring.js';
+import { buildCompositeScoringQuery, type CompositeScoredRow } from '../../src/discovery/v3/compositeQueries.js';
+import { determineDittoState } from '../../src/discovery/v3/dittoEngine.js';
+import {
+  buildProbabilisticAccuracySql,
+  buildMarketEdgeCLVSql,
+  buildNicheKnowledgeSql,
+  buildCopyabilityFilterSql,
+} from '../../src/discovery/v3/pillarFeatures.js';
+import type { V3FeatureSnapshot } from '../../src/discovery/v3/types.js';
+import {
+  fetchPublishProfileMetaLite,
+  fetchReferenceDisplayStats,
+  type PublishProfileMeta,
+} from '../../src/discovery/v3/publishEnrichment.js';
+import { filterScoresForPublish } from '../../src/discovery/v3/publishQualityGate.js';
+
+function getSqlitePath(): string {
+  const dataDir = process.env.DATA_DIR || './data';
+  return join(dataDir, 'copytrade.db');
+}
+
+// Streaming read batch size for pulling rows from DuckDB into JS.
+// 100k rows × ~120B/row ≈ 12 MiB per batch — comfortable on the 8GB box
+// even with DuckDB at its memory_limit. Override with V3_SCORE_READ_BATCH
+// for tuning without code changes.
+const READ_BATCH_SIZE = Number(process.env.V3_SCORE_READ_BATCH ?? 100_000);
+
+async function main(): Promise<void> {
+  const duck = await openDuckDB(getDuckDBPath());
+  try {
+    // Use the no-index migration — the backfilled discovery_activity_v3
+    // has ~800M rows and DuckDB 1.4.x CREATE INDEX would OOM.
+    // See src/discovery/v3/duckdbSchema.ts for the full rationale.
+    await runV3DuckDBMigrationsBackfillNoIndex((sql) => duck.exec(sql));
+    await runV3SnapshotAdditiveColumnMigrations((sql) => duck.exec(sql));
+
+    // Memory/thread tuning — same knobs as 04_emit_snapshots.ts.
+    // Defaults target the 30GB production server.
+    // Override with env vars on smaller boxes (e.g. DUCKDB_MEMORY_LIMIT_GB=5 DUCKDB_THREADS=1).
+    const memLimit = process.env.DUCKDB_MEMORY_LIMIT_GB ?? '20';
+    const threads  = process.env.DUCKDB_THREADS          ?? '4';
+    const tempCap  = process.env.DUCKDB_MAX_TEMP_DIR_GB  ?? '100';
+    await duck.exec(`SET memory_limit = '${memLimit}GB'`);
+    await duck.exec(`SET threads = ${threads}`);
+    await duck.exec(`SET max_temp_directory_size = '${tempCap}GiB'`);
+    await duck.exec('SET preserve_insertion_order = false');
+    console.log(`[05] tuned: memory_limit=${memLimit}GB threads=${threads} temp_cap=${tempCap}GiB`);
+
+    // (1) Build a one-row-per-wallet "latest snapshot" temp table using
+    // ARG_MAX over GROUP BY. DuckDB executes this as a streaming hash
+    // aggregate — no global sort, no window materialisation — which is
+    // what blew up on the 8GB box with the previous ROW_NUMBER() form.
+    //
+    // ARG_MAX(expr, key) returns expr from the row that has the maximum
+    // key inside each group. We pack every column into a STRUCT so a
+    // single aggregate produces the whole "winner" row per wallet.
+    console.log('[05] building latest-snapshot temp table (ARG_MAX hash aggregate)…');
+    const t0 = Date.now();
+    await duck.exec('DROP TABLE IF EXISTS tmp_latest_snapshots_v3');
+    await duck.exec(
+      `CREATE TEMP TABLE tmp_latest_snapshots_v3 AS
+       SELECT
+         proxy_wallet,
+         (ARG_MAX(
+            STRUCT_PACK(
+              snapshot_day              := snapshot_day,
+              trade_count               := trade_count,
+              volume_total              := volume_total,
+              distinct_markets          := distinct_markets,
+              closed_positions          := closed_positions,
+              realized_pnl              := realized_pnl,
+              unrealized_pnl            := unrealized_pnl,
+              first_active_ts           := first_active_ts,
+              last_active_ts            := last_active_ts,
+              observation_span_days     := observation_span_days,
+              trade_count_90d           := CAST(COALESCE(trade_count_90d, 0) AS BIGINT),
+              volume_90d                := COALESCE(volume_90d, 0.0),
+              realized_pnl_90d          := COALESCE(realized_pnl_90d, 0.0),
+              closed_positions_positive := CAST(COALESCE(closed_positions_positive, 0) AS BIGINT)
+            ),
+            snapshot_day
+          )) AS s
+       FROM discovery_feature_snapshots_v3
+       GROUP BY proxy_wallet`
+    );
+    const totalRow = await duck.query<{ c: number | bigint }>(
+      'SELECT COUNT(*)::BIGINT AS c FROM tmp_latest_snapshots_v3'
+    );
+    const total = Number(totalRow[0]?.c ?? 0);
+    console.log(`[05] latest-snapshot temp table: ${total} wallets in ${Math.round((Date.now() - t0) / 1000)}s`);
+
+    // (3) Stream the temp table out in keyset batches sorted by
+    // proxy_wallet (lexicographic, deterministic, no NULLs because the
+    // column is NOT NULL in the source schema). We never SELECT * from
+    // the whole temp table in one shot, so the JS array grows linearly
+    // without a doubled-up "DuckDB result + JS array" peak.
+    console.log(`[05] streaming wallets into JS (batch=${READ_BATCH_SIZE})…`);
+    interface LatestRow { proxy_wallet: string; s: Record<string, unknown> }
+    const rows: V3FeatureSnapshot[] = [];
+    let cursor: string | null = null;
+    for (;;) {
+      const batch: LatestRow[] = await duck.query<LatestRow>(
+        cursor === null
+          ? `SELECT proxy_wallet, s
+             FROM tmp_latest_snapshots_v3
+             ORDER BY proxy_wallet
+             LIMIT ${READ_BATCH_SIZE}`
+          : `SELECT proxy_wallet, s
+             FROM tmp_latest_snapshots_v3
+             WHERE proxy_wallet > ?
+             ORDER BY proxy_wallet
+             LIMIT ${READ_BATCH_SIZE}`,
+        cursor === null ? [] : [cursor]
+      );
+      if (batch.length === 0) break;
+      for (const row of batch) {
+        const s = row.s as Record<string, unknown>;
+        rows.push({
+          proxy_wallet:              row.proxy_wallet,
+          snapshot_day:              String(s.snapshot_day),
+          trade_count:               Number(s.trade_count),
+          volume_total:              Number(s.volume_total),
+          distinct_markets:          Number(s.distinct_markets),
+          closed_positions:          Number(s.closed_positions),
+          realized_pnl:              Number(s.realized_pnl),
+          unrealized_pnl:            Number(s.unrealized_pnl),
+          first_active_ts:           Number(s.first_active_ts),
+          last_active_ts:            Number(s.last_active_ts),
+          observation_span_days:     Number(s.observation_span_days),
+          trade_count_90d:           Number(s.trade_count_90d ?? 0),
+          volume_90d:                Number(s.volume_90d ?? 0),
+          realized_pnl_90d:          Number(s.realized_pnl_90d ?? 0),
+          closed_positions_positive: Number(s.closed_positions_positive ?? 0),
+        });
+      }
+      cursor = batch[batch.length - 1].proxy_wallet;
+      if (batch.length < READ_BATCH_SIZE) break;
+    }
+    // Drop the temp table eagerly so DuckDB releases its memory before
+    // tier scoring runs in JS (z-scores + percentile ranks are O(N)
+    // with small constants — a few hundred MB at most for the eligible
+    // cohort, but we'd rather not have DuckDB holding RAM in parallel).
+    await duck.exec('DROP TABLE IF EXISTS tmp_latest_snapshots_v3');
+
+    console.log(`[05] scoring ${rows.length} wallets`);
+    const now = Math.floor(Date.now() / 1000);
+
+    function ts(): string { return `${Math.round((Date.now() - t0) / 1000)}s`; }
+
+    // ── Skip flags — set to '1' to bypass expensive DuckDB scans on small boxes.
+    // All skipped pillars write NULL to their columns; the hourly refreshWorker
+    // fills them in once the bot is running.
+    //   SKIP_COMPOSITE=1  — skip composite/momentum/consistency/ditto scoring
+    //   SKIP_BRIER=1      — skip Brier score (probabilistic accuracy)
+    //   SKIP_NICHE=1      — skip niche/specialist category scoring
+    //   SKIP_COPY=1       — skip copyability maker-ratio filter
+    //   SKIP_CLV=1        — skip CLV self-join query (always skip on 8GB boxes)
+    const skipComposite = process.env.SKIP_COMPOSITE === '1';
+    const skipBrier     = process.env.SKIP_BRIER     === '1';
+    const skipNiche     = process.env.SKIP_NICHE     === '1';
+    const skipCopy      = process.env.SKIP_COPY      === '1';
+    const skipClv       = process.env.SKIP_CLV       === '1';
+
+    const compMap = new Map<string, CompositeScoredRow>();
+    if (skipComposite) {
+      console.log('[05] composite scores: skipped (SKIP_COMPOSITE=1)');
+    } else {
+      console.log('[05] computing composite scores…');
+      for (const c of await duck.query<CompositeScoredRow>(buildCompositeScoringQuery(now, 999_999))) {
+        compMap.set(c.proxy_wallet, c);
+      }
+      console.log(`[05] composite scores: ${compMap.size} wallets (${ts()})`);
+    }
+
+    interface BrierRow { proxy_wallet: string; brier_score: number | null }
+    const brierMap = new Map<string, number | null>();
+    if (skipBrier) {
+      console.log('[05] Brier scores: skipped (SKIP_BRIER=1)');
+    } else {
+      console.log('[05] computing Brier scores…');
+      for (const r of await duck.query<BrierRow>(buildProbabilisticAccuracySql())) {
+        brierMap.set(r.proxy_wallet, r.brier_score);
+      }
+      console.log(`[05] brier: ${brierMap.size} wallets (${ts()})`);
+    }
+
+    interface ClvRow { proxy_wallet: string; avg_clv_1h: number | null; pct_positive_clv_1h: number | null }
+    const clvMap = new Map<string, ClvRow>();
+    if (skipClv) {
+      console.log('[05] CLV scores: skipped (SKIP_CLV=1)');
+    } else {
+      console.log('[05] computing CLV scores (sampled, 1%, max 500k rows)…');
+      for (const r of await duck.query<ClvRow>(buildMarketEdgeCLVSql())) {
+        clvMap.set(r.proxy_wallet, r);
+      }
+      console.log(`[05] clv: ${clvMap.size} wallets (${ts()})`);
+    }
+
+    interface NicheRow { proxy_wallet: string; category: string; cat_pnl: number; cat_volume_share: number }
+    const nicheMap = new Map<string, NicheRow>();
+    if (skipNiche) {
+      console.log('[05] niche scores: skipped (SKIP_NICHE=1)');
+    } else {
+      console.log('[05] computing niche scores…');
+      for (const row of await duck.query<NicheRow>(buildNicheKnowledgeSql())) {
+        nicheMap.set(row.proxy_wallet, row);
+      }
+      console.log(`[05] niche: ${nicheMap.size} wallets (${ts()})`);
+    }
+
+    interface CopyRow { proxy_wallet: string; maker_ratio: number; copyable: number }
+    const copyMap = new Map<string, CopyRow>();
+    if (skipCopy) {
+      console.log('[05] copyability filter: skipped (SKIP_COPY=1)');
+    } else {
+      console.log('[05] computing copyability filter…');
+      let excludedCopyCount = 0;
+      for (const r of await duck.query<CopyRow>(buildCopyabilityFilterSql())) {
+        copyMap.set(r.proxy_wallet, r);
+        if (r.copyable === 0) excludedCopyCount++;
+      }
+      console.log(`[05] copyability: ${excludedCopyCount} wallets excluded (${ts()})`);
+    }
+
+    const { scores, stats } = scoreTiers(
+      rows.map((r) => {
+        const nicheRow = nicheMap.get(r.proxy_wallet);
+        return {
+          snapshot: r,
+          now_ts: now,
+          niche: nicheRow
+            ? { top_category: nicheRow.category, cat_volume_share: nicheRow.cat_volume_share, cat_pnl: nicheRow.cat_pnl }
+            : undefined,
+        };
+      })
+    );
+    // Free snapshot array now that scoreTiers() has consumed it.
+    (rows as unknown[]).length = 0;
+    console.log(
+      `[05] eligibility: ${stats.eligible}/${stats.total} (rejection ${(stats.rejection_rate * 100).toFixed(1)}%)`
+    );
+
+    for (const s of scores) {
+      const c = compMap.get(s.proxy_wallet);
+      s.composite_score   = c?.composite_score   ?? null;
+      s.momentum_score    = c?.momentum_score    ?? null;
+      s.consistency_score = c?.consistency_score ?? null;
+      s.ditto_state = c
+        ? determineDittoState({
+            trade_count: s.trade_count,
+            pnl_7d:      c.pnl_7d,
+            momentum_z:  c.momentum_z,
+            bet_size_cv: c.bet_size_cv,
+            tier_score:  s.score,
+          })
+        : null;
+
+      s.brier_score           = brierMap.get(s.proxy_wallet) ?? null;
+      const clv               = clvMap.get(s.proxy_wallet);
+      s.avg_clv_1h            = clv?.avg_clv_1h ?? null;
+      s.pct_positive_clv_1h   = clv?.pct_positive_clv_1h ?? null;
+      const niche             = nicheMap.get(s.proxy_wallet);
+      s.top_category          = niche?.category ?? null;
+      s.cat_volume_share      = niche?.cat_volume_share ?? null;
+      const copy              = copyMap.get(s.proxy_wallet);
+      s.maker_ratio           = copy?.maker_ratio ?? null;
+      s.copyable              = copy?.copyable ?? 1;
+    }
+
+    const profileMeta = new Map<string, PublishProfileMeta>();
+    const skipPredictions = process.env.SKIP_PUBLISH_PREDICTIONS === '1';
+    if (!skipPredictions) {
+      const enrichConcurrency = Number(process.env.PUBLISH_ENRICH_CONCURRENCY ?? 8);
+      console.log(`[05] fetching Polymarket predictions + profile names (${scores.length} wallets)…`);
+      for (let i = 0; i < scores.length; i += enrichConcurrency) {
+        const batch = scores.slice(i, i + enrichConcurrency);
+        const metas = await Promise.all(
+          batch.map((s) => fetchPublishProfileMetaLite(s.proxy_wallet))
+        );
+        for (let j = 0; j < batch.length; j++) {
+          profileMeta.set(batch[j].proxy_wallet, metas[j]);
+        }
+        const done = Math.min(i + enrichConcurrency, scores.length);
+        if (done % 120 === 0 || done === scores.length) {
+          console.log(`[05] predictions enrich ${done}/${scores.length}`);
+        }
+      }
+    } else {
+      console.log('[05] SKIP_PUBLISH_PREDICTIONS=1 — predictions_count/profile_name left null');
+    }
+
+    const pipelineSnapshot = new Map(
+      scores.map((s) => [
+        s.proxy_wallet,
+        { volume_total: s.volume_total, realized_pnl: s.realized_pnl },
+      ])
+    );
+
+    const gateInput = scores.map((s) => {
+      const meta = profileMeta.get(s.proxy_wallet);
+      return {
+        proxy_wallet: s.proxy_wallet,
+        tier: s.tier,
+        volume_total: s.volume_total,
+        trade_count: s.trade_count,
+        realized_pnl: s.realized_pnl,
+        predictions_count: meta?.predictionsCount ?? null,
+      };
+    });
+    let { kept: keptKeys, excluded: gateExcluded } = await filterScoresForPublish(gateInput);
+
+    const keptSetFirst = new Set(keptKeys.map((k) => k.proxy_wallet));
+    const fallbackApplied: string[] = [];
+    const failedForFallback = scores.filter((s) => !keptSetFirst.has(s.proxy_wallet));
+    if (failedForFallback.length > 0) {
+      console.log(
+        `[05] fetching reference PnL/volume for ${failedForFallback.length} wallet(s) that failed pipeline gate…`
+      );
+    }
+    const fallbackConcurrency = Number(process.env.PUBLISH_FALLBACK_CONCURRENCY ?? 6);
+    for (let i = 0; i < failedForFallback.length; i += fallbackConcurrency) {
+      const batch = failedForFallback.slice(i, i + fallbackConcurrency);
+      await Promise.all(
+        batch.map(async (s) => {
+          const meta = profileMeta.get(s.proxy_wallet);
+          const pipe = pipelineSnapshot.get(s.proxy_wallet);
+          if (!pipe || !meta) return;
+          const ref = await fetchReferenceDisplayStats(s.proxy_wallet);
+          meta.profilePnlUsd = ref.profilePnlUsd;
+          meta.profileVolumeUsd = ref.profileVolumeUsd;
+          let changed = false;
+          if (meta.profileVolumeUsd != null && Number.isFinite(meta.profileVolumeUsd)) {
+            s.volume_total = meta.profileVolumeUsd;
+            changed = true;
+          }
+          if (meta.profilePnlUsd != null && Number.isFinite(meta.profilePnlUsd)) {
+            s.realized_pnl = meta.profilePnlUsd;
+            changed = true;
+          }
+          if (!changed) return;
+          const retry = await filterScoresForPublish([
+            {
+              proxy_wallet: s.proxy_wallet,
+              tier: s.tier,
+              volume_total: s.volume_total,
+              trade_count: s.trade_count,
+              realized_pnl: s.realized_pnl,
+              predictions_count: meta.predictionsCount ?? null,
+              reference_display: true,
+            },
+          ]);
+          if (retry.kept.length > 0) {
+            keptKeys.push(retry.kept[0]);
+            gateExcluded = gateExcluded.filter((ex) => ex.wallet !== s.proxy_wallet);
+            fallbackApplied.push(s.proxy_wallet);
+            (s as { _referenceDisplay?: boolean })._referenceDisplay = true;
+          } else {
+            s.volume_total = pipe.volume_total;
+            s.realized_pnl = pipe.realized_pnl;
+          }
+        })
+      );
+      if ((i + fallbackConcurrency) % 60 === 0 || i + fallbackConcurrency >= failedForFallback.length) {
+        console.log(
+          `[05] fallback progress ${Math.min(i + fallbackConcurrency, failedForFallback.length)}/${failedForFallback.length}`
+        );
+      }
+    }
+    if (fallbackApplied.length > 0) {
+      console.log(
+        `[05] reference PnL/volume fallback applied for ${fallbackApplied.length} wallet(s) after pipeline gate failure`
+      );
+    }
+
+    const keptSet = new Set(keptKeys.map((k) => k.proxy_wallet));
+    let publishScores = scores.filter((s) => keptSet.has(s.proxy_wallet));
+    if (gateExcluded.length > 0) {
+      console.warn(`[05] publish gate excluded ${gateExcluded.length} wallet(s):`);
+      for (const ex of gateExcluded.slice(0, 25)) {
+        console.warn(`  - ${ex.tier} ${ex.wallet}: ${ex.reason}`);
+      }
+      if (gateExcluded.length > 25) {
+        console.warn(`  … and ${gateExcluded.length - 25} more`);
+      }
+    }
+    const rerankByTier = new Map<string, typeof publishScores>();
+    for (const s of publishScores) {
+      const list = rerankByTier.get(s.tier) ?? [];
+      list.push(s);
+      rerankByTier.set(s.tier, list);
+    }
+    publishScores = [];
+    for (const [, list] of rerankByTier) {
+      list.sort((a, b) => a.tier_rank - b.tier_rank);
+      list.forEach((s, i) => {
+        s.tier_rank = i + 1;
+        publishScores.push(s);
+      });
+    }
+    console.log(`[05] publishing ${publishScores.length}/${scores.length} wallets after quality gate`);
+
+    const sqlitePath = getSqlitePath();
+    mkdirSync(dirname(sqlitePath), { recursive: true });
+    const db = new Database(sqlitePath);
+    try {
+      db.pragma('journal_mode = WAL');
+      runV3SqliteMigrations(db);
+      const tx = db.transaction((list: typeof scores) => {
+        db.prepare('DELETE FROM discovery_wallet_scores_v3').run();
+        const ins = db.prepare(
+          `INSERT INTO discovery_wallet_scores_v3
+             (proxy_wallet, tier, tier_rank, score, volume_total, trade_count,
+              distinct_markets, closed_positions, realized_pnl, hit_rate,
+              last_active_ts, reasons_json, updated_at,
+              composite_score, momentum_score, consistency_score, ditto_state,
+              brier_score, avg_clv_1h, pct_positive_clv_1h,
+              top_category, cat_volume_share, maker_ratio, copyable,
+              predictions_count, profile_name)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        );
+        for (const s of list) {
+          const meta = profileMeta.get(s.proxy_wallet);
+          ins.run(
+            s.proxy_wallet, s.tier, s.tier_rank, s.score, s.volume_total,
+            s.trade_count, s.distinct_markets, s.closed_positions,
+            s.realized_pnl, s.hit_rate, s.last_active_ts, s.reasons_json, s.updated_at,
+            s.composite_score     ?? null, s.momentum_score       ?? null,
+            s.consistency_score   ?? null, s.ditto_state           ?? null,
+            s.brier_score         ?? null, s.avg_clv_1h             ?? null,
+            s.pct_positive_clv_1h ?? null,
+            s.top_category        ?? null, s.cat_volume_share       ?? null,
+            s.maker_ratio         ?? null, s.copyable               ?? 1,
+            meta?.predictionsCount ?? null,
+            meta?.profileName ?? null
+          );
+        }
+      });
+      tx(publishScores);
+      console.log(`[05] wrote ${publishScores.length} score rows to ${sqlitePath}`);
+    } finally {
+      db.close();
+    }
+  } finally {
+    await duck.close();
+  }
+  console.log('[05] done.');
+}
+
+main().catch((err) => {
+  console.error('[05] failed:', err);
+  process.exit(1);
+});

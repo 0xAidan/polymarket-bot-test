@@ -9,6 +9,7 @@ import { clearDiscoveryRuntimeHeartbeat } from './discovery/discoveryRuntimeStat
 import { DiscoveryWorkerRuntime } from './discovery/discoveryWorker.js';
 import { getDiscoveryConfig } from './discovery/statsStore.js';
 import { DiscoveryControlPlane } from './discovery/discoveryControlPlane.js';
+import { isDiscoveryV3Enabled } from './discovery/v3/featureFlag.js';
 import { getRuntimeServicesForMode, resolveRuntimeMode } from './runtimeMode.js';
 import { existsSync, writeFileSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
@@ -367,6 +368,12 @@ async function startAppRuntime() {
 
 async function startDiscoveryWorkerRuntime() {
   try {
+    if (isDiscoveryV3Enabled()) {
+      console.warn(
+        '[DiscoveryWorker] APP_RUNTIME=discovery-worker (index.ts) does not bootstrap discovery v3. Use npm run start:discovery or npm run start:prod:discovery for v3 live ingest.'
+      );
+    }
+
     await Storage.ensureDataDir();
     await initDatabase();
 

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ditto Admin — Jungle Agents</title>
+  <link rel="stylesheet" href="/shared/jungle-brand.css">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body class="grid-pattern app-loading j-admin-page">
+  <div class="j-admin-layout">
+    <aside class="j-admin-nav" aria-label="Platform admin sections">
+      <div class="j-admin-nav-brand">
+        <span class="app-section-kicker">Ditto</span>
+        <span class="j-admin-nav-title">Platform Admin</span>
+      </div>
+      <a href="/admin" class="j-admin-nav-link active" data-admin-nav="agents" aria-current="page">Jungle Agents</a>
+      <button type="button" class="j-admin-nav-link j-admin-nav-btn" data-admin-nav="health">System Health</button>
+      <button type="button" class="j-admin-nav-link j-admin-nav-btn" data-admin-nav="tenants">Tenants</button>
+      <a href="/" class="j-admin-nav-link j-admin-nav-back">← Back to Ditto</a>
+    </aside>
+
+    <main class="j-admin-main">
+      <section id="adminLoading" class="j-admin-loading">
+        <p class="text-muted">Checking your session…</p>
+      </section>
+
+      <section id="adminUnauthorized" class="j-admin-unauthorized hidden">
+        <h1 class="font-serif">Platform admin access required</h1>
+        <p class="text-muted">Your account is signed in but is not on the platform admin allowlist.</p>
+        <a href="/" class="j-btn j-btn-primary">Return to Ditto</a>
+      </section>
+
+      <section id="adminComingSoon" class="j-admin-coming-soon hidden">
+        <h1 class="font-serif" id="adminComingSoonTitle">Coming soon</h1>
+        <p class="text-muted" id="adminComingSoonText">This section is not available yet.</p>
+        <button type="button" class="j-btn j-btn-primary" id="adminBackToAgentsBtn">← Back to Jungle Agents</button>
+      </section>
+
+      <section id="adminApp" class="hidden">
+        <header class="j-admin-header">
+          <div>
+            <h1 class="font-serif j-admin-title">Jungle Agents</h1>
+            <p id="adminMetaLine" class="j-admin-meta text-muted">Loading roster…</p>
+          </div>
+          <div class="j-admin-header-actions">
+            <button type="button" class="j-btn" id="adminRefreshBtn">Refresh</button>
+            <button type="button" class="j-btn" id="adminSyncPolymarketBtn">Sync missing from Polymarket</button>
+            <button type="button" class="j-btn j-btn-primary" id="adminSaveAllBtn">Save all changes</button>
+          </div>
+        </header>
+
+        <div class="j-card j-admin-table-card glow-border">
+          <div class="j-admin-table-scroll">
+            <table class="j-admin-table" aria-label="Jungle Agents roster editor">
+              <thead>
+                <tr>
+                  <th class="col-order">#</th>
+                  <th class="col-agent">Agent</th>
+                  <th class="col-model">Model</th>
+                  <th class="col-wallet">Polymarket wallet</th>
+                  <th class="col-status">Status</th>
+                  <th class="col-live">Live</th>
+                  <th class="col-actions">Order</th>
+                </tr>
+              </thead>
+              <tbody id="adminAgentsBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <p class="j-admin-hint text-muted">
+          Edit any row inline — names and wallets match the public Jungle Agents tab. Paste all nine wallet addresses, then click <strong>Save all changes</strong>.
+        </p>
+      </section>
+    </main>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/jungleDialog.js"></script>
+  <script src="/admin/admin.js"></script>
+  <script>
+    window.maybeStartApp = function adminMaybeStart() {
+      document.body.classList.remove('app-loading');
+      document.body.classList.add('app-ready');
+      if (typeof window.__adminBoot === 'function') {
+        window.__adminBoot();
+      }
+    };
+  </script>
+  <script src="/js/auth-bootstrap.js"></script>
+</body>
+</html>

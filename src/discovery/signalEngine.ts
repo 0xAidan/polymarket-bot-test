@@ -434,6 +434,22 @@ const fireSignal = (signal: Omit<DiscoverySignal, 'id' | 'dismissed'>): void => 
     insertSignal(signal);
     insertDiscoveryAlertV2(signal);
     console.log(`[SignalEngine] ${signal.severity.toUpperCase()} ${signal.signalType}: ${signal.title}`);
+
+    // Propagate the signal type into the v3 scores table so the discovery
+    // dashboard can surface "this wallet just fired a COORDINATED_ENTRY / MARKET_PIONEER"
+    // alert alongside their tier rank — without rebuilding the v3 pipeline.
+    try {
+      const db = getDatabase();
+      const nowTs = Math.floor(Date.now() / 1000);
+      db.prepare(
+        `UPDATE discovery_wallet_scores_v3
+            SET latest_signal = ?, latest_signal_ts = ?
+          WHERE proxy_wallet = ?
+            AND (latest_signal_ts IS NULL OR latest_signal_ts < ?)`
+      ).run(signal.signalType, nowTs, signal.address, nowTs);
+    } catch {
+      // Non-fatal: v3 table may not exist in legacy-only deploys.
+    }
   } catch (err) {
     console.error('[SignalEngine] Failed to insert signal:', err);
   }
