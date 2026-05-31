@@ -569,6 +569,13 @@ function handleSetupWizardPrimaryAction() {
 
 async function loadAllData() {
   try {
+    const adminLoads = isPlatformAdminUser()
+      ? [
+          loadPlatformStatus().catch(() => { }),
+          loadLadderStatus().catch(() => { }),
+        ]
+      : [];
+
     await Promise.all([
       loadStatus(),
       loadWalletBalance(),
@@ -576,9 +583,8 @@ async function loadAllData() {
       loadTrades(),
       loadWallets(),
       loadSettings(),
-      loadPlatformStatus().catch(() => { }),
+      ...adminLoads,
       checkLockStatus(),
-      loadLadderStatus().catch(() => { })
     ]);
     await refreshSetupExperience(true);
     if (typeof window.renderHomeJungleAgentTeaser === 'function') {
@@ -592,11 +598,21 @@ async function loadAllData() {
   }
 }
 
+// Tabs/features still in development — platform admins only.
+const ADMIN_ONLY_TABS = new Set(['platforms', 'cross-platform']);
+
+function isPlatformAdminUser() {
+  return !!window.__isPlatformAdmin;
+}
+
 // ============================================================
 // TAB NAVIGATION
 // ============================================================
 
 function switchTab(tabName) {
+  if (ADMIN_ONLY_TABS.has(tabName) && !isPlatformAdminUser()) {
+    tabName = 'dashboard';
+  }
   if (currentTab === 'discovery' && tabName !== 'discovery') {
     stopDiscoveryRefresh();
   }
@@ -625,13 +641,16 @@ window.switchTab = switchTab;
 // ============================================================
 
 async function loadDashboardData() {
-  await Promise.all([
+  const loads = [
     loadStatus(),
     loadWalletBalance(),
     loadPerformance(),
     loadTrades(),
-    loadLadderStatus()
-  ]);
+  ];
+  if (isPlatformAdminUser()) {
+    loads.push(loadLadderStatus());
+  }
+  await Promise.all(loads);
 }
 
 async function loadStatus() {

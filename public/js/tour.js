@@ -42,7 +42,8 @@
       tab: 'dashboard',
       target: '[data-tour="ladder-exits"]',
       title: 'Ladder Exits (take-profit)',
-      body: 'Sell positions in steps as price rises. + New Ladder; Paper Mode ? explains safe testing.'
+      body: 'Sell positions in steps as price rises. + New Ladder; Paper Mode ? explains safe testing.',
+      adminOnly: true,
     },
     {
       tab: 'wallets',
@@ -97,6 +98,11 @@
   let handleKeydown = null;
   let handleResize = null;
 
+  const getTourSteps = () => {
+    const isAdmin = !!window.__isPlatformAdmin;
+    return STEPS.filter((step) => !step.adminOnly || isAdmin);
+  };
+
   function positionSpotlight(selector) {
     if (!spotlightEl) return;
     const el = document.querySelector(selector);
@@ -123,16 +129,18 @@
 
   function updateButtons() {
     if (!backBtn || !nextBtn) return;
-    const step = STEPS[currentIndex];
+    const steps = getTourSteps();
+    const step = steps[currentIndex];
     backBtn.disabled = currentIndex === 0;
-    const isLast = currentIndex === STEPS.length - 1;
+    const isLast = currentIndex === steps.length - 1;
     nextBtn.textContent = isLast ? 'Finish' : 'Next';
   }
 
   function goToStep(index) {
-    if (index < 0 || index >= STEPS.length) return;
+    const steps = getTourSteps();
+    if (index < 0 || index >= steps.length) return;
     currentIndex = index;
-    const step = STEPS[currentIndex];
+    const step = steps[currentIndex];
 
     if (typeof switchTab === 'function') {
       switchTab(step.tab);
@@ -207,7 +215,8 @@
     };
 
     const handleNext = () => {
-      if (currentIndex === STEPS.length - 1) {
+      const steps = getTourSteps();
+      if (currentIndex === steps.length - 1) {
         endTour();
       } else {
         goToStep(currentIndex + 1);
@@ -224,8 +233,9 @@
     document.addEventListener('keydown', handleKeydown);
 
     handleResize = () => {
-      if (currentIndex >= 0 && currentIndex < STEPS.length) {
-        positionSpotlight(STEPS[currentIndex].target);
+      const steps = getTourSteps();
+      if (currentIndex >= 0 && currentIndex < steps.length) {
+        positionSpotlight(steps[currentIndex].target);
       }
     };
     window.addEventListener('resize', handleResize);
