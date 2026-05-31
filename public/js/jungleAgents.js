@@ -31,28 +31,160 @@ const refreshTrackedSet = async () => {
   }
 };
 
-const loadAgentPerformance = async (agentId) => {
-  const statEl = document.querySelector(`[data-agent-stat="${agentId}"]`);
-  if (!statEl) return;
-  const renderStats = (portfolio, positions) => {
-    statEl.innerHTML = `
-      <div class="j-agent-stat-box">
-        <span class="j-agent-stat-val">${portfolio}</span>
-        <span class="j-agent-stat-lbl">Portfolio</span>
-      </div>
-      <div class="j-agent-stat-box">
-        <span class="j-agent-stat-val">${positions}</span>
-        <span class="j-agent-stat-lbl">Positions</span>
-      </div>
-    `;
-  };
+/**
+ * Jungle Agents public showcase tab.
+ */
+
+let jungleAgentsBooted = false;
+let cachedAgents = [];
+let trackedAddressSet = new Set();
+
+const formatUsd = (value) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
+  return `$${Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+};
+
+const agentShortAddress = (address) => {
+  if (!address) return '—';
+  return `${address.slice(0, 6)}…${address.slice(-4)}`;
+};
+
+const polymarketProfileUrl = (address) => {
+  if (!address) return null;
+  return `https://polymarket.com/profile/${address.trim().toLowerCase()}`;
+};
+
+const refreshTrackedSet = async () => {
   try {
-    const perf = await API.getJungleAgentPerformance(agentId);
-    renderStats(formatUsd(perf.portfolioValueUsd), perf.positionCount ?? '—');
+    const data = await API.getWallets();
+    trackedAddressSet = new Set(
+      (data.wallets || []).map((w) => String(w.address).toLowerCase()),
+    );
   } catch {
-    renderStats('—', '—');
+    trackedAddressSet = new Set();
   }
 };
+
+const updateAgentStatCells = (agentId, portfolio, positions) => {
+  const portfolioEl = document.querySelector(`[data-agent-portfolio="${agentId}"]`);
+  const positionsEl = document.querySelector(`[data-agent-positions="${agentId}"]`);
+  if (portfolioEl) portfolioEl.textContent = portfolio;
+  if (positionsEl) positionsEl.textContent = positions;
+};
+
+const loadAgentPerformance = async (agentId) => {
+  try {
+    const perf = await API.getJungleAgentPerformance(agentId);
+    updateAgentStatCells(
+      agentId,
+      formatUsd(perf.portfolioValueUsd),
+      String(perf.positionCount ?? '—'),
+    );
+  } catch {
+    updateAgentStatCells(agentId, '—', '—');
+  }
+};
+
+const bindAgentGridEvents = (grid, agents) => {
+  grid.querySelectorAll('[data-copy-address]').forEach((btn) => {
+    if (btn.dataset.bound === 'true') return;
+    btn.dataset.bound = 'true';
+    btn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      const value = btn.getAttribute('data-copy-address');
+      if (!value) return;
+      try {
+        await navigator.clipboard.writeText(value);
+        await win95Dialog.success('Address copied');
+      } catch {
+        await win95Dialog.error('Could not copy address');
+      }
+    });
+  });
+
+  const agentById = new Map(agents.map((a) => [a.id, a]));
+  grid.querySelectorAll('[data-follow-agent]').forEach((btn) => {
+    if (btn.dataset.bound === 'true') return;
+    btn.dataset.bound = 'true';
+    btn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      const id = btn.getAttribute('data-follow-agent');
+      const agent = agentById.get(id);
+      if (agent) await handleFollowAgent(agent);
+    });
+  });
+};
+
+const syncFollowButtons = (agents) => {
+  agents.forEach((agent) => {
+    const btn = document.querySelector(`[data-follow-agent="${agent.id}"]`);
+    if (!btn) return;
+    const address = agent.polymarketAddress?.toLowerCase() || '';
+    const isFollowing = address && trackedAddressSet.has(address);
+    const followDisabled = agent.addressPending || isFollowing;
+    btn.disabled = followDisabled;
+    btn.textContent = isFollowing ? 'Following' : 'Follow';
+  });
+};
+
+const renderAgentTableRow = (agent) => {
+  const address = agent.polymarketAddress?.toLowerCase() || '';
+  const isFollowing = address && trackedAddressSet.has(address);
+  const followDisabled = agent.addressPending || isFollowing;
+  const followLabel = isFollowing ? 'Following' : 'Follow';
+  const profileUrl = polymarketProfileUrl(agent.polymarketAddress);
+  const avatar = agent.avatarUrl
+    ? `<img src="${agent.avatarUrl}" alt="" class="j-agents-avatar-img" />`
+    : `<span class="j-agents-avatar-fallback">${agent.displayName.slice(0, 1)}</span>`;
+  const metaLine = [agent.tagline, agent.modelLabel].filter(Boolean).join(' · ');
+
+  return `
+    <tr data-agent-id="${agent.id}">
+      <td class="j-agents-cell-agent">
+        <span class="j-agents-avatar-sm">${avatar}</span>
+        <span class="j-agents-cell-text">
+          <span class="j-agents-name font-serif">${agent.displayName}</span>
+          ${metaLine ? `<span class="j-agents-meta">${metaLine}</span>` : ''}
+        </span>
+      </td>
+      <td class="j-agents-num" data-agent-portfolio="${agent.id}">—</td>
+      <td class="j-agents-num" data-agent-positions="${agent.id}">—</td>
+      <td class="j-agents-wallet">
+        ${agent.addressPending
+    ? '<span class="j-badge j-badge-warn">Pending</span>'
+    : `<code class="j-mono">${agentShortAddress(agent.polymarketAddress)}</code>
+           <button type="button" class="j-btn j-btn-ghost j-btn-sm j-agents-copy" data-copy-address="${agent.polymarketAddress}" aria-label="Copy address">⧉</button>`}
+      </td>
+      <td class="j-agents-actions">
+        ${profileUrl
+    ? `<a class="j-btn j-btn-sm" href="${profileUrl}" target="_blank" rel="noopener noreferrer">View</a>`
+    : ''}
+        <button type="button" class="j-btn j-btn-primary j-btn-sm" data-follow-agent="${agent.id}" ${followDisabled ? 'disabled' : ''}>${followLabel}</button>
+      </td>
+    </tr>
+  `;
+};
+
+const renderAgentTable = (agents) => `
+  <div class="j-panel j-agents-table-panel">
+    <div class="j-agents-table-scroll">
+      <table class="win-listview j-agents-table">
+        <thead>
+          <tr>
+            <th>Agent</th>
+            <th>Portfolio</th>
+            <th>Pos</th>
+            <th>Wallet</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${agents.map(renderAgentTableRow).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>
+`;
 
 const handleFollowAgent = async (agent) => {
   if (agent.addressPending || !agent.polymarketAddress) {
@@ -70,107 +202,61 @@ const handleFollowAgent = async (agent) => {
     trackedAddressSet.add(address);
     await win95Dialog.success(`Added ${agent.displayName} to Tracked Wallets (inactive until you enable copying).`);
     if (typeof loadWallets === 'function') await loadWallets(true);
-    window.initJungleAgentsTab(true);
+    syncFollowButtons(cachedAgents);
   } catch (error) {
     await win95Dialog.error(error.message || 'Could not follow agent');
   }
 };
 
-const renderAgentRow = (agent) => {
-  const address = agent.polymarketAddress?.toLowerCase() || '';
-  const isFollowing = address && trackedAddressSet.has(address);
-  const followDisabled = agent.addressPending || isFollowing;
-  const followLabel = isFollowing ? 'Following' : 'Follow';
-  const profileUrl = polymarketProfileUrl(agent.polymarketAddress);
-  const avatar = agent.avatarUrl
-    ? `<img src="${agent.avatarUrl}" alt="" class="j-agent-avatar-img" />`
-    : `<span class="j-agent-avatar-fallback">${agent.displayName.slice(0, 1)}</span>`;
-
-  return `
-    <article class="j-agent-card-v2 j-panel" data-agent-id="${agent.id}">
-      <div class="j-agent-card-v2-main">
-        <div class="j-agent-avatar">${avatar}</div>
-        <div class="j-agent-card-v2-body">
-          <div class="j-agent-card-v2-head">
-            <h3 class="j-agent-name font-serif">${agent.displayName}</h3>
-            ${agent.modelLabel ? `<span class="j-agent-model-badge">${agent.modelLabel}</span>` : ''}
-          </div>
-          ${agent.tagline ? `<p class="j-agent-tagline">${agent.tagline}</p>` : ''}
-          <div class="j-agent-card-v2-stats" data-agent-stat="${agent.id}">
-            <div class="j-agent-stat-box is-loading"><span class="j-agent-stat-lbl">Loading stats…</span></div>
-          </div>
-        </div>
-      </div>
-      <footer class="j-agent-card-v2-footer">
-        <div class="j-agent-card-v2-address">
-          ${agent.addressPending
-    ? '<span class="j-badge j-badge-warn">Address pending</span>'
-    : `<code class="j-mono">${agentShortAddress(agent.polymarketAddress)}</code>
-             <button type="button" class="j-btn j-btn-ghost j-btn-sm" data-copy-address="${agent.polymarketAddress}" aria-label="Copy address">Copy</button>`}
-        </div>
-        <div class="j-agent-card-v2-actions">
-          ${profileUrl
-    ? `<a class="j-btn j-btn-sm" href="${profileUrl}" target="_blank" rel="noopener noreferrer">Polymarket</a>`
-    : '<span class="j-btn j-btn-sm" aria-disabled="true" style="opacity:0.45;pointer-events:none">Polymarket</span>'}
-          <button type="button" class="j-btn j-btn-primary j-btn-sm" data-follow-agent="${agent.id}" ${followDisabled ? 'disabled' : ''}>${followLabel}</button>
-        </div>
-      </footer>
-    </article>
-  `;
-};
-
-/** Card layout alias — roster rows used in the grid */
-const renderAgentCard = (agent) => renderAgentRow(agent);
+/** @deprecated card alias */
+const renderAgentCard = (agent) => renderAgentTableRow(agent);
 
 window.initJungleAgentsTab = async (force = false) => {
   const grid = document.getElementById('jungleAgentsGrid');
   const meta = document.getElementById('jungleAgentsMeta');
   if (!grid) return;
-  if (jungleAgentsBooted && !force) return;
-  jungleAgentsBooted = true;
 
-  grid.innerHTML = '<p class="text-muted">Loading Jungle Agents…</p>';
+  if (jungleAgentsBooted && !force && grid.querySelector('.j-agents-table')) {
+    await refreshTrackedSet();
+    syncFollowButtons(cachedAgents);
+    return;
+  }
+
+  if (!grid.querySelector('.j-agents-table')) {
+    grid.innerHTML = renderAgentTable([]);
+  }
+
   await refreshTrackedSet();
 
   try {
     const data = await API.getJungleAgents();
     const agents = data.agents || [];
+    cachedAgents = agents;
+    jungleAgentsBooted = true;
+
     if (meta) {
-      meta.textContent = `${data.meta?.totalEnabled ?? agents.length} curated agents · ${data.meta?.missingAddressCount ?? 0} awaiting addresses`;
+      meta.textContent = `${data.meta?.totalEnabled ?? agents.length} agents · ${data.meta?.missingAddressCount ?? 0} pending addresses`;
     }
+
     if (!agents.length) {
-      grid.innerHTML = '<p class="text-muted">No Jungle Agents are enabled yet.</p>';
+      grid.innerHTML = '<p class="text-muted j-agents-empty-msg">No Jungle Agents are enabled yet.</p>';
       return;
     }
-    grid.innerHTML = agents.map(renderAgentRow).join('');
 
-    grid.querySelectorAll('[data-copy-address]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const value = btn.getAttribute('data-copy-address');
-        if (!value) return;
-        try {
-          await navigator.clipboard.writeText(value);
-          await win95Dialog.success('Address copied');
-        } catch {
-          await win95Dialog.error('Could not copy address');
-        }
-      });
-    });
+    const tbody = grid.querySelector('.j-agents-table tbody');
+    if (tbody) {
+      tbody.innerHTML = agents.map(renderAgentTableRow).join('');
+    } else {
+      grid.innerHTML = renderAgentTable(agents);
+    }
 
-    const agentById = new Map(agents.map((a) => [a.id, a]));
-    grid.querySelectorAll('[data-follow-agent]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const id = btn.getAttribute('data-follow-agent');
-        const agent = agentById.get(id);
-        if (agent) await handleFollowAgent(agent);
-      });
-    });
+    bindAgentGridEvents(grid, agents);
 
     agents.forEach((agent) => {
       if (!agent.addressPending) void loadAgentPerformance(agent.id);
     });
   } catch (error) {
-    grid.innerHTML = `<p class="text-loss">Could not load agents: ${error.message || error}</p>`;
+    grid.innerHTML = `<p class="text-loss j-agents-empty-msg">Could not load agents: ${error.message || error}</p>`;
   }
 };
 
