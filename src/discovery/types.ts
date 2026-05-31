@@ -422,6 +422,7 @@ export interface DiscoveryStatus {
     bootstrapOk: boolean;
     bootstrapError?: string;
     goldskyEnabled: boolean;
+    rpcPollEnabled?: boolean;
     duckdbPath?: string;
     updatedAt?: number;
   };

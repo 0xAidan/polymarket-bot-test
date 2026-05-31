@@ -8,6 +8,7 @@ export interface DiscoveryV3WorkerState {
   bootstrapOk: boolean;
   bootstrapError?: string;
   goldskyEnabled: boolean;
+  rpcPollEnabled?: boolean;
   duckdbPath?: string;
   updatedAt: number;
 }

@@ -16,7 +16,7 @@ import {
 } from './statsStore.js';
 import { getCurrentDiscoveryRuntimeHeartbeat } from './discoveryRuntimeState.js';
 import { loadDiscoveryV3WorkerState } from './v3/workerState.js';
-import { isDiscoveryV3Enabled, isDiscoveryV3GoldskyEnabled } from './v3/featureFlag.js';
+import { isDiscoveryV3Enabled, isDiscoveryV3GoldskyEnabled, isDiscoveryV3RpcPollEnabled } from './v3/featureFlag.js';
 import {
   DiscoveryConfig,
   DiscoveryConfidenceBucket,
@@ -202,6 +202,7 @@ export class DiscoveryControlPlane {
     const v3State = loadDiscoveryV3WorkerState();
     const v3Enabled = isDiscoveryV3Enabled();
     const goldskyEnabled = isDiscoveryV3GoldskyEnabled();
+    const rpcPollEnabled = isDiscoveryV3RpcPollEnabled();
     const freeModeNoAlchemy = latestRun?.freeModeNoAlchemy !== false;
 
     return {
@@ -227,6 +228,7 @@ export class DiscoveryControlPlane {
             bootstrapOk: v3State?.bootstrapOk ?? false,
             bootstrapError: v3State?.bootstrapError,
             goldskyEnabled,
+            rpcPollEnabled,
             duckdbPath: v3State?.duckdbPath,
             updatedAt: v3State?.updatedAt,
           }
