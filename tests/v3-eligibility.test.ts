@@ -25,48 +25,63 @@ test('eligibility: all gates pass → eligible', () => {
   assert.deepEqual(r.reasons, []);
 });
 
-test('eligibility: observation span just under → rejected', () => {
-  const r = isEligible({ ...base(), observation_span_days: ELIGIBILITY_THRESHOLDS.MIN_OBSERVATION_SPAN_DAYS - 1 });
+test('eligibility: observation span below 50% hard gate → rejected', () => {
+  const r = isEligible({
+    ...base(),
+    observation_span_days: Math.floor(ELIGIBILITY_THRESHOLDS.MIN_OBSERVATION_SPAN_DAYS * 0.5) - 1,
+  });
   assert.equal(r.eligible, false);
   assert.ok(r.reasons.includes('OBSERVATION_SPAN_TOO_SHORT'));
 });
 
-test('eligibility: observation span exactly at gate → pass', () => {
-  const r = isEligible({ ...base(), observation_span_days: ELIGIBILITY_THRESHOLDS.MIN_OBSERVATION_SPAN_DAYS });
+test('eligibility: observation span at 50% hard gate → pass (soft zone)', () => {
+  const r = isEligible({
+    ...base(),
+    observation_span_days: Math.floor(ELIGIBILITY_THRESHOLDS.MIN_OBSERVATION_SPAN_DAYS * 0.5),
+  });
   assert.equal(r.eligible, true);
 });
 
-test('eligibility: distinct markets just under → rejected', () => {
-  const r = isEligible({ ...base(), distinct_markets: ELIGIBILITY_THRESHOLDS.MIN_DISTINCT_MARKETS - 1 });
+test('eligibility: distinct markets below 50% hard gate → rejected', () => {
+  const r = isEligible({
+    ...base(),
+    distinct_markets: Math.floor(ELIGIBILITY_THRESHOLDS.MIN_DISTINCT_MARKETS * 0.5) - 1,
+  });
   assert.equal(r.eligible, false);
   assert.ok(r.reasons.includes('TOO_FEW_DISTINCT_MARKETS'));
 });
 
-test('eligibility: trade count just under → rejected', () => {
-  const r = isEligible({ ...base(), trade_count: ELIGIBILITY_THRESHOLDS.MIN_TRADE_COUNT - 1 });
+test('eligibility: trade count below 50% hard gate → rejected', () => {
+  const r = isEligible({
+    ...base(),
+    trade_count: Math.floor(ELIGIBILITY_THRESHOLDS.MIN_TRADE_COUNT * 0.5) - 1,
+  });
   assert.equal(r.eligible, false);
   assert.ok(r.reasons.includes('TOO_FEW_TRADES'));
 });
 
-test('eligibility: closed positions just under → rejected', () => {
-  const r = isEligible({ ...base(), closed_positions: ELIGIBILITY_THRESHOLDS.MIN_CLOSED_POSITIONS - 1 });
+test('eligibility: closed positions below 50% hard gate → rejected', () => {
+  const r = isEligible({
+    ...base(),
+    closed_positions: Math.floor(ELIGIBILITY_THRESHOLDS.MIN_CLOSED_POSITIONS * 0.5) - 1,
+  });
   assert.equal(r.eligible, false);
   assert.ok(r.reasons.includes('TOO_FEW_CLOSED_POSITIONS'));
 });
 
-test('eligibility: dormant wallet (31+ days idle) rejected', () => {
+test('eligibility: dormant wallet (61+ days idle) rejected', () => {
   const r = isEligible({
     ...base(),
-    last_active_ts: NOW - 31 * DAY,
+    last_active_ts: NOW - (ELIGIBILITY_THRESHOLDS.MAX_DORMANCY_DAYS * 2 + 1) * DAY,
   });
   assert.equal(r.eligible, false);
   assert.ok(r.reasons.includes('DORMANT'));
 });
 
-test('eligibility: last active exactly at dormancy edge → pass', () => {
+test('eligibility: last active at 2× dormancy edge → pass (soft zone)', () => {
   const r = isEligible({
     ...base(),
-    last_active_ts: NOW - ELIGIBILITY_THRESHOLDS.MAX_DORMANCY_DAYS * DAY,
+    last_active_ts: NOW - ELIGIBILITY_THRESHOLDS.MAX_DORMANCY_DAYS * 2 * DAY,
   });
   assert.equal(r.eligible, true);
 });

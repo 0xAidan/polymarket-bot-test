@@ -410,11 +410,20 @@ export interface DiscoveryStatus {
     connected: boolean;
     lastEventAt?: number;
     reconnectCount: number;
+    note?: string;
   };
   apiPoller: {
     running: boolean;
     lastPollAt?: number;
     marketsMonitored: number;
+    note?: string;
+  };
+  v3?: {
+    bootstrapOk: boolean;
+    bootstrapError?: string;
+    goldskyEnabled: boolean;
+    duckdbPath?: string;
+    updatedAt?: number;
   };
   stats: {
     totalWallets: number;

@@ -43,6 +43,7 @@ import {
 import { insertDiscoveryRunLog } from './runLog.js';
 import { isDiscoveryV3Enabled } from './v3/featureFlag.js';
 import { startDiscoveryV3Worker } from './v3/workerIntegration.js';
+import { saveDiscoveryV3WorkerState } from './v3/workerState.js';
 import { getDiscoveryConfig } from './statsStore.js';
 import { DiscoveryStrategyClass, DiscoveryWalletScoreRow } from './types.js';
 import { upsertWalletFeatureSnapshotV2 } from './v2DataStore.js';
@@ -685,7 +686,15 @@ const main = async (): Promise<void> => {
       const sqlite = await initDatabase();
       v3Handle = await startDiscoveryV3Worker({ sqlite });
     } catch (err) {
-      console.error('[DiscoveryWorker] v3 bootstrap failed:', (err as Error).message);
+      const message = (err as Error).message;
+      console.error('[DiscoveryWorker] v3 bootstrap failed:', message);
+      saveDiscoveryV3WorkerState({
+        enabled: true,
+        bootstrapOk: false,
+        bootstrapError: message,
+        goldskyEnabled: false,
+        updatedAt: Math.floor(Date.now() / 1000),
+      });
     }
   }
 

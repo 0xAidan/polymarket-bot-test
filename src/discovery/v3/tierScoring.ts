@@ -135,6 +135,14 @@ interface Scored {
   reasons: string[];
 }
 
+export function shouldIncludeInTierRankings(
+  proxyWallet: string,
+  copyableByWallet: ReadonlyMap<string, { copyable: number }>
+): boolean {
+  const row = copyableByWallet.get(proxyWallet);
+  return row?.copyable !== 0;
+}
+
 /**
  * Tier scoring per parent plan §6. Alpha uses a blended edge/activity z-score,
  * Whales sort by observation-weighted volume, Specialists is a placeholder
@@ -157,6 +165,7 @@ export function scoreTiers(
       realized_pnl: snap.realized_pnl,
       volume_total: snap.volume_total,
       trade_count_90d: snap.trade_count_90d,
+      now_ts: x.now_ts ?? now,
     });
     return { wallet: snap.proxy_wallet, eligible, snapshot: snap, input: x, reasons };
   });

@@ -9,6 +9,7 @@ import type Database from 'better-sqlite3';
 import { parseNullableBooleanInput } from '../../utils/booleanParsing.js';
 import { isDiscoveryV3Enabled, isDiscoveryV3GoldskyEnabled, getDuckDBPath } from './featureFlag.js';
 import { openDuckDB, DuckDBClient } from './duckdbClient.js';
+import { saveDiscoveryV3WorkerState } from './workerState.js';
 import {
   runV3DuckDBMigrations,
   runV3DuckDBMigrationsBackfillNoIndex,
@@ -100,6 +101,14 @@ export async function startDiscoveryV3Worker(
   });
 
   log('[v3] live ingest + refresh loop started');
+
+  saveDiscoveryV3WorkerState({
+    enabled: true,
+    bootstrapOk: true,
+    goldskyEnabled: isDiscoveryV3GoldskyEnabled(),
+    duckdbPath: dbPath,
+    updatedAt: Math.floor(Date.now() / 1000),
+  });
 
   return {
     duck,

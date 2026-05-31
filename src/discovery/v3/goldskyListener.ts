@@ -45,8 +45,16 @@ export interface NormalizedV3Row {
   abs_size: number;
 }
 
+export interface GoldskyPageCursor {
+  lastTimestamp: number;
+  lastEventId: string;
+}
+
 export interface GoldskyClient {
-  fetchOrderFilledSince(lastTimestamp: number, limit?: number): Promise<GoldskyOrderFilled[]>;
+  fetchOrderFilledSince(
+    cursor: GoldskyPageCursor,
+    limit?: number
+  ): Promise<GoldskyOrderFilled[]>;
 }
 
 interface GraphqlResponse {
@@ -62,14 +70,22 @@ export function createGoldskyClient(opts: { fetchImpl?: typeof fetch; endpoint?:
   const f = opts.fetchImpl ?? fetch;
   const endpoint = opts.endpoint ?? GOLDSKY_ENDPOINT;
   return {
-    async fetchOrderFilledSince(lastTimestamp: number, limit = 500): Promise<GoldskyOrderFilled[]> {
+    async fetchOrderFilledSince(
+      cursor: GoldskyPageCursor,
+      limit = 500
+    ): Promise<GoldskyOrderFilled[]> {
       const query = `
-        query LiveTail($lastTs: BigInt!, $limit: Int!) {
+        query LiveTail($lastTs: BigInt!, $lastId: ID!, $limit: Int!) {
           orderFilledEvents(
             first: $limit,
             orderBy: timestamp,
             orderDirection: asc,
-            where: { timestamp_gt: $lastTs }
+            where: {
+              or: [
+                { timestamp_gt: $lastTs },
+                { and: [{ timestamp: $lastTs }, { id_gt: $lastId }] }
+              ]
+            }
           ) {
             id transactionHash timestamp orderHash
             maker taker makerAssetId takerAssetId
@@ -80,7 +96,14 @@ export function createGoldskyClient(opts: { fetchImpl?: typeof fetch; endpoint?:
       const res = await f(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, variables: { lastTs: String(lastTimestamp), limit } }),
+        body: JSON.stringify({
+          query,
+          variables: {
+            lastTs: String(cursor.lastTimestamp),
+            lastId: cursor.lastEventId || '',
+            limit,
+          },
+        }),
       });
       if (!res.ok) throw new Error(`Goldsky ${res.status}`);
       const body = (await res.json()) as GraphqlResponse;
@@ -245,25 +268,42 @@ export async function insertNormalizedRowsBatch(
 
 export interface PipelineCursorStore {
   getLastBlock(pipeline: string): number;
-  setLastBlock(pipeline: string, block: number, tsUnix: number): void;
+  getLastEventId(pipeline: string): string;
+  getPageCursor(pipeline: string): GoldskyPageCursor;
+  setLastBlock(pipeline: string, block: number, tsUnix: number, lastEventId?: string): void;
 }
 
 export function createSqliteCursorStore(db: Database.Database): PipelineCursorStore {
   return {
     getLastBlock(pipeline: string): number {
-      const row = db.prepare('SELECT last_block FROM pipeline_cursor WHERE pipeline = ?').get(pipeline) as { last_block: number } | undefined;
+      const row = db.prepare(
+        'SELECT last_block FROM pipeline_cursor WHERE pipeline = ?'
+      ).get(pipeline) as { last_block: number } | undefined;
       return row?.last_block ?? 0;
     },
-    setLastBlock(pipeline: string, block: number, tsUnix: number): void {
+    getLastEventId(pipeline: string): string {
+      const row = db.prepare(
+        'SELECT last_event_id FROM pipeline_cursor WHERE pipeline = ?'
+      ).get(pipeline) as { last_event_id?: string | null } | undefined;
+      return row?.last_event_id ?? '';
+    },
+    getPageCursor(pipeline: string): GoldskyPageCursor {
+      return {
+        lastTimestamp: this.getLastBlock(pipeline),
+        lastEventId: this.getLastEventId(pipeline),
+      };
+    },
+    setLastBlock(pipeline: string, block: number, tsUnix: number, lastEventId = ''): void {
       const now = Math.floor(Date.now() / 1000);
       db.prepare(
-        `INSERT INTO pipeline_cursor (pipeline, last_block, last_ts_unix, updated_at)
-         VALUES (?, ?, ?, ?)
+        `INSERT INTO pipeline_cursor (pipeline, last_block, last_ts_unix, last_event_id, updated_at)
+         VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(pipeline) DO UPDATE SET
            last_block = excluded.last_block,
            last_ts_unix = excluded.last_ts_unix,
+           last_event_id = excluded.last_event_id,
            updated_at = excluded.updated_at`
-      ).run(pipeline, block, tsUnix, now);
+      ).run(pipeline, block, tsUnix, lastEventId, now);
     },
   };
 }
@@ -290,15 +330,39 @@ export async function pollGoldskyOnce({
   pageSize = 500,
 }: PollOnceParams): Promise<PollOnceResult> {
   // We reuse the "lastBlock" cursor field to store lastTimestamp since the
-  // Goldsky schema only supports timestamp-based pagination.
-  const lastTs = cursor.getLastBlock(pipelineKey);
-  const events = await client.fetchOrderFilledSince(lastTs, pageSize);
-  if (events.length === 0) return { fetched: 0, inserted: 0, newCursor: lastTs };
+  // Goldsky schema only supports timestamp-based pagination. last_event_id
+  // breaks ties when >= pageSize events share the same timestamp.
+  let pageCursor = cursor.getPageCursor(pipelineKey);
+  let totalFetched = 0;
+  let totalInserted = 0;
 
-  const rows: NormalizedV3Row[] = [];
-  for (const ev of events) rows.push(...normalizeOrderFilled(ev));
-  const inserted = await insertNormalizedRows(duck, rows);
-  const maxTs = events.reduce((m, e) => Math.max(m, Number(e.timestamp)), lastTs);
-  cursor.setLastBlock(pipelineKey, maxTs, maxTs);
-  return { fetched: events.length, inserted, newCursor: maxTs };
+  for (;;) {
+    const events = await client.fetchOrderFilledSince(pageCursor, pageSize);
+    if (events.length === 0) break;
+
+    const rows: NormalizedV3Row[] = [];
+    for (const ev of events) rows.push(...normalizeOrderFilled(ev));
+    totalInserted += await insertNormalizedRows(duck, rows);
+    totalFetched += events.length;
+
+    const lastEvent = events[events.length - 1];
+    pageCursor = {
+      lastTimestamp: Number(lastEvent.timestamp),
+      lastEventId: lastEvent.id,
+    };
+    cursor.setLastBlock(
+      pipelineKey,
+      pageCursor.lastTimestamp,
+      pageCursor.lastTimestamp,
+      pageCursor.lastEventId
+    );
+
+    if (events.length < pageSize) break;
+  }
+
+  return {
+    fetched: totalFetched,
+    inserted: totalInserted,
+    newCursor: pageCursor.lastTimestamp,
+  };
 }
