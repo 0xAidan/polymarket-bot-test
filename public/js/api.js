@@ -388,6 +388,10 @@ const API = {
     return this.get('/test/clob-connectivity');
   },
 
+  async testGeoblockStatus() {
+    return this.get('/test/geoblock');
+  },
+
   // ============================================================
   // MIRROR POSITIONS
   // ============================================================

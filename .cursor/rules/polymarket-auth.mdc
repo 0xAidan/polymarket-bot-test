@@ -13,9 +13,10 @@ When trade execution fails with "invalid signature" or "not enough balance" erro
 ### Signature Types (from Polymarket docs)
 | Type | Name | When to Use |
 |------|------|-------------|
-| 0 | EOA | Pure EOA with NO proxy wallet (rare) |
-| 1 | POLY_PROXY | Magic Link / Email signup (internal key) |
-| **2** | POLY_GNOSIS_SAFE | **Browser wallet (MetaMask/Rabby) WITH a proxy wallet** |
+| 0 | EOA | Pure EOA with no proxy/deposit wallet |
+| 1 | POLY_PROXY | Existing legacy proxy wallet flow |
+| 2 | GNOSIS_SAFE | Existing safe wallet flow |
+| 3 | POLY_1271 | Deposit wallet flow (default for new API users) |
 
 ### For This Project
 Since the user connected with MetaMask and Polymarket created a proxy wallet, we need:
@@ -27,7 +28,7 @@ POLYMARKET_FUNDER_ADDRESS=0xD56276b120ad094ba9F429386427F2492233B6d1
 
 ## Code Implementation (clobClient.ts)
 
-Per [Polymarket CLOB docs](https://docs.polymarket.com/developers/CLOB/authentication):
+Per [Polymarket CLOB docs](https://docs.polymarket.com/api-reference/authentication):
 
 1. **Derive API credentials with ONLY the signer** (no signatureType/funder):
 ```typescript
@@ -42,7 +43,7 @@ this.client = new ClobClient(
   CHAIN_ID,
   this.signer,
   apiCreds,
-  signatureType,  // 2 for browser wallet + proxy
+  signatureType,  // depends on wallet flow (proxy/safe/deposit)
   funderAddress,  // proxy wallet address
   undefined,
   false,
@@ -54,17 +55,18 @@ this.client = new ClobClient(
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| "invalid signature" | Wrong signatureType for wallet setup | Use type 2 for MetaMask+proxy |
+| "invalid signature" | Wrong signatureType for wallet setup | Match signatureType to wallet flow (proxy/safe/deposit) |
 | "not enough balance" | Looking at wrong wallet (EOA vs proxy) | Set POLYMARKET_FUNDER_ADDRESS to proxy |
 
 ## How to Determine Correct Settings
 
 1. Go to polymarket.com/settings
 2. Look for "Proxy Wallet" address
-3. If proxy address ≠ MetaMask address → **Use type 2 + set funder to proxy**
-4. If signed up via email → Use type 1
-5. If no proxy exists (rare) → Use type 0
+3. If proxy address exists and you are on the legacy proxy flow → **Use type 1 + set funder to proxy**
+4. If using a safe wallet flow → Use type 2
+5. If using a deposit wallet flow (recommended for new API users) → Use type 3 + deposit wallet as funder
+6. If no proxy/safe/deposit wallet exists (rare) → Use type 0
 
 ## Reference
-- Polymarket CLOB Auth Docs: https://docs.polymarket.com/developers/CLOB/authentication
-- Polymarket CLOB Client Methods: https://docs.polymarket.com/developers/CLOB/clients/methods-l2
+- Polymarket CLOB Auth Docs: https://docs.polymarket.com/api-reference/authentication
+- Polymarket L2 Methods: https://docs.polymarket.com/trading/clients/l2

@@ -24,7 +24,7 @@ import {
   summarizeDetectedTradeForDebug,
 } from './tradeDiagnostics.js';
 import { createComponentLogger } from './logger.js';
-import { getTenantIdOrDefault } from './tenantContext.js';
+import { getTenantIdOrDefault, getTenantIdStrict } from './tenantContext.js';
 import { getAllocationPolicyState } from './allocation/policyEngine.js';
 
 const log = createComponentLogger('CopyTrader');
@@ -67,6 +67,22 @@ export const evaluateAllocationGate = (
   };
 };
 
+export const resolveStopLossPositionValue = (position: {
+  size?: string | number;
+  curPrice?: string | number;
+  asset?: string;
+  asset_id?: string;
+}): number => {
+  const size = parseFloat(String(position.size ?? '0'));
+  const curPrice = parseFloat(String(position.curPrice ?? 'NaN'));
+  if (!Number.isFinite(curPrice) || curPrice < 0) {
+    throw new Error(
+      `Cannot evaluate stop-loss safely because curPrice is missing/invalid for token ${position.asset || position.asset_id || 'unknown'}`
+    );
+  }
+  return size * curPrice;
+};
+
 /**
  * Main copy trading engine that coordinates monitoring and execution
  * Handles trade detection, execution, and performance tracking
@@ -107,15 +123,15 @@ export class CopyTrader {
       await this.executor.authenticate();
       await this.balanceTracker.initialize();
       
-      // Initialize multi-wallet manager
-      await initWalletManager();
+      // Hosted runtime is process-global; tenant wallet state loads on demand per request/trade context.
+      if (isHostedMultiTenantMode()) {
+        log.info('[CopyTrader] Hosted mode startup: skipping global wallet-manager preload');
+      } else {
+        await initWalletManager();
+      }
       
       const userWallet = this.getWalletAddress();
-      const initialAddrs = userWallet
-        ? [userWallet]
-        : isHostedMultiTenantMode()
-          ? getActiveTradingWallets().map(w => w.address)
-          : [];
+      const initialAddrs = userWallet ? [userWallet] : [];
       for (const addr of initialAddrs) {
         try {
           await this.balanceTracker.recordBalance(addr);
@@ -179,10 +195,7 @@ export class CopyTrader {
 
     // Start balance tracking for user wallet(s) (reduces RPC calls significantly)
     const userWallet = this.getWalletAddress();
-    const hostedAddrs = isHostedMultiTenantMode()
-      ? getActiveTradingWallets().map(w => w.address)
-      : [];
-    const toTrack = userWallet ? [userWallet] : hostedAddrs;
+    const toTrack = userWallet ? [userWallet] : [];
     if (toTrack.length > 0) {
       await this.balanceTracker.startTracking(toTrack);
     }
@@ -382,7 +395,7 @@ export class CopyTrader {
 
     const allocationState = getAllocationPolicyState(trade.walletAddress);
     const allocationGate = evaluateAllocationGate(trackedWallet?.tags, allocationState);
-    let allocationWeight = allocationGate.weight * dittoMultiplier;
+    const allocationWeight = allocationGate.weight * dittoMultiplier;
     if (!allocationGate.allowed || allocationWeight <= 0) {
       const blockedReason = allocationGate.reason
         || (allocationWeight <= 0
@@ -1836,9 +1849,7 @@ export class CopyTrader {
       try {
         const positions = await this.monitor.getApi().getUserPositions(walletToCheck);
         for (const position of positions) {
-          const size = parseFloat(position.size || '0');
-          const price = parseFloat(position.curPrice || position.avgPrice || '0.5');
-          positionsValue += size * price;
+          positionsValue += resolveStopLossPositionValue(position);
         }
       } catch (error: any) {
         log.error(`[CopyTrader] Cannot fetch positions for stop-loss check — BLOCKING trades for safety: ${error.message}`);
@@ -1898,10 +1909,12 @@ export class CopyTrader {
     const hourMs = 60 * 60 * 1000;
     const dayMs = 24 * 60 * 60 * 1000;
     
+    const tenantId = isHostedMultiTenantMode() ? getTenantIdStrict() : getTenantIdOrDefault();
+
     // If specific wallet requested
     if (walletAddress) {
       const walletRateState = this.perWalletRateLimits.get(
-        this.getRateLimitKey(walletAddress, getTenantIdOrDefault())
+        this.getRateLimitKey(walletAddress, tenantId)
       );
       if (!walletRateState) {
         // No rate limit state exists for this wallet (never had rate limiting enabled or no trades)

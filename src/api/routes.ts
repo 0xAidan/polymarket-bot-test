@@ -51,7 +51,12 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
   const performanceTracker = copyTrader.getPerformanceTracker();
   const lifecycleManager = new PositionLifecycleManager();
-  lifecycleManager.start().catch(err => log.error('[Lifecycle] Failed to start:', err.message));
+  const lifecycleHostedDisabled = isHostedMultiTenantMode();
+  if (!lifecycleHostedDisabled) {
+    lifecycleManager.start().catch(err => log.error('[Lifecycle] Failed to start:', err.message));
+  } else {
+    log.warn('[Lifecycle] Disabled in hosted multi-tenant mode until tenant-scoped execution is implemented');
+  }
   const arbScanner = new ArbScanner();
   const entityManager = new EntityManager();
   entityManager.init().catch(err => log.error('[Routes] EntityManager init failed:', err.message));
@@ -355,7 +360,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       res.json({ success: true, ...result });
 
       // Wallets are now available — trigger an immediate lifecycle check
-      lifecycleManager.triggerCheck().catch(() => { });
+      if (!lifecycleHostedDisabled) {
+        lifecycleManager.triggerCheck().catch(() => { });
+      }
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
     }
@@ -528,6 +535,16 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // ============================================================================
   // POSITION LIFECYCLE (Auto-Redeem / Auto-Merge)
   // ============================================================================
+
+  router.use('/lifecycle', (_req, res, next) => {
+    if (!lifecycleHostedDisabled) {
+      return next();
+    }
+    return res.status(403).json({
+      success: false,
+      error: 'Position lifecycle automation is disabled in hosted multi-tenant mode until tenant-scoped execution is implemented'
+    });
+  });
 
   // Get lifecycle status
   router.get('/lifecycle/status', (req: Request, res: Response) => {
@@ -3212,6 +3229,26 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         success: false,
         error: error.message,
         stack: error.stack
+      });
+    }
+  });
+
+  // Hosted-safe diagnostic endpoint for geoblock eligibility.
+  // Unlike other test endpoints, this remains available in hosted mode because
+  // it is required to validate deployment-region compliance.
+  router.get('/test/geoblock', async (_req: Request, res: Response) => {
+    try {
+      const geoblock = await copyTrader.getPolymarketApi().getGeoblockStatus();
+      res.json({
+        success: true,
+        timestamp: new Date().toISOString(),
+        ...geoblock,
+        tradingAllowed: !geoblock.blocked,
+      });
+    } catch (error: any) {
+      res.status(503).json({
+        success: false,
+        error: error.message || 'Failed to fetch geoblock status',
       });
     }
   });

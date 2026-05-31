@@ -677,7 +677,7 @@ export const buildDiscoveryHomePayload = (
   let filteredWallets: Array<any> = [];
   let globalWallets: Array<any> = [];
 
-  while (true) {
+  for (;;) {
     const batch = manager.getWallets(options.sort, rawBatchSize, rawOffset) as any[];
     if (batch.length === 0) break;
     const filteredBatch = applyDiscoveryPresentationFilters(
@@ -695,7 +695,7 @@ export const buildDiscoveryHomePayload = (
   }
 
   rawOffset = 0;
-  while (true) {
+  for (;;) {
     const batch = manager.getWallets(options.sort, rawBatchSize, rawOffset) as any[];
     if (batch.length === 0) break;
     const presentationBatch = filterDiscoveryWalletsForPresentation(batch, options.focus, false);

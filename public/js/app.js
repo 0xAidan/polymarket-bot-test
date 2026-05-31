@@ -1423,6 +1423,29 @@ async function testClobConnectivity() {
   } catch (error) { resultsDiv.innerHTML = `<div class="text-danger">Test failed: ${error.message}</div>`; }
 }
 
+async function testGeoblockStatus() {
+  const resultsDiv = document.getElementById('geoblockTestResults');
+  resultsDiv.innerHTML = '<div class="text-center text-muted">Checking region eligibility...</div>';
+  resultsDiv.classList.remove('hidden');
+
+  try {
+    const data = await API.testGeoblockStatus();
+    const badgeClass = data.tradingAllowed ? 'text-success' : 'text-danger';
+    const badgeText = data.tradingAllowed ? 'ALLOWED' : 'BLOCKED';
+    const country = data.country || 'unknown';
+    const region = data.region || 'unknown';
+    const ip = data.ip || 'unknown';
+
+    resultsDiv.innerHTML = `
+      <div><strong>Status:</strong> <span class="${badgeClass}">${badgeText}</span></div>
+      <div class="text-sm text-muted">Country: ${country} | Region: ${region} | IP: ${ip}</div>
+      ${data.tradingAllowed ? '' : '<div class="text-danger" style="margin-top:4px;">This deployment region cannot place trades. Move to an eligible region before going live.</div>'}
+    `;
+  } catch (error) {
+    resultsDiv.innerHTML = `<div class="text-danger">Geoblock check failed: ${error.message}</div>`;
+  }
+}
+
 async function loadFailedTrades() {
   const container = document.getElementById('failedTradesAnalysis');
   try {
