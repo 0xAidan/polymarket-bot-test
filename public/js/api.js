@@ -23,7 +23,6 @@ const readApiResponseViaCore = async (response) => {
   }
   return { ok: true, data };
 };
-
 const API = {
   // ── Auth token management ──
   getToken() {
@@ -87,7 +86,6 @@ const API = {
       if (!parsed.ok) {
         throw new Error(parsed.error || `HTTP ${response.status}`);
       }
-
       return parsed.data;
     } catch (error) {
       console.error(`API Error [${endpoint}]:`, error);

@@ -11,6 +11,8 @@ import { getDiscoveryConfig } from './discovery/statsStore.js';
 import { DiscoveryControlPlane } from './discovery/discoveryControlPlane.js';
 import { isDiscoveryV3Enabled } from './discovery/v3/featureFlag.js';
 import { getRuntimeServicesForMode, resolveRuntimeMode } from './runtimeMode.js';
+import { isHostedMultiTenantMode } from './hostedMode.js';
+import { getTenantId } from './tenantContext.js';
 import type { Server } from 'node:http';
 import { existsSync, writeFileSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
@@ -325,6 +327,13 @@ async function startAppRuntime() {
       log.error('⚠️  Bot will not start, but web server is running.');
       log.error('⚠️  Please fix your configuration and restart.');
       // Don't exit - let the server keep running so user can see the error
+      return;
+    }
+
+    // Hosted mode should not start global copy-trader loops without tenant scope.
+    if (isHostedMultiTenantMode() && !getTenantId()) {
+      log.info('Hosted multi-tenant mode detected: skipping global copy-trader auto-start until tenant context exists.');
+      registerAppShutdown(copyTrader, server);
       return;
     }
 
