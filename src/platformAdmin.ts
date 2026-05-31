@@ -25,6 +25,34 @@ export const isPlatformAdminEmail = (email: string | undefined | null): boolean 
   return getPlatformAdminEmailSet().has(email.trim().toLowerCase());
 };
 
+const normalizePossibleEmail = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  const candidate = value.trim().toLowerCase();
+  if (!candidate.includes('@')) return null;
+  if (candidate.includes(' ')) return null;
+  return candidate;
+};
+
+const resolveOidcEmailCandidates = (claims: Record<string, unknown>): string[] => {
+  const candidates = new Set<string>();
+
+  const directKeys = ['email', 'preferred_username', 'upn', 'nickname', 'name'] as const;
+  for (const key of directKeys) {
+    const normalized = normalizePossibleEmail(claims[key]);
+    if (normalized) candidates.add(normalized);
+  }
+
+  const emailsValue = claims.emails;
+  if (Array.isArray(emailsValue)) {
+    for (const email of emailsValue) {
+      const normalized = normalizePossibleEmail(email);
+      if (normalized) candidates.add(normalized);
+    }
+  }
+
+  return Array.from(candidates);
+};
+
 export const isLegacyPlatformAdminBearer = (req: Request): boolean => {
   if (!config.apiSecret) return false;
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, '').trim();
@@ -38,8 +66,9 @@ export const isLegacyPlatformAdminBearer = (req: Request): boolean => {
 export const resolveIsPlatformAdmin = (req: Request): boolean => {
   if (config.authMode === 'oidc') {
     if (!req.oidc?.isAuthenticated()) return false;
-    const claims = req.oidc.user || {};
-    return isPlatformAdminEmail(typeof claims.email === 'string' ? claims.email : undefined);
+    const claims = (req.oidc.user || {}) as Record<string, unknown>;
+    const candidates = resolveOidcEmailCandidates(claims);
+    return candidates.some((email) => isPlatformAdminEmail(email));
   }
   return isLegacyPlatformAdminBearer(req);
 };
