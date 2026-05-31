@@ -114,14 +114,6 @@ const API = {
     });
   },
 
-  // PUT request
-  async put(endpoint, body) {
-    return this.fetch(endpoint, {
-      method: 'PUT',
-      body: JSON.stringify(body)
-    });
-  },
-
   // DELETE request
   async delete(endpoint) {
     return this.fetch(endpoint, {
@@ -209,10 +201,6 @@ const API = {
 
   async bulkSaveAdminJungleAgents(updates) {
     return this.post('/admin/jungle-agents/bulk-save', { updates });
-  },
-
-  async syncAdminJungleAgentsFromPolymarket() {
-    return this.post('/admin/jungle-agents/sync-polymarket', {});
   },
 
   async removeWallet(address) {
