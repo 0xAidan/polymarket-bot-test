@@ -179,6 +179,9 @@ function initApp() {
   if (window.__appInitialized) return;
   window.__appInitialized = true;
   console.log('Ditto initialized');
+  if (typeof window.refreshPlatformAdminUi === 'function') {
+    window.refreshPlatformAdminUi(!!window.__isPlatformAdmin);
+  }
   bindTabNavigation();
   if (typeof window.markAppShellReady === 'function') {
     window.markAppShellReady();

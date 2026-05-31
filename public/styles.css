@@ -671,6 +671,22 @@ body {
 
 .hidden { display: none !important; }
 
+/* In-progress admin tools: hidden for all users unless body.platform-admin is set. */
+.j-nav-btn[data-tab="platforms"],
+.j-nav-btn[data-tab="cross-platform"],
+[data-admin-only] {
+  display: none !important;
+}
+
+body.platform-admin .j-nav-btn[data-tab="platforms"],
+body.platform-admin .j-nav-btn[data-tab="cross-platform"] {
+  display: inline-block !important;
+}
+
+body.platform-admin [data-admin-only].j-dash-collapsible {
+  display: block !important;
+}
+
 /* ============================================================
    METRICS DISPLAY (classic style)
    ============================================================ */

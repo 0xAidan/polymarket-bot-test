@@ -96,9 +96,11 @@ window.handleTenantWorkspaceChange = async (tenantId) => {
 };
 
 const applyPlatformAdminUi = (isPlatformAdmin) => {
-  document.querySelectorAll('[data-admin-only]').forEach((el) => {
-    el.classList.toggle('hidden', !isPlatformAdmin);
-  });
+  document.body.classList.toggle('platform-admin', !!isPlatformAdmin);
+};
+
+window.refreshPlatformAdminUi = (isPlatformAdmin) => {
+  applyPlatformAdminUi(isPlatformAdmin);
 };
 
 const applyCapabilities = (capabilities) => {
