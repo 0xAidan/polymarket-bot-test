@@ -96,8 +96,12 @@ test('pollGoldskyOnce advances cursor + inserts rows + deduplicates via mock cli
 
   let calls = 0;
   const client: GoldskyClient = {
-    async fetchOrderFilledSince(lastTimestamp: number): Promise<GoldskyOrderFilled[]> {
+    async fetchOrderFilledSince(cursor): Promise<GoldskyOrderFilled[]> {
       calls++;
+      if (calls === 1) {
+        assert.equal(cursor.lastTimestamp, 0);
+        assert.equal(cursor.lastEventId, '');
+      }
       return responses.shift() ?? [];
     },
   };
@@ -122,6 +126,8 @@ test('pollGoldskyOnce advances cursor + inserts rows + deduplicates via mock cli
     duck,
     cursor: {
       getLastBlock: () => 0,
+      getLastEventId: () => '',
+      getPageCursor: () => ({ lastTimestamp: 0, lastEventId: '' }),
       setLastBlock: () => undefined,
     },
     client: {
@@ -150,4 +156,51 @@ test('pollGoldskyOnce advances cursor + inserts rows + deduplicates via mock cli
   await duck.close();
   sqlite.close();
   assert.ok(calls >= 2);
+});
+
+test('pollGoldskyOnce paginates when a full page is returned', async () => {
+  const sqlite = new Database(':memory:');
+  runV3SqliteMigrations(sqlite);
+  const duck = await openDuckDB(':memory:');
+  await runV3DuckDBMigrations((sql) => duck.exec(sql));
+
+  const mkEvent = (id: string, ts: string): GoldskyOrderFilled => ({
+    id,
+    transactionHash: `0xtx-${id}`,
+    timestamp: ts,
+    orderHash: `0xhash-${id}`,
+    maker: '0xMAKER',
+    taker: '0xTAKER',
+    makerAssetId: '0',
+    takerAssetId: '1',
+    makerAmountFilled: '10',
+    takerAmountFilled: '20',
+    fee: '0',
+  });
+
+  let call = 0;
+  const client: GoldskyClient = {
+    async fetchOrderFilledSince(cursor, limit = 500): Promise<GoldskyOrderFilled[]> {
+      call++;
+      if (call === 1) {
+        assert.equal(cursor.lastTimestamp, 0);
+        return Array.from({ length: limit }, (_, i) => mkEvent(`page1-${i}`, '1700000000'));
+      }
+      if (call === 2) {
+        assert.equal(cursor.lastTimestamp, 1700000000);
+        assert.equal(cursor.lastEventId, 'page1-499');
+        return [mkEvent('page2-0', '1700000001')];
+      }
+      return [];
+    },
+  };
+
+  const cursor = createSqliteCursorStore(sqlite);
+  const result = await pollGoldskyOnce({ duck, cursor, client, pageSize: 500 });
+  assert.equal(result.fetched, 501);
+  assert.equal(result.newCursor, 1700000001);
+  assert.equal(call, 2);
+
+  await duck.close();
+  sqlite.close();
 });

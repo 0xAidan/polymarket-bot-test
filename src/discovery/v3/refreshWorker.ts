@@ -10,7 +10,7 @@
 import type Database from 'better-sqlite3';
 import { DuckDBClient } from './duckdbClient.js';
 import { buildSnapshotEmitSql } from './backfillQueries.js';
-import { scoreTiers } from './tierScoring.js';
+import { scoreTiers, shouldIncludeInTierRankings } from './tierScoring.js';
 import { runV3SqliteMigrations } from './schema.js';
 import { runV3SnapshotAdditiveColumnMigrations } from './duckdbSchema.js';
 import { buildCompositeScoringQuery, type CompositeScoredRow } from './compositeQueries.js';
@@ -169,8 +169,13 @@ export async function runRefreshOnce(options: RefreshWorkerOptions): Promise<Ref
   const excludedCount = copyRows.filter(r => r.copyable === 0).length;
   log(`[v3-refresh] copyability: ${excludedCount} wallets excluded (maker/algo), ${copyMap.size} total`);
 
+  const scoreableRows = rows.filter((r) => shouldIncludeInTierRankings(r.proxy_wallet, copyMap));
+  if (scoreableRows.length < rows.length) {
+    log(`[v3-refresh] tier scoring excludes ${rows.length - scoreableRows.length} non-copyable wallets`);
+  }
+
   const { scores, stats } = scoreTiers(
-    rows.map((r) => {
+    scoreableRows.map((r) => {
       const snap = {
         ...r,
         trade_count: Number(r.trade_count),

@@ -50,7 +50,7 @@ import {
 } from '../../src/discovery/v3/duckdbSchema.js';
 import { runV3SqliteMigrations } from '../../src/discovery/v3/schema.js';
 import { getDuckDBPath } from '../../src/discovery/v3/featureFlag.js';
-import { scoreTiers } from '../../src/discovery/v3/tierScoring.js';
+import { scoreTiers, shouldIncludeInTierRankings } from '../../src/discovery/v3/tierScoring.js';
 import { buildCompositeScoringQuery, type CompositeScoredRow } from '../../src/discovery/v3/compositeQueries.js';
 import { determineDittoState } from '../../src/discovery/v3/dittoEngine.js';
 import {
@@ -276,7 +276,9 @@ async function main(): Promise<void> {
     }
 
     const { scores, stats } = scoreTiers(
-      rows.map((r) => {
+      rows
+        .filter((r) => shouldIncludeInTierRankings(r.proxy_wallet, copyMap))
+        .map((r) => {
         const nicheRow = nicheMap.get(r.proxy_wallet);
         return {
           snapshot: r,
