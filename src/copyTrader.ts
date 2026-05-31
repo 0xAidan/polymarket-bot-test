@@ -26,6 +26,10 @@ import {
 import { createComponentLogger } from './logger.js';
 import { getTenantIdOrDefault } from './tenantContext.js';
 import { getAllocationPolicyState } from './allocation/policyEngine.js';
+import {
+  startClobHeartbeatManager,
+  stopClobHeartbeatManager,
+} from './clobHeartbeatManager.js';
 
 const log = createComponentLogger('CopyTrader');
 
@@ -187,6 +191,8 @@ export class CopyTrader {
       await this.balanceTracker.startTracking(toTrack);
     }
 
+    startClobHeartbeatManager();
+
     log.info('\n' + '='.repeat(60));
     log.info('✅ COPY TRADING BOT IS RUNNING');
     log.info('='.repeat(60));
@@ -211,6 +217,7 @@ export class CopyTrader {
     
     this.monitor.stopMonitoring();
     this.balanceTracker.stopTracking();
+    stopClobHeartbeatManager();
     log.info('Copy trading bot stopped');
   }
 
@@ -382,7 +389,7 @@ export class CopyTrader {
 
     const allocationState = getAllocationPolicyState(trade.walletAddress);
     const allocationGate = evaluateAllocationGate(trackedWallet?.tags, allocationState);
-    let allocationWeight = allocationGate.weight * dittoMultiplier;
+    const allocationWeight = allocationGate.weight * dittoMultiplier;
     if (!allocationGate.allowed || allocationWeight <= 0) {
       const blockedReason = allocationGate.reason
         || (allocationWeight <= 0

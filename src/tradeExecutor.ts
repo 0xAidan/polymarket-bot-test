@@ -19,6 +19,7 @@ import {
   evictClobClientCacheEntry,
 } from './clobClientFactory.js';
 import { isWalletUnlocked } from './secureKeyManager.js';
+import { registerClobClientForHeartbeat } from './clobHeartbeatManager.js';
 
 const log = createComponentLogger('TradeExecutor');
 
@@ -78,6 +79,7 @@ export class TradeExecutor {
         return;
       }
       await this.clobClient.initialize();
+      registerClobClientForHeartbeat(this.clobClient);
       this.isAuthenticated = true;
       log.info('✓ Trade executor authenticated');
     } catch (error: any) {
@@ -280,8 +282,8 @@ export class TradeExecutor {
           funderAddress: diagFunder,
           clobHost: process.env.POLYMARKET_CLOB_API_URL || 'https://clob.polymarket.com',
           builderAuthConfigured: order.tradingWalletId
-            ? true
-            : !!process.env.POLYMARKET_BUILDER_API_KEY && !!process.env.POLYMARKET_BUILDER_SECRET && !!process.env.POLYMARKET_BUILDER_PASSPHRASE,
+            ? !!(getTradingWallet(order.tradingWalletId)?.polymarketBuilderCode || config.polymarketBuilderCode)
+            : !!config.polymarketBuilderCode,
           retryAttempted: false,
         },
         errorMessage: '',
@@ -340,7 +342,9 @@ export class TradeExecutor {
                   signatureType: parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '0', 10),
                   funderAddress: process.env.POLYMARKET_FUNDER_ADDRESS || clobClient.getWalletAddress() || '',
                   clobHost: process.env.POLYMARKET_CLOB_API_URL || 'https://clob.polymarket.com',
-                  builderAuthConfigured: !!process.env.POLYMARKET_BUILDER_API_KEY && !!process.env.POLYMARKET_BUILDER_SECRET && !!process.env.POLYMARKET_BUILDER_PASSPHRASE,
+                  builderAuthConfigured: order.tradingWalletId
+                    ? !!(getTradingWallet(order.tradingWalletId)?.polymarketBuilderCode || config.polymarketBuilderCode)
+                    : !!config.polymarketBuilderCode,
                   retryAttempted: true,
                 },
                 errorMessage: retryError.message || clobError.message || 'invalid signature',

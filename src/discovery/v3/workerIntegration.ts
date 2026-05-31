@@ -7,7 +7,7 @@ import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 import type Database from 'better-sqlite3';
 import { parseNullableBooleanInput } from '../../utils/booleanParsing.js';
-import { isDiscoveryV3Enabled, getDuckDBPath } from './featureFlag.js';
+import { isDiscoveryV3Enabled, isDiscoveryV3GoldskyEnabled, getDuckDBPath } from './featureFlag.js';
 import { openDuckDB, DuckDBClient } from './duckdbClient.js';
 import {
   runV3DuckDBMigrations,
@@ -61,25 +61,35 @@ export async function startDiscoveryV3Worker(
     `[v3] coverage contract source=${process.env.DISCOVERY_V3_HISTORICAL_BACKFILL_SOURCE || 'huggingface:SII-WANGZJ/Polymarket_data/users.parquet'} max_ts=${process.env.DISCOVERY_V3_HISTORICAL_COVERAGE_MAX_TS || '1772668800'}`
   );
 
-  // Goldsky live listener
-  const client = createGoldskyClient();
-  const cursor = createSqliteCursorStore(opts.sqlite);
-  const goldskyInterval = opts.goldskyIntervalMs ?? 5 * 60 * 1000;
-  let goldskyRunning = false;
-  const goldskyTimer = setInterval(() => {
-    if (goldskyRunning) return;
-    goldskyRunning = true;
-    void (async () => {
-      try {
-        const r = await pollGoldskyOnce({ duck, cursor, client });
-        if (r.fetched > 0) log(`[v3-goldsky] fetched=${r.fetched} inserted=${r.inserted} cursor=${r.newCursor}`);
-      } catch (err) {
-        log(`[v3-goldsky] error: ${(err as Error).message}`);
-      } finally {
-        goldskyRunning = false;
-      }
-    })();
-  }, goldskyInterval);
+  // Goldsky live listener — disabled post-V2 cutover unless DISCOVERY_V3_GOLDSKY_ENABLED=true
+  // (subgraph 0.0.1 uses V1 OrderFilled schema; chain listener + Data API poller cover V2).
+  let goldskyTimer: ReturnType<typeof setInterval> | null = null;
+  if (isDiscoveryV3GoldskyEnabled()) {
+    const client = createGoldskyClient();
+    const cursor = createSqliteCursorStore(opts.sqlite);
+    const goldskyInterval = opts.goldskyIntervalMs ?? 5 * 60 * 1000;
+    let goldskyRunning = false;
+    goldskyTimer = setInterval(() => {
+      if (goldskyRunning) return;
+      goldskyRunning = true;
+      void (async () => {
+        try {
+          const r = await pollGoldskyOnce({ duck, cursor, client });
+          if (r.fetched > 0) log(`[v3-goldsky] fetched=${r.fetched} inserted=${r.inserted} cursor=${r.newCursor}`);
+        } catch (err) {
+          log(`[v3-goldsky] error: ${(err as Error).message}`);
+        } finally {
+          goldskyRunning = false;
+        }
+      })();
+    }, goldskyInterval);
+    log(`[v3] Goldsky listener active (interval ${goldskyInterval / 1000}s)`);
+  } else {
+    log(
+      '[v3] Goldsky listener disabled — V2 cutover passed and subgraph 0.0.1 is V1-shaped. ' +
+        'Set DISCOVERY_V3_GOLDSKY_ENABLED=true to force-enable. Copy-trading uses Data API + chain listener.',
+    );
+  }
 
   // Refresh loop
   const refresh: RefreshLoopHandle = startRefreshLoop({
@@ -94,7 +104,7 @@ export async function startDiscoveryV3Worker(
   return {
     duck,
     async stop(): Promise<void> {
-      clearInterval(goldskyTimer);
+      if (goldskyTimer) clearInterval(goldskyTimer);
       refresh.stop();
       await duck.close();
     },

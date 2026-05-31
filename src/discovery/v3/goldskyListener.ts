@@ -3,6 +3,10 @@
  * normalizes them into v3 activity rows, and inserts into
  * `discovery_activity_v3`. The DuckDB UNIQUE(tx_hash, log_index) constraint
  * handles any overlap with backfill at the boundary.
+ *
+ * NOTE (CLOB V2): subgraph orderbook-subgraph/0.0.1 indexes V1-shaped
+ * OrderFilled fields (makerAssetId/takerAssetId). Post Apr 2026 V2 cutover,
+ * prefer chainListener + Data API poller; disable via DISCOVERY_V3_GOLDSKY_ENABLED.
  */
 import { DuckDBClient } from './duckdbClient.js';
 import type Database from 'better-sqlite3';

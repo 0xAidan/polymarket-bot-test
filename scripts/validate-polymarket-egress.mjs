@@ -115,13 +115,24 @@ let allOk = true;
   }
 }
 
-// 4) Data API
+// 4) Data API — trades list
 {
   const res = await getText(`${data}/trades?limit=1`);
   if (res.ok) {
     console.log(`PASS  Data API trades  HTTP ${res.status}`);
   } else {
     console.log(`FAIL  Data API trades  HTTP ${res.status} ${data}/trades?limit=1`);
+    allOk = false;
+  }
+}
+
+// 4b) Data API — activity (copy-trade detection path)
+{
+  const res = await getText(`${data}/activity?limit=1&type=TRADE`);
+  if (res.ok) {
+    console.log(`PASS  Data API activity  HTTP ${res.status}`);
+  } else {
+    console.log(`FAIL  Data API activity  HTTP ${res.status} ${data}/activity?limit=1&type=TRADE`);
     allOk = false;
   }
 }

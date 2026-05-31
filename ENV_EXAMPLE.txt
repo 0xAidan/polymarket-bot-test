@@ -101,6 +101,14 @@ POLYMARKET_SIGNATURE_TYPE=0
 # and looking for token transfers to your Polymarket account.
 POLYMARKET_FUNDER_ADDRESS=0x_your_proxy_wallet_address_here
 
+# ============================================================
+# pUSD (V2 trading collateral)
+# ============================================================
+# After the Apr 2026 V2 cutover, Polymarket trades settle in pUSD (not raw USDC).
+# The bot auto-wraps USDC.e on your EOA into pUSD on first CLOB init.
+# If your USDC sits on the proxy wallet (signature type 2), open polymarket.com
+# once to convert balance to pUSD — the bot cannot wrap proxy-held USDC on-chain.
+
 # Server configuration (default 3001 in config)
 PORT=3001
 
@@ -127,3 +135,6 @@ DUCKDB_PATH=./data/discovery_v3.duckdb
 # Large backfill: skip CREATE INDEX on discovery_activity_v3 (ART indexes must fit in RAM during build).
 # When true, Goldsky live ingest cannot rely on UNIQUE(tx_hash, log_index) for duplicate swallowing.
 DISCOVERY_V3_SKIP_ACTIVITY_ART_INDEXES=false
+# Goldsky subgraph 0.0.1 uses V1 OrderFilled shape — disabled by default after V2 cutover (Apr 2026).
+# Copy-trading uses Data API /activity; discovery chain listener handles V2 on-chain events.
+DISCOVERY_V3_GOLDSKY_ENABLED=false
