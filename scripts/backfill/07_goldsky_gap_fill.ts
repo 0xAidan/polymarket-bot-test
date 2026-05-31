@@ -37,6 +37,7 @@ import {
   normalizeOrderFilled,
   insertNormalizedRowsBatch,
   type GoldskyOrderFilled,
+  type GoldskyPageCursor,
   type NormalizedV3Row,
 } from '../../src/discovery/v3/goldskyListener.js';
 
@@ -52,6 +53,7 @@ const MAX_RETRIES = 3;
 
 interface CursorFile {
   lastTimestamp: number;
+  lastEventId?: string;
   totalInserted: number;
   totalFetched: number;
   updatedAt: string;
@@ -126,13 +128,13 @@ function findStartingTimestamp(startTsUnix: number): number {
 
 async function fetchWithRetry(
   client: ReturnType<typeof createGoldskyClient>,
-  lastTimestamp: number,
+  cursor: GoldskyPageCursor,
   pageSize: number,
 ): Promise<GoldskyOrderFilled[]> {
   let lastErr: Error | null = null;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      return await client.fetchOrderFilledSince(lastTimestamp, pageSize);
+      return await client.fetchOrderFilledSince(cursor, pageSize);
     } catch (err) {
       lastErr = err as Error;
       const backoffMs = 1000 * Math.pow(2, attempt - 1); // 1s, 2s, 4s
@@ -174,11 +176,13 @@ async function main(): Promise<void> {
     // ── Determine starting timestamp ──────────────────────────────────
     const savedCursor = readCursor(cursorPath);
     let lastTimestamp: number;
+    let lastEventId = '';
     let totalInserted: number;
     let totalFetched: number;
 
     if (savedCursor) {
       lastTimestamp = savedCursor.lastTimestamp;
+      lastEventId = savedCursor.lastEventId ?? '';
       totalInserted = savedCursor.totalInserted;
       totalFetched = savedCursor.totalFetched;
       // Clean up any partial-page remnants from a previous Ctrl+C.
@@ -212,12 +216,17 @@ async function main(): Promise<void> {
 
       let events: GoldskyOrderFilled[];
       try {
-        events = await fetchWithRetry(client, lastTimestamp, pageSize);
+        events = await fetchWithRetry(
+          client,
+          { lastTimestamp, lastEventId },
+          pageSize,
+        );
       } catch (err) {
         // All retries exhausted — save cursor and bail.
         console.error(`[07] FATAL: Goldsky fetch failed after ${MAX_RETRIES} retries: ${(err as Error).message}`);
         writeCursor(cursorPath, {
           lastTimestamp,
+          lastEventId,
           totalInserted,
           totalFetched,
           updatedAt: new Date().toISOString(),
@@ -251,6 +260,7 @@ async function main(): Promise<void> {
       if (insertFailed) {
         writeCursor(cursorPath, {
           lastTimestamp,
+          lastEventId,
           totalInserted,
           totalFetched,
           updatedAt: new Date().toISOString(),
@@ -260,8 +270,9 @@ async function main(): Promise<void> {
       }
 
       // Advance cursor only after successful insert.
-      const maxTs = events.reduce((m, e) => Math.max(m, Number(e.timestamp)), lastTimestamp);
-      lastTimestamp = maxTs;
+      const lastEvent = events[events.length - 1];
+      lastTimestamp = Number(lastEvent.timestamp);
+      lastEventId = lastEvent.id;
       totalFetched += events.length;
       totalInserted += pageInserted;
 

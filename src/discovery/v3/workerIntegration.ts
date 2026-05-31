@@ -7,8 +7,9 @@ import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 import type Database from 'better-sqlite3';
 import { parseNullableBooleanInput } from '../../utils/booleanParsing.js';
-import { isDiscoveryV3Enabled, isDiscoveryV3GoldskyEnabled, getDuckDBPath } from './featureFlag.js';
+import { isDiscoveryV3Enabled, isDiscoveryV3GoldskyEnabled, isDiscoveryV3RpcPollEnabled, getDuckDBPath, getRpcPollIntervalMs } from './featureFlag.js';
 import { openDuckDB, DuckDBClient } from './duckdbClient.js';
+import { saveDiscoveryV3WorkerState } from './workerState.js';
 import {
   runV3DuckDBMigrations,
   runV3DuckDBMigrationsBackfillNoIndex,
@@ -20,6 +21,11 @@ import {
   pollGoldskyOnce,
 } from './goldskyListener.js';
 import { startRefreshLoop, RefreshLoopHandle } from './refreshWorker.js';
+import {
+  createHttpRpcClient,
+  pollRpcLogsOnce,
+  getDefaultRpcUrl,
+} from './rpcLogPoller.js';
 
 export interface V3WorkerHandle {
   stop(): Promise<void>;
@@ -91,6 +97,36 @@ export async function startDiscoveryV3Worker(
     );
   }
 
+  // Polygon HTTP eth_getLogs — hourly forward-fill (budget-friendly, V1+V2).
+  let rpcTimer: ReturnType<typeof setInterval> | null = null;
+  if (isDiscoveryV3RpcPollEnabled()) {
+    const rpcClient = createHttpRpcClient(getDefaultRpcUrl());
+    const rpcCursor = createSqliteCursorStore(opts.sqlite);
+    const rpcInterval = getRpcPollIntervalMs();
+    let rpcRunning = false;
+    const runRpcPoll = async (): Promise<void> => {
+      if (rpcRunning) return;
+      rpcRunning = true;
+      try {
+        const r = await pollRpcLogsOnce({ duck, cursor: rpcCursor, client: rpcClient });
+        if (r.logsFetched > 0 || r.inserted > 0) {
+          log(
+            `[v3-rpc] blocks=${r.fromBlock}-${r.toBlock} logs=${r.logsFetched} inserted=${r.inserted} cursor=${r.newCursor}`
+          );
+        }
+      } catch (err) {
+        log(`[v3-rpc] error: ${(err as Error).message}`);
+      } finally {
+        rpcRunning = false;
+      }
+    };
+    void runRpcPoll();
+    rpcTimer = setInterval(() => { void runRpcPoll(); }, rpcInterval);
+    log(`[v3] RPC log poller active (${getDefaultRpcUrl()}, interval ${rpcInterval / 1000}s)`);
+  } else {
+    log('[v3] RPC log poller disabled (DISCOVERY_V3_RPC_POLL_ENABLED=false)');
+  }
+
   // Refresh loop
   const refresh: RefreshLoopHandle = startRefreshLoop({
     duck,
@@ -101,10 +137,20 @@ export async function startDiscoveryV3Worker(
 
   log('[v3] live ingest + refresh loop started');
 
+  saveDiscoveryV3WorkerState({
+    enabled: true,
+    bootstrapOk: true,
+    goldskyEnabled: isDiscoveryV3GoldskyEnabled(),
+    rpcPollEnabled: isDiscoveryV3RpcPollEnabled(),
+    duckdbPath: dbPath,
+    updatedAt: Math.floor(Date.now() / 1000),
+  });
+
   return {
     duck,
     async stop(): Promise<void> {
       if (goldskyTimer) clearInterval(goldskyTimer);
+      if (rpcTimer) clearInterval(rpcTimer);
       refresh.stop();
       await duck.close();
     },

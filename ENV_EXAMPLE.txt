@@ -69,6 +69,7 @@ POLYMARKET_DATA_API_URL=https://data-api.polymarket.com
 POLYMARKET_GAMMA_API_URL=https://gamma-api.polymarket.com
 
 # Polygon RPC endpoint (use a reliable provider like Alchemy, Infura, or QuickNode)
+# Free public option that works for discovery RPC polling: https://polygon-bor-rpc.publicnode.com
 POLYGON_RPC_URL=https://polygon-rpc.com
 
 # ============================================================
@@ -138,3 +139,9 @@ DISCOVERY_V3_SKIP_ACTIVITY_ART_INDEXES=false
 # Goldsky subgraph 0.0.1 uses V1 OrderFilled shape — disabled by default after V2 cutover (Apr 2026).
 # Copy-trading uses Data API /activity; discovery chain listener handles V2 on-chain events.
 DISCOVERY_V3_GOLDSKY_ENABLED=false
+# Hourly Polygon eth_getLogs forward-fill (default on when DISCOVERY_V3=true).
+DISCOVERY_V3_RPC_POLL_ENABLED=true
+DISCOVERY_V3_RPC_POLL_INTERVAL_MS=3600000
+DISCOVERY_V3_RPC_BLOCK_CHUNK=2000
+DISCOVERY_V3_RPC_OVERLAP_BLOCKS=100
+DISCOVERY_V3_RPC_INITIAL_LOOKBACK_BLOCKS=1800

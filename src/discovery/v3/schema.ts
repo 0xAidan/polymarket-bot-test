@@ -27,6 +27,7 @@ export const V3_SQLITE_DDL: string[] = [
     pipeline       TEXT PRIMARY KEY,
     last_block     INTEGER NOT NULL,
     last_ts_unix   INTEGER NOT NULL,
+    last_event_id  TEXT NOT NULL DEFAULT '',
     updated_at     INTEGER NOT NULL
   )`,
 ];
@@ -55,6 +56,7 @@ const ADDITIVE_COLUMN_MIGRATIONS: string[] = [
   `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN latest_signal_ts INTEGER DEFAULT NULL`,
   `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN predictions_count INTEGER DEFAULT NULL`,
   `ALTER TABLE discovery_wallet_scores_v3 ADD COLUMN profile_name TEXT DEFAULT NULL`,
+  `ALTER TABLE pipeline_cursor ADD COLUMN last_event_id TEXT NOT NULL DEFAULT ''`,
 ];
 
 export function runV3SqliteMigrations(db: Database.Database): void {

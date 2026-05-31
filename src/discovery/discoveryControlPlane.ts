@@ -14,6 +14,9 @@ import {
   purgeOldTrades,
   updateDiscoveryConfig,
 } from './statsStore.js';
+import { getCurrentDiscoveryRuntimeHeartbeat } from './discoveryRuntimeState.js';
+import { loadDiscoveryV3WorkerState } from './v3/workerState.js';
+import { isDiscoveryV3Enabled, isDiscoveryV3GoldskyEnabled, isDiscoveryV3RpcPollEnabled } from './v3/featureFlag.js';
 import {
   DiscoveryConfig,
   DiscoveryConfidenceBucket,
@@ -195,18 +198,41 @@ export class DiscoveryControlPlane {
       latestEvaluation.precisionAtK >= latestEvaluation.baselinePrecisionAtK
     );
 
+    const runtimeHeartbeat = getCurrentDiscoveryRuntimeHeartbeat();
+    const v3State = loadDiscoveryV3WorkerState();
+    const v3Enabled = isDiscoveryV3Enabled();
+    const goldskyEnabled = isDiscoveryV3GoldskyEnabled();
+    const rpcPollEnabled = isDiscoveryV3RpcPollEnabled();
+    const freeModeNoAlchemy = latestRun?.freeModeNoAlchemy !== false;
+
     return {
       enabled: cfg.enabled,
       chainListener: {
-        connected: false,
-        lastEventAt: undefined,
-        reconnectCount: 0,
+        connected: Boolean(runtimeHeartbeat?.chainListener?.connected),
+        lastEventAt: runtimeHeartbeat?.chainListener?.lastEventAt,
+        reconnectCount: runtimeHeartbeat?.chainListener?.reconnectCount ?? 0,
+        note: freeModeNoAlchemy
+          ? 'Legacy chain listener disabled (freeModeNoAlchemy). V3 uses backfill + optional Goldsky.'
+          : undefined,
       },
       apiPoller: {
-        running: isFreshRun,
-        lastPollAt: latestRunCreatedAtMs,
-        marketsMonitored: marketPoolCount,
+        running: Boolean(runtimeHeartbeat?.apiPoller?.running ?? isFreshRun),
+        lastPollAt: runtimeHeartbeat?.apiPoller?.lastPollAt ?? latestRunCreatedAtMs,
+        marketsMonitored: runtimeHeartbeat?.apiPoller?.marketsMonitored ?? marketPoolCount,
+        note: !runtimeHeartbeat
+          ? 'Run-log freshness proxy only; legacy DiscoveryManager worker mode is not started in production.'
+          : undefined,
       },
+      v3: v3Enabled
+        ? {
+            bootstrapOk: v3State?.bootstrapOk ?? false,
+            bootstrapError: v3State?.bootstrapError,
+            goldskyEnabled,
+            rpcPollEnabled,
+            duckdbPath: v3State?.duckdbPath,
+            updatedAt: v3State?.updatedAt,
+          }
+        : undefined,
       stats: {
         totalWallets: scoredWallets.count || candidateWallets.count || getTotalWalletCount(),
         totalTrades: latestRun?.candidateCount ?? getTotalTradeCount(),

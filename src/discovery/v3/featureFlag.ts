@@ -22,3 +22,30 @@ export function isDiscoveryV3GoldskyEnabled(): boolean {
 export function getDuckDBPath(): string {
   return process.env.DUCKDB_PATH || './data/discovery_v3.duckdb';
 }
+
+/** Hourly Polygon eth_getLogs forward-fill (default on when v3 enabled). */
+export function isDiscoveryV3RpcPollEnabled(): boolean {
+  if (process.env.DISCOVERY_V3_RPC_POLL_ENABLED === 'false') return false;
+  if (process.env.DISCOVERY_V3_RPC_POLL_ENABLED === 'true') return true;
+  return isDiscoveryV3Enabled();
+}
+
+export function getRpcPollIntervalMs(): number {
+  const raw = Number(process.env.DISCOVERY_V3_RPC_POLL_INTERVAL_MS ?? 3_600_000);
+  return Number.isFinite(raw) && raw >= 60_000 ? raw : 3_600_000;
+}
+
+export function getRpcPollBlockChunk(): number {
+  const raw = Number(process.env.DISCOVERY_V3_RPC_BLOCK_CHUNK ?? 2_000);
+  return Number.isFinite(raw) && raw >= 100 ? Math.floor(raw) : 2_000;
+}
+
+export function getRpcPollOverlapBlocks(): number {
+  const raw = Number(process.env.DISCOVERY_V3_RPC_OVERLAP_BLOCKS ?? 100);
+  return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 100;
+}
+
+export function getRpcPollInitialLookbackBlocks(): number {
+  const raw = Number(process.env.DISCOVERY_V3_RPC_INITIAL_LOOKBACK_BLOCKS ?? 1_800);
+  return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 1_800;
+}
