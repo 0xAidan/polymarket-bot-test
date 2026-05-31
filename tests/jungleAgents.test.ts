@@ -12,13 +12,17 @@ import {
   createAgent,
   updateAgent,
   reorderAgents,
+  bulkUpdateAddresses,
+  migrateOlympicsConfigToJungleStore,
   validateOlympicsProfileUrl,
   validatePolymarketAddress,
   __dangerousReplaceAgentsForTests,
   seedJungleAgentsIfMissing,
 } from '../src/jungleAgentsStore.js';
 import { createJungleAgentsRoutes } from '../src/api/jungleAgentsRoutes.js';
+import { createOlympicsRoutes } from '../src/api/olympicsRoutes.js';
 import { requirePlatformAdmin } from '../src/middleware/requirePlatformAdmin.js';
+import { Storage } from '../src/storage.js';
 
 const makeApp = () => {
   const app = express();
@@ -98,6 +102,67 @@ describe('jungleAgentsStore', () => {
     const reordered = await reorderAgents(reversed);
     assert.equal(reordered[0].id, reversed[0]);
   });
+
+  it('rejects duplicate enabled Polymarket addresses', async () => {
+    await seedJungleAgentsIfMissing();
+    const addr = `0x${'2'.repeat(40)}`;
+    await createAgent({
+      displayName: 'Dup Test A',
+      polymarketAddress: addr,
+      olympicsProfileUrl: 'https://olympics.jungle.win/agents#dup-a',
+      enabled: true,
+    });
+    await assert.rejects(
+      () =>
+        createAgent({
+          displayName: 'Dup Test B',
+          polymarketAddress: addr,
+          olympicsProfileUrl: 'https://olympics.jungle.win/agents#dup-b',
+          enabled: true,
+        }),
+      /already uses this Polymarket address/i
+    );
+  });
+
+  it('bulk updates addresses with validation', async () => {
+    await seedJungleAgentsIfMissing();
+    const agents = await loadAgents();
+    const target = agents[0];
+    const addr = `0x${'3'.repeat(40)}`;
+    const updated = await bulkUpdateAddresses([{ id: target.id, polymarketAddress: addr }]);
+    const found = updated.find((a) => a.id === target.id);
+    assert.equal(found?.polymarketAddress, addr);
+    await assert.rejects(
+      () => bulkUpdateAddresses([{ id: target.id, polymarketAddress: '0xbad' }]),
+      /Invalid polymarketAddress/i
+    );
+  });
+
+  it('migrates legacy olympics config without overwriting existing jungle addresses', async () => {
+    await seedJungleAgentsIfMissing();
+    const agents = await loadAgents();
+    const howler = agents.find((a) => a.slug === 'howler-monkey-herald' || a.displayName === 'Howler Monkey Herald');
+    assert.ok(howler);
+    const existing = `0x${'4'.repeat(40)}`;
+    await updateAgent(howler!.id, { polymarketAddress: existing });
+
+    const cfg = await Storage.loadConfig();
+    cfg.olympicsAgents = [
+      { id: 'howler-monkey-herald', displayName: 'Howler Monkey Herald', walletAddress: `0x${'5'.repeat(40)}` },
+      { id: 'king', displayName: 'KING', walletAddress: `0x${'6'.repeat(40)}` },
+    ];
+    await Storage.saveConfig(cfg);
+
+    const result = await migrateOlympicsConfigToJungleStore();
+    assert.equal(result.conflicts, 1);
+    assert.equal(result.merged, 1);
+
+    const after = await loadAgents();
+    const howlerAfter = after.find((a) => a.id === howler!.id);
+    const kingAfter = after.find((a) => a.slug === 'king' || a.displayName === 'KING');
+    assert.equal(howlerAfter?.polymarketAddress, existing);
+    assert.equal(kingAfter?.polymarketAddress, `0x${'6'.repeat(40)}`);
+  });
 });
 
 describe('jungleAgentsRoutes', () => {
@@ -169,5 +234,104 @@ describe('jungleAgentsRoutes', () => {
     assert.equal(res.status, 200);
     assert.equal(body.success, true);
     assert.ok(Array.isArray(body.agents));
+  });
+
+  it('returns 403 for admin write routes without platform admin', async () => {
+    const app = makeApp();
+    const { baseUrl, close } = await listen(app);
+    const agents = await loadAgents();
+    const agentId = agents[0].id;
+    const cases: Array<{ method: string; path: string; body?: unknown }> = [
+      { method: 'POST', path: '/api/admin/jungle-agents', body: { displayName: 'X', olympicsProfileUrl: 'https://olympics.jungle.win/agents' } },
+      { method: 'PATCH', path: `/api/admin/jungle-agents/${agentId}`, body: { tagline: 'nope' } },
+      { method: 'DELETE', path: `/api/admin/jungle-agents/${agentId}` },
+      { method: 'POST', path: '/api/admin/jungle-agents/reorder', body: { orderedIds: [agentId] } },
+      { method: 'POST', path: '/api/admin/jungle-agents/bulk-addresses', body: { updates: [{ id: agentId, polymarketAddress: `0x${'7'.repeat(40)}` }] } },
+    ];
+    for (const c of cases) {
+      const res = await fetch(`${baseUrl}${c.path}`, {
+        method: c.method,
+        headers: { 'Content-Type': 'application/json' },
+        body: c.body ? JSON.stringify(c.body) : undefined,
+      });
+      const body = await res.json();
+      assert.equal(res.status, 403, `${c.method} ${c.path}`);
+      assert.match(body.error, /Platform admin/i);
+    }
+    await close();
+  });
+
+  it('PATCH rejects invalid address and accepts valid address for admin', async () => {
+    const app = makeApp();
+    const { baseUrl, close } = await listen(app);
+    const agents = await loadAgents();
+    const agentId = agents[0].id;
+    const auth = { Authorization: 'Bearer admin-secret', 'Content-Type': 'application/json' };
+
+    const bad = await fetch(`${baseUrl}/api/admin/jungle-agents/${agentId}`, {
+      method: 'PATCH',
+      headers: auth,
+      body: JSON.stringify({ polymarketAddress: '0x123' }),
+    });
+    const badBody = await bad.json();
+    assert.equal(bad.status, 400);
+    assert.match(badBody.error, /Invalid polymarketAddress/i);
+
+    const goodAddr = `0x${'8'.repeat(40)}`;
+    const good = await fetch(`${baseUrl}/api/admin/jungle-agents/${agentId}`, {
+      method: 'PATCH',
+      headers: auth,
+      body: JSON.stringify({ polymarketAddress: goodAddr }),
+    });
+    const goodBody = await good.json();
+    assert.equal(good.status, 200);
+    assert.equal(goodBody.agent.polymarketAddress, goodAddr);
+    await close();
+  });
+});
+
+describe('olympicsRoutes', () => {
+  let savedDataDir: string;
+  let tempDir: string;
+
+  beforeEach(async () => {
+    savedDataDir = config.dataDir;
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'olympics-api-'));
+    (config as { dataDir: string }).dataDir = tempDir;
+    await seedJungleAgentsIfMissing();
+  });
+
+  afterEach(() => {
+    (config as { dataDir: string }).dataDir = savedDataDir;
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('GET reads roster from jungle store', async () => {
+    const app = express();
+    app.use(express.json());
+    app.use('/api/olympics', createOlympicsRoutes());
+    const { baseUrl, close } = await listen(app);
+    const res = await fetch(`${baseUrl}/api/olympics/agents`);
+    const body = await res.json();
+    await close();
+    assert.equal(res.status, 200);
+    assert.equal(body.agents.length, 9);
+    assert.ok(body.agents[0].id);
+  });
+
+  it('PUT is blocked for non-admin clients', async () => {
+    const app = express();
+    app.use(express.json());
+    app.use('/api/olympics', createOlympicsRoutes());
+    const { baseUrl, close } = await listen(app);
+    const res = await fetch(`${baseUrl}/api/olympics/agents`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agents: [] }),
+    });
+    const body = await res.json();
+    await close();
+    assert.equal(res.status, 403);
+    assert.match(body.error, /platform-admin/i);
   });
 });

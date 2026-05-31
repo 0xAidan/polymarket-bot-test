@@ -121,6 +121,11 @@ const loadCapabilities = async () => {
 };
 
 window.maybeStartApp = () => {
+  if (typeof window.__adminBoot === 'function') {
+    window.markAppShellReady();
+    window.__adminBoot();
+    return;
+  }
   if (typeof initApp === 'function') {
     initApp();
     return;

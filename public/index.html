@@ -418,7 +418,7 @@
         <div id="tab-jungle-agents" class="win-tab-panel">
           <header class="j-section-header">
             <h2 class="font-serif">Jungle Agents</h2>
-            <p id="jungleAgentsMeta" class="text-muted">Curated Olympics agents you can follow with one click.</p>
+            <p id="jungleAgentsMeta" class="text-muted">Curated agents you can follow on Polymarket with one click.</p>
           </header>
           <div id="jungleAgentsGrid" class="j-agent-grid" aria-live="polite"></div>
         </div>
@@ -713,21 +713,6 @@
               <div class="text-center text-muted" style="padding:12px;">Click refresh to load failed trades analysis</div>
             </div>
             <button class="win-btn" onclick="loadFailedTrades()" style="margin-top:8px;">Refresh Analysis</button>
-          </div>
-
-          <!-- Agent Olympics Admin -->
-          <div class="win-group">
-            <div class="win-group-title">Agent Olympics Admin</div>
-            <p class="section-intro-text" style="margin-bottom:12px;">
-              Nine roster slots for <a href="https://olympics.jungle.win/agents" target="_blank" rel="noopener noreferrer">olympics.jungle.win/agents</a>.
-              Leave wallet blank until verified on-chain — never guess addresses.
-            </p>
-            <div id="olympicsAgentsAdmin" class="olympics-admin-grid"></div>
-            <div class="flex-row gap-8" style="margin-top:12px;">
-              <button class="win-btn win-btn-primary" type="button" onclick="saveOlympicsAgents()" aria-label="Save Olympics agent roster">Save Roster</button>
-              <button class="win-btn" type="button" onclick="loadOlympicsAgents()" aria-label="Reload Olympics agent roster">Reload</button>
-            </div>
-            <div id="olympicsAdminStatus" class="text-sm text-muted" style="margin-top:8px;"></div>
           </div>
 
           <!-- System Issues Log -->

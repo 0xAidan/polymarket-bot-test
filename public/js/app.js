@@ -281,7 +281,6 @@ function refreshCurrentTab() {
       }
       break;
     case 'diagnostics':
-      loadOlympicsAgents();
       break;
   }
 }
@@ -4492,83 +4491,4 @@ document.addEventListener('keydown', (e) => {
     }
   }
 });
-
-// ============================================================
-// AGENT OLYMPICS ADMIN
-// ============================================================
-
-const renderOlympicsAgentsAdmin = (agents) => {
-  const root = document.getElementById('olympicsAgentsAdmin');
-  if (!root) return;
-  root.innerHTML = (agents || []).map((agent, index) => {
-    const safeName = String(agent.displayName || '').replace(/"/g, '&quot;');
-    const safeWallet = String(agent.walletAddress || '');
-    return `
-      <div class="olympics-agent-card" data-agent-id="${agent.id}">
-        <div class="olympics-agent-index">#${index + 1}</div>
-        <label class="form-label">Display name</label>
-        <div class="flex-row gap-8" style="margin-bottom:8px;">
-          <input class="win-input olympics-name-input" type="text" value="${safeName}" aria-label="Agent ${index + 1} display name" />
-          <button class="win-btn win-btn-sm" type="button" onclick="copyOlympicsField(${index}, 'name')" aria-label="Copy display name">Copy name</button>
-        </div>
-        <label class="form-label">Wallet (blank until verified)</label>
-        <div class="flex-row gap-8">
-          <input class="win-input olympics-wallet-input" type="text" value="${safeWallet}" placeholder="0x…" aria-label="Agent ${index + 1} wallet address" />
-          <button class="win-btn win-btn-sm" type="button" onclick="copyOlympicsField(${index}, 'wallet')" aria-label="Copy wallet address" ${safeWallet ? '' : 'disabled'}>Copy wallet</button>
-        </div>
-      </div>`;
-  }).join('');
-};
-
-const collectOlympicsAgentsFromDom = () => {
-  const cards = document.querySelectorAll('.olympics-agent-card');
-  return Array.from(cards).map((card) => ({
-    id: card.getAttribute('data-agent-id'),
-    displayName: card.querySelector('.olympics-name-input')?.value?.trim() || '',
-    walletAddress: card.querySelector('.olympics-wallet-input')?.value?.trim() || '',
-  }));
-};
-
-const loadOlympicsAgents = async () => {
-  const statusEl = document.getElementById('olympicsAdminStatus');
-  try {
-    const data = await API.fetch('/olympics/agents');
-    if (!data.success) throw new Error(data.error || 'Failed to load agents');
-    renderOlympicsAgentsAdmin(data.agents);
-    if (statusEl) statusEl.textContent = `Loaded ${data.agents.length} agents. Public page: ${data.publicUrl || 'https://olympics.jungle.win/agents'}`;
-  } catch (err) {
-    if (statusEl) statusEl.textContent = `Load failed: ${err.message}`;
-  }
-};
-
-const saveOlympicsAgents = async () => {
-  const statusEl = document.getElementById('olympicsAdminStatus');
-  try {
-    const agents = collectOlympicsAgentsFromDom();
-    const data = await API.fetch('/olympics/agents', { method: 'PUT', body: JSON.stringify({ agents }) });
-    if (!data.success) throw new Error(data.error || 'Failed to save agents');
-    renderOlympicsAgentsAdmin(data.agents);
-    if (statusEl) statusEl.textContent = 'Roster saved.';
-    await win95Dialog.success('Olympics roster saved.', 'Agent Olympics');
-  } catch (err) {
-    if (statusEl) statusEl.textContent = `Save failed: ${err.message}`;
-    await win95Dialog.error(err.message, 'Agent Olympics');
-  }
-};
-
-const copyOlympicsField = async (index, field) => {
-  const cards = document.querySelectorAll('.olympics-agent-card');
-  const card = cards[index];
-  if (!card) return;
-  const value = field === 'wallet'
-    ? card.querySelector('.olympics-wallet-input')?.value?.trim()
-    : card.querySelector('.olympics-name-input')?.value?.trim();
-  if (!value) return;
-  try {
-    await navigator.clipboard.writeText(value);
-    await win95Dialog.success(`Copied ${field === 'wallet' ? 'wallet' : 'name'} to clipboard.`, 'Copied');
-  } catch {
-    await win95Dialog.alert(value, 'Copy manually');
-  }
-};
 

@@ -87,7 +87,7 @@ export async function runRefreshOnce(options: RefreshWorkerOptions): Promise<Ref
   const READ_BATCH_SIZE = 100_000;
   const rows: V3FeatureSnapshot[] = [];
   let cursor = '';
-  while (true) {
+  for (;;) {
     const cursorClause = cursor
       ? `WHERE proxy_wallet > '${cursor.replace(/'/g, "''")}'`
       : '';

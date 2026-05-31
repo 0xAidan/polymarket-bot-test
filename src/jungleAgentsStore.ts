@@ -3,11 +3,16 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { config } from './config.js';
 import { createComponentLogger } from './logger.js';
+import { Storage } from './storage.js';
 
 const log = createComponentLogger('JungleAgentsStore');
 
+type LegacyOlympicsAgent = { id: string; displayName: string; walletAddress: string };
+
 export type JungleAgentRecord = {
   id: string;
+  /** Stable slug aligned with legacy Olympics roster ids (migration + public API). */
+  slug?: string;
   displayName: string;
   tagline?: string;
   modelLabel?: string;
@@ -23,16 +28,21 @@ export type JungleAgentRecord = {
 const OLY_HOST = 'olympics.jungle.win';
 
 const seedAgents: Omit<JungleAgentRecord, 'id' | 'createdAtMs' | 'updatedAtMs'>[] = [
-  { displayName: 'Howler Monkey Herald', tagline: 'The Loud Scout', modelLabel: 'Gemini 2.5', polymarketAddress: '', olympicsProfileUrl: `https://${OLY_HOST}/agents`, sortOrder: 1, enabled: true },
-  { displayName: 'Silverback Sage', tagline: 'The Veteran Mind', modelLabel: 'Gemini 2.5', polymarketAddress: '', olympicsProfileUrl: `https://${OLY_HOST}/agents`, sortOrder: 2, enabled: true },
-  { displayName: 'Sabermetrician', tagline: 'The Numbers Mind', modelLabel: 'Gemini 2.5', polymarketAddress: '', olympicsProfileUrl: `https://${OLY_HOST}/agents`, sortOrder: 3, enabled: true },
-  { displayName: 'Veteran Backstop', tagline: "The Catcher's POV", modelLabel: 'Gemini 2.5', polymarketAddress: '', olympicsProfileUrl: `https://${OLY_HOST}/agents`, sortOrder: 4, enabled: true },
-  { displayName: 'Claude Slugger', tagline: 'The Diamond Mind', modelLabel: 'Claude Opus 4.6', polymarketAddress: '', olympicsProfileUrl: `https://${OLY_HOST}/agents`, sortOrder: 5, enabled: true },
-  { displayName: 'DeepSeek Knuckler', tagline: 'The Contrarian Bat', modelLabel: 'DeepSeek V3.2', polymarketAddress: '', olympicsProfileUrl: `https://${OLY_HOST}/agents`, sortOrder: 6, enabled: true },
-  { displayName: 'Gemini Laser', tagline: 'The Pitch Modeler', modelLabel: 'Gemini 3.1 Pro Preview', polymarketAddress: '', olympicsProfileUrl: `https://${OLY_HOST}/agents`, sortOrder: 7, enabled: true },
-  { displayName: 'Mistral Closer', tagline: 'The Late-Inning Pricer', modelLabel: 'Mistral Medium 3', polymarketAddress: '', olympicsProfileUrl: `https://${OLY_HOST}/agents`, sortOrder: 8, enabled: true },
-  { displayName: 'KING', tagline: 'The Aggregator', modelLabel: 'KING Aggregator', polymarketAddress: '', olympicsProfileUrl: `https://${OLY_HOST}/agents`, sortOrder: 9, enabled: true }
+  { slug: 'howler-monkey-herald', displayName: 'Howler Monkey Herald', tagline: 'The Loud Scout', modelLabel: 'Gemini 2.5', polymarketAddress: '', olympicsProfileUrl: `https://${OLY_HOST}/agents`, sortOrder: 1, enabled: true },
+  { slug: 'silverback-sage', displayName: 'Silverback Sage', tagline: 'The Veteran Mind', modelLabel: 'Gemini 2.5', polymarketAddress: '', olympicsProfileUrl: `https://${OLY_HOST}/agents`, sortOrder: 2, enabled: true },
+  { slug: 'sabermetrician', displayName: 'Sabermetrician', tagline: 'The Numbers Mind', modelLabel: 'Gemini 2.5', polymarketAddress: '', olympicsProfileUrl: `https://${OLY_HOST}/agents`, sortOrder: 3, enabled: true },
+  { slug: 'veteran-backstop', displayName: 'Veteran Backstop', tagline: "The Catcher's POV", modelLabel: 'Gemini 2.5', polymarketAddress: '', olympicsProfileUrl: `https://${OLY_HOST}/agents`, sortOrder: 4, enabled: true },
+  { slug: 'claude-slugger', displayName: 'Claude Slugger', tagline: 'The Diamond Mind', modelLabel: 'Claude Opus 4.6', polymarketAddress: '', olympicsProfileUrl: `https://${OLY_HOST}/agents`, sortOrder: 5, enabled: true },
+  { slug: 'deepseek-knuckler', displayName: 'DeepSeek Knuckler', tagline: 'The Contrarian Bat', modelLabel: 'DeepSeek V3.2', polymarketAddress: '', olympicsProfileUrl: `https://${OLY_HOST}/agents`, sortOrder: 6, enabled: true },
+  { slug: 'gemini-laser', displayName: 'Gemini Laser', tagline: 'The Pitch Modeler', modelLabel: 'Gemini 3.1 Pro Preview', polymarketAddress: '', olympicsProfileUrl: `https://${OLY_HOST}/agents`, sortOrder: 7, enabled: true },
+  { slug: 'mistral-closer', displayName: 'Mistral Closer', tagline: 'The Late-Inning Pricer', modelLabel: 'Mistral Medium 3', polymarketAddress: '', olympicsProfileUrl: `https://${OLY_HOST}/agents`, sortOrder: 8, enabled: true },
+  { slug: 'king', displayName: 'KING', tagline: 'The Aggregator', modelLabel: 'KING Aggregator', polymarketAddress: '', olympicsProfileUrl: `https://${OLY_HOST}/agents`, sortOrder: 9, enabled: true }
 ];
+
+const slugByDisplayName = new Map(seedAgents.map((s) => [s.displayName.toLowerCase(), s.slug!]));
+
+export const inferAgentSlug = (displayName: string): string | undefined =>
+  slugByDisplayName.get(displayName.trim().toLowerCase());
 
 const agentsFilePath = (): string => path.join(config.dataDir, 'jungle_agents.json');
 
@@ -201,6 +211,120 @@ export async function reorderAgents(orderedIds: string[]): Promise<JungleAgentRe
   }
   await saveAgentsFile(agents);
   return [...agents].sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+export type BulkAddressUpdate = { id: string; polymarketAddress: string };
+
+export async function bulkUpdateAgents(updates: Array<Partial<JungleAgentRecord> & { id: string }>): Promise<JungleAgentRecord[]> {
+  if (!Array.isArray(updates) || updates.length === 0) {
+    throw new Error('updates must be a non-empty array');
+  }
+  for (const row of updates) {
+    const { id, ...patch } = row;
+    await updateAgent(id, patch);
+  }
+  return [...(await loadAgentsFile())].sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+export async function bulkUpdateAddresses(updates: BulkAddressUpdate[]): Promise<JungleAgentRecord[]> {
+  if (!Array.isArray(updates) || updates.length === 0) {
+    throw new Error('updates must be a non-empty array');
+  }
+  const agents = await loadAgentsFile();
+  const byId = new Map(agents.map((a) => [a.id, a]));
+  const staged = new Map<string, string>();
+
+  for (const row of updates) {
+    const id = String(row.id || '').trim();
+    if (!id || !byId.has(id)) throw new Error(`Agent not found: ${id}`);
+    const addr = String(row.polymarketAddress ?? '').trim();
+    assertEvmOptional(addr);
+    staged.set(id, addr);
+  }
+
+  for (const [id, addr] of staged) {
+    const agent = byId.get(id)!;
+    const enabled = agent.enabled;
+    if (addr && enabled && duplicateEnabledAddress(agents, addr, id)) {
+      throw new Error(`Another enabled agent already uses address ${addr}`);
+    }
+  }
+
+  const now = Date.now();
+  for (const [id, addr] of staged) {
+    const agent = byId.get(id)!;
+    agent.polymarketAddress = addr;
+    agent.updatedAtMs = now;
+  }
+  await saveAgentsFile(agents);
+  return [...agents].sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+const matchOlympicsToJungle = (jungle: JungleAgentRecord, olympics: LegacyOlympicsAgent): boolean => {
+  const oId = olympics.id.trim().toLowerCase();
+  const oName = olympics.displayName.trim().toLowerCase();
+  if (jungle.slug && jungle.slug.toLowerCase() === oId) return true;
+  const inferred = inferAgentSlug(jungle.displayName);
+  if (inferred && inferred.toLowerCase() === oId) return true;
+  return jungle.displayName.trim().toLowerCase() === oName;
+};
+
+/** One-time merge from legacy config.olympicsAgents — never overwrites non-empty jungle addresses. */
+export async function migrateOlympicsConfigToJungleStore(): Promise<{ merged: number; conflicts: number; skipped: number }> {
+  const cfg = await Storage.loadConfig();
+  const raw = cfg.olympicsAgents;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return { merged: 0, conflicts: 0, skipped: 0 };
+  }
+
+  const agents = await loadAgentsFile();
+  let merged = 0;
+  let conflicts = 0;
+  let skipped = 0;
+  const now = Date.now();
+
+  for (const row of raw as LegacyOlympicsAgent[]) {
+    if (!row || typeof row !== 'object') continue;
+    const wallet = String(row.walletAddress || '').trim();
+    if (!wallet || !/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
+      skipped++;
+      continue;
+    }
+    const lowerWallet = wallet.toLowerCase();
+    const target = agents.find((a) => matchOlympicsToJungle(a, row));
+    if (!target) {
+      log.warn({ olympicsId: row.id, displayName: row.displayName }, 'Olympics migration: no jungle agent match');
+      skipped++;
+      continue;
+    }
+    if (!target.slug && row.id) {
+      target.slug = row.id.trim().toLowerCase();
+    }
+    if (target.polymarketAddress) {
+      if (target.polymarketAddress.toLowerCase() !== lowerWallet) {
+        log.warn(
+          { agentId: target.id, slug: target.slug, existing: target.polymarketAddress, olympics: lowerWallet },
+          'Olympics migration conflict: jungle address kept'
+        );
+        conflicts++;
+      } else {
+        skipped++;
+      }
+      continue;
+    }
+    target.polymarketAddress = lowerWallet;
+    target.updatedAtMs = now;
+    merged++;
+    log.info({ agentId: target.id, slug: target.slug }, 'Olympics migration: merged wallet address');
+  }
+
+  if (merged > 0 || conflicts > 0) {
+    await saveAgentsFile(agents);
+  }
+  if (merged > 0 || conflicts > 0) {
+    log.info({ merged, conflicts, skipped }, 'Olympics → jungle_agents migration complete');
+  }
+  return { merged, conflicts, skipped };
 }
 
 /** Alias for tests and callers that prefer the shorter name. */
