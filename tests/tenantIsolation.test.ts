@@ -137,7 +137,7 @@ describe('tenant isolation hardening', () => {
     (config as any).authMode = 'oidc';
     (config as any).storageBackend = 'sqlite';
     const lifecycle = new PositionLifecycleManager();
-    await assert.rejects(() => lifecycle.start(), /disabled in hosted multi-tenant mode/);
+    await assert.rejects(() => lifecycle.start(), /not available in hosted multi-tenant mode/);
   });
 
   it('config validation rejects hosted mode with PRIVATE_KEY set', () => {

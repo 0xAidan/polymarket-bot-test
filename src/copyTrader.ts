@@ -389,7 +389,7 @@ export class CopyTrader {
 
     const allocationState = getAllocationPolicyState(trade.walletAddress);
     const allocationGate = evaluateAllocationGate(trackedWallet?.tags, allocationState);
-    let allocationWeight = allocationGate.weight * dittoMultiplier;
+    const allocationWeight = allocationGate.weight * dittoMultiplier;
     if (!allocationGate.allowed || allocationWeight <= 0) {
       const blockedReason = allocationGate.reason
         || (allocationWeight <= 0
