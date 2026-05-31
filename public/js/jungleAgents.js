@@ -3,39 +3,6 @@
  */
 
 let jungleAgentsBooted = false;
-let trackedAddressSet = new Set();
-
-const formatUsd = (value) => {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
-  return `$${Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-};
-
-const agentShortAddress = (address) => {
-  if (!address) return '—';
-  return `${address.slice(0, 6)}…${address.slice(-4)}`;
-};
-
-const polymarketProfileUrl = (address) => {
-  if (!address) return null;
-  return `https://polymarket.com/profile/${address.trim().toLowerCase()}`;
-};
-
-const refreshTrackedSet = async () => {
-  try {
-    const data = await API.getWallets();
-    trackedAddressSet = new Set(
-      (data.wallets || []).map((w) => String(w.address).toLowerCase()),
-    );
-  } catch {
-    trackedAddressSet = new Set();
-  }
-};
-
-/**
- * Jungle Agents public showcase tab.
- */
-
-let jungleAgentsBooted = false;
 let cachedAgents = [];
 let trackedAddressSet = new Set();
 
@@ -121,8 +88,7 @@ const syncFollowButtons = (agents) => {
     if (!btn) return;
     const address = agent.polymarketAddress?.toLowerCase() || '';
     const isFollowing = address && trackedAddressSet.has(address);
-    const followDisabled = agent.addressPending || isFollowing;
-    btn.disabled = followDisabled;
+    btn.disabled = agent.addressPending || isFollowing;
     btn.textContent = isFollowing ? 'Following' : 'Follow';
   });
 };
@@ -191,15 +157,15 @@ const handleFollowAgent = async (agent) => {
     await win95Dialog.alert('This agent does not have a Polymarket address yet.');
     return;
   }
-  const address = agent.polymarketAddress.toLowerCase();
-  if (trackedAddressSet.has(address)) {
+  const addr = agent.polymarketAddress.toLowerCase();
+  if (trackedAddressSet.has(addr)) {
     await win95Dialog.alert('You are already following this wallet. Open Tracked Wallets to configure and enable copying.');
     switchTab('wallets');
     return;
   }
   try {
-    await API.addWallet(address, agent.displayName);
-    trackedAddressSet.add(address);
+    await API.addWallet(addr, agent.displayName);
+    trackedAddressSet.add(addr);
     await win95Dialog.success(`Added ${agent.displayName} to Tracked Wallets (inactive until you enable copying).`);
     if (typeof loadWallets === 'function') await loadWallets(true);
     syncFollowButtons(cachedAgents);
@@ -208,15 +174,12 @@ const handleFollowAgent = async (agent) => {
   }
 };
 
-/** @deprecated card alias */
-const renderAgentCard = (agent) => renderAgentTableRow(agent);
-
 window.initJungleAgentsTab = async (force = false) => {
   const grid = document.getElementById('jungleAgentsGrid');
   const meta = document.getElementById('jungleAgentsMeta');
   if (!grid) return;
 
-  if (jungleAgentsBooted && !force && grid.querySelector('.j-agents-table')) {
+  if (jungleAgentsBooted && !force && grid.querySelector('.j-agents-table tbody tr')) {
     await refreshTrackedSet();
     syncFollowButtons(cachedAgents);
     return;
@@ -243,13 +206,7 @@ window.initJungleAgentsTab = async (force = false) => {
       return;
     }
 
-    const tbody = grid.querySelector('.j-agents-table tbody');
-    if (tbody) {
-      tbody.innerHTML = agents.map(renderAgentTableRow).join('');
-    } else {
-      grid.innerHTML = renderAgentTable(agents);
-    }
-
+    grid.innerHTML = renderAgentTable(agents);
     bindAgentGridEvents(grid, agents);
 
     agents.forEach((agent) => {
