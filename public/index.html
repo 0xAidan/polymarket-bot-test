@@ -274,6 +274,20 @@
             </div>
           </div>
 
+          <div class="win-group">
+            <div class="win-group-title">Jungle Agent Presets (One-Click Track)</div>
+            <div class="flex-row gap-8 mb-8">
+              <label class="text-sm" for="jungleAgentCategoryFilter">Category:</label>
+              <select id="jungleAgentCategoryFilter" class="win-select" onchange="renderJungleAgentPresets()" aria-label="Filter jungle agents by category">
+                <option value="ALL">All</option>
+              </select>
+              <button class="win-btn win-btn-sm" onclick="loadJungleAgentPresets(true)">Refresh</button>
+            </div>
+            <div id="jungleAgentPresetList">
+              <div class="text-center text-muted" style="padding:12px;">Loading Jungle Agent presets...</div>
+            </div>
+          </div>
+
           <!-- Tracked Wallets List -->
           <div class="win-group">
             <div class="win-group-title">Tracked Wallets</div>

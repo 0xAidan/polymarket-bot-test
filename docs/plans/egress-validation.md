@@ -29,7 +29,7 @@ Optional env vars match the project’s `.env` / [ENV_EXAMPLE.txt](../../ENV_EXA
 | `0` | All checks passed |
 | `1` | At least one check failed |
 
-Use this on the **target VPS** (or any host in an allowed region) to gate deployment. **Do not** wire it into GitHub Actions by default: hosted runners often sit in regions where `https://polymarket.com/api/geoblock` returns `blocked: true`, which would fail the job even when your EU server is fine.
+Use this on the **target VPS** (or any host in an allowed region) to gate deployment. Save the passing output in the deployment notes for the exact release candidate. **Do not** wire it into GitHub Actions by default: hosted runners often sit in regions where `https://polymarket.com/api/geoblock` returns `blocked: true`, which would fail the job even when your EU server is fine.
 
 ## Troubleshooting
 

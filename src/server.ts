@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import type { Server } from 'node:http';
 import path from 'path';
 import rateLimit from 'express-rate-limit';
 import { auth, type ConfigParams } from 'express-openid-connect';
@@ -426,13 +427,13 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 /**
  * Start the server
  */
-export async function startServer(app: express.Application): Promise<void> {
+export async function startServer(app: express.Application): Promise<Server> {
   return new Promise((resolve, reject) => {
     const host = process.env.HOST || '0.0.0.0'; // Listen on all interfaces for cloud/docker
     const server = app.listen(config.port, host, () => {
       log.info(`\n🚀 Server running on http://${host}:${config.port}`);
       log.info(`📊 Open your browser to manage wallets and control the bot\n`);
-      resolve();
+      resolve(server);
     });
 
     server.on('error', (error: any) => {

@@ -2,6 +2,8 @@
 
 Use this checklist before promoting hosted multi-tenant builds.
 
+This checklist is a **release gate** for hosted deployments. Do not promote or restart production on a new release candidate until every item below has evidence attached to the deployment notes.
+
 ## Goal
 
 Prove that two different tenants cannot read each other's wallet data, balances, positions, or diagnostics.
@@ -74,6 +76,15 @@ Review logs while running the checks:
 - There should be no hosted proxy resolution using env funder fallback.
 - Any blocked cross-profile access should be logged as warning.
 
+## Evidence To Capture
+
+Save these artifacts with the release notes or deployment handoff:
+
+- screenshots of Tenant A and Tenant B dashboards
+- raw API responses for blocked cross-tenant route checks
+- log excerpts showing blocked fallback attempts only
+- exact deployed commit SHA / PR link used for the verification run
+
 ## Pass Criteria
 
 All conditions must be true:
@@ -82,5 +93,6 @@ All conditions must be true:
 - Hosted debug/platform routes return `403`.
 - UI wallet lists and balances stay tenant-specific.
 - Logs show blocked fallback attempts only, not successful global fallbacks.
+- Evidence artifacts are attached to the release candidate notes.
 
 If any check fails, do not promote to production.

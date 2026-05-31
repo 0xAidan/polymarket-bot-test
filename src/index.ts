@@ -11,6 +11,7 @@ import { getDiscoveryConfig } from './discovery/statsStore.js';
 import { DiscoveryControlPlane } from './discovery/discoveryControlPlane.js';
 import { isDiscoveryV3Enabled } from './discovery/v3/featureFlag.js';
 import { getRuntimeServicesForMode, resolveRuntimeMode } from './runtimeMode.js';
+import type { Server } from 'node:http';
 import { existsSync, writeFileSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -237,13 +238,31 @@ function reloadConfig(): void {
   config.polymarketBuilderPassphrase = process.env.POLYMARKET_BUILDER_PASSPHRASE || '';
 }
 
-const registerAppShutdown = (copyTrader: CopyTrader | null): void => {
+const registerAppShutdown = (copyTrader: CopyTrader | null, server: Server | null): void => {
   const handleShutdown = async () => {
     console.log('\n🛑 Shutting down...');
-    if (copyTrader) {
-      copyTrader.stop();
+    try {
+      if (copyTrader) {
+        copyTrader.stop();
+      }
+      if (server) {
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('Timed out waiting for HTTP server to close')), 5000);
+          server.close((error) => {
+            clearTimeout(timeout);
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve();
+          });
+        });
+      }
+    } catch (error: any) {
+      log.error({ detail: error?.message }, 'Shutdown encountered an error');
+    } finally {
+      process.exit(0);
     }
-    process.exit(0);
   };
 
   process.on('SIGINT', handleShutdown);
@@ -266,6 +285,7 @@ const registerDiscoveryShutdown = (discoveryRunner: { stop: () => Promise<void> 
 
 async function startAppRuntime() {
   let copyTrader: CopyTrader | null = null;
+  let server: Server | null = null;
 
   try {
     // Ensure data directory exists (always do this, even if config fails)
@@ -294,7 +314,7 @@ async function startAppRuntime() {
     log.info('🌐 Starting web server...');
     copyTrader = new CopyTrader();
     const app = await createServer(copyTrader);
-    await startServer(app);
+    server = await startServer(app);
 
     // Validate configuration
     log.info('🔧 Validating configuration...');
@@ -358,7 +378,7 @@ async function startAppRuntime() {
       // Don't exit - let the server keep running
     }
 
-    registerAppShutdown(copyTrader);
+    registerAppShutdown(copyTrader, server);
   } catch (error: any) {
     log.error({ detail: error.message }, '❌ Fatal error')
     log.error(error);
