@@ -330,30 +330,6 @@ const moveAgent = async (id, direction) => {
   await loadAdminAgents();
 };
 
-const syncMissingFromPolymarket = async () => {
-  try {
-    const data = await API.syncAdminJungleAgentsFromPolymarket();
-    rowDrafts.clear();
-    await loadAdminAgents();
-    const synced = data.synced ?? 0;
-    const unresolved = data.unresolved ?? [];
-    if (synced > 0) {
-      await win95Dialog.success(`Synced ${synced} wallet address${synced === 1 ? '' : 'es'} from Polymarket.`);
-      return;
-    }
-    if (unresolved.length > 0) {
-      await win95Dialog.alert(
-        `No new addresses found. Still missing: ${unresolved.join(', ')}. Paste KING's wallet manually if it is not on Polymarket yet.`,
-        'Sync complete'
-      );
-      return;
-    }
-    await win95Dialog.alert('All agents already have wallet addresses.');
-  } catch (error) {
-    await win95Dialog.error(error.message || 'Polymarket sync failed');
-  }
-};
-
 const bootAdmin = async () => {
   try {
     const caps = await API.getCapabilities();
@@ -373,7 +349,6 @@ document.getElementById('adminRefreshBtn')?.addEventListener('click', () => {
   rowDrafts.clear();
   loadAdminAgents().catch((e) => win95Dialog.error(e.message));
 });
-document.getElementById('adminSyncPolymarketBtn')?.addEventListener('click', () => syncMissingFromPolymarket());
 document.getElementById('adminSaveAllBtn')?.addEventListener('click', () => saveAllChanges());
 
 document.querySelectorAll('[data-admin-nav]').forEach((el) => {
