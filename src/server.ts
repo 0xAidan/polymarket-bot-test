@@ -25,6 +25,7 @@ import {
   writeAuthAuditLog
 } from './authStore.js';
 import { seedJungleAgentsIfMissing, migrateOlympicsConfigToJungleStore } from './jungleAgentsStore.js';
+import { syncMissingAgentAddressesFromPolymarket } from './jungleAgentsPolymarketSync.js';
 import { resolveIsPlatformAdmin } from './platformAdmin.js';
 
 const log = createComponentLogger('Server');
@@ -40,6 +41,15 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   await initDatabase();
   await seedJungleAgentsIfMissing();
   await migrateOlympicsConfigToJungleStore();
+  try {
+    const syncResult = await syncMissingAgentAddressesFromPolymarket();
+    if (syncResult.synced > 0 || syncResult.unresolved.length > 0) {
+      log.info(syncResult, 'Jungle Agents Polymarket address sync finished');
+    }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    log.warn({ err: message }, 'Jungle Agents Polymarket address sync failed (non-fatal)');
+  }
   const app = express();
   app.set('trust proxy', 1);
 

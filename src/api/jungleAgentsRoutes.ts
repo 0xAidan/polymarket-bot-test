@@ -15,6 +15,7 @@ import {
   bulkUpdateAgents,
   type JungleAgentRecord,
 } from '../jungleAgentsStore.js';
+import { syncMissingAgentAddressesFromPolymarket } from '../jungleAgentsPolymarketSync.js';
 import { requirePlatformAdmin } from '../middleware/requirePlatformAdmin.js';
 
 const log = createComponentLogger('JungleAgentsRoutes');
@@ -74,17 +75,16 @@ export function createJungleAgentsRouter(copyTrader: CopyTrader): Router {
         return;
       }
       const api = copyTrader.getPolymarketApi();
-      const balanceTracker = copyTrader.getBalanceTracker();
-      const portfolio = await api.getPortfolioValue(addr, balanceTracker);
+      const portfolio = await api.getPolymarketProfilePortfolio(addr);
       const payload = {
         success: true,
         agentId: agent.id,
         address: addr,
-        portfolioValueUsd: portfolio.totalValue,
+        portfolioValueUsd: portfolio.portfolioValueUsd,
         positionCount: portfolio.positionCount,
         tradeCount30d: null as null,
         lastActiveAt: null as null,
-        source: 'polymarket_data_api',
+        source: portfolio.source,
         stale: false
       };
       perfCache.set(addr, { at: now, payload });
@@ -177,6 +177,16 @@ export function createJungleAgentsRouter(copyTrader: CopyTrader): Router {
       res.json({ success: true, agents });
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  router.post('/admin/jungle-agents/sync-polymarket', requirePlatformAdmin, async (_req: Request, res: Response) => {
+    try {
+      const result = await syncMissingAgentAddressesFromPolymarket();
+      const agents = (await loadAgentsFile()).sort((a, b) => a.sortOrder - b.sortOrder);
+      res.json({ success: true, ...result, agents });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
     }
   });
 

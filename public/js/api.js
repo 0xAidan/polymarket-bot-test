@@ -185,6 +185,10 @@ const API = {
     return this.post('/admin/jungle-agents/bulk-save', { updates });
   },
 
+  async syncAdminJungleAgentsFromPolymarket() {
+    return this.post('/admin/jungle-agents/sync-polymarket', {});
+  },
+
   async removeWallet(address) {
     return this.delete(`/wallets/${address}`);
   },
