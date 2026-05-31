@@ -4,11 +4,14 @@
   background: var(--jungle-bg);
   color: var(--jungle-text);
   min-height: 100vh;
+  overflow-y: auto;
 }
 
 .j-admin-layout {
   display: flex;
   min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .j-admin-nav {
@@ -92,8 +95,12 @@
 
 .j-admin-main {
   flex: 1;
+  min-height: 0;
+  min-width: 0;
   padding: var(--space-xl);
   max-width: 1400px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .j-admin-header {
@@ -125,10 +132,15 @@
 .j-admin-table-card {
   padding: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: min(70vh, 720px);
 }
 
 .j-admin-table-scroll {
-  overflow-x: auto;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .j-admin-table {
@@ -141,6 +153,13 @@
 .j-admin-table thead {
   background: var(--jungle-bg-elevated);
   border-bottom: 1px solid var(--jungle-border-strong);
+}
+
+.j-admin-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--jungle-bg-elevated);
 }
 
 .j-admin-table th {
@@ -358,6 +377,9 @@
 @media (max-width: 900px) {
   .j-admin-layout {
     flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
   }
 
   .j-admin-nav {
@@ -381,5 +403,7 @@
 
   .j-admin-main {
     padding: var(--space-md);
+    overflow-y: visible;
+    min-height: auto;
   }
 }

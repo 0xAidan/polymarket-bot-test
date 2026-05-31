@@ -15,6 +15,11 @@ const agentShortAddress = (address) => {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 };
 
+const polymarketProfileUrl = (address) => {
+  if (!address) return null;
+  return `https://polymarket.com/profile/${address.trim().toLowerCase()}`;
+};
+
 const refreshTrackedSet = async () => {
   try {
     const data = await API.getWallets();
@@ -70,6 +75,7 @@ const renderAgentCard = (agent) => {
   const isFollowing = address && trackedAddressSet.has(address);
   const followDisabled = agent.addressPending || isFollowing;
   const followLabel = isFollowing ? 'Following' : 'Follow';
+  const profileUrl = polymarketProfileUrl(agent.polymarketAddress);
   const avatar = agent.avatarUrl
     ? `<img src="${agent.avatarUrl}" alt="" class="j-agent-avatar-img" />`
     : `<span class="j-agent-avatar-fallback">${agent.displayName.slice(0, 1)}</span>`;
@@ -94,7 +100,9 @@ const renderAgentCard = (agent) => {
            <button type="button" class="j-btn j-btn-ghost j-btn-sm" data-copy-address="${agent.polymarketAddress}" aria-label="Copy address">Copy</button>`}
       </div>
       <footer class="j-agent-actions">
-        <a class="j-btn" href="${agent.olympicsProfileUrl}" target="_blank" rel="noopener noreferrer">View on Olympics</a>
+        ${profileUrl
+    ? `<a class="j-btn" href="${profileUrl}" target="_blank" rel="noopener noreferrer">View on Polymarket</a>`
+    : '<span class="j-btn" aria-disabled="true" style="opacity:0.45;pointer-events:none">View on Polymarket</span>'}
         <button type="button" class="j-btn j-btn-primary" data-follow-agent="${agent.id}" ${followDisabled ? 'disabled' : ''}>${followLabel}</button>
       </footer>
     </article>
