@@ -3,6 +3,26 @@
  * Handles all communication with the backend API
  */
 
+const readApiResponseViaCore = async (response) => {
+  const helper = globalThis.ApiCore?.readApiResponse;
+  if (typeof helper === 'function') {
+    return helper(response);
+  }
+  // Fallback so pages that forgot to load api-core.js still work.
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+  if (!response.ok) {
+    return { ok: false, error: data?.error || `HTTP ${response.status}`, data };
+  }
+  if (data && data.success === false) {
+    return { ok: false, error: data.error || 'Request failed', data };
+  }
+  return { ok: true, data };
+};
 const API = {
   // ── Auth token management ──
   getToken() {
@@ -62,13 +82,11 @@ const API = {
         throw new Error('Authentication required');
       }
 
-      const data = await response.json();
-
-      if (!response.ok || data.success === false) {
-        throw new Error(data.error || `HTTP ${response.status}`);
+      const parsed = await readApiResponseViaCore(response);
+      if (!parsed.ok) {
+        throw new Error(parsed.error || `HTTP ${response.status}`);
       }
-
-      return data;
+      return parsed.data;
     } catch (error) {
       console.error(`API Error [${endpoint}]:`, error);
       throw error;
