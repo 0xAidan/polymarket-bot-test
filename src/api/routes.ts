@@ -39,7 +39,6 @@ import { createComponentLogger } from '../logger.js';
 import { isHostedMultiTenantMode } from '../hostedMode.js';
 import { DEFAULT_TENANT_ID, getTenantId, runWithTenant } from '../tenantContext.js';
 import { listTenantIdsWithLadderOrStopLossActivity } from '../database.js';
-import { createJungleAgentsRouter } from './jungleAgentsRoutes.js';
 
 const log = createComponentLogger('Routes');
 
@@ -3288,8 +3287,6 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       });
     }
   });
-
-  router.use(createJungleAgentsRouter(copyTrader));
 
   return router;
 }
