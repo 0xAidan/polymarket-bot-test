@@ -5,6 +5,7 @@ import { config } from '../src/config.js';
 import {
   isPlatformAdminEmail,
   isLegacyPlatformAdminBearer,
+  resolveIsPlatformAdmin,
   resetPlatformAdminEmailCache,
 } from '../src/platformAdmin.js';
 
@@ -47,5 +48,22 @@ describe('platformAdmin', () => {
       headers: { authorization: 'Bearer wrong' },
     } as Request;
     assert.equal(isLegacyPlatformAdminBearer(badReq), false);
+  });
+
+  it('resolves OIDC platform admin when email is in preferred_username', () => {
+    (config as { authMode: 'legacy' | 'oidc' }).authMode = 'oidc';
+    (config as { platformAdminEmails: string }).platformAdminEmails = 'aidannuge@gmail.com';
+    resetPlatformAdminEmailCache();
+
+    const req = {
+      oidc: {
+        isAuthenticated: () => true,
+        user: {
+          preferred_username: 'aidannuge@gmail.com',
+        },
+      },
+    } as unknown as Request;
+
+    assert.equal(resolveIsPlatformAdmin(req), true);
   });
 });
