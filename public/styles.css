@@ -387,11 +387,11 @@ body {
 }
 
 .win-tab-panel.active {
-  display: block;
+  display: block !important;
 }
 
 .win-tab-panel.active.j-dashboard {
-  display: flex;
+  display: flex !important;
   flex-direction: column;
   gap: var(--space-md);
   min-height: 0;
