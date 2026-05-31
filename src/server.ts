@@ -6,6 +6,8 @@ import rateLimit from 'express-rate-limit';
 import { auth, type ConfigParams } from 'express-openid-connect';
 import { config } from './config.js';
 import { createRoutes } from './api/routes.js';
+import { createJungleAgentsRouter } from './api/jungleAgentsRoutes.js';
+import { createOlympicsRoutes } from './api/olympicsRoutes.js';
 import { CopyTrader } from './copyTrader.js';
 import { initDatabase } from './database.js';
 import { createDiscoveryRoutes } from './api/discoveryRoutes.js';
@@ -277,6 +279,8 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 
   // API routes
   app.use('/api', createRoutes(copyTrader));
+  app.use('/api', createJungleAgentsRouter(copyTrader));
+  app.use('/olympics', createOlympicsRoutes());
   app.use('/api/discovery', createDiscoveryRoutes(discoveryControlPlane as any));
 
   // API 404 handler - catch any unmatched /api routes and return JSON
@@ -338,6 +342,10 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   // Serve dashboard UI (fallback for SPA-style routing)
   app.get('/', (req, res) => {
     res.sendFile(path.join(publicPath, 'index.html'));
+  });
+
+  app.get('/admin', (_req, res) => {
+    res.sendFile(path.join(publicPath, 'admin', 'index.html'));
   });
 
   return app;

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ditto Admin - Jungle Agents</title>
+  <link rel="stylesheet" href="/shared/jungle-brand.css">
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    body { margin: 0; min-height: 100vh; display: flex; background: #0d1324; color: #e6e7ec; }
+    .admin-shell { display: flex; width: 100%; min-height: 100vh; }
+    .admin-sidebar { width: 220px; border-right: 1px solid #27304a; padding: 18px 12px; background: #0a1020; }
+    .admin-main { flex: 1; padding: 18px 20px; overflow: auto; }
+    .admin-title { font-size: 28px; font-weight: 700; margin: 0 0 6px; }
+    .admin-subtitle { color: #99a1bb; margin-bottom: 12px; }
+    .admin-topbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    .admin-pill { border: 1px solid #364266; padding: 3px 8px; border-radius: 999px; font-size: 12px; }
+    .admin-nav-btn { width: 100%; text-align: left; margin-bottom: 8px; }
+    .admin-card { border: 1px solid #27304a; background: #0e162d; padding: 12px; margin-bottom: 12px; }
+    .admin-table-wrap { overflow: auto; border: 1px solid #27304a; }
+    .admin-table { width: 100%; border-collapse: collapse; min-width: 980px; }
+    .admin-table th, .admin-table td { border-bottom: 1px solid #222c47; padding: 8px; text-align: left; }
+    .admin-table th { font-size: 12px; color: #99a1bb; background: #101a33; position: sticky; top: 0; }
+    .admin-input, .admin-select { width: 100%; background: #0b1122; color: #e6e7ec; border: 1px solid #364266; padding: 6px 8px; }
+    .agent-avatar { width: 28px; height: 28px; border-radius: 50%; border: 1px solid #364266; object-fit: cover; background: #1b2540; }
+    .status-message { font-size: 13px; color: #99a1bb; margin: 8px 0; }
+    .status-error { color: #ff8f9d; }
+    .category-chip { display: inline-block; border: 1px solid #364266; border-radius: 999px; padding: 2px 8px; margin: 0 6px 6px 0; cursor: pointer; font-size: 12px; }
+    .category-chip.active { border-color: #d7b34a; color: #d7b34a; }
+  </style>
+</head>
+<body>
+  <div class="admin-shell">
+    <aside class="admin-sidebar">
+      <div style="font-size:12px;color:#99a1bb;margin-bottom:6px;">DITTO</div>
+      <div style="font-size:18px;font-weight:700;margin-bottom:14px;">Platform Admin</div>
+      <button type="button" class="win-btn admin-nav-btn" id="backToAppBtn">&larr; Back to Main Screen</button>
+      <button type="button" class="win-btn admin-nav-btn" id="refreshBtn">Refresh Roster</button>
+      <button type="button" class="win-btn admin-nav-btn" id="syncBtn">Sync Missing from Polymarket</button>
+      <button type="button" class="win-btn admin-nav-btn" id="addCategoryBtn">Create Category</button>
+      <button type="button" class="win-btn admin-nav-btn win-btn-primary" id="saveBtn">Save All Changes</button>
+      <div class="admin-card" style="margin-top:14px;">
+        <div style="font-size:12px;color:#99a1bb;margin-bottom:6px;">Categories</div>
+        <div id="categoryFilters"></div>
+      </div>
+    </aside>
+    <main class="admin-main">
+      <h1 class="admin-title">Jungle Agents</h1>
+      <div class="admin-subtitle">Manage one-click track wallets, avatars, and category groupings.</div>
+      <div class="admin-topbar">
+        <button type="button" class="win-btn" id="addAgentBtn">+ Add Wallet/Agent</button>
+        <span class="admin-pill" id="agentCountPill">0 agents</span>
+        <span class="admin-pill" id="missingCountPill">0 missing addresses</span>
+      </div>
+      <div class="status-message" id="statusMessage">Loading roster...</div>
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Pic</th>
+              <th>Agent Name</th>
+              <th>Model</th>
+              <th>Category</th>
+              <th>Polymarket Wallet</th>
+              <th>Tagline</th>
+              <th>Live</th>
+              <th>Track</th>
+              <th>Delete</th>
+            </tr>
+          </thead>
+          <tbody id="agentsBody">
+            <tr><td colspan="9" class="text-center text-muted">Loading roster...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+  <script src="/admin/admin.js"></script>
+</body>
+</html>
