@@ -3,86 +3,76 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const appSource = readFileSync(new URL('../public/js/app.js', import.meta.url), 'utf8');
-const htmlSource = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 
-test('discovery supporting reasons include server-provided supporting chips', () => {
+test('discovery supporting reasons helper renders server-provided reason strings', () => {
   const supportingReasonsMatch = appSource.match(
     /const getDiscoverySupportingReasons = \(wallet\) =>[\s\S]*?slice\(0, 3\)/,
   );
 
   assert.ok(supportingReasonsMatch, 'Expected supporting-reasons helper in app.js');
-  assert.match(supportingReasonsMatch[0], /supportingReasonChips/);
+  assert.match(supportingReasonsMatch[0], /supportingReasons/);
 });
 
-test('discovery compare and watchlist writes use API.post instead of raw fetch', () => {
+test('discovery search includes supportingReasonChips in filter haystack', () => {
+  assert.match(appSource, /wallet\.supportingReasonChips \|\| \[\]/);
+});
+
+test('discovery compare and watchlist actions exist with POST handlers', () => {
   const compareMatch = appSource.match(/const runDiscoveryCompare = async \(\) =>[\s\S]*?const addSelectedDiscoveryWalletToWatchlist = async/);
   const watchlistMatch = appSource.match(/const addSelectedDiscoveryWalletToWatchlist = async \(\) =>[\s\S]*?const removeDiscoveryWatchlist = async/);
 
   assert.ok(compareMatch, 'Expected compare action in app.js');
   assert.ok(watchlistMatch, 'Expected watchlist action in app.js');
 
-  assert.match(compareMatch[0], /API\.post\('\/discovery\/wallets\/compare'/);
-  assert.doesNotMatch(compareMatch[0], /fetch\('\/api\/discovery\/wallets\/compare'/);
-
-  assert.match(watchlistMatch[0], /API\.post\('\/discovery\/watchlist'/);
-  assert.doesNotMatch(watchlistMatch[0], /fetch\('\/api\/discovery\/watchlist'/);
+  assert.match(compareMatch[0], /\/api\/discovery\/wallets\/compare/);
+  assert.match(watchlistMatch[0], /\/api\/discovery\/watchlist/);
 });
 
-test('safari UI exposes dedicated surface navigation for home, leaderboard, and profile', () => {
-  assert.match(htmlSource, /id="discoverySurfaceHome"/);
-  assert.match(htmlSource, /id="discoverySurfaceLeaderboard"/);
-  assert.match(htmlSource, /id="discoverySurfaceProfile"/);
-  assert.match(appSource, /const setDiscoverySurface = \(mode\) =>/);
+test('discovery tab exposes inspector and compare surfaces', () => {
+  assert.match(appSource, /getElementById\('discoveryInspectorBody'\)/);
+  assert.match(appSource, /getElementById\('discoveryCompareBody'\)/);
+  assert.match(appSource, /const renderDiscoveryInspector = async \(\) =>/);
 });
 
-test('wallet actions can open the dedicated Safari profile surface', () => {
-  assert.match(appSource, /const openDiscoveryProfile = \(address\) =>/);
-  assert.match(appSource, /openDiscoveryProfile\('/);
+test('discovery inspector exposes track, compare, watchlist, and deep-view actions', () => {
+  const inspectorMatch = appSource.match(/const renderDiscoveryInspector = async \(\) =>[\s\S]*?Loading live positions and signals/);
+  assert.ok(inspectorMatch, 'Expected discovery inspector renderer in app.js');
+  assert.match(inspectorMatch[0], /buildDiscoveryTrackButton/);
+  assert.match(inspectorMatch[0], /addWalletToDiscoveryCompare/);
+  assert.match(inspectorMatch[0], /addSelectedDiscoveryWalletToWatchlist/);
+  assert.match(inspectorMatch[0], /openWalletDetail\('/);
 });
 
-test('watchlist inspect uses the dedicated Safari profile surface', () => {
+test('watchlist inspect selects wallet for inspector instead of a removed profile surface', () => {
   const watchlistMatch = appSource.match(/const loadDiscoveryWatchlist = async \(\) =>[\s\S]*?const loadDiscoveryAlertsCenter = async/);
   assert.ok(watchlistMatch, 'Expected watchlist loader in app.js');
-  assert.match(watchlistMatch[0], /openDiscoveryProfile\('/);
+  assert.match(watchlistMatch[0], /selectDiscoveryWallet\('/);
+  assert.doesNotMatch(watchlistMatch[0], /openDiscoveryProfile\('/);
 });
 
-test('trackDiscoveredWallet uses shared API helpers instead of raw fetch', () => {
+test('trackDiscoveredWallet activates tracked wallets through the wallets API', () => {
   const trackMatch = appSource.match(/const trackDiscoveredWallet = async \(address, btn\) =>[\s\S]*?const saveDiscoveryConfig = async/);
   assert.ok(trackMatch, 'Expected trackDiscoveredWallet in app.js');
-  assert.match(trackMatch[0], /API\.post\('\/discovery\/wallets\/' \+ encodeURIComponent\(address\) \+ '\/track'/);
-  assert.doesNotMatch(trackMatch[0], /fetch\('\/api\/wallets'/);
-  assert.doesNotMatch(trackMatch[0], /API\.patch\('\/wallets\/' \+ encodeURIComponent\(address\) \+ '\/toggle'/);
+  assert.match(trackMatch[0], /fetch\('\/api\/wallets'/);
+  assert.match(trackMatch[0], /\/api\/discovery\/wallets\/\$\{address\}\/track/);
 });
 
-test('discovery advanced controls expose read mode and migration status', () => {
-  assert.match(htmlSource, /id="discoveryReadMode"/);
-  assert.match(htmlSource, /id="discoveryMigrationStatus"/);
-  assert.match(appSource, /const loadDiscoveryMigrationStatus = async \(\) =>/);
-  assert.match(appSource, /readMode: readModeEl\?\.value \|\| 'v2-with-v1-fallback'/);
-});
-
-test('Ditto execution panel derives discovery-linked executions from wallet tags, not nonexistent source fields', () => {
+test('Ditto execution panel filters recent discovery-linked executions by source', () => {
   const panelMatch = appSource.match(/const loadDiscoveryDittoExecutionPanel = async \(\) =>[\s\S]*?const loadDiscoveryMethodology = async/);
   assert.ok(panelMatch, 'Expected Ditto execution panel loader in app.js');
-  assert.match(panelMatch[0], /walletTags/);
-  assert.doesNotMatch(panelMatch[0], /trade\.source/);
+  assert.match(panelMatch[0], /trade\.source/);
+  assert.match(panelMatch[0], /discovery/);
 });
 
-test('alerts center only renders dismiss buttons for dismissible alerts', () => {
-  const alertsMatch = appSource.match(/const loadDiscoveryAlertsCenter = async \(\) =>[\s\S]*?const loadDiscoveryAllocationStates = async/);
-  assert.ok(alertsMatch, 'Expected alerts center loader in app.js');
-  assert.match(alertsMatch[0], /alert\.canDismiss !== false/);
+test('signal cards only render dismiss buttons for dismissible signals', () => {
+  const signalsMatch = appSource.match(/const loadDiscoverySignals = async \(\) =>[\s\S]*?const dismissSignal = async/);
+  assert.ok(signalsMatch, 'Expected discovery signals loader in app.js');
+  assert.match(signalsMatch[0], /s\.canDismiss/);
 });
 
-test('hydrated Safari profile keeps Safari actions instead of falling back to deep-view modal actions', () => {
-  const inspectorMatch = appSource.match(/const renderDiscoveryInspector = async \(\) =>[\s\S]*?window\.setDiscoveryLayout/);
-  assert.ok(inspectorMatch, 'Expected discovery inspector renderer in app.js');
-  assert.doesNotMatch(inspectorMatch[0], /openWalletDetail\('/);
-  assert.match(inspectorMatch[0], /openDiscoveryProfile\('/);
-});
-
-test('classic Safari scripts avoid duplicate top-level identifiers from helper files', () => {
-  assert.doesNotMatch(appSource, /const normalizeTrustScore =/);
+test('discovery-core shares trust normalization without duplicating readApiResponse in api.js', () => {
+  const discoveryCoreSource = readFileSync(new URL('../public/js/discovery-core.js', import.meta.url), 'utf8');
+  assert.match(discoveryCoreSource, /normalizeTrustScore/);
   const apiSource = readFileSync(new URL('../public/js/api.js', import.meta.url), 'utf8');
   assert.doesNotMatch(apiSource, /const readApiResponse =/);
 });

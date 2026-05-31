@@ -97,8 +97,8 @@ export async function pollRpcLogsOnce({
   initialLookbackBlocks = getRpcPollInitialLookbackBlocks(),
 }: PollRpcOnceParams): Promise<PollRpcOnceResult> {
   const head = await client.getBlockNumber();
-  let stored = cursor.getLastBlock(pipelineKey);
-  let fromBlock = stored === 0
+  const stored = cursor.getLastBlock(pipelineKey);
+  const fromBlock = stored === 0
     ? Math.max(0, head - initialLookbackBlocks)
     : Math.max(0, stored - overlapBlocks);
   if (fromBlock > head) {

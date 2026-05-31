@@ -175,6 +175,7 @@ describe('scoreComposite', () => {
         total_bets: 200, avg_bet_7d: 105, max_bet_size: 150,
         pnl_7d: 100, trades_7d: 20, pnl_30d: 200, trades_30d: 60,
         avg_daily_pnl: 5, std_daily_pnl: 3, active_days: 90,
+        brier_score: 0.05, pct_positive_clv_1h: 0.9, cat_volume_share: 0.8, cat_pnl: 500,
       },
       {
         proxy_wallet: '0xCOLD_ERRATIC',
@@ -182,6 +183,7 @@ describe('scoreComposite', () => {
         total_bets: 100, avg_bet_7d: 60, max_bet_size: 5000,
         pnl_7d: -20, trades_7d: 5, pnl_30d: -10, trades_30d: 20,
         avg_daily_pnl: 2, std_daily_pnl: 10, active_days: 60,
+        brier_score: 0.24, pct_positive_clv_1h: 0.1, cat_volume_share: 0.1, cat_pnl: 10,
       },
       {
         proxy_wallet: '0xMEDIUM',
@@ -189,6 +191,7 @@ describe('scoreComposite', () => {
         total_bets: 150, avg_bet_7d: 80, max_bet_size: 200,
         pnl_7d: 20, trades_7d: 10, pnl_30d: 50, trades_30d: 40,
         avg_daily_pnl: 3, std_daily_pnl: 4, active_days: 45,
+        brier_score: 0.15, pct_positive_clv_1h: 0.5, cat_volume_share: 0.4, cat_pnl: 100,
       },
     ];
 
