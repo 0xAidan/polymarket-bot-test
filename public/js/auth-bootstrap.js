@@ -95,6 +95,14 @@ window.handleTenantWorkspaceChange = async (tenantId) => {
   }
 };
 
+const applyPlatformAdminUi = (isPlatformAdmin) => {
+  document.body.classList.toggle('platform-admin', !!isPlatformAdmin);
+};
+
+window.refreshPlatformAdminUi = (isPlatformAdmin) => {
+  applyPlatformAdminUi(isPlatformAdmin);
+};
+
 const applyCapabilities = (capabilities) => {
   window.__capabilities = capabilities;
   window.__isPlatformAdmin = !!capabilities?.isPlatformAdmin;
@@ -102,6 +110,7 @@ const applyCapabilities = (capabilities) => {
   if (adminLink) {
     adminLink.classList.toggle('hidden', !window.__isPlatformAdmin);
   }
+  applyPlatformAdminUi(window.__isPlatformAdmin);
 };
 
 const loadCapabilities = async () => {
