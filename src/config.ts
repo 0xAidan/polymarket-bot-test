@@ -64,7 +64,6 @@ export const config = {
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean),
-  platformAdminEmails: process.env.PLATFORM_ADMIN_EMAILS || '',
 
   // Server configuration
   port: parseInt(process.env.PORT || '3001', 10),

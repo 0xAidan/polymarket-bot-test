@@ -1,6 +1,6 @@
 import { config } from './config.js';
 import { createComponentLogger } from './logger.js';
-import { JungleAgent, loadAgentsFile, saveAgentsFile } from './jungleAgentsStore.js';
+import { JungleAgentRecord, loadAgentsFile, saveAgentsFile } from './jungleAgentsStore.js';
 
 type GammaProfile = {
   name?: string;
@@ -12,7 +12,7 @@ const GAMMA_SEARCH = `${config.polymarketGammaApiUrl.replace(/\/$/, '')}/public-
 
 const normalizeName = (value: string): string => value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
 
-const searchTermsForAgent = (agent: JungleAgent): string[] => {
+const searchTermsForAgent = (agent: JungleAgentRecord): string[] => {
   const terms = new Set<string>();
   if (agent.displayName?.trim()) terms.add(agent.displayName.trim());
   if (agent.modelLabel?.trim()) terms.add(agent.modelLabel.trim());
@@ -20,7 +20,7 @@ const searchTermsForAgent = (agent: JungleAgent): string[] => {
   return [...terms];
 };
 
-const pickProfileAddress = (agent: JungleAgent, profiles: GammaProfile[]): string | null => {
+const pickProfileAddress = (agent: JungleAgentRecord, profiles: GammaProfile[]): string | null => {
   const targets = searchTermsForAgent(agent).map(normalizeName).filter(Boolean);
   if (!targets.length || !profiles.length) return null;
 
@@ -62,7 +62,7 @@ const fetchGammaProfiles = async (query: string): Promise<GammaProfile[]> => {
   }
 };
 
-const resolveAgentAddress = async (agent: JungleAgent): Promise<string | null> => {
+const resolveAgentAddress = async (agent: JungleAgentRecord): Promise<string | null> => {
   const mergedProfiles: GammaProfile[] = [];
   for (const term of searchTermsForAgent(agent)) {
     const hits = await fetchGammaProfiles(term);
