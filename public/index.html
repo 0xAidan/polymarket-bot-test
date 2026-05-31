@@ -75,93 +75,133 @@
         <!-- ============================================================
              DASHBOARD TAB
              ============================================================ -->
-        <div id="tab-dashboard" class="win-tab-panel active">
-          <section class="j-home-compact">
-            <div class="j-home-head">
-              <h1 class="font-serif j-home-title">Command center</h1>
-              <div class="j-home-actions">
-                <button class="j-btn j-btn-primary j-btn-sm" type="button" onclick="startSetupWizard(true)">Setup guide</button>
-                <button class="j-btn j-btn-sm" type="button" onclick="switchTab('wallets')">Add wallet</button>
+        <div id="tab-dashboard" class="win-tab-panel active j-dashboard">
+          <header class="j-dash-header">
+            <div>
+              <p class="j-dash-eyebrow">Live workspace</p>
+              <h1 class="font-serif j-dash-title">Command center</h1>
+            </div>
+            <div class="j-dash-header-actions">
+              <button class="j-btn j-btn-primary j-btn-sm" type="button" onclick="startSetupWizard(true)">Setup guide</button>
+              <button class="j-btn j-btn-sm" type="button" onclick="switchTab('wallets')">Add wallet</button>
+            </div>
+          </header>
+
+          <div id="setupProgressCard" class="j-panel j-setup-card hidden">
+            <div class="app-section-kicker">Setup</div>
+            <div id="setupProgressSummary" class="j-setup-summary">Checking your setup status...</div>
+            <div id="setupProgressChecklist" class="setup-progress-list"></div>
+          </div>
+
+          <section class="j-dash-hero" aria-label="Wallet and performance summary">
+            <div class="j-dash-wallet-card glow-border">
+              <div class="j-dash-wallet-top">
+                <span class="j-dash-wallet-label">Trading wallet</span>
+                <span class="j-dash-live-dot pulse-dot" aria-hidden="true" title="Live balance"></span>
+              </div>
+              <div class="j-dash-wallet-row">
+                <code class="j-dash-wallet-addr" id="walletAddress">Not configured</code>
+                <div class="j-dash-wallet-balance">
+                  <span class="j-dash-balance" id="walletBalance">$0.00</span>
+                  <span class="j-dash-balance-delta positive" id="balanceChange">+$0.00 (24h)</span>
+                </div>
               </div>
             </div>
-            <div id="setupProgressCard" class="j-card j-setup-card hidden">
-              <div class="app-section-kicker">Setup</div>
-              <div id="setupProgressSummary" class="j-setup-summary">Checking your setup status...</div>
-              <div id="setupProgressChecklist" class="setup-progress-list"></div>
+            <div class="j-dash-quickstats" id="dashQuickStats">
+              <div class="j-quickstat">
+                <span class="j-quickstat-val" id="quickSuccessRate">0%</span>
+                <span class="j-quickstat-lbl">Success</span>
+              </div>
+              <div class="j-quickstat">
+                <span class="j-quickstat-val" id="quickTotalTrades">0</span>
+                <span class="j-quickstat-lbl">Trades</span>
+              </div>
+              <div class="j-quickstat">
+                <span class="j-quickstat-val" id="quickAvgLatency">0ms</span>
+                <span class="j-quickstat-lbl">Latency</span>
+              </div>
+              <div class="j-quickstat">
+                <span class="j-quickstat-val" id="quickWalletsTracked">0</span>
+                <span class="j-quickstat-lbl">Tracked</span>
+              </div>
+              <button type="button" class="j-metrics-toggle" id="metricsToggleBtn" aria-expanded="false" aria-controls="metricsDetailPanel">
+                <span class="j-metrics-toggle-label">All stats</span>
+                <span class="j-metrics-chevron" aria-hidden="true">▾</span>
+              </button>
             </div>
-            <div id="homeJungleAgentsTeaser" class="j-card hidden"></div>
           </section>
 
-          <!-- Wallet Info Bar -->
-          <div class="wallet-info-bar">
-            <div>
-              <div class="text-sm text-muted">Trading Wallet</div>
-              <div class="address" id="walletAddress">Not configured</div>
+          <section class="j-dash-metrics-detail" id="metricsDetailPanel" hidden>
+            <div class="j-metrics-compact-grid">
+              <div class="j-metric-chip">
+                <span class="j-metric-chip-val" id="successRate">0%</span>
+                <span class="j-metric-chip-lbl">Success rate</span>
+              </div>
+              <div class="j-metric-chip">
+                <span class="j-metric-chip-val" id="totalTrades">0</span>
+                <span class="j-metric-chip-lbl">Total trades</span>
+              </div>
+              <div class="j-metric-chip">
+                <span class="j-metric-chip-val" id="avgLatency">0ms</span>
+                <span class="j-metric-chip-lbl">Avg latency</span>
+              </div>
+              <div class="j-metric-chip">
+                <span class="j-metric-chip-val" id="walletsTracked">0</span>
+                <span class="j-metric-chip-lbl">Wallets tracked</span>
+              </div>
+              <div class="j-metric-chip is-win">
+                <span class="j-metric-chip-val" id="successfulTrades">0</span>
+                <span class="j-metric-chip-lbl">Successful</span>
+              </div>
+              <div class="j-metric-chip is-loss">
+                <span class="j-metric-chip-val" id="failedTrades">0</span>
+                <span class="j-metric-chip-lbl">Failed</span>
+              </div>
             </div>
-            <div style="text-align: right;">
-              <div class="balance" id="walletBalance">$0.00</div>
-              <div class="balance-change positive" id="balanceChange">+$0.00 (24h)</div>
-            </div>
-          </div>
+          </section>
 
-          <!-- Metrics Row -->
-          <div class="metrics-row">
-            <div class="metric-box">
-              <div class="metric-value" id="successRate">0%</div>
-              <div class="metric-label">Success Rate</div>
-            </div>
-            <div class="metric-box">
-              <div class="metric-value" id="totalTrades">0</div>
-              <div class="metric-label">Total Trades</div>
-            </div>
-            <div class="metric-box">
-              <div class="metric-value" id="avgLatency">0ms</div>
-              <div class="metric-label">Avg Latency</div>
-            </div>
-            <div class="metric-box">
-              <div class="metric-value" id="walletsTracked">0</div>
-              <div class="metric-label">Wallets</div>
-            </div>
-            <div class="metric-box success">
-              <div class="metric-value" id="successfulTrades">0</div>
-              <div class="metric-label">Successful</div>
-            </div>
-            <div class="metric-box danger">
-              <div class="metric-value" id="failedTrades">0</div>
-              <div class="metric-label">Failed</div>
-            </div>
-          </div>
+          <div class="j-dash-grid">
+            <section class="j-dash-primary">
+              <div class="j-panel j-trade-panel">
+                <header class="j-panel-head">
+                  <div>
+                    <h2 class="font-serif j-panel-title">Trade history</h2>
+                    <p class="j-panel-sub">Recent copy attempts across tracked wallets</p>
+                  </div>
+                  <span class="j-panel-meta" id="tradesCountLabel">0 trades</span>
+                </header>
+                <div class="j-trade-scroll trades-scroll-container">
+                  <table class="win-listview j-trade-table" id="tradesTable">
+                    <thead>
+                      <tr>
+                        <th>Time</th>
+                        <th>Wallet</th>
+                        <th>Market</th>
+                        <th>Side</th>
+                        <th>Amount</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tradesTableBody">
+                      <tr class="empty-row"><td colspan="6">No trades yet — add a tracked wallet and start the bot to see activity here.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <footer class="j-panel-foot">
+                  <button class="j-btn j-btn-sm" id="loadMoreTradesBtn" onclick="loadMoreTrades()" style="display:none;">Load more</button>
+                </footer>
+              </div>
+            </section>
 
-          <!-- Recent Trades -->
-          <div class="win-group">
-            <div class="win-group-title">Trade History</div>
-            <div class="trades-scroll-container" style="max-height:350px;overflow-y:auto;overflow-x:auto;">
-              <table class="win-listview" id="tradesTable">
-                <thead>
-                  <tr>
-                    <th>Time</th>
-                    <th>Wallet</th>
-                    <th>Market</th>
-                    <th>Side</th>
-                    <th>Amount</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody id="tradesTableBody">
-                  <tr class="empty-row"><td colspan="6">No trades yet</td></tr>
-                </tbody>
-              </table>
-            </div>
-            <div class="flex-between mt-8">
-              <span class="text-sm text-muted" id="tradesCountLabel">0 trades</span>
-              <button class="win-btn win-btn-sm" id="loadMoreTradesBtn" onclick="loadMoreTrades()" style="display:none;">Load More</button>
-            </div>
-          </div>
-
-          <!-- Active Issues -->
-          <div class="win-group hidden" id="issuesCard">
-            <div class="win-group-title">Active Issues</div>
-            <div id="issuesList"></div>
+            <aside class="j-dash-aside">
+              <div id="homeJungleAgentsTeaser" class="j-panel j-agents-roster hidden" aria-label="Jungle Agents preview"></div>
+              <div class="j-panel j-issues-panel hidden" id="issuesCard">
+                <header class="j-panel-head j-panel-head-compact">
+                  <h2 class="font-serif j-panel-title">Active issues</h2>
+                </header>
+                <div id="issuesList" class="j-issues-list"></div>
+              </div>
+            </aside>
           </div>
 
           <!-- Ladder Exits -->
@@ -429,12 +469,15 @@
         </div>
 
 
-        <div id="tab-jungle-agents" class="win-tab-panel">
-          <header class="j-section-header">
-            <h2 class="font-serif">Jungle Agents</h2>
-            <p id="jungleAgentsMeta" class="text-muted">Curated agents you can follow on Polymarket with one click.</p>
+        <div id="tab-jungle-agents" class="win-tab-panel j-agents-tab">
+          <header class="j-section-header j-agents-tab-header">
+            <div>
+              <p class="j-dash-eyebrow">Curated roster</p>
+              <h2 class="font-serif j-agents-tab-title">Jungle Agents</h2>
+              <p id="jungleAgentsMeta" class="j-agents-tab-meta">Curated agents you can follow on Polymarket with one click.</p>
+            </div>
           </header>
-          <div id="jungleAgentsGrid" class="j-agent-grid" aria-live="polite"></div>
+          <div id="jungleAgentsGrid" class="j-agent-roster" aria-live="polite"></div>
         </div>
 
         <!-- ============================================================
