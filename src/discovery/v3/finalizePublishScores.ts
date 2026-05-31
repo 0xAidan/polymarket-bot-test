@@ -64,7 +64,9 @@ export async function finalizeScoresForPublish(
     };
   });
 
-  const { kept: keptKeys, excluded: gateExcluded } = await filterScoresForPublish(gateInput);
+  const gateResult = await filterScoresForPublish(gateInput);
+  const keptKeys = gateResult.kept;
+  let gateExcluded = gateResult.excluded;
 
   const keptSetFirst = new Set(keptKeys.map((k) => k.proxy_wallet));
   const failedForFallback = scores.filter((s) => !keptSetFirst.has(s.proxy_wallet));
