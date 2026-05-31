@@ -1,4 +1,4 @@
-import { Request } from 'express';
+import type { Request } from 'express';
 import { config } from './config.js';
 
 let cachedEmailSet: Set<string> | null = null;
@@ -15,11 +15,12 @@ const getPlatformAdminEmailSet = (): Set<string> => {
   return cachedEmailSet;
 };
 
+/** Reset cached allowlist (tests). */
 export const resetPlatformAdminEmailCache = (): void => {
   cachedEmailSet = null;
 };
 
-export const isPlatformAdminEmail = (email: string | undefined): boolean => {
+export const isPlatformAdminEmail = (email: string | undefined | null): boolean => {
   if (!email) return false;
   return getPlatformAdminEmailSet().has(email.trim().toLowerCase());
 };

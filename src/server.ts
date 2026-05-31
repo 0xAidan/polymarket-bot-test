@@ -1,16 +1,16 @@
 import express from 'express';
 import cors from 'cors';
-import type { Server } from 'node:http';
 import path from 'path';
 import rateLimit from 'express-rate-limit';
 import { auth, type ConfigParams } from 'express-openid-connect';
 import { config } from './config.js';
 import { createRoutes } from './api/routes.js';
-import { createJungleAgentsRouter } from './api/jungleAgentsRoutes.js';
-import { createOlympicsRoutes } from './api/olympicsRoutes.js';
 import { CopyTrader } from './copyTrader.js';
-import { initDatabase } from './database.js';
 import { createDiscoveryRoutes } from './api/discoveryRoutes.js';
+import { createDiscoveryV3Router } from './api/discoveryRoutesV3.js';
+import { createOlympicsRoutes } from './api/olympicsRoutes.js';
+import { isDiscoveryV3Enabled } from './discovery/v3/featureFlag.js';
+import { initDatabase, getDatabase } from './database.js';
 import { DiscoveryManager } from './discovery/discoveryManager.js';
 import { DiscoveryControlPlane } from './discovery/discoveryControlPlane.js';
 import { createComponentLogger } from './logger.js';
@@ -24,6 +24,8 @@ import {
   syncUserFromOidc,
   writeAuthAuditLog
 } from './authStore.js';
+import { seedJungleAgentsIfMissing, migrateOlympicsConfigToJungleStore } from './jungleAgentsStore.js';
+import { resolveIsPlatformAdmin } from './platformAdmin.js';
 
 const log = createComponentLogger('Server');
 
@@ -36,47 +38,81 @@ export const getDiscoveryManager = (): DiscoveryManager | null => discoveryManag
  */
 export async function createServer(copyTrader: CopyTrader): Promise<express.Application> {
   await initDatabase();
+  await seedJungleAgentsIfMissing();
+  await migrateOlympicsConfigToJungleStore();
   const app = express();
   app.set('trust proxy', 1);
-  const corsAllowedOrigins = new Set(config.corsAllowedOrigins);
-  if (config.auth0BaseUrl) {
-    corsAllowedOrigins.add(config.auth0BaseUrl);
-  }
 
   // Middleware
-  app.use(cors({
-    origin(origin, callback) {
-      if (!origin || corsAllowedOrigins.size === 0 || corsAllowedOrigins.has(origin)) {
-        callback(null, true);
-        return;
-      }
-      log.warn({ origin }, '[API] Blocked CORS origin');
-      callback(new Error('CORS origin not allowed'));
-    },
-    credentials: true,
-  }));
+  app.use(cors());
   app.use(express.json({ limit: '5mb' }));  // Increased from default 100kb for large trade lists
 
   // Serve static files from public directory
   // Note: Using process.cwd() since the app runs from project root
   const publicPath = path.join(process.cwd(), 'public');
+  app.use('/discovery-v3', (req, res, next) => {
+    if (!isDiscoveryV3Enabled()) {
+      res.status(404).send('Discovery v3 is not enabled');
+      return;
+    }
+    next();
+  });
   app.use(express.static(publicPath));
 
   discoveryManagerInstance = new DiscoveryManager('passive');
   const discoveryControlPlane = new DiscoveryControlPlane();
 
+  // JSON 429 handler — never return plain-text so the UI can parse errors.
+  const jsonRateLimitHandler = (req: express.Request, res: express.Response, _next: express.NextFunction, options: any) => {
+    const retryAfterSec = Math.ceil((options?.windowMs ?? 60_000) / 1000);
+    res.setHeader('Retry-After', String(retryAfterSec));
+    res.status(429).json({
+      success: false,
+      error: 'rate_limited',
+      message: 'Too many requests — please slow down.',
+      retryAfterSec
+    });
+  };
+
+  // Read-only dashboard endpoints (discovery v3) are exempt from the global API
+  // limiter — they are GET-heavy and a per-IP limiter causes plain-text 429s that
+  // crash the UI. Mutating v3 endpoints (e.g. /track POSTs) still pass through
+  // the per-route auth handler in discoveryRoutesV3, so abuse is bounded by
+  // session auth.
+  const isRateLimitExempt = (req: express.Request): boolean => {
+    const p = req.path || '';
+    return p.startsWith('/discovery/v3/');
+  };
+
   const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 1200,
+    max: 3000,
     standardHeaders: true,
-    legacyHeaders: false
+    legacyHeaders: false,
+    skip: isRateLimitExempt,
+    handler: jsonRateLimitHandler
   });
+
+  // v3 discovery is a public read surface. Mount the router ABOVE the global
+  // /api auth gate so anonymous visitors can load Alpha/Whale/Specialist
+  // leaderboards. The router itself gates every mutating endpoint with
+  // requireAuthForMutations, which uses req.oidc when available.
+  const mountDiscoveryV3Public = (): void => {
+    if (!isDiscoveryV3Enabled()) return;
+    app.use(
+      '/api/discovery/v3',
+      apiLimiter, // skip() above already exempts /discovery/v3/* from the window
+      createDiscoveryV3Router({ getDb: () => getDatabase() })
+    );
+    log.info('🌐 Discovery v3 read endpoints mounted as public (mutations gated)');
+  };
 
   const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 80,
     standardHeaders: true,
-    legacyHeaders: false
+    legacyHeaders: false,
+    handler: jsonRateLimitHandler
   });
 
   const requireOidcAuth: express.RequestHandler = (req, res, next) => {
@@ -102,6 +138,33 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     return { user, memberships };
   };
 
+  const sendAuthCapabilities = (req: express.Request, res: express.Response): void => {
+    const hostedMultiTenant = isHostedMultiTenantMode();
+    if (config.authMode === 'oidc') {
+      const authenticated = Boolean(req.oidc?.isAuthenticated());
+      const email = typeof req.oidc?.user?.email === 'string' ? req.oidc.user.email : undefined;
+      res.json({
+        success: true,
+        mode: 'oidc',
+        authenticated,
+        isPlatformAdmin: authenticated && resolveIsPlatformAdmin(req),
+        email: authenticated ? email : undefined,
+        hostedMultiTenant,
+      });
+      return;
+    }
+
+    const token = req.headers.authorization?.replace(/^Bearer\s+/i, '').trim();
+    const authenticated = config.apiSecret ? token === config.apiSecret : true;
+    res.json({
+      success: true,
+      mode: 'legacy',
+      authenticated,
+      isPlatformAdmin: resolveIsPlatformAdmin(req),
+      hostedMultiTenant: isHostedMultiTenantMode(),
+    });
+  };
+
   // ─── Auth status endpoint (always open, tells frontend auth mode/requirements) ───
   app.get('/api/auth/required', (_req, res) => {
     const hostedMultiTenant = isHostedMultiTenantMode();
@@ -112,6 +175,12 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     res.json({ required: !!config.apiSecret, mode: 'legacy', hostedMultiTenant });
   });
 
+  // In OIDC mode we need req.oidc populated on v3 requests so the
+  // per-route mutation gate can distinguish logged-in vs anonymous. Mounting
+  // order below:
+  //   1. oidc middleware          (populates req.oidc for EVERY request)
+  //   2. v3 router                (public reads, per-route mutation gate)
+  //   3. global requireOidcAuth   (protects all other /api/*)
   if (config.authMode === 'oidc') {
     if (!config.authSessionSecret || !config.auth0IssuerBaseUrl || !config.auth0BaseUrl || !config.auth0ClientId || !config.auth0ClientSecret) {
       throw new Error('OIDC mode is enabled but Auth0 configuration is incomplete. Check AUTH_* and AUTH0_* variables.');
@@ -146,6 +215,11 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     app.use('/auth', authLimiter);
     app.use(auth(oidcConfig));
 
+    app.get('/api/auth/capabilities', sendAuthCapabilities);
+
+    // Mount v3 BEFORE the global /api auth gate so reads are public.
+    mountDiscoveryV3Public();
+
     app.get('/api/auth/check', (_req, res) => {
       res.status(410).json({
         success: false,
@@ -167,6 +241,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
         res.json({
           success: true,
           hostedMultiTenant: isHostedMultiTenantMode(),
+          isPlatformAdmin: resolveIsPlatformAdmin(req),
           user: {
             id: user.id,
             email: user.email,
@@ -217,6 +292,11 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     });
 
     app.use('/api', apiLimiter, requireOidcAuth, (req, _res, next) => {
+      // v3 router was mounted above and handled already; this guard is a
+      // belt-and-suspenders no-op for the tenant resolver.
+      if ((req.path || '').startsWith('/discovery/v3/')) {
+        return next();
+      }
       try {
         const { user, memberships } = resolveOidcUserContext(req);
         if (memberships.length === 0) {
@@ -243,6 +323,8 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     });
     log.info('🔐 OIDC authentication enabled (Auth0 session mode)');
   } else if (config.apiSecret) {
+    app.get('/api/auth/capabilities', sendAuthCapabilities);
+
     app.post('/api/auth/check', (req, res) => {
       const token = req.headers.authorization?.replace('Bearer ', '');
       if (token === config.apiSecret) {
@@ -252,7 +334,16 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
       }
     });
 
+    // Legacy API-secret mode: v3 is still a public read surface — expose it
+    // BEFORE the bearer-token gate so unauthenticated dashboards work.
+    mountDiscoveryV3Public();
+
     app.use('/api', apiLimiter, (req, res, next) => {
+      // Public v3 was mounted above; skip bearer check for it.
+      if ((req.path || '').startsWith('/discovery/v3/')) {
+        enterWithTenant(DEFAULT_TENANT_ID);
+        return next();
+      }
       const token = req.headers.authorization?.replace('Bearer ', '');
       if (token !== config.apiSecret) {
         return res.status(401).json({
@@ -271,17 +362,21 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
       throw new Error(message);
     }
     log.warn('⚠️  WARNING: API authentication is open in legacy mode.');
+    app.get('/api/auth/capabilities', sendAuthCapabilities);
+    mountDiscoveryV3Public();
     app.use('/api', apiLimiter, (_req, _res, next) => {
       enterWithTenant(DEFAULT_TENANT_ID);
       next();
     });
   }
 
-  // API routes
+  // API routes (Jungle Agents routes are mounted inside createRoutes)
   app.use('/api', createRoutes(copyTrader));
-  app.use('/api', createJungleAgentsRouter(copyTrader));
-  app.use('/olympics', createOlympicsRoutes());
+  app.use('/api/olympics', createOlympicsRoutes());
   app.use('/api/discovery', createDiscoveryRoutes(discoveryControlPlane as any));
+
+  // NOTE: v3 router is mounted earlier (public read surface) so we do not
+  // remount it here. See mountDiscoveryV3Public() above.
 
   // API 404 handler - catch any unmatched /api routes and return JSON
   app.use('/api/*', (req, res) => {
@@ -301,42 +396,9 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     });
   });
 
-  const buildHealthPayload = () => {
-    let configValid = true;
-    let configError: string | null = null;
-    try {
-      config.validate();
-    } catch (error: any) {
-      configValid = false;
-      configError = error?.message || 'Configuration validation failed';
-    }
-    const copyTraderStatus = copyTrader.getStatus();
-    return {
-      status: configValid && copyTraderStatus.running ? 'ready' : 'degraded',
-      timestamp: new Date().toISOString(),
-      checks: {
-        databaseReady: true,
-        configValid,
-        copyTraderRunning: copyTraderStatus.running,
-        hostedMultiTenant: isHostedMultiTenantMode(),
-      },
-      mode: {
-        authMode: config.authMode,
-        storageBackend: config.storageBackend,
-      },
-      error: configError,
-    };
-  };
-
   // Health check
   app.get('/health', (req, res) => {
-    res.json(buildHealthPayload());
-  });
-
-  app.get('/health/ready', (_req, res) => {
-    const payload = buildHealthPayload();
-    const ready = payload.checks.configValid && payload.checks.copyTraderRunning;
-    res.status(ready ? 200 : 503).json(payload);
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
   // Serve dashboard UI (fallback for SPA-style routing)
@@ -354,13 +416,13 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 /**
  * Start the server
  */
-export async function startServer(app: express.Application): Promise<Server> {
+export async function startServer(app: express.Application): Promise<void> {
   return new Promise((resolve, reject) => {
     const host = process.env.HOST || '0.0.0.0'; // Listen on all interfaces for cloud/docker
     const server = app.listen(config.port, host, () => {
       log.info(`\n🚀 Server running on http://${host}:${config.port}`);
       log.info(`📊 Open your browser to manage wallets and control the bot\n`);
-      resolve(server);
+      resolve();
     });
 
     server.on('error', (error: any) => {

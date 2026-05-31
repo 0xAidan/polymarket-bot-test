@@ -13,9 +13,12 @@ import {
 import { computeEarlyEntryScore } from '../src/discovery/earlyEntryScorer.ts';
 import {
   buildDiscoveryReasonRows,
+  buildReasonPayloadV2,
   buildWalletScoreRow,
   getWalletScoreRow,
+  getWalletScoreRowV2,
   upsertWalletScoreRow,
+  upsertWalletScoreRowV2,
   replaceWalletReasons,
   getWalletReasons,
 } from '../src/discovery/discoveryScorer.ts';
@@ -113,10 +116,17 @@ test('wallet score rows and reasons are persisted', async () => {
 
     const storedRow = getWalletScoreRow('0xabc');
     const storedReasons = getWalletReasons('0xabc');
+    const reasonPayload = buildReasonPayloadV2(row, storedReasons);
+    upsertWalletScoreRowV2(row, reasonPayload);
+    const storedRowV2 = getWalletScoreRowV2('0xabc');
 
     assert.ok(storedRow);
     assert.equal(storedRow?.address, '0xabc');
+    assert.equal(storedRow?.strategyClass, 'unknown');
     assert.equal(storedReasons.length > 0, true);
+    assert.ok(storedRowV2);
+    assert.equal(storedRowV2?.scoreVersion, 2);
+    assert.equal(storedRowV2?.surfaceBucket, storedRow?.surfaceBucket);
   } finally {
     closeDatabase();
     if (existsSync(tempDir)) {

@@ -2,7 +2,14 @@ import axios from 'axios';
 import { pathToFileURL } from 'url';
 import { config } from '../config.js';
 import { initDatabase } from '../database.js';
-import { buildDiscoveryReasonRows, buildWalletScoreRow, replaceWalletReasons, upsertWalletScoreRow } from './discoveryScorer.js';
+import {
+  buildDiscoveryReasonRows,
+  buildReasonPayloadV2,
+  buildWalletScoreRow,
+  replaceWalletReasons,
+  upsertWalletScoreRow,
+  upsertWalletScoreRowV2,
+} from './discoveryScorer.js';
 import { getDiscoveryMarketPool, buildDiscoveryMarketPoolEntries, upsertDiscoveryMarketPoolEntries } from './categorySeeder.js';
 import { buildTokenMapEntries, getTokenIdsForConditionId, upsertTokenMapEntries } from './tokenMapper.js';
 import {
@@ -19,8 +26,25 @@ import {
 import { buildWalletValidationRecord, getWalletValidation, upsertWalletValidation } from './walletValidator.js';
 import { computeCopyabilityScore } from './copyabilityScorer.js';
 import { computeEarlyEntryScore } from './earlyEntryScorer.js';
+import { buildDiscoveryFeatureSnapshot } from './featureEngine.js';
+import {
+  classifyDiscoveryStrategy,
+  computeConfidenceBucket,
+  resolveDiscoverySurfaceBucket,
+} from './strategyClassifier.js';
+import {
+  createCycleEvaluationSnapshot,
+  insertDiscoveryCostSnapshots,
+  insertDiscoveryEvaluationObservations,
+  insertDiscoveryEvaluationSnapshot,
+} from './evaluationEngine.js';
 import { insertDiscoveryRunLog } from './runLog.js';
+import { isDiscoveryV3Enabled } from './v3/featureFlag.js';
+import { startDiscoveryV3Worker } from './v3/workerIntegration.js';
 import { getDiscoveryConfig } from './statsStore.js';
+import { DiscoveryStrategyClass, DiscoveryWalletScoreRow } from './types.js';
+import { upsertWalletFeatureSnapshotV2 } from './v2DataStore.js';
+import { evaluateAndPersistAllocationPolicies } from '../allocation/policyEngine.js';
 
 type MarketContext = {
   averageSpreadBps: number;
@@ -51,7 +75,7 @@ const DEFAULT_DISCOVERY_CYCLE_MS = 15 * 60 * 1000;
 const DEFAULT_MARKET_SEED_LIMIT = 10;
 const DEFAULT_LEADERBOARD_CATEGORIES = ['POLITICS', 'ECONOMICS', 'TECH', 'FINANCE'];
 const DEFAULT_LEADERBOARD_WINDOWS = ['WEEK', 'MONTH'];
-const NOISE_CATEGORIES = new Set(['sports', 'crypto']);
+const NOISE_CATEGORIES = new Set(['crypto']);
 
 const clamp = (value: number, min = 0, max = 100): number => Math.max(min, Math.min(max, value));
 const roundPct = (value: number): number => Math.round(value * 10) / 10;
@@ -114,6 +138,17 @@ export class DiscoveryWorkerRuntime {
     let clobRequestCount = 0;
     let copyabilityPassCount = 0;
     let walletsWithTwoReasonsCount = 0;
+    const scoredRows: DiscoveryWalletScoreRow[] = [];
+    const allocationInputs: Array<{
+      address: string;
+      discoveryScore: number;
+      trustScore: number;
+      copyabilityScore: number;
+      confidenceBucket: 'low' | 'medium' | 'high';
+      strategyClass: DiscoveryStrategyClass;
+      cautionFlags: string[];
+      updatedAt: number;
+    }> = [];
 
     const events = await (async () => {
       gammaRequestCount += 1;
@@ -239,12 +274,6 @@ export class DiscoveryWorkerRuntime {
         const latestTradePrice = Number(latestTradeCandidate?.sourceMetadata?.price ?? NaN);
         const currentPrice = marketContexts.find((ctx) => Number.isFinite(ctx.currentPrice))?.currentPrice;
 
-        const profitabilityScore = clamp((validation.realizedWinRate * 0.7) + (validation.realizedPnl / 25));
-        const focusScore = clamp(
-          (focusSummary.focusCategory ? 55 : 35) +
-          Math.min(20, focusSummary.sourceChannels.length * 5) +
-          Math.min(15, validation.marketsTouched * 3)
-        );
         const copyabilityScore = computeCopyabilityScore(validation, {
           averageSpreadBps,
           averageTopOfBookUsd,
@@ -253,14 +282,55 @@ export class DiscoveryWorkerRuntime {
           entryPrice: Number.isFinite(latestTradePrice) ? latestTradePrice : undefined,
           currentPrice,
         });
-        const consistencyScore = clamp(validation.realizedWinRate * 0.6 + validation.tradeActivityCount * 4);
-        const convictionScore = clamp(Math.max(...candidates.map((candidate) => Number(candidate.sourceMetric ?? 0)), 0) / 100);
-        const noisePenalty = clamp(
-          (validation.makerRebateCount * 8) +
-          (focusSummary.focusCategory ? 0 : 10),
-          0,
-          30
+        const featureSnapshot = buildDiscoveryFeatureSnapshot({
+          validation,
+          candidates,
+          focusCategory: focusSummary.focusCategory,
+          latestTradePrice: Number.isFinite(latestTradePrice) ? latestTradePrice : undefined,
+          currentPrice,
+          averageSpreadBps,
+          averageTopOfBookUsd,
+        });
+        const profitabilityScore = clamp(
+          validation.realizedWinRate * 0.55 +
+          (validation.realizedPnl > 0 ? Math.min(35, validation.realizedPnl / 20) : 0) +
+          featureSnapshot.marketSelectionScore * 0.1,
         );
+        const focusScore = clamp(
+          featureSnapshot.categoryFocusScore * 0.7 +
+          featureSnapshot.marketSelectionScore * 0.3,
+        );
+        const consistencyScore = featureSnapshot.consistencyScore;
+        const convictionScore = featureSnapshot.convictionScore;
+        const noisePenalty = featureSnapshot.integrityPenalty;
+        const strategyClass = classifyDiscoveryStrategy({
+          focusCategory: focusSummary.focusCategory,
+          validation,
+          copyabilityScore,
+          earlyScore,
+          noisePenalty,
+        });
+        const confidenceBucket = computeConfidenceBucket({
+          observationCount: featureSnapshot.confidenceEvidenceCount,
+          distinctMarkets: validation.marketsTouched,
+          recencyHours: Math.max(1, (runTimestamp - validation.lastValidatedAt) / 3600),
+          strategyClass,
+        });
+
+        upsertWalletFeatureSnapshotV2({
+          address,
+          runTimestamp,
+          focusCategory: focusSummary.focusCategory,
+          strategyClass,
+          confidenceBucket,
+          featureSnapshot,
+          metrics: {
+            averageSpreadBps,
+            averageTopOfBookUsd,
+            latestTradePrice: Number.isFinite(latestTradePrice) ? latestTradePrice : undefined,
+            currentPrice,
+          },
+        });
 
         const row = buildWalletScoreRow({
           address,
@@ -271,12 +341,46 @@ export class DiscoveryWorkerRuntime {
           consistencyScore,
           convictionScore,
           noisePenalty,
+          trustScore: featureSnapshot.trustScore,
+          strategyClass,
+          confidenceBucket,
+          scoreVersion: 2,
           updatedAt: runTimestamp,
+        });
+        row.surfaceBucket = resolveDiscoverySurfaceBucket({
+          discoveryScore: row.finalScore,
+          trustScore: row.trustScore ?? 0,
+          copyabilityScore: row.copyabilityScore,
+          strategyClass,
+          failedGates: [
+            row.passedProfitabilityGate ? null : 'profitability',
+            row.passedFocusGate ? null : 'focus',
+            row.passedCopyabilityGate ? null : 'copyability',
+          ].filter(Boolean) as string[],
+          confidenceBucket,
         });
 
         upsertWalletScoreRow(row);
         const reasons = buildDiscoveryReasonRows(row);
         replaceWalletReasons(address, reasons, runTimestamp);
+        const reasonPayload = buildReasonPayloadV2(row, reasons);
+        upsertWalletScoreRowV2(row, {
+          ...reasonPayload,
+          cautionFlags: [...reasonPayload.cautionFlags, ...featureSnapshot.cautionFlags]
+            .filter((value, index, values) => values.indexOf(value) === index),
+        });
+        allocationInputs.push({
+          address,
+          discoveryScore: row.finalScore,
+          trustScore: row.trustScore ?? featureSnapshot.trustScore,
+          copyabilityScore: row.copyabilityScore,
+          confidenceBucket,
+          strategyClass,
+          cautionFlags: [...reasonPayload.cautionFlags, ...featureSnapshot.cautionFlags]
+            .filter((value, index, values) => values.indexOf(value) === index),
+          updatedAt: row.updatedAt,
+        });
+        scoredRows.push(row);
         if (row.passedCopyabilityGate) {
           copyabilityPassCount += 1;
         }
@@ -319,6 +423,56 @@ export class DiscoveryWorkerRuntime {
       notes: 'Category-first wallet-seeded discovery cycle',
       createdAt: runTimestamp,
     });
+
+    insertDiscoveryEvaluationSnapshot(
+      createCycleEvaluationSnapshot({
+        runTimestamp,
+        scoredRows,
+      }),
+    );
+    insertDiscoveryEvaluationObservations(runTimestamp, scoredRows);
+    insertDiscoveryCostSnapshots([
+      {
+        provider: 'gamma',
+        endpoint: 'events+profile',
+        requestCount: gammaRequestCount,
+        estimatedCostUsd: 0,
+        coverageCount: marketPoolEntries.length,
+        runtimeMs: durationMs,
+        createdAt: runTimestamp,
+      },
+      {
+        provider: 'data',
+        endpoint: 'leaderboard+wallet+activity',
+        requestCount: dataRequestCount,
+        estimatedCostUsd: 0,
+        coverageCount: candidateAddresses.length,
+        runtimeMs: durationMs,
+        createdAt: runTimestamp,
+      },
+      {
+        provider: 'clob',
+        endpoint: 'spread+book',
+        requestCount: clobRequestCount,
+        estimatedCostUsd: 0,
+        coverageCount: candidateAddresses.length,
+        runtimeMs: durationMs,
+        createdAt: runTimestamp,
+      },
+    ]);
+    evaluateAndPersistAllocationPolicies(
+      allocationInputs.map((input) => ({
+        address: input.address,
+        discoveryScore: input.discoveryScore,
+        trustScore: input.trustScore,
+        copyabilityScore: input.copyabilityScore,
+        confidenceBucket: input.confidenceBucket,
+        strategyClass: input.strategyClass,
+        cautionFlags: input.cautionFlags,
+        updatedAt: input.updatedAt,
+      })),
+      runTimestamp,
+    );
     this.lastCompletedCycleAt = runTimestamp;
     console.log(`[DiscoveryWorker] Cycle complete in ${durationMs}ms (${qualifiedCount} qualified, ${rejectedCount} rejected)`);
     } finally {
@@ -518,10 +672,22 @@ export const startDiscoveryWorker = async (
 const main = async (): Promise<void> => {
   const runner = await startDiscoveryWorker(new DiscoveryWorkerRuntime());
 
+  // Discovery v3 — flag-gated, additive. Legacy v1/v2 pipeline above keeps running.
+  let v3Handle: Awaited<ReturnType<typeof startDiscoveryV3Worker>> = null;
+  if (isDiscoveryV3Enabled()) {
+    try {
+      const sqlite = await initDatabase();
+      v3Handle = await startDiscoveryV3Worker({ sqlite });
+    } catch (err) {
+      console.error('[DiscoveryWorker] v3 bootstrap failed:', (err as Error).message);
+    }
+  }
+
   const handleShutdown = async () => {
     if ('stop' in runner && typeof runner.stop === 'function') {
       await runner.stop();
     }
+    if (v3Handle) await v3Handle.stop();
     process.exit(0);
   };
 

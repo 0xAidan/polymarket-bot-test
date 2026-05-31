@@ -76,6 +76,11 @@ export async function initDatabase(): Promise<Database.Database> {
   safeAddColumn(db, 'discovery_wallet_scores', 'previous_passed_profitability_gate', 'INTEGER');
   safeAddColumn(db, 'discovery_wallet_scores', 'previous_passed_focus_gate', 'INTEGER');
   safeAddColumn(db, 'discovery_wallet_scores', 'previous_passed_copyability_gate', 'INTEGER');
+  safeAddColumn(db, 'discovery_wallet_scores', 'trust_score', 'REAL DEFAULT 0');
+  safeAddColumn(db, 'discovery_wallet_scores', 'strategy_class', "TEXT DEFAULT 'unknown'");
+  safeAddColumn(db, 'discovery_wallet_scores', 'confidence_bucket', "TEXT DEFAULT 'low'");
+  safeAddColumn(db, 'discovery_wallet_scores', 'surface_bucket', "TEXT DEFAULT 'watch_only'");
+  safeAddColumn(db, 'discovery_wallet_scores', 'score_version', 'INTEGER DEFAULT 1');
   safeAddColumn(db, 'discovery_run_log', 'estimated_cost_usd', 'REAL DEFAULT 0');
   safeAddColumn(db, 'discovery_run_log', 'category_purity_pct', 'REAL DEFAULT 0');
   safeAddColumn(db, 'discovery_run_log', 'copyability_pass_pct', 'REAL DEFAULT 0');
@@ -85,6 +90,21 @@ export async function initDatabase(): Promise<Database.Database> {
     db,
     'idx_discovery_trades_event_key',
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_discovery_trades_event_key ON discovery_trades (event_key) WHERE event_key IS NOT NULL'
+  );
+  safeCreateIndex(
+    db,
+    'idx_discovery_wallet_scores_v2_surface',
+    'CREATE INDEX IF NOT EXISTS idx_discovery_wallet_scores_v2_surface ON discovery_wallet_scores_v2 (surface_bucket, discovery_score DESC, updated_at DESC)'
+  );
+  safeCreateIndex(
+    db,
+    'idx_discovery_eval_snapshots_v2_created',
+    'CREATE INDEX IF NOT EXISTS idx_discovery_eval_snapshots_v2_created ON discovery_eval_snapshots_v2 (created_at DESC)'
+  );
+  safeCreateIndex(
+    db,
+    'idx_discovery_cost_snapshots_v2_created',
+    'CREATE INDEX IF NOT EXISTS idx_discovery_cost_snapshots_v2_created ON discovery_cost_snapshots_v2 (created_at DESC)'
   );
 
   migrateDiscoveryPositionsSchema(db);
@@ -269,6 +289,55 @@ function createSchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_discovery_market_pool_category
       ON discovery_market_pool (focus_category, volume_24h DESC);
 
+    CREATE TABLE IF NOT EXISTS discovery_market_universe_v2 (
+      condition_id                TEXT PRIMARY KEY,
+      title                       TEXT,
+      slug                        TEXT,
+      category                    TEXT NOT NULL,
+      primary_discovery_eligible  INTEGER NOT NULL DEFAULT 0,
+      high_information_priority   INTEGER NOT NULL DEFAULT 0,
+      liquidity                   REAL,
+      volume_24h                  REAL,
+      open_interest               REAL,
+      token_ids_json              TEXT NOT NULL,
+      outcomes_json               TEXT NOT NULL,
+      source                      TEXT NOT NULL DEFAULT 'unknown',
+      updated_at                  INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_market_universe_v2_category
+      ON discovery_market_universe_v2 (category, primary_discovery_eligible, volume_24h DESC, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS discovery_trade_facts_v2 (
+      id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+      tx_hash                     TEXT NOT NULL UNIQUE,
+      event_key                   TEXT,
+      maker                       TEXT NOT NULL,
+      taker                       TEXT NOT NULL,
+      condition_id                TEXT,
+      asset_id                    TEXT NOT NULL,
+      market_title                TEXT,
+      market_slug                 TEXT,
+      side                        TEXT,
+      price                       REAL,
+      shares                      REAL NOT NULL,
+      notional_usd                REAL,
+      fee_usd                     REAL,
+      source                      TEXT NOT NULL,
+      detected_at                 INTEGER NOT NULL,
+      category                    TEXT NOT NULL,
+      primary_discovery_eligible  INTEGER NOT NULL DEFAULT 0,
+      high_information_priority   INTEGER NOT NULL DEFAULT 0,
+      created_at                  INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_trade_facts_v2_detected
+      ON discovery_trade_facts_v2 (detected_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_discovery_trade_facts_v2_maker
+      ON discovery_trade_facts_v2 (maker, detected_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_discovery_trade_facts_v2_category
+      ON discovery_trade_facts_v2 (category, primary_discovery_eligible, detected_at DESC);
+
     CREATE TABLE IF NOT EXISTS discovery_token_map (
       token_id       TEXT PRIMARY KEY,
       condition_id   TEXT NOT NULL,
@@ -320,6 +389,29 @@ function createSchema(database: Database.Database): void {
       last_validated_at     INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS discovery_wallet_features_v2 (
+      address                    TEXT PRIMARY KEY,
+      snapshot_at                INTEGER NOT NULL,
+      focus_category             TEXT,
+      strategy_class             TEXT,
+      confidence_bucket          TEXT,
+      market_selection_score     REAL NOT NULL DEFAULT 0,
+      category_focus_score       REAL NOT NULL DEFAULT 0,
+      consistency_score          REAL NOT NULL DEFAULT 0,
+      conviction_score           REAL NOT NULL DEFAULT 0,
+      trust_score                REAL NOT NULL DEFAULT 0,
+      integrity_penalty          REAL NOT NULL DEFAULT 0,
+      confidence_evidence_count  INTEGER NOT NULL DEFAULT 0,
+      average_spread_bps         REAL NOT NULL DEFAULT 0,
+      average_top_of_book_usd    REAL NOT NULL DEFAULT 0,
+      latest_trade_price         REAL,
+      current_price              REAL,
+      caution_flags_json         TEXT NOT NULL DEFAULT '[]'
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_wallet_features_v2_focus
+      ON discovery_wallet_features_v2 (focus_category, snapshot_at DESC);
+
     CREATE TABLE IF NOT EXISTS discovery_wallet_scores (
       address                   TEXT PRIMARY KEY,
       profitability_score       REAL NOT NULL DEFAULT 0,
@@ -338,11 +430,31 @@ function createSchema(database: Database.Database): void {
       previous_passed_profitability_gate INTEGER,
       previous_passed_focus_gate INTEGER,
       previous_passed_copyability_gate INTEGER,
+      trust_score               REAL NOT NULL DEFAULT 0,
+      strategy_class            TEXT NOT NULL DEFAULT 'unknown',
+      confidence_bucket         TEXT NOT NULL DEFAULT 'low',
+      surface_bucket            TEXT NOT NULL DEFAULT 'watch_only',
+      score_version             INTEGER NOT NULL DEFAULT 1,
       updated_at                INTEGER NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_discovery_wallet_scores_final
       ON discovery_wallet_scores (final_score DESC, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS discovery_wallet_scores_v2 (
+      address               TEXT PRIMARY KEY,
+      score_version         INTEGER NOT NULL,
+      strategy_class        TEXT NOT NULL,
+      discovery_score       REAL NOT NULL,
+      trust_score           REAL NOT NULL,
+      copyability_score     REAL NOT NULL,
+      confidence_bucket     TEXT NOT NULL,
+      surface_bucket        TEXT NOT NULL,
+      primary_reason        TEXT NOT NULL,
+      supporting_reasons_json TEXT NOT NULL,
+      caution_flags_json    TEXT NOT NULL,
+      updated_at            INTEGER NOT NULL
+    );
 
     CREATE TABLE IF NOT EXISTS discovery_wallet_reasons (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -355,6 +467,15 @@ function createSchema(database: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_discovery_wallet_reasons_address
       ON discovery_wallet_reasons (address, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS discovery_wallet_reasons_v2 (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      address           TEXT NOT NULL,
+      primary_reason    TEXT NOT NULL,
+      supporting_reasons_json TEXT NOT NULL,
+      caution_flags_json TEXT NOT NULL,
+      created_at        INTEGER NOT NULL
+    );
 
     CREATE TABLE IF NOT EXISTS discovery_run_log (
       id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -373,6 +494,46 @@ function createSchema(database: Database.Database): void {
       free_mode_no_alchemy INTEGER NOT NULL DEFAULT 1,
       notes               TEXT,
       created_at          INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS discovery_eval_snapshots_v2 (
+      id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+      window_start             INTEGER NOT NULL,
+      window_end               INTEGER NOT NULL,
+      sample_size              INTEGER NOT NULL,
+      top_k                    INTEGER NOT NULL,
+      precision_at_k           REAL NOT NULL,
+      mean_average_precision   REAL NOT NULL,
+      ndcg                     REAL NOT NULL,
+      baseline_precision_at_k  REAL NOT NULL,
+      created_at               INTEGER NOT NULL,
+      notes                    TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS discovery_eval_observations_v2 (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_at             INTEGER NOT NULL,
+      address            TEXT NOT NULL,
+      discovery_score    REAL NOT NULL,
+      passed_all_gates   INTEGER NOT NULL,
+      confidence_bucket  TEXT,
+      strategy_class     TEXT,
+      created_at         INTEGER NOT NULL,
+      UNIQUE(run_at, address)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_eval_observations_v2_run
+      ON discovery_eval_observations_v2 (run_at DESC, discovery_score DESC);
+
+    CREATE TABLE IF NOT EXISTS discovery_cost_snapshots_v2 (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      provider           TEXT NOT NULL,
+      endpoint           TEXT NOT NULL,
+      request_count      INTEGER NOT NULL,
+      estimated_cost_usd REAL NOT NULL,
+      coverage_count     INTEGER NOT NULL,
+      runtime_ms         INTEGER NOT NULL,
+      created_at         INTEGER NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS discovery_config (
@@ -430,6 +591,73 @@ function createSchema(database: Database.Database): void {
       ON discovery_signals (address);
     CREATE INDEX IF NOT EXISTS idx_disc_signals_detected
       ON discovery_signals (detected_at);
+
+    CREATE TABLE IF NOT EXISTS discovery_alerts_v2 (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      signal_type   TEXT NOT NULL,
+      severity      TEXT NOT NULL,
+      wallet_address TEXT NOT NULL,
+      condition_id  TEXT,
+      market_title  TEXT,
+      title         TEXT NOT NULL,
+      description   TEXT NOT NULL,
+      metadata_json TEXT,
+      source        TEXT NOT NULL DEFAULT 'signal-engine',
+      status        TEXT NOT NULL DEFAULT 'active',
+      detected_at   INTEGER NOT NULL,
+      created_at    INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_alerts_v2_detected
+      ON discovery_alerts_v2 (status, detected_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_discovery_alerts_v2_wallet
+      ON discovery_alerts_v2 (wallet_address, detected_at DESC);
+
+    CREATE TABLE IF NOT EXISTS discovery_watchlist (
+      wallet_address    TEXT PRIMARY KEY,
+      note              TEXT,
+      tags_json         TEXT NOT NULL DEFAULT '[]',
+      created_at        INTEGER NOT NULL,
+      updated_at        INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discovery_watchlist_updated
+      ON discovery_watchlist (updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS allocation_policy_states (
+      tracked_wallet_address        TEXT PRIMARY KEY,
+      state                         TEXT NOT NULL,
+      target_weight                 REAL NOT NULL DEFAULT 0,
+      action                        TEXT NOT NULL,
+      hysteresis_score              REAL NOT NULL DEFAULT 0,
+      stable_cycles                 INTEGER NOT NULL DEFAULT 0,
+      last_transition_at            INTEGER,
+      pause_reason                  TEXT,
+      risk_flags_json               TEXT NOT NULL DEFAULT '[]',
+      metrics_json                  TEXT NOT NULL DEFAULT '{}',
+      updated_at                    INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS allocation_policy_transitions (
+      id                            INTEGER PRIMARY KEY AUTOINCREMENT,
+      tracked_wallet_address        TEXT NOT NULL,
+      previous_state                TEXT NOT NULL,
+      next_state                    TEXT NOT NULL,
+      action                        TEXT NOT NULL,
+      reason                        TEXT NOT NULL,
+      target_weight                 REAL NOT NULL,
+      risk_flags_json               TEXT NOT NULL DEFAULT '[]',
+      metrics_json                  TEXT NOT NULL DEFAULT '{}',
+      created_at                    INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_allocation_policy_transitions_wallet
+      ON allocation_policy_transitions (tracked_wallet_address, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS allocation_policy_config (
+      key                           TEXT PRIMARY KEY,
+      value                         TEXT NOT NULL
+    );
 
     -- =======================================================================
     -- ACCOUNT AUTH + MULTI-TENANT MEMBERSHIP TABLES

@@ -13,10 +13,14 @@ import {
   upsertWallet,
   tradeExistsByHash,
   tradeExistsByEventKey,
+  getWalletStats,
+  refreshWalletStats,
 } from './statsStore.js';
 import { enrichTrade, resolveWalletPseudonym } from './tradeEnricher.js';
 import { getDatabase } from '../database.js';
 import { updatePosition } from './positionTracker.js';
+import { evaluateTradeSignals } from './signalEngine.js';
+import { insertTradeFactsV2 } from './v2DataStore.js';
 
 const DEDUP_SET_MAX = 50_000;
 const BATCH_FLUSH_INTERVAL_MS = 2_000;
@@ -98,6 +102,7 @@ export class TradeIngestion extends EventEmitter {
     const batch = this.pendingBatch.splice(0);
     try {
       const inserted = insertTradeBatch(batch);
+      insertTradeFactsV2(batch);
 
       // Upsert wallet records for all unique addresses
       const walletsSeen = new Set<string>();
@@ -108,6 +113,9 @@ export class TradeIngestion extends EventEmitter {
             upsertWallet(address, t.detectedAt);
           }
         }
+      }
+      if (walletsSeen.size > 0) {
+        refreshWalletStats([...walletsSeen]);
       }
 
       try {
@@ -142,6 +150,18 @@ export class TradeIngestion extends EventEmitter {
         }
       } catch (err) {
         console.error('[Ingestion] Position tracking error:', err);
+      }
+
+      try {
+        for (const t of batch) {
+          for (const signalTrade of buildSignalEvaluationTrades(t)) {
+            const stats = getWalletStats(signalTrade.maker);
+            if (!stats) continue;
+            evaluateTradeSignals(signalTrade, stats);
+          }
+        }
+      } catch (err) {
+        console.error('[Ingestion] Trade-time signal evaluation error:', err);
       }
 
       // Keep ingestion lightweight so the web server stays responsive.

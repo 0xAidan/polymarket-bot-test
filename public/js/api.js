@@ -139,8 +139,50 @@ const API = {
     return this.get('/wallets');
   },
 
-  async addWallet(address) {
-    return this.post('/wallets', { address });
+  async addWallet(address, label) {
+    const body = { address };
+    if (label) body.label = label;
+    return this.post('/wallets', body);
+  },
+
+  async getCapabilities() {
+    return this.get('/auth/capabilities');
+  },
+
+  async getJungleAgents() {
+    return this.get('/jungle-agents');
+  },
+
+  async getJungleAgentPerformance(agentId) {
+    return this.get(`/jungle-agents/${agentId}/performance`);
+  },
+
+  async getAdminJungleAgents() {
+    return this.get('/admin/jungle-agents');
+  },
+
+  async createAdminJungleAgent(payload) {
+    return this.post('/admin/jungle-agents', payload);
+  },
+
+  async updateAdminJungleAgent(id, payload) {
+    return this.patch(`/admin/jungle-agents/${id}`, payload);
+  },
+
+  async deleteAdminJungleAgent(id) {
+    return this.delete(`/admin/jungle-agents/${id}`);
+  },
+
+  async reorderAdminJungleAgents(orderedIds) {
+    return this.post('/admin/jungle-agents/reorder', { orderedIds });
+  },
+
+  async bulkUpdateAdminJungleAddresses(updates) {
+    return this.post('/admin/jungle-agents/bulk-addresses', { updates });
+  },
+
+  async bulkSaveAdminJungleAgents(updates) {
+    return this.post('/admin/jungle-agents/bulk-save', { updates });
   },
 
   async removeWallet(address) {

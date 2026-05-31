@@ -8,7 +8,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { initDatabase } from '../database.js';
 import { Storage } from '../storage.js';
-import { DiscoveryConfig, DiscoveryMarketCategory } from '../discovery/types.js';
+import { DiscoveryConfig, DiscoveryMarketCategory, DiscoveryStrategyClass } from '../discovery/types.js';
 import {
   fetchAuthoritativePositions,
   summarizeAuthoritativePositions,
@@ -21,11 +21,26 @@ import {
   dismissSignal,
   getPositionsByAddress,
 } from '../discovery/statsStore.js';
-import { computeDiscoveryWalletScore } from '../discovery/walletScorer.js';
 import { classifyDiscoveryMarket } from '../discovery/marketClassifier.js';
 import { getRecentWalletReasons, getWalletReasons } from '../discovery/discoveryScorer.js';
 import { getWalletValidation } from '../discovery/walletValidator.js';
 import { getValidEvmAddress } from '../addressUtils.js';
+import { dismissDiscoveryAlertV2, getDiscoveryAlertsV2 } from '../discovery/v2DataStore.js';
+import {
+  buildDiscoveryMethodologyPayload,
+  getDiscoveryWatchlistEntry,
+  listDiscoveryWatchlistEntries,
+  removeDiscoveryWatchlistEntry,
+  upsertDiscoveryWatchlistEntry,
+} from '../discovery/productSurfaceStore.js';
+import {
+  evaluateAndPersistAllocationPolicies,
+  getAllocationPolicyConfig,
+  getAllocationPolicyState,
+  getAllocationPolicyStates,
+  getAllocationPolicyTransitions,
+  updateAllocationPolicyConfig,
+} from '../allocation/policyEngine.js';
 
 /**
  * Mask an Alchemy WebSocket URL for safe display.
@@ -46,6 +61,21 @@ const normalizeAlchemyWsUrl = (raw: string): string => {
   if (!value) return '';
   if (value.startsWith('ws://') || value.startsWith('wss://')) return value;
   return `wss://polygon-mainnet.g.alchemy.com/v2/${value}`;
+};
+
+const normalizeStrategyClass = (value: unknown): DiscoveryStrategyClass => {
+  const normalized = String(value || 'unknown').toLowerCase();
+  const allowed: DiscoveryStrategyClass[] = [
+    'informational_directional',
+    'structural_arbitrage',
+    'market_maker',
+    'reactive_momentum',
+    'suspicious',
+    'unknown',
+  ];
+  return allowed.includes(normalized as DiscoveryStrategyClass)
+    ? (normalized as DiscoveryStrategyClass)
+    : 'unknown';
 };
 
 export const applyAuthoritativeWalletSummary = <T extends { roiPct?: number | null; totalPnl?: number; activePositions?: number }>(
@@ -145,6 +175,7 @@ export const buildWalletPositionsResponse = (
 
 export const applyDiscoveryWalletScore = <T extends {
   whaleScore?: number;
+  discoveryScore?: number;
   volume7d?: number;
   volumePrev7d?: number;
   tradeCount7d?: number;
@@ -155,14 +186,15 @@ export const applyDiscoveryWalletScore = <T extends {
   activePositions?: number;
 }>(
   wallet: T,
-  maxVolume: number,
+  _maxVolume: number,
 ): T & { whaleScore: number } => ({
   ...wallet,
-  whaleScore: computeDiscoveryWalletScore(wallet, maxVolume),
+  whaleScore: Number(wallet.discoveryScore ?? wallet.whaleScore ?? 0),
 });
 
 export const sortWalletsForResponse = <T extends {
   whaleScore?: number;
+  discoveryScore?: number;
   roiPct?: number | null;
   lastActive?: number;
   tradeCount7d?: number;
@@ -173,7 +205,7 @@ export const sortWalletsForResponse = <T extends {
 ): T[] => {
   const sorted = [...wallets];
   sorted.sort((a, b) => {
-    if (sort === 'score') return (b.whaleScore || 0) - (a.whaleScore || 0);
+    if (sort === 'score') return (Number(b.discoveryScore ?? b.whaleScore) || 0) - (Number(a.discoveryScore ?? a.whaleScore) || 0);
     if (sort === 'roi') return (b.roiPct ?? Number.NEGATIVE_INFINITY) - (a.roiPct ?? Number.NEGATIVE_INFINITY);
     if (sort === 'recent') return (b.lastActive || 0) - (a.lastActive || 0);
     if (sort === 'trades') return (b.tradeCount7d || 0) - (a.tradeCount7d || 0);
@@ -208,6 +240,7 @@ const DISCOVERY_CATEGORY_PRIORITY: Record<string, number> = {
 };
 
 export const buildDiscoveryWalletExplanation = <T extends {
+  primaryReason?: string;
   focusCategory?: DiscoveryMarketCategory;
   highInformationVolume7d?: number;
   volume7d?: number;
@@ -217,6 +250,9 @@ export const buildDiscoveryWalletExplanation = <T extends {
 }>(
   wallet: T,
 ): string => {
+  if (wallet.primaryReason) {
+    return wallet.primaryReason;
+  }
   const focusLabel = DISCOVERY_CATEGORY_LABELS[wallet.focusCategory || 'event'] || 'Real-world';
   const parts: string[] = [`${focusLabel} focus`];
   const highInformationShare = Number(wallet.volume7d || 0) > 0
@@ -241,14 +277,17 @@ export const buildDiscoveryWalletExplanation = <T extends {
 
 export const shouldIncludeDiscoveryWallet = <T extends {
   whaleScore?: number;
+  discoveryScore?: number;
+  surfaceBucket?: string;
   volume7d?: number;
   tradeCount7d?: number;
   lastSignalAt?: number;
 }>(
   wallet: T,
 ): boolean => {
+  if ((wallet.surfaceBucket || '').toLowerCase() === 'suppressed') return false;
   if ((wallet.lastSignalAt || 0) > 0) return true;
-  if (Number(wallet.whaleScore || 0) >= 20) return true;
+  if (Number(wallet.discoveryScore ?? wallet.whaleScore) >= 20) return true;
   if (Number(wallet.volume7d || 0) >= 2500) return true;
   return Number(wallet.tradeCount7d || 0) >= 4 && Number(wallet.volume7d || 0) >= 750;
 };
@@ -456,6 +495,28 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
 
   router.use(ensureDatabase);
 
+  const getWalletSnapshot = (address: string): Record<string, unknown> | null => {
+    const normalized = address.toLowerCase();
+    const wallets = manager.getWallets('score', 500, 0) as Array<Record<string, unknown>>;
+    return wallets.find((wallet) => String(wallet.address || '').toLowerCase() === normalized) ?? null;
+  };
+
+  const serializeWalletProfile = (address: string): Record<string, unknown> | null => {
+    const wallet = getWalletSnapshot(address);
+    if (!wallet) return null;
+    const validation = getWalletValidation(address);
+    const reasons = getWalletReasons(address);
+    const allocationState = getAllocationPolicyState(address);
+    const watchlistEntry = getDiscoveryWatchlistEntry(address);
+    return {
+      wallet,
+      validation,
+      reasons,
+      allocation: allocationState,
+      watchlist: watchlistEntry,
+    };
+  };
+
   // -----------------------------------------------------------------------
   // GET /wallets — ranked list of discovered wallets (with filters)
   // -----------------------------------------------------------------------
@@ -496,6 +557,7 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
           }));
           res.json({
             success: true,
+            apiVersion: 'v2',
             wallets: derivedWallets,
             positionsSource: 'derived',
           });
@@ -515,6 +577,7 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
 
         res.json({
           success: true,
+          apiVersion: 'v2',
           wallets: hydratedWallets.map(annotateDiscoveryWallet),
           positionsSource: 'verified',
         });
@@ -522,6 +585,211 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
         res.status(500).json({ success: false, error: err.message });
       }
     })();
+  });
+
+  router.get('/wallets/:address/profile', (req: Request, res: Response) => {
+    try {
+      const address = req.params.address.toLowerCase();
+      const profile = serializeWalletProfile(address);
+      if (!profile) {
+        res.status(404).json({ success: false, error: 'Wallet not found in discovery set' });
+        return;
+      }
+      res.json({ success: true, profile });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/wallets/compare', (req: Request, res: Response) => {
+    try {
+      const addressesInput: unknown[] = Array.isArray(req.body?.addresses) ? req.body.addresses : [];
+      const addresses = [...new Set<string>(
+        addressesInput
+          .map((value: unknown): string => String(value || '').trim().toLowerCase())
+          .filter((value: string): value is string => Boolean(value))
+      )].slice(0, 4);
+      if (addresses.length < 2) {
+        res.status(400).json({ success: false, error: 'Provide at least two wallet addresses to compare.' });
+        return;
+      }
+      const profiles = addresses.map((address) => ({
+        address,
+        profile: serializeWalletProfile(address),
+      }));
+      res.json({ success: true, profiles });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/watchlist', (req: Request, res: Response) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string, 10) || 100, 250);
+      const offset = Math.max(parseInt(req.query.offset as string, 10) || 0, 0);
+      res.json({
+        success: true,
+        watchlist: listDiscoveryWatchlistEntries(limit, offset),
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/watchlist', (req: Request, res: Response) => {
+    try {
+      const address = String(req.body?.address || '').trim().toLowerCase();
+      if (!address) {
+        res.status(400).json({ success: false, error: 'address is required' });
+        return;
+      }
+      const note = req.body?.note ? String(req.body.note) : undefined;
+      const tags = Array.isArray(req.body?.tags)
+        ? req.body.tags.map((value: unknown) => String(value || '').trim()).filter(Boolean)
+        : [];
+      const entry = upsertDiscoveryWatchlistEntry(address, note, tags);
+      res.json({ success: true, watchlistEntry: entry });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.delete('/watchlist/:address', (req: Request, res: Response) => {
+    try {
+      const deleted = removeDiscoveryWatchlistEntry(req.params.address);
+      if (!deleted) {
+        res.status(404).json({ success: false, error: 'Watchlist entry not found' });
+        return;
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/alerts', (req: Request, res: Response) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string, 10) || 50, 200);
+      const offset = Math.max(parseInt(req.query.offset as string, 10) || 0, 0);
+      const severity = req.query.severity ? String(req.query.severity) : undefined;
+      const signalType = req.query.signalType ? String(req.query.signalType) : undefined;
+      const walletAddress = req.query.walletAddress ? String(req.query.walletAddress) : undefined;
+      const onlyUndismissed = req.query.includeDismissed === 'true' ? false : true;
+      const alerts = getDiscoveryAlertsV2(limit, offset, {
+        severity,
+        signalType,
+        walletAddress,
+        onlyUndismissed,
+      });
+      res.json({ success: true, alerts });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/alerts/:id/dismiss', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        res.status(400).json({ success: false, error: 'Invalid alert id' });
+        return;
+      }
+      const dismissed = dismissDiscoveryAlertV2(id);
+      if (!dismissed) {
+        res.status(404).json({ success: false, error: 'Alert not found' });
+        return;
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/methodology', (_req: Request, res: Response) => {
+    try {
+      res.json({ success: true, methodology: buildDiscoveryMethodologyPayload() });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/allocation/config', (_req: Request, res: Response) => {
+    try {
+      res.json({ success: true, config: getAllocationPolicyConfig() });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.put('/allocation/config', (req: Request, res: Response) => {
+    try {
+      const nextConfig = updateAllocationPolicyConfig(req.body || {});
+      res.json({ success: true, config: nextConfig });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/allocation/states', (req: Request, res: Response) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string, 10) || 100, 250);
+      const offset = Math.max(parseInt(req.query.offset as string, 10) || 0, 0);
+      res.json({
+        success: true,
+        states: getAllocationPolicyStates(limit, offset),
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/allocation/transitions', (req: Request, res: Response) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string, 10) || 100, 250);
+      const offset = Math.max(parseInt(req.query.offset as string, 10) || 0, 0);
+      const address = req.query.address ? String(req.query.address) : undefined;
+      res.json({
+        success: true,
+        transitions: getAllocationPolicyTransitions(limit, offset, address),
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/allocation/evaluate', (req: Request, res: Response) => {
+    try {
+      const addressesInput = Array.isArray(req.body?.addresses) ? req.body.addresses : [];
+      const addresses = [...new Set(
+        addressesInput.map((value: unknown) => String(value || '').trim().toLowerCase()).filter(Boolean)
+      )];
+      const wallets = manager.getWallets('score', 500, 0) as Array<Record<string, unknown>>;
+      const scopedWallets = addresses.length > 0
+        ? wallets.filter((wallet) => addresses.includes(String(wallet.address || '').toLowerCase()))
+        : wallets;
+      const result = evaluateAndPersistAllocationPolicies(
+        scopedWallets.map((wallet) => {
+          const separateScores = wallet.separateScores && typeof wallet.separateScores === 'object'
+            ? (wallet.separateScores as Record<string, unknown>)
+            : {};
+          return {
+            address: String(wallet.address || '').toLowerCase(),
+            discoveryScore: Number(wallet.discoveryScore ?? wallet.whaleScore ?? 0),
+            trustScore: Number(wallet.trustScore ?? separateScores.trust ?? 0),
+            copyabilityScore: Number(wallet.copyabilityScore ?? separateScores.copyability ?? 0),
+            confidenceBucket: (String(wallet.confidence || 'low').toLowerCase() as 'low' | 'medium' | 'high'),
+            strategyClass: normalizeStrategyClass(wallet.strategyClass),
+            cautionFlags: Array.isArray(wallet.cautionFlags)
+              ? wallet.cautionFlags.map((value: unknown) => String(value))
+              : [],
+            updatedAt: Number(wallet.updatedAt || 0),
+          };
+        })
+      );
+      res.json({ success: true, result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
 
   // -----------------------------------------------------------------------
@@ -780,6 +1048,21 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
     try {
       const status = manager.getStatus();
       res.json({ success: true, ...status });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/migration/status', (_req: Request, res: Response) => {
+    try {
+      const status = manager.getStatus() as Record<string, unknown>;
+      const budgets = (status.budgets && typeof status.budgets === 'object')
+        ? (status.budgets as Record<string, unknown>)
+        : {};
+      res.json({
+        success: true,
+        migration: budgets.migration ?? null,
+      });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }

@@ -5,8 +5,11 @@ import { Storage } from './storage.js';
 import { initWalletManager } from './walletManager.js';
 import { startMonitoringServices } from './startup.js';
 import { initDatabase } from './database.js';
-import { DiscoveryManager } from './discovery/discoveryManager.js';
 import { clearDiscoveryRuntimeHeartbeat } from './discovery/discoveryRuntimeState.js';
+import { DiscoveryWorkerRuntime } from './discovery/discoveryWorker.js';
+import { getDiscoveryConfig } from './discovery/statsStore.js';
+import { DiscoveryControlPlane } from './discovery/discoveryControlPlane.js';
+import { isDiscoveryV3Enabled } from './discovery/v3/featureFlag.js';
 import { getRuntimeServicesForMode, resolveRuntimeMode } from './runtimeMode.js';
 import type { Server } from 'node:http';
 import { existsSync, writeFileSync, readFileSync } from 'fs';
@@ -266,11 +269,11 @@ const registerAppShutdown = (copyTrader: CopyTrader | null, server: Server | nul
   process.on('SIGTERM', handleShutdown);
 };
 
-const registerDiscoveryShutdown = (discoveryManager: DiscoveryManager): void => {
+const registerDiscoveryShutdown = (discoveryRunner: { stop: () => Promise<void> }): void => {
   const handleShutdown = async () => {
     console.log('\n🛑 Shutting down discovery worker...');
     try {
-      await discoveryManager.stop();
+      await discoveryRunner.stop();
     } finally {
       process.exit(0);
     }
@@ -385,13 +388,19 @@ async function startAppRuntime() {
 
 async function startDiscoveryWorkerRuntime() {
   try {
+    if (isDiscoveryV3Enabled()) {
+      console.warn(
+        '[DiscoveryWorker] APP_RUNTIME=discovery-worker (index.ts) does not bootstrap discovery v3. Use npm run start:discovery or npm run start:prod:discovery for v3 live ingest.'
+      );
+    }
+
     await Storage.ensureDataDir();
     await initDatabase();
 
-    const discoveryManager = new DiscoveryManager('worker');
-    registerDiscoveryShutdown(discoveryManager);
+    const discoveryRunner = new DiscoveryWorkerRuntime();
+    registerDiscoveryShutdown(discoveryRunner);
 
-    const discoveryConfig = discoveryManager.getConfig();
+    const discoveryConfig = getDiscoveryConfig();
     if (!discoveryConfig.enabled) {
       clearDiscoveryRuntimeHeartbeat();
       console.log('[DiscoveryWorker] Discovery is disabled in config. Enable it from the dashboard before starting the worker.');
@@ -399,9 +408,9 @@ async function startDiscoveryWorkerRuntime() {
     }
 
     console.log('🔎 Starting discovery worker...');
-    await discoveryManager.start();
+    await discoveryRunner.start();
 
-    const status = discoveryManager.getStatus();
+    const status = new DiscoveryControlPlane().getStatus();
     console.log(`   Chain listener: ${status.chainListener.connected ? 'connected' : 'disconnected'}`);
     console.log(`   API poller: ${status.apiPoller.running ? 'running' : 'stopped'}`);
     console.log(`   Markets monitored: ${status.apiPoller.marketsMonitored}`);

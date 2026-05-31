@@ -6,7 +6,9 @@ import { PositionMirror } from './positionMirror.js';
 import { DetectedTrade, TradeOrder, TradeResult, RateLimitState, TradeSideFilter, PerWalletRateLimitStates } from './types.js';
 import { decidePendingOrderReconciliation } from './noRepeatReconciliation.js';
 import { Storage } from './storage.js';
+import { getDatabase } from './database.js';
 import { config } from './config.js';
+import { DittoExecutionState } from './discovery/v3/types.js';
 import {
   initWalletManager,
   getAssignmentsForTrackedWallet,
@@ -22,8 +24,8 @@ import {
   summarizeDetectedTradeForDebug,
 } from './tradeDiagnostics.js';
 import { createComponentLogger } from './logger.js';
-import { getTenantIdOrDefault, getTenantIdStrict } from './tenantContext.js';
-import { resolveStopLossPositionValue } from './stopLossPolicy.js';
+import { getTenantIdOrDefault } from './tenantContext.js';
+import { getAllocationPolicyState } from './allocation/policyEngine.js';
 
 const log = createComponentLogger('CopyTrader');
 
@@ -67,15 +69,15 @@ export class CopyTrader {
       await this.executor.authenticate();
       await this.balanceTracker.initialize();
       
-      // Hosted runtime is process-global; tenant wallet state loads on demand per request/trade context.
-      if (isHostedMultiTenantMode()) {
-        log.info('[CopyTrader] Hosted mode startup: skipping global wallet-manager preload');
-      } else {
-        await initWalletManager();
-      }
+      // Initialize multi-wallet manager
+      await initWalletManager();
       
       const userWallet = this.getWalletAddress();
-      const initialAddrs = userWallet ? [userWallet] : [];
+      const initialAddrs = userWallet
+        ? [userWallet]
+        : isHostedMultiTenantMode()
+          ? getActiveTradingWallets().map(w => w.address)
+          : [];
       for (const addr of initialAddrs) {
         try {
           await this.balanceTracker.recordBalance(addr);
@@ -139,7 +141,10 @@ export class CopyTrader {
 
     // Start balance tracking for user wallet(s) (reduces RPC calls significantly)
     const userWallet = this.getWalletAddress();
-    const toTrack = userWallet ? [userWallet] : [];
+    const hostedAddrs = isHostedMultiTenantMode()
+      ? getActiveTradingWallets().map(w => w.address)
+      : [];
+    const toTrack = userWallet ? [userWallet] : hostedAddrs;
     if (toTrack.length > 0) {
       await this.balanceTracker.startTracking(toTrack);
     }
@@ -304,6 +309,66 @@ export class CopyTrader {
       executionTargets = [{ tradingWalletId: undefined }];
     } else {
       executionTargets = assignments.map(a => ({ tradingWalletId: a.tradingWalletId }));
+    }
+
+    // Query the latest Ditto Execution State from SQLite
+    let dittoState: string | null = null;
+    try {
+      const db = getDatabase();
+      const row = db.prepare(`SELECT ditto_state FROM discovery_wallet_scores_v3 WHERE proxy_wallet = ? LIMIT 1`).get(trade.walletAddress.toLowerCase()) as { ditto_state: string } | undefined;
+      dittoState = row?.ditto_state || null;
+    } catch (e: any) {
+      log.warn(`[CopyTrader] Failed to fetch ditto_state for ${trade.walletAddress}: ${e.message}`);
+    }
+
+    // Apply Ditto Execution State Logic
+    let dittoMultiplier = 1.0;
+    if (dittoState === DittoExecutionState.COOLDOWN_PAUSED || dittoState === DittoExecutionState.NEW_UNRANKED) {
+      log.info(`[CopyTrader] ⏸️ Ditto State blocked trade for ${trade.walletAddress.slice(0, 10)}...: State is ${dittoState}`);
+      await this.performanceTracker.recordTrade({
+        timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId, marketTitle: trade.marketTitle,
+        outcome: trade.outcome, amount: trade.amount, price: trade.price, success: false,
+        status: 'rejected', executionTimeMs: 0,
+        error: `[DITTO_STATE] Trade blocked because wallet is in ${dittoState} state`,
+        detectedTxHash: trade.transactionHash, tokenId: trade.tokenId,
+      });
+      return;
+    } else if (dittoState === DittoExecutionState.HOT_STREAK) {
+      dittoMultiplier = 1.5; // Upsize
+      log.info(`[CopyTrader] 🔥 HOT STREAK detected for ${trade.walletAddress.slice(0, 10)}... Applying 1.5x multiplier.`);
+    } else if (dittoState === DittoExecutionState.SLOWING_REVERTING) {
+      dittoMultiplier = 0.5; // De-risk
+      log.info(`[CopyTrader] ⚠️ SLOWING / REVERTING detected for ${trade.walletAddress.slice(0, 10)}... Applying 0.5x multiplier (De-risking).`);
+    }
+
+    const allocationState = getAllocationPolicyState(trade.walletAddress);
+    let allocationWeight = allocationState
+      ? Math.max(0, Math.min(2, Number(allocationState.targetWeight || 0)))
+      : 1;
+
+    // Combine standard allocation with Ditto multiplier
+    allocationWeight = allocationWeight * dittoMultiplier;
+
+    if ((allocationState?.state === 'PAUSED') || allocationWeight <= 0) {
+      const blockedReason = allocationState?.pauseReason
+        || `Allocation policy is ${allocationState?.state || 'PAUSED'} for this wallet`;
+      log.info(`[CopyTrader] ⏸️ Allocation policy blocked trade for ${trade.walletAddress.slice(0, 10)}...: ${blockedReason}`);
+      await this.performanceTracker.recordTrade({
+        timestamp: new Date(),
+        walletAddress: trade.walletAddress,
+        marketId: trade.marketId,
+        marketTitle: trade.marketTitle,
+        outcome: trade.outcome,
+        amount: trade.amount,
+        price: trade.price,
+        success: false,
+        status: 'rejected',
+        executionTimeMs: 0,
+        error: `[ALLOCATION_POLICY] ${blockedReason}`,
+        detectedTxHash: trade.transactionHash,
+        tokenId: trade.tokenId,
+      });
+      return;
     }
     const execSuffix = executionTargets.map(t => t.tradingWalletId ?? 'env').sort().join('+');
     const compoundKey = `${tenantKey}:${trade.walletAddress.toLowerCase()}-${positionKey}-${trade.side}-${timeWindow}-${execSuffix}`;
@@ -890,6 +955,13 @@ export class CopyTrader {
       }
       
       // Validate final trade size
+      if (allocationWeight !== 1) {
+        tradeSizeUsdcNum = parseFloat((tradeSizeUsdcNum * allocationWeight).toFixed(2));
+        const allocStr = allocationState?.state || 'CONSISTENT';
+        const dittoStr = dittoState ? `Ditto: ${dittoState}` : '';
+        tradeSizeSource = `${tradeSizeSource}, allocation x${allocationWeight.toFixed(2)} (${allocStr} ${dittoStr})`;
+      }
+
       if (isNaN(tradeSizeUsdcNum) || tradeSizeUsdcNum <= 0) {
         log.error(`❌ Invalid calculated trade size ($${tradeSizeUsdcNum} USDC), cannot execute trade`);
         await this.performanceTracker.logIssue(
@@ -1728,7 +1800,9 @@ export class CopyTrader {
       try {
         const positions = await this.monitor.getApi().getUserPositions(walletToCheck);
         for (const position of positions) {
-          positionsValue += resolveStopLossPositionValue(position);
+          const size = parseFloat(position.size || '0');
+          const price = parseFloat(position.curPrice || position.avgPrice || '0.5');
+          positionsValue += size * price;
         }
       } catch (error: any) {
         log.error(`[CopyTrader] Cannot fetch positions for stop-loss check — BLOCKING trades for safety: ${error.message}`);
@@ -1787,12 +1861,11 @@ export class CopyTrader {
     const now = Date.now();
     const hourMs = 60 * 60 * 1000;
     const dayMs = 24 * 60 * 60 * 1000;
-    const tenantId = isHostedMultiTenantMode() ? getTenantIdStrict() : getTenantIdOrDefault();
     
     // If specific wallet requested
     if (walletAddress) {
       const walletRateState = this.perWalletRateLimits.get(
-        this.getRateLimitKey(walletAddress, tenantId)
+        this.getRateLimitKey(walletAddress, getTenantIdOrDefault())
       );
       if (!walletRateState) {
         // No rate limit state exists for this wallet (never had rate limiting enabled or no trades)

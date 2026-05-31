@@ -1,6 +1,7 @@
 import { getDatabase } from '../database.js';
 import { classifyDiscoveryMarket } from './marketClassifier.js';
 import { DiscoveryMarketCategory, DiscoveryMarketPoolEntry } from './types.js';
+import { upsertMarketUniverseV2Entries } from './v2DataStore.js';
 
 type EventTag = {
   slug?: string;
@@ -110,7 +111,7 @@ export const buildDiscoveryMarketPoolEntries = (
       tags: event.tags,
     });
 
-    if (focusCategory === 'sports' || focusCategory === 'crypto') {
+    if (focusCategory === 'crypto') {
       continue;
     }
 
@@ -147,6 +148,8 @@ export const buildDiscoveryMarketPoolEntries = (
 
 export const upsertDiscoveryMarketPoolEntries = (entries: DiscoveryMarketPoolEntry[]): void => {
   if (entries.length === 0) return;
+
+  upsertMarketUniverseV2Entries(entries);
 
   const db = getDatabase();
   const stmt = db.prepare(`
