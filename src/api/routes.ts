@@ -1346,6 +1346,22 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     return [...withCredentials, ...withoutCredentials];
   };
 
+  const resolveTradingWalletFundsAddress = async (
+    eoaAddress: string,
+    tradingWalletId: string | null,
+  ): Promise<string> => {
+    const polymarketApi = copyTrader.getPolymarketApi();
+    if (tradingWalletId) {
+      const tw = getTradingWallet(tradingWalletId);
+      const explicitFunder = tw?.polymarketFunderAddress || tw?.proxyAddress;
+      if (explicitFunder) {
+        return explicitFunder;
+      }
+    }
+    const proxyAddress = await polymarketApi.getProxyWalletAddress(eoaAddress);
+    return proxyAddress || eoaAddress;
+  };
+
   // Get wallet configuration (address used for executing trades)
   router.get('/wallet', async (req: Request, res: Response) => {
     try {
@@ -1421,8 +1437,10 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         });
       }
 
-      // Get balance directly from CLOB API - this is what builder credentials are for
-      let currentBalance = 0;
+      let onChainCash = 0;
+      let clobCash = 0;
+      let positionsValue = 0;
+      let clobCashError: string | null = null;
 
       try {
         if (isHostedMultiTenantMode()) {
@@ -1430,42 +1448,87 @@ export function createRoutes(copyTrader: CopyTrader): Router {
           for (const wallet of hostedCandidates) {
             try {
               const clobClient = await copyTrader.getTradeExecutor().getClobClientForTradingWalletId(wallet.id);
-              currentBalance = await clobClient.getUsdcBalance();
+              clobCash = await clobClient.getUsdcBalance();
               eoaAddress = wallet.address;
               balanceWalletId = wallet.id;
               log.info(
-                `[API] ✓ CLOB API balance: $${currentBalance.toFixed(2)} USDC (walletId=${wallet.id}, hasCredentials=${wallet.hasCredentials})`
+                `[API] ✓ CLOB collateral: $${clobCash.toFixed(2)} (walletId=${wallet.id}, hasCredentials=${wallet.hasCredentials})`
               );
               lastError = null;
               break;
             } catch (walletError: any) {
               lastError = walletError?.message || 'Unknown hosted wallet balance error';
               log.warn(
-                `[API] Hosted wallet balance failed for walletId=${wallet.id} hasCredentials=${wallet.hasCredentials}: ${lastError}`
+                `[API] Hosted CLOB balance failed for walletId=${wallet.id} hasCredentials=${wallet.hasCredentials}: ${lastError}`
               );
             }
           }
-          if (lastError && currentBalance === 0) {
-            throw new Error(lastError);
+          if (lastError && clobCash === 0) {
+            clobCashError = lastError;
           }
         } else {
           const clobClient = copyTrader.getClobClient();
-          currentBalance = await clobClient.getUsdcBalance();
-          log.info(`[API] ✓ CLOB API balance: $${currentBalance.toFixed(2)} USDC`);
+          await clobClient.initialize();
+          clobCash = await clobClient.getUsdcBalance();
+          log.info(`[API] ✓ CLOB collateral: $${clobCash.toFixed(2)}`);
         }
       } catch (clobError: any) {
-        log.error({ err: clobError.message }, `[API] CLOB balance failed`);
-        // Log full error for debugging
-        log.error({ err: clobError }, `[API] Full error`);
+        clobCashError = clobError?.message || 'CLOB balance failed';
+        log.error({ err: clobCashError }, '[API] CLOB collateral balance failed');
       }
 
+      const fundsAddress = await resolveTradingWalletFundsAddress(eoaAddress, balanceWalletId);
+
+      try {
+        const balanceTracker = copyTrader.getBalanceTracker();
+        onChainCash = await balanceTracker.getBalance(fundsAddress);
+        log.info(
+          `[API] ✓ On-chain cash on ${fundsAddress.substring(0, 10)}...: $${onChainCash.toFixed(2)}`
+        );
+      } catch (onChainError: any) {
+        log.warn({ err: onChainError.message }, '[API] On-chain cash balance failed');
+      }
+
+      try {
+        const polymarketApi = copyTrader.getPolymarketApi();
+        const profile = await polymarketApi.getPolymarketProfilePortfolio(eoaAddress);
+        positionsValue = profile.portfolioValueUsd;
+        log.info(
+          `[API] ✓ Position value: $${positionsValue.toFixed(2)} (${profile.positionCount} positions, source=${profile.source})`
+        );
+      } catch (positionsError: any) {
+        log.warn({ err: positionsError.message }, '[API] Position value lookup failed');
+      }
+
+      // CLOB collateral can read $0 when cash sits on the proxy on-chain (USDC.e / pUSD) or funder is misconfigured.
+      const cashBalance = Math.max(onChainCash, clobCash);
+      const currentBalance = cashBalance + positionsValue;
+      const cashSource =
+        onChainCash > 0 && clobCash > 0
+          ? 'on_chain_and_clob'
+          : onChainCash > 0
+            ? 'on_chain'
+            : clobCash > 0
+              ? 'clob'
+              : 'none';
+
       log.info(
-        `[API] Final balance: $${currentBalance.toFixed(2)}${balanceWalletId ? ` (walletId=${balanceWalletId})` : ''}`
-      )
+        `[API] Final balance: $${currentBalance.toFixed(2)} ` +
+        `(cash=$${cashBalance.toFixed(2)} [on-chain=$${onChainCash.toFixed(2)}, clob=$${clobCash.toFixed(2)}, source=${cashSource}] ` +
+        `+ positions=$${positionsValue.toFixed(2)})` +
+        `${balanceWalletId ? ` walletId=${balanceWalletId}` : ''}`
+      );
 
       res.json({
         success: true,
         currentBalance,
+        cashBalance,
+        onChainCash,
+        clobCash,
+        positionsValue,
+        fundsAddress,
+        cashSource,
+        clobCashError,
         change24h: 0,
         balance24hAgo: null,
         walletAddress: eoaAddress

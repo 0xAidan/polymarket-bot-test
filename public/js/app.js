@@ -704,8 +704,9 @@ async function loadWalletBalance() {
     const wallet = await API.getWallet();
     const balance = await API.getWalletBalance();
 
+    const displayAddress = wallet.proxyWalletAddress || wallet.walletAddress;
     document.getElementById('walletAddress').textContent =
-      wallet.walletAddress ? `${wallet.walletAddress.slice(0, 6)}...${wallet.walletAddress.slice(-4)}` : 'Not configured';
+      displayAddress ? `${displayAddress.slice(0, 6)}...${displayAddress.slice(-4)}` : 'Not configured';
 
     document.getElementById('walletBalance').textContent =
       `$${(balance.currentBalance || 0).toFixed(2)}`;
