@@ -31,11 +31,12 @@ export interface RpcClient {
 export function createHttpRpcClient(
   rpcUrl: string,
   fetchImpl: typeof fetch = fetch,
+  extraHeaders: Record<string, string> = {},
 ): RpcClient {
   const rpc = async (method: string, params: unknown[]): Promise<unknown> => {
     const res = await fetchImpl(rpcUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...extraHeaders },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
     });
     if (!res.ok) throw new Error(`RPC ${method} HTTP ${res.status}`);
@@ -84,6 +85,7 @@ export interface PollRpcOnceResult {
   toBlock: number;
   logsFetched: number;
   inserted: number;
+  rpcCallsEstimated: number;
   newCursor: number;
 }
 
@@ -102,15 +104,25 @@ export async function pollRpcLogsOnce({
     ? Math.max(0, head - initialLookbackBlocks)
     : Math.max(0, stored - overlapBlocks);
   if (fromBlock > head) {
-    return { fromBlock, toBlock: head, logsFetched: 0, inserted: 0, newCursor: stored };
+    return {
+      fromBlock,
+      toBlock: head,
+      logsFetched: 0,
+      inserted: 0,
+      rpcCallsEstimated: 1,
+      newCursor: stored,
+    };
   }
 
   const tsCache = new Map<number, number>();
   let logsFetched = 0;
   let inserted = 0;
+  let blockTimestampCalls = 0;
+  let getLogsCalls = 0;
 
   for (let start = fromBlock; start <= head; start += blockChunkSize + 1) {
     const end = Math.min(head, start + blockChunkSize);
+    getLogsCalls += 1;
     const logs = await client.getLogs(start, end);
     logsFetched += logs.length;
     if (logs.length === 0) continue;
@@ -120,6 +132,7 @@ export async function pollRpcLogsOnce({
       const blockNumber = parseInt(String(log.blockNumber), 16);
       let tsUnix = tsCache.get(blockNumber);
       if (tsUnix == null) {
+        blockTimestampCalls += 1;
         tsUnix = await client.getBlockTimestamp(blockNumber);
         tsCache.set(blockNumber, tsUnix);
       }
@@ -129,9 +142,26 @@ export async function pollRpcLogsOnce({
   }
 
   cursor.setLastBlock(pipelineKey, head, Math.floor(Date.now() / 1000), '');
-  return { fromBlock, toBlock: head, logsFetched, inserted, newCursor: head };
+  const rpcCallsEstimated = 1 + getLogsCalls + blockTimestampCalls;
+  return {
+    fromBlock,
+    toBlock: head,
+    logsFetched,
+    inserted,
+    rpcCallsEstimated,
+    newCursor: head,
+  };
 }
 
 export function getDefaultRpcUrl(): string {
   return config.polygonRpcUrl || 'https://polygon-rpc.com';
+}
+
+export function getDefaultRpcHeaders(): Record<string, string> {
+  const name = config.polygonRpcHeaderName?.trim();
+  const value = config.polygonRpcHeaderValue?.trim();
+  if (!name || !value) {
+    return {};
+  }
+  return { [name]: value };
 }
