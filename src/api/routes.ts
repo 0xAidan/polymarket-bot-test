@@ -1421,8 +1421,10 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         });
       }
 
-      // Get balance directly from CLOB API - this is what builder credentials are for
-      let currentBalance = 0;
+      // Trading wallet display = free cash (CLOB collateral) + open position value.
+      // CLOB cash alone shows $0 when funds are deployed in markets — same as Polymarket profile.
+      let cashBalance = 0;
+      let positionsValue = 0;
 
       try {
         if (isHostedMultiTenantMode()) {
@@ -1430,11 +1432,11 @@ export function createRoutes(copyTrader: CopyTrader): Router {
           for (const wallet of hostedCandidates) {
             try {
               const clobClient = await copyTrader.getTradeExecutor().getClobClientForTradingWalletId(wallet.id);
-              currentBalance = await clobClient.getUsdcBalance();
+              cashBalance = await clobClient.getUsdcBalance();
               eoaAddress = wallet.address;
               balanceWalletId = wallet.id;
               log.info(
-                `[API] ✓ CLOB API balance: $${currentBalance.toFixed(2)} USDC (walletId=${wallet.id}, hasCredentials=${wallet.hasCredentials})`
+                `[API] ✓ CLOB cash: $${cashBalance.toFixed(2)} (walletId=${wallet.id}, hasCredentials=${wallet.hasCredentials})`
               );
               lastError = null;
               break;
@@ -1445,27 +1447,43 @@ export function createRoutes(copyTrader: CopyTrader): Router {
               );
             }
           }
-          if (lastError && currentBalance === 0) {
+          if (lastError && cashBalance === 0) {
             throw new Error(lastError);
           }
         } else {
           const clobClient = copyTrader.getClobClient();
-          currentBalance = await clobClient.getUsdcBalance();
-          log.info(`[API] ✓ CLOB API balance: $${currentBalance.toFixed(2)} USDC`);
+          cashBalance = await clobClient.getUsdcBalance();
+          log.info(`[API] ✓ CLOB cash: $${cashBalance.toFixed(2)}`);
         }
       } catch (clobError: any) {
-        log.error({ err: clobError.message }, `[API] CLOB balance failed`);
-        // Log full error for debugging
-        log.error({ err: clobError }, `[API] Full error`);
+        log.error({ err: clobError.message }, `[API] CLOB cash balance failed`);
+        log.error({ err: clobError }, '[API] Full error');
       }
 
+      try {
+        const polymarketApi = copyTrader.getPolymarketApi();
+        const profile = await polymarketApi.getPolymarketProfilePortfolio(eoaAddress);
+        positionsValue = profile.portfolioValueUsd;
+        log.info(
+          `[API] ✓ Position value: $${positionsValue.toFixed(2)} (${profile.positionCount} positions, source=${profile.source})`
+        );
+      } catch (positionsError: any) {
+        log.warn({ err: positionsError.message }, '[API] Position value lookup failed');
+      }
+
+      const currentBalance = cashBalance + positionsValue;
+
       log.info(
-        `[API] Final balance: $${currentBalance.toFixed(2)}${balanceWalletId ? ` (walletId=${balanceWalletId})` : ''}`
-      )
+        `[API] Final balance: $${currentBalance.toFixed(2)} ` +
+        `(cash=$${cashBalance.toFixed(2)} + positions=$${positionsValue.toFixed(2)})` +
+        `${balanceWalletId ? ` walletId=${balanceWalletId}` : ''}`
+      );
 
       res.json({
         success: true,
         currentBalance,
+        cashBalance,
+        positionsValue,
         change24h: 0,
         balance24hAgo: null,
         walletAddress: eoaAddress
