@@ -65,7 +65,7 @@ async function saveWalletConfig(): Promise<void> {
   await Storage.saveConfig(cfg);
 }
 
-async function ensureWalletConfigLoaded(): Promise<TenantWalletState> {
+export async function ensureWalletConfigLoaded(): Promise<TenantWalletState> {
   const state = getOrCreateTenantState();
   if (!state.loaded) {
     await loadWalletConfig();

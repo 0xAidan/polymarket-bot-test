@@ -23,6 +23,7 @@ import {
   getTradingWallets,
   getTradingWallet,
   getActiveTradingWallets,
+  ensureWalletConfigLoaded,
   addCopyAssignment,
   removeCopyAssignment,
   getCopyAssignments,
@@ -1339,7 +1340,8 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
-  const getHostedBalanceWalletCandidates = () => {
+  const getHostedBalanceWalletCandidates = async () => {
+    await ensureWalletConfigLoaded();
     const active = getActiveTradingWallets();
     const withCredentials = active.filter((wallet) => wallet.hasCredentials);
     const withoutCredentials = active.filter((wallet) => !wallet.hasCredentials);
@@ -1366,7 +1368,8 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   router.get('/wallet', async (req: Request, res: Response) => {
     try {
       if (isHostedMultiTenantMode()) {
-        const primary = getHostedBalanceWalletCandidates()[0];
+        const candidates = await getHostedBalanceWalletCandidates();
+        const primary = candidates[0];
         if (!primary) {
           return res.json({
             success: true,
@@ -1407,13 +1410,13 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // Uses CLOB API directly - this is what the builder credentials are for
   router.get('/wallet/balance', async (req: Request, res: Response) => {
     try {
-      const hostedCandidates = isHostedMultiTenantMode() ? getHostedBalanceWalletCandidates() : [];
+      const hostedCandidates = isHostedMultiTenantMode() ? await getHostedBalanceWalletCandidates() : [];
       let eoaAddress: string | null = copyTrader.getWalletAddress();
       let balanceWalletId: string | null = null;
-      log.info(`[API] /wallet/balance requested. EOA address: ${eoaAddress || 'NOT SET'}`);
 
       if (isHostedMultiTenantMode()) {
         if (hostedCandidates.length === 0) {
+          log.info('[API] /wallet/balance: no active trading wallets for tenant');
           return res.json({
             success: true,
             currentBalance: 0,
@@ -1426,6 +1429,10 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         balanceWalletId = hostedCandidates[0].id;
       }
 
+      log.info(
+        `[API] /wallet/balance requested. EOA: ${eoaAddress || 'NOT SET'}${balanceWalletId ? ` walletId=${balanceWalletId}` : ''}`
+      );
+
       if (!eoaAddress) {
         log.info('[API] No wallet address configured, returning 0 balance');
         return res.json({
@@ -1437,10 +1444,22 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         });
       }
 
+      const fundsAddress = await resolveTradingWalletFundsAddress(eoaAddress, balanceWalletId);
+
       let onChainCash = 0;
       let clobCash = 0;
       let positionsValue = 0;
       let clobCashError: string | null = null;
+
+      try {
+        const balanceTracker = copyTrader.getBalanceTracker();
+        onChainCash = await balanceTracker.getBalance(fundsAddress);
+        log.info(
+          `[API] ✓ On-chain cash on ${fundsAddress.substring(0, 10)}...: $${onChainCash.toFixed(2)}`
+        );
+      } catch (onChainError: any) {
+        log.warn({ err: onChainError.message }, '[API] On-chain cash balance failed');
+      }
 
       try {
         if (isHostedMultiTenantMode()) {
@@ -1475,18 +1494,6 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       } catch (clobError: any) {
         clobCashError = clobError?.message || 'CLOB balance failed';
         log.error({ err: clobCashError }, '[API] CLOB collateral balance failed');
-      }
-
-      const fundsAddress = await resolveTradingWalletFundsAddress(eoaAddress, balanceWalletId);
-
-      try {
-        const balanceTracker = copyTrader.getBalanceTracker();
-        onChainCash = await balanceTracker.getBalance(fundsAddress);
-        log.info(
-          `[API] ✓ On-chain cash on ${fundsAddress.substring(0, 10)}...: $${onChainCash.toFixed(2)}`
-        );
-      } catch (onChainError: any) {
-        log.warn({ err: onChainError.message }, '[API] On-chain cash balance failed');
       }
 
       try {
