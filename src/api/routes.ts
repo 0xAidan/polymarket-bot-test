@@ -1528,6 +1528,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         `${balanceWalletId ? ` walletId=${balanceWalletId}` : ''}`
       );
 
+      const proxyWalletAddress =
+        fundsAddress.toLowerCase() !== (eoaAddress || '').toLowerCase() ? fundsAddress : null;
+
       res.json({
         success: true,
         currentBalance,
@@ -1540,7 +1543,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         clobCashError,
         change24h: 0,
         balance24hAgo: null,
-        walletAddress: eoaAddress
+        walletAddress: eoaAddress,
+        proxyWalletAddress,
+        tradingWalletId: balanceWalletId,
       });
     } catch (error: any) {
       log.error({ err: error }, '[API] Error fetching wallet balance')
@@ -1558,7 +1563,22 @@ export function createRoutes(copyTrader: CopyTrader): Router {
   // Get user wallet balance history for charting
   router.get('/wallet/balance-history', async (req: Request, res: Response) => {
     try {
-      const eoaAddress = copyTrader.getWalletAddress();
+      const hostedCandidates = isHostedMultiTenantMode() ? await getHostedBalanceWalletCandidates() : [];
+      let eoaAddress: string | null = copyTrader.getWalletAddress();
+      let balanceWalletId: string | null = null;
+
+      if (isHostedMultiTenantMode()) {
+        const primary = hostedCandidates[0];
+        if (!primary) {
+          return res.json({
+            success: true,
+            dataPoints: [],
+            walletAddress: null,
+          });
+        }
+        eoaAddress = primary.address;
+        balanceWalletId = primary.id;
+      }
 
       if (!eoaAddress) {
         return res.json({
@@ -1568,9 +1588,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         });
       }
 
-      // Get proxy wallet address (where funds are actually held on Polymarket)
-      const proxyWalletAddress = await copyTrader.getProxyWalletAddress();
-      const balanceAddress = proxyWalletAddress || eoaAddress;
+      const balanceAddress = await resolveTradingWalletFundsAddress(eoaAddress, balanceWalletId);
+      const proxyWalletAddress =
+        balanceAddress.toLowerCase() !== eoaAddress.toLowerCase() ? balanceAddress : null;
 
       const balanceTracker = copyTrader.getBalanceTracker();
       const history = balanceTracker.getBalanceHistory(balanceAddress);
