@@ -22,7 +22,7 @@ When trade execution fails with "invalid signature" or "not enough balance" erro
 Since the user connected with MetaMask and Polymarket created a proxy wallet, we need:
 
 ```env
-POLYMARKET_SIGNATURE_TYPE=2
+POLYMARKET_SIGNATURE_TYPE=1
 POLYMARKET_FUNDER_ADDRESS=0xD56276b120ad094ba9F429386427F2492233B6d1
 ```
 
@@ -32,23 +32,21 @@ Per [Polymarket CLOB docs](https://docs.polymarket.com/api-reference/authenticat
 
 1. **Derive API credentials with ONLY the signer** (no signatureType/funder):
 ```typescript
-const tempClient = new ClobClient(HOST, CHAIN_ID, this.signer);
+const tempClient = new ClobClient({ host: HOST, chain: CHAIN_ID, signer: this.signer });
 const apiCreds = await tempClient.createOrDeriveApiKey();
 ```
 
 2. **Create full client WITH signatureType and funder**:
 ```typescript
-this.client = new ClobClient(
-  HOST,
-  CHAIN_ID,
-  this.signer,
-  apiCreds,
-  signatureType,  // depends on wallet flow (proxy/safe/deposit)
-  funderAddress,  // proxy wallet address
-  undefined,
-  false,
-  builderConfig
-);
+this.client = new ClobClient({
+  host: HOST,
+  chain: CHAIN_ID,
+  signer: this.signer,
+  creds: apiCreds,
+  signatureType, // depends on wallet flow (proxy/safe/deposit)
+  funderAddress, // proxy/safe/deposit wallet address
+  builderConfig,
+});
 ```
 
 ## Common Errors and What They Mean

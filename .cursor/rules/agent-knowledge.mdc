@@ -203,8 +203,8 @@ All loaded from `.env` in project root via `dotenv`. See `ENV_EXAMPLE.txt` for t
 ### Important
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `POLYMARKET_SIGNATURE_TYPE` | `0` | 0=EOA, 1=Magic Link, **2=Browser wallet + Proxy (CORRECT FOR THIS PROJECT)** |
-| `POLYMARKET_FUNDER_ADDRESS` | — | Proxy wallet address (required when sig type=2) |
+| `POLYMARKET_SIGNATURE_TYPE` | `0` | 0=EOA, 1=POLY_PROXY, 2=POLY_GNOSIS_SAFE, 3=POLY_1271 |
+| `POLYMARKET_FUNDER_ADDRESS` | — | Funder wallet address (proxy/safe/deposit depending on signature type) |
 | `API_SECRET` | — | Bearer token for dashboard/API auth (leave empty = open) |
 | `STORAGE_BACKEND` | `json` | `json` or `sqlite` (hosted production must use `sqlite`) |
 | `AUTH_MODE` | `legacy` | `legacy` (Bearer/API_SECRET) or `oidc` (cookie session). With `oidc` + SQLite, **hosted multi-tenant** rules apply (`src/hostedMode.ts`). |
@@ -234,7 +234,7 @@ All loaded from `.env` in project root via `dotenv`. See `ENV_EXAMPLE.txt` for t
 This project uses a **MetaMask/Rabby EOA** with a **Polymarket proxy wallet**:
 - EOA: `0x2D43e332aF357CAb0fa1b2692E1e0Fdb0B733010`
 - Proxy: `0xD56276b120ad094ba9F429386427F2492233B6d1`
-- **Must use** `POLYMARKET_SIGNATURE_TYPE=2` and `POLYMARKET_FUNDER_ADDRESS=<proxy>`
+- **Must use** `POLYMARKET_SIGNATURE_TYPE=1` and `POLYMARKET_FUNDER_ADDRESS=<proxy>`
 - See `.cursor/rules/polymarket-auth.mdc` for full auth documentation
 
 ---
@@ -547,13 +547,14 @@ These rules protect real money. Violating them has caused actual financial losse
 | Type | Name | When |
 |------|------|------|
 | 0 | EOA | Pure EOA with NO proxy (rare) |
-| 1 | POLY_PROXY | Magic Link / email signup |
-| **2** | **POLY_GNOSIS_SAFE** | **Browser wallet (MetaMask/Rabby) WITH proxy** |
+| 1 | POLY_PROXY | Existing proxy wallet flow (commonly browser wallet + proxy) |
+| 2 | POLY_GNOSIS_SAFE | Existing Gnosis Safe flow |
+| 3 | POLY_1271 | Deposit wallet flow for new API users |
 
 ### This project's setup
 - **EOA**: `0x2D43e332aF357CAb0fa1b2692E1e0Fdb0B733010`
 - **Proxy**: `0xD56276b120ad094ba9F429386427F2492233B6d1`
-- **Signature type**: 2 (POLY_GNOSIS_SAFE)
+- **Signature type**: 1 (POLY_PROXY)
 - Funds live in the PROXY wallet, not the EOA
 
 ### CLOB client initialization (clobClient.ts)
@@ -564,7 +565,7 @@ These rules protect real money. Violating them has caused actual financial losse
 ### Common errors
 | Error | Cause | Fix |
 |-------|-------|-----|
-| "invalid signature" | Wrong signatureType | Use type 2 |
+| "invalid signature" | Wrong signatureType | Use type 1 for proxy-wallet setups |
 | "not enough balance" | Looking at EOA not proxy | Set POLYMARKET_FUNDER_ADDRESS to proxy |
 
 ---
