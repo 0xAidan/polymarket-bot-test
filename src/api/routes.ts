@@ -24,6 +24,7 @@ import {
   getTradingWallet,
   getActiveTradingWallets,
   ensureWalletConfigLoaded,
+  enrichTradingWalletsFromPolymarket,
   addCopyAssignment,
   removeCopyAssignment,
   getCopyAssignments,
@@ -1342,6 +1343,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
   const getHostedBalanceWalletCandidates = async () => {
     await ensureWalletConfigLoaded();
+    await enrichTradingWalletsFromPolymarket(copyTrader.getPolymarketApi());
     const active = getActiveTradingWallets();
     const withCredentials = active.filter((wallet) => wallet.hasCredentials);
     const withoutCredentials = active.filter((wallet) => !wallet.hasCredentials);

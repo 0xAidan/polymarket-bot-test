@@ -15,6 +15,8 @@ import {
   type BuilderCredentials,
 } from './secureKeyManager.js';
 import { createComponentLogger } from './logger.js';
+import type { PolymarketApi } from './polymarketApi.js';
+import { PolymarketSignatureType } from './polymarketSignature.js';
 import { Storage } from './storage.js';
 import { getTenantId, getTenantIdOrDefault, getTenantIdStrict } from './tenantContext.js';
 
@@ -200,6 +202,43 @@ export function getTradingWallet(id: string): TradingWallet | undefined {
 export function getActiveTradingWallets(): TradingWallet[] {
   const state = getOrCreateTenantState();
   return state.tradingWallets.filter(w => w.isActive);
+}
+
+/**
+ * Backfill proxy + signature type on trading wallets (browser/MetaMask → type 2 + proxy funder).
+ */
+export async function enrichTradingWalletsFromPolymarket(api: PolymarketApi): Promise<void> {
+  const state = await ensureWalletConfigLoaded();
+  let changed = false;
+
+  for (const wallet of state.tradingWallets) {
+    if (wallet.proxyAddress || wallet.polymarketFunderAddress) {
+      continue;
+    }
+    try {
+      const proxy = await api.getProxyWalletAddress(wallet.address);
+      if (!proxy) {
+        continue;
+      }
+      wallet.proxyAddress = proxy;
+      if (wallet.polymarketSignatureType === undefined) {
+        wallet.polymarketSignatureType = PolymarketSignatureType.POLY_GNOSIS_SAFE;
+      }
+      changed = true;
+      log.info(
+        `[WalletManager] Linked proxy ${proxy.substring(0, 10)}... to trading wallet "${wallet.id}"`
+      );
+    } catch (error: any) {
+      log.warn(
+        { err: error.message },
+        `[WalletManager] Could not resolve proxy for wallet "${wallet.id}"`
+      );
+    }
+  }
+
+  if (changed) {
+    await saveWalletConfig();
+  }
 }
 
 // ============================================================================

@@ -31,7 +31,10 @@ export const resolveSignatureType = (tw: TradingWallet): number => {
   if (typeof tw.polymarketSignatureType === 'number' && !Number.isNaN(tw.polymarketSignatureType)) {
     return tw.polymarketSignatureType;
   }
-  return parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '0', 10);
+  if (tw.proxyAddress || tw.polymarketFunderAddress) {
+    return 2;
+  }
+  return parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '2', 10);
 };
 
 /**

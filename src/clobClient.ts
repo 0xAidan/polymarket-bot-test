@@ -1,7 +1,8 @@
 import { ClobClient, Side, OrderType } from '@polymarket/clob-client-v2';
+import type { WalletClient } from 'viem';
 import * as ethers from 'ethers';
 import { config } from './config.js';
-import { createPolygonProvider } from './polygonProvider.js';
+import { createClobViemWalletClient } from './clobViemSigner.js';
 import { getValidEvmAddress } from './addressUtils.js';
 import { logTradeRegressionDebug } from './tradeDiagnostics.js';
 import { createComponentLogger } from './logger.js';
@@ -26,7 +27,8 @@ export interface ClobWalletInitOptions {
  */
 export class PolymarketClobClient {
   private client: ClobClient | null = null;
-  private signer: ethers.Wallet | null = null;
+  private clobSigner: WalletClient | null = null;
+  private walletAddress: string | null = null;
   private isInitialized = false;
   private resolvedFunderAddress: string | null = null;
   private builderCode: string | null = null;
@@ -43,15 +45,15 @@ export class PolymarketClobClient {
 
     const HOST = config.polymarketClobApiUrl || 'https://clob.polymarket.com';
 
-    const provider = createPolygonProvider();
-    this.signer = new ethers.Wallet(opts.privateKey, provider);
+    this.clobSigner = createClobViemWalletClient(opts.privateKey);
+    this.walletAddress = this.clobSigner.account?.address ?? null;
     this.resolvedFunderAddress = opts.funderAddress;
     this.builderCode = opts.builder?.builderCode || null;
 
     const tempClient = new ClobClient({
       host: HOST,
       chain: 137,
-      signer: this.signer,
+      signer: this.clobSigner,
     });
     let apiCreds;
     try {
@@ -77,7 +79,7 @@ export class PolymarketClobClient {
     const clientOpts: any = {
       host: HOST,
       chain: 137,
-      signer: this.signer,
+      signer: this.clobSigner,
       creds: apiCreds,
       signatureType: opts.signatureType,
       funderAddress: opts.funderAddress,
@@ -89,7 +91,7 @@ export class PolymarketClobClient {
 
     this.isInitialized = true;
     log.info('✓ CLOB V2 client initialized (explicit wallet)');
-    log.info(`   Wallet (EOA): ${this.signer.address}`);
+    log.info(`   Wallet (EOA): ${this.walletAddress}`);
     log.info(`   Funder: ${opts.funderAddress}`);
     log.info(`   Signature Type: ${opts.signatureType}`);
   }
@@ -107,10 +109,11 @@ export class PolymarketClobClient {
     }
 
     try {
-      const signatureType = parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '0', 10);
-      const provider = createPolygonProvider();
-      const signer = new ethers.Wallet(config.privateKey, provider);
-      const funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS || signer.address;
+      const signatureType = parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '2', 10);
+      const funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS || '';
+      const viemSigner = createClobViemWalletClient(config.privateKey);
+      const eoaAddress = viemSigner.account?.address ?? '';
+      const resolvedFunder = funderAddress || eoaAddress;
 
       let builder: ClobWalletInitOptions['builder'];
       if (config.polymarketBuilderCode) {
@@ -122,7 +125,7 @@ export class PolymarketClobClient {
       await this.initializeFromOptions({
         privateKey: config.privateKey,
         signatureType,
-        funderAddress,
+        funderAddress: resolvedFunder,
         builder,
       });
 
@@ -130,7 +133,7 @@ export class PolymarketClobClient {
       log.info('✓ CLOB V2 client initialized successfully');
       log.info(`   Host: ${HOST}`);
       log.info(`   Builder code: ${config.polymarketBuilderCode ? config.polymarketBuilderCode.substring(0, 8) + '...' : 'NOT SET (attribution disabled)'}`);
-      if (shouldUseDistinctFunder(signatureType) && funderAddress.toLowerCase() === signer.address.toLowerCase()) {
+      if (shouldUseDistinctFunder(signatureType) && resolvedFunder.toLowerCase() === eoaAddress.toLowerCase()) {
         log.warn(`   ⚠️ WARNING: Signature type ${describeSignatureType(signatureType)} usually needs a separate funder address.`);
         log.warn('      Check POLYMARKET_FUNDER_ADDRESS (proxy/safe/deposit wallet) in your .env.');
       }
@@ -374,8 +377,8 @@ export class PolymarketClobClient {
   }
 
   getWalletAddress(): string | null {
-    if (this.signer?.address) {
-      return this.signer.address;
+    if (this.walletAddress) {
+      return this.walletAddress;
     }
 
     try {
@@ -399,7 +402,7 @@ export class PolymarketClobClient {
       }
     }
     const funderAddress = getValidEvmAddress(process.env.POLYMARKET_FUNDER_ADDRESS);
-    const signerAddress = this.signer?.address?.toLowerCase();
+    const signerAddress = this.walletAddress?.toLowerCase();
     if (funderAddress && funderAddress !== signerAddress) {
       return funderAddress;
     }

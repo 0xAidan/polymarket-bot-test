@@ -1,4 +1,5 @@
 import * as ethers from 'ethers';
+import { createPolygonProvider } from './polygonProvider.js';
 import { promises as fs, existsSync, readFileSync } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -83,7 +84,7 @@ function loadHostedWalletIntoMemory(walletId: string): void {
   try {
     const encryptedData = readFileSync(filePath, 'utf-8');
     const privateKey = decryptPrivateKey(encryptedData, resolveWalletEncryptionPassword());
-    const wallet = new ethers.Wallet(privateKey);
+    const wallet = new ethers.Wallet(privateKey, createPolygonProvider());
     decryptedWallets.set(scopedWalletKey, wallet);
 
     const builderPath = path.join(keystoresDir(), `${walletId}.builder.json`);

@@ -15,6 +15,8 @@ import {
   getTradingWallets,
   getTradingWallet,
   getActiveTradingWallets,
+  ensureWalletConfigLoaded,
+  enrichTradingWalletsFromPolymarket,
 } from './walletManager.js';
 import { isHostedMultiTenantMode } from './hostedMode.js';
 import { assertTradeCanExecuteForWallet } from './walletConfigSafety.js';
@@ -172,6 +174,11 @@ export class CopyTrader {
     log.info('Starting copy trading bot...');
     this.isRunning = true;
 
+    if (isHostedMultiTenantMode()) {
+      await ensureWalletConfigLoaded();
+      await enrichTradingWalletsFromPolymarket(this.monitor.getApi());
+    }
+
     // Start polling monitoring (PRIMARY METHOD - most reliable for monitoring other wallets)
     // WebSocket API only monitors YOUR OWN trades, not other wallets
     log.info('🔄 Starting polling monitoring (PRIMARY METHOD)...');
@@ -184,7 +191,7 @@ export class CopyTrader {
     // Start balance tracking for user wallet(s) (reduces RPC calls significantly)
     const userWallet = this.getWalletAddress();
     const hostedAddrs = isHostedMultiTenantMode()
-      ? getActiveTradingWallets().map(w => w.address)
+      ? (await ensureWalletConfigLoaded()).tradingWallets.filter((w) => w.isActive).map((w) => w.address)
       : [];
     const toTrack = userWallet ? [userWallet] : hostedAddrs;
     if (toTrack.length > 0) {
