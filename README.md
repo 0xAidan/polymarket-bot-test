@@ -164,7 +164,7 @@ When it finishes you’ll see: **Setup complete** and a `.env` file will exist i
 ### Optional but important for some users
 
 - **Proxy / trading wallet** – If Polymarket shows a “Proxy Wallet” or “Trading Wallet” and your dashboard balance is wrong, set `POLYMARKET_FUNDER_ADDRESS` in `.env` to that address (see `ENV_EXAMPLE.txt`).
-- **Signature errors** – If you get invalid-signature errors, set `POLYMARKET_SIGNATURE_TYPE` in `.env` (0 = EOA, 1 = Magic Link, 2 = Browser wallet + proxy). Details are in `ENV_EXAMPLE.txt`.
+- **Signature errors** – If you get invalid-signature errors, set `POLYMARKET_SIGNATURE_TYPE` in `.env` (0 = EOA, 1 = POLY_PROXY, 2 = POLY_GNOSIS_SAFE, 3 = POLY_1271). Details are in `ENV_EXAMPLE.txt`.
 - **Storage** – Default is JSON files in `./data`. You can set `STORAGE_BACKEND=sqlite` to use SQLite instead.
 
 Never commit `.env` or share it; it contains secrets.

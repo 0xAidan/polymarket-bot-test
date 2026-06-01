@@ -8,6 +8,7 @@ import { RelayClient, RelayerTxType } from '@polymarket/builder-relayer-client';
 import { BuilderConfig } from '@polymarket/builder-signing-sdk';
 import { createComponentLogger } from './logger.js';
 import { isHostedMultiTenantMode } from './hostedMode.js';
+import { describeSignatureType, shouldUseProxyRelayerTxType } from './polymarketSignature.js';
 
 const log = createComponentLogger('PositionLifecycle');
 
@@ -318,6 +319,11 @@ export class PositionLifecycleManager {
    * transactions on-chain and pays gas — the wallet only signs.
    */
   private createRelayClient(signer: ethers.Wallet): RelayClient {
+    const signatureType = Number.parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '0', 10);
+    const relayTxType = shouldUseProxyRelayerTxType(signatureType)
+      ? RelayerTxType.PROXY
+      : RelayerTxType.SAFE;
+
     const builderConfig = new BuilderConfig({
       localBuilderCreds: {
         key: config.polymarketBuilderApiKey,
@@ -326,12 +332,16 @@ export class PositionLifecycleManager {
       },
     });
 
+    log.info(
+      `[Lifecycle] Using relayer txType=${relayTxType} for signatureType=${describeSignatureType(signatureType)}`
+    );
+
     return new RelayClient(
       RELAYER_URL,
       POLYGON_CHAIN_ID,
       signer as any,
       builderConfig,
-      RelayerTxType.SAFE,
+      relayTxType,
     );
   }
 
