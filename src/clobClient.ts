@@ -1,9 +1,11 @@
 import { ClobClient, Side, OrderType } from '@polymarket/clob-client-v2';
 import * as ethers from 'ethers';
 import { config } from './config.js';
+import { createPolygonProvider } from './polygonProvider.js';
 import { getValidEvmAddress } from './addressUtils.js';
 import { logTradeRegressionDebug } from './tradeDiagnostics.js';
 import { createComponentLogger } from './logger.js';
+import { describeSignatureType, shouldUseDistinctFunder } from './polymarketSignature.js';
 
 const log = createComponentLogger('ClobClient');
 
@@ -41,7 +43,7 @@ export class PolymarketClobClient {
 
     const HOST = config.polymarketClobApiUrl || 'https://clob.polymarket.com';
 
-    const provider = new (ethers as any).providers.JsonRpcProvider(config.polygonRpcUrl);
+    const provider = createPolygonProvider();
     this.signer = new ethers.Wallet(opts.privateKey, provider);
     this.resolvedFunderAddress = opts.funderAddress;
     this.builderCode = opts.builder?.builderCode || null;
@@ -106,7 +108,7 @@ export class PolymarketClobClient {
 
     try {
       const signatureType = parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '0', 10);
-      const provider = new (ethers as any).providers.JsonRpcProvider(config.polygonRpcUrl);
+      const provider = createPolygonProvider();
       const signer = new ethers.Wallet(config.privateKey, provider);
       const funderAddress = process.env.POLYMARKET_FUNDER_ADDRESS || signer.address;
 
@@ -128,9 +130,9 @@ export class PolymarketClobClient {
       log.info('✓ CLOB V2 client initialized successfully');
       log.info(`   Host: ${HOST}`);
       log.info(`   Builder code: ${config.polymarketBuilderCode ? config.polymarketBuilderCode.substring(0, 8) + '...' : 'NOT SET (attribution disabled)'}`);
-      if (signatureType === 2 && funderAddress === signer.address) {
-        log.warn(`   ⚠️ WARNING: Signature type is 2 (POLY_GNOSIS_SAFE) but funder address = signer address!`);
-        log.warn(`      You probably need to set POLYMARKET_FUNDER_ADDRESS to your Polymarket proxy wallet address.`);
+      if (shouldUseDistinctFunder(signatureType) && funderAddress.toLowerCase() === signer.address.toLowerCase()) {
+        log.warn(`   ⚠️ WARNING: Signature type ${describeSignatureType(signatureType)} usually needs a separate funder address.`);
+        log.warn('      Check POLYMARKET_FUNDER_ADDRESS (proxy/safe/deposit wallet) in your .env.');
       }
     } catch (error: any) {
       log.error({ detail: error.message }, '❌ Failed to initialize CLOB client');

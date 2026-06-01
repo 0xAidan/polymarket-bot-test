@@ -2,6 +2,7 @@ import { ethers, Contract } from 'ethers';
 import { promises as fs, existsSync, readFileSync } from 'fs';
 import path from 'path';
 import { config } from './config.js';
+import { createPolygonProvider } from './polygonProvider.js';
 import { Storage } from './storage.js';
 import { createComponentLogger } from './logger.js';
 import { getTenantIdOrDefault } from './tenantContext.js';
@@ -117,10 +118,7 @@ export class BalanceTracker {
       await Storage.ensureDataDir();
       
       // Create provider with better timeout settings
-      this.provider = new (ethers as any).providers.JsonRpcProvider(config.polygonRpcUrl, {
-        name: 'polygon',
-        chainId: 137
-      });
+      this.provider = createPolygonProvider();
       
       // Test the provider connection
       try {
