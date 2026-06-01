@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import * as ethers from 'ethers';
 import { config } from './config.js';
+import { createPolygonProvider } from './polygonProvider.js';
 import { isHostedMultiTenantMode } from './hostedMode.js';
 import { DetectedTrade } from './types.js';
 import { getValidEvmAddress } from './addressUtils.js';
@@ -89,7 +90,7 @@ export class PolymarketApi {
       throw new Error('Private key not configured');
     }
 
-    const provider = new (ethers as any).providers.JsonRpcProvider(config.polygonRpcUrl);
+    const provider = createPolygonProvider();
     this.signer = new ethers.Wallet(config.privateKey, provider);
     
     // Store wallet address in config for easy access

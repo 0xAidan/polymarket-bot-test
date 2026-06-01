@@ -1,5 +1,6 @@
 import * as ethers from 'ethers';
 import { config } from './config.js';
+import { createPolygonProvider } from './polygonProvider.js';
 import { Storage } from './storage.js';
 import { PolymarketApi } from './polymarketApi.js';
 import { buildPositionKey, normalizeOutcomeLabel, resolveTradeMarketId } from './tradeIdentity.js';
@@ -37,7 +38,7 @@ export class WalletMonitor {
    */
   async initialize(): Promise<void> {
     try {
-      this.provider = new (ethers as any).providers.JsonRpcProvider(config.polygonRpcUrl);
+      this.provider = createPolygonProvider();
       await this.api.initialize();
       log.info('Connected to Polygon network and Polymarket API');
     } catch (error) {
