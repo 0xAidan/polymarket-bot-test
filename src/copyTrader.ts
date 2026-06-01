@@ -11,7 +11,7 @@ import { config } from './config.js';
 import { DittoExecutionState } from './discovery/v3/types.js';
 import {
   initWalletManager,
-  getAssignmentsForTrackedWallet,
+  resolveExecutionTargetsForTrackedWallet,
   getTradingWallets,
   getTradingWallet,
   getActiveTradingWallets,
@@ -354,14 +354,14 @@ export class CopyTrader {
     });
     const tenantKey = trade.tenantId || 'default';
 
-    const assignments = getAssignmentsForTrackedWallet(trade.walletAddress);
+    const explicitTargets = resolveExecutionTargetsForTrackedWallet(trade.walletAddress);
     let executionTargets: { tradingWalletId?: string }[];
     if (isHostedMultiTenantMode()) {
-      executionTargets = assignments.map(a => ({ tradingWalletId: a.tradingWalletId }));
-    } else if (assignments.length === 0) {
+      executionTargets = explicitTargets;
+    } else if (explicitTargets.length === 0) {
       executionTargets = [{ tradingWalletId: undefined }];
     } else {
-      executionTargets = assignments.map(a => ({ tradingWalletId: a.tradingWalletId }));
+      executionTargets = explicitTargets;
     }
 
     // Query the latest Ditto Execution State from SQLite

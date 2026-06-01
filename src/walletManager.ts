@@ -317,6 +317,27 @@ export function getAssignmentsForTrackedWallet(trackedWalletAddress: string): Co
   return state.copyAssignments.filter(a => a.trackedWalletAddress === lowerAddress);
 }
 
+/**
+ * Hosted tenants with one credentialed trading wallet often skip the copy-assignment UI.
+ * When no explicit assignment exists, route copies to that sole wallet automatically.
+ */
+export function resolveExecutionTargetsForTrackedWallet(
+  trackedWalletAddress: string,
+): { tradingWalletId: string }[] {
+  const explicit = getAssignmentsForTrackedWallet(trackedWalletAddress);
+  if (explicit.length > 0) {
+    return explicit.map((a) => ({ tradingWalletId: a.tradingWalletId }));
+  }
+  if (!isHostedMultiTenantMode()) {
+    return [];
+  }
+  const credentialed = getActiveTradingWallets().filter((w) => w.hasCredentials);
+  if (credentialed.length === 1) {
+    return [{ tradingWalletId: credentialed[0].id }];
+  }
+  return [];
+}
+
 // ============================================================================
 // WALLET UNLOCK / LOCK
 // ============================================================================

@@ -21,6 +21,7 @@ import {
   removeCopyAssignment,
   getCopyAssignments,
   getAssignmentsForTrackedWallet,
+  resolveExecutionTargetsForTrackedWallet,
 } from '../src/walletManager.js';
 
 const TEST_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
@@ -229,5 +230,12 @@ describe('WalletManager', () => {
     }));
 
     assert.equal(updatedWallet.hasCredentials, true);
+
+    const implicitTargets = await runWithTenant('tenant-hosted', async () => {
+      await initWalletManager();
+      return resolveExecutionTargetsForTrackedWallet('0x1111111111111111111111111111111111111111');
+    });
+    assert.equal(implicitTargets.length, 1);
+    assert.equal(implicitTargets[0].tradingWalletId, 'hosted');
   });
 });
