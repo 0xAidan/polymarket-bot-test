@@ -1,196 +1,135 @@
-# Ditto Staging Update Handoff
+# Staging Update Handoff
 
-Use this document when you want to update `staging.ditto.jungle.win` without touching live production.
+Use this runbook to update staging safely without touching production resources.
 
-## Read This First
+## 1) Required Inputs (Fill Before Running)
 
-You are only allowed to touch staging.
+- `STAGING_HOST`: SSH target (IP or hostname)
+- `STAGING_APP_DIR`: staging repository directory
+- `STAGING_SERVICE`: staging app service name
+- `TARGET_BRANCH_OR_SHA`: exact branch or commit to deploy
+- `STAGING_URL`: public staging URL
 
-Safe staging items:
+Example placeholders:
 
-- Repo folder: `/opt/polymarket-bot-staging`
-- Env file: `/opt/polymarket-bot-staging/.env`
-- Data folder: `/opt/polymarket-bot-staging/data`
-- Service: `polymarket-app-staging.service`
-- URL: `staging.ditto.jungle.win`
-- Port: `3005`
+- `STAGING_APP_DIR=/opt/polymarket-bot-staging`
+- `STAGING_SERVICE=polymarket-app-staging.service`
 
-Do not touch production:
+## 2) Safety Rules
 
-- `/opt/polymarket-bot`
-- `/opt/polymarket-bot/.env`
-- `polymarket-app.service`
-- `polymarket-discovery-worker.service`
-- `ditto.jungle.win`
-- port `3001`
+- Do not run commands in production directories/services.
+- Do not restart production services from this flow.
+- Stop immediately if command output indicates a production path/service.
 
-## One Simple Rule
+## 3) Pre-Deploy Checks
 
-If a command says `/opt/polymarket-bot` instead of `/opt/polymarket-bot-staging`, stop.
-
-If a command says `polymarket-app.service` instead of `polymarket-app-staging.service`, stop.
-
-## Normal Staging Update
-
-Follow these steps in order.
-
-### Step 1. SSH into the server
+SSH to staging host and verify context:
 
 ```bash
-ssh root@46.62.231.173
-```
-
-### Step 2. Go to the staging folder
-
-```bash
-cd /opt/polymarket-bot-staging
+ssh <STAGING_HOST>
+cd <STAGING_APP_DIR>
 pwd
 ```
 
-Expected result:
+Expected:
+
+- `pwd` matches intended staging path exactly.
+
+Verify git and working tree:
 
 ```bash
-/opt/polymarket-bot-staging
+git status --short --branch
 ```
 
-If you are not in `/opt/polymarket-bot-staging`, stop.
-
-### Step 3. Pull the branch you want to review
-
-Current review branch:
+## 4) Checkout Target Revision
 
 ```bash
 sudo -u polymarket git fetch origin
-sudo -u polymarket git checkout feature/ditto-jungle-preview
-sudo -u polymarket git pull --ff-only
+sudo -u polymarket git checkout <TARGET_BRANCH_OR_SHA>
+sudo -u polymarket git pull --ff-only || true
+git rev-parse HEAD
 ```
 
-If the review branch changes later, replace `feature/ditto-jungle-preview` with the new branch name.
+Record the deployed commit SHA.
 
-### Step 4. Install packages and build staging
+## 5) Build and Restart Staging
 
 ```bash
-grep '^DATA_DIR=' /opt/polymarket-bot-staging/.env
+grep '^DATA_DIR=' .env || true
 sudo -u polymarket npm ci --legacy-peer-deps
 sudo -u polymarket npm run build
+sudo systemctl restart <STAGING_SERVICE>
+sudo systemctl status <STAGING_SERVICE> --no-pager
 ```
 
-Expected result:
+## 6) Health and Reachability Checks
 
-- `DATA_DIR` points at staging-owned storage, not production or repo-relative production paths
-- install finishes
-- build finishes
-- no fatal errors
-
-### Step 5. Restart staging only
+Local host checks:
 
 ```bash
-sudo systemctl restart polymarket-app-staging.service
+curl -s http://127.0.0.1:3005/health
 ```
 
-Only restart this service.
-
-Do not restart:
+Public staging checks:
 
 ```bash
-polymarket-app.service
-polymarket-discovery-worker.service
+curl -I https://<STAGING_URL>
+curl -s https://<STAGING_URL>/health
 ```
 
-### Step 6. Check that staging is running
+Repository-verifiable app route:
+
+- `/health` (implemented in `src/server.ts`)
+
+### About `/health/ready`
+
+`/health/ready` is referenced in some deployment scripts/docs but is not defined as an app route in repository server code. Use it only if your infrastructure layer provides it and you have confirmed behavior in that environment.
+
+## 7) Auth/UX Smoke Checks
+
+In browser:
+
+- open `https://<STAGING_URL>`
+- verify login flow (if OIDC mode)
+- verify core dashboard loads and API calls succeed
+
+If Discovery v3 is enabled:
+
+- verify `https://<STAGING_URL>/api/discovery/v3/health`
+
+## 8) Evidence to Capture
+
+- deployed commit SHA
+- `systemctl status` output for staging service
+- `/health` output
+- browser smoke-check notes/screenshots
+
+## 9) Recovery Steps
+
+If deploy fails:
+
+1. collect logs:
 
 ```bash
-sudo systemctl status polymarket-app-staging.service --no-pager
-curl -I http://127.0.0.1:3005
-curl -I https://staging.ditto.jungle.win
-curl https://staging.ditto.jungle.win/health
-curl -f https://staging.ditto.jungle.win/health/ready
+sudo journalctl -u <STAGING_SERVICE> -n 200 --no-pager
 ```
 
-Expected result:
-
-- `polymarket-app-staging.service` shows `active (running)`
-- `http://127.0.0.1:3005` responds
-- `https://staging.ditto.jungle.win` responds with a normal HTTP status such as `HTTP/2 200`
-- `/health` returns JSON with `status`
-- `/health/ready` returns success for the staged release candidate
-
-### Step 7. Open staging in the browser
-
-```text
-https://staging.ditto.jungle.win
-```
-
-This is the page the team should review.
-
-## If Something Goes Wrong
-
-### Problem: staging service does not start
-
-Run:
+2. roll back to previous known-good commit:
 
 ```bash
-sudo systemctl status polymarket-app-staging.service --no-pager
-sudo journalctl -u polymarket-app-staging.service -n 100 --no-pager
+sudo -u polymarket git checkout <previous-good-sha>
+sudo -u polymarket npm ci --legacy-peer-deps
+sudo -u polymarket npm run build
+sudo systemctl restart <STAGING_SERVICE>
 ```
 
-### Problem: SSL or certificate error on staging
+3. re-run health checks.
 
-Run:
+## 10) Explicit Production Guard
+
+Before ending session, verify production services were not touched:
 
 ```bash
-sudo caddy validate --config /etc/caddy/Caddyfile
-sudo journalctl -u caddy -n 100 --no-pager
+systemctl status polymarket-app.service --no-pager || true
+systemctl status polymarket-discovery-worker.service --no-pager || true
 ```
-
-### Problem: Auth0 callback mismatch
-
-Check these:
-
-- `AUTH0_BASE_URL` in `/opt/polymarket-bot-staging/.env`
-- Auth0 settings
-
-Auth0 should include:
-
-- Allowed Callback URLs:
-  - `https://staging.ditto.jungle.win/auth/callback`
-  - `https://staging.ditto.jungle.win/auth/callback/`
-- Allowed Logout URLs:
-  - `https://staging.ditto.jungle.win`
-- Allowed Web Origins:
-  - `https://staging.ditto.jungle.win`
-
-### Problem: worried production may have been affected
-
-Run:
-
-```bash
-systemctl status polymarket-app.service --no-pager
-systemctl status polymarket-discovery-worker.service --no-pager
-systemctl status polymarket-app-staging.service --no-pager
-```
-
-Production and staging are separate services. Restarting `polymarket-app-staging.service` does not restart production.
-
-## Safe Copy/Paste Block
-
-If someone already knows the basics and just wants the safe update commands:
-
-```bash
-cd /opt/polymarket-bot-staging && \
-sudo -u polymarket git fetch origin && \
-sudo -u polymarket git checkout feature/ditto-jungle-preview && \
-sudo -u polymarket git pull --ff-only && \
-grep '^DATA_DIR=' /opt/polymarket-bot-staging/.env && \
-sudo -u polymarket npm ci --legacy-peer-deps && \
-sudo -u polymarket npm run build && \
-sudo systemctl restart polymarket-app-staging.service && \
-sudo systemctl status polymarket-app-staging.service --no-pager && \
-curl -I https://staging.ditto.jungle.win && \
-curl https://staging.ditto.jungle.win/health && \
-curl -f https://staging.ditto.jungle.win/health/ready
-```
-
-## Final Reminder
-
-If you are not sure, stop and ask before touching anything production-named.

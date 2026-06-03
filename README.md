@@ -1,268 +1,217 @@
 # Polymarket Copytrade Bot
 
-**A bot that copies trades from wallets you track on Polymarket, with a built-in discovery engine to find and score traders.**
+Production-focused TypeScript service for:
 
-This guide walks you through setup and running the bot. No prior experience needed.
+- Copy trading selected Polymarket wallets.
+- Managing copy-trade safety controls and wallet assignments.
+- Running discovery pipelines (legacy discovery and Discovery v3).
+- Operating in single-tenant or hosted multi-tenant mode.
 
----
+This document is a source-of-truth operational guide based on current repository code, scripts, and recent commits.
 
-## Quick start (already have Node.js and the repo)
+## Safety First
 
-If you've already cloned the repo and have Node.js 20+ installed:
+- This software can execute real-money trades.
+- Test with small sizes before any real rollout.
+- Never commit `.env`, private keys, keystore files, or database files.
+- Keep `npm test`, `npm run lint`, and `npm run build` green before shipping.
+
+## Runtime Baseline
+
+- **Recommended local Node.js:** 22.x (matches CI in `.github/workflows/ci.yml`).
+- **Container base image:** Node 20 (`Dockerfile`).
+- **Package manager:** npm.
+- **Language/runtime:** TypeScript + ESM (`"type": "module"`).
+
+## Quick Start (Local Development)
 
 ```bash
-cd polymarket-bot-test
 npm install
 npm run setup
 npm run dev
 ```
 
-Then open **http://localhost:3001** in your browser. The dashboard lets you add wallets to copy and control the discovery engine.
+Then open:
 
-**Stop the bot:** Press `Ctrl + C` in the terminal.
+- App UI: `http://localhost:3001`
+- Health check: `http://localhost:3001/health`
 
----
+What `npm run dev` does:
 
-## What this bot does
+- Starts the app watcher (`src/index.ts`).
+- Starts the discovery worker watcher (`src/discovery/discoveryWorker.ts`).
+- Prompts for setup only if `.env` is missing.
 
-1. **Copy trading** – You add wallet addresses to track. When those wallets trade on Polymarket, the bot places the same trades for you (within your limits).
-2. **Discovery engine** – Finds and scores traders (leaderboards, market positions, trade activity) so you can decide who to copy.
-3. **Dashboard** – Web UI at `http://localhost:3001` to add/remove tracked wallets, view status, and enable/configure discovery.
+## High-Level Architecture
 
-**Important:**
-- The bot uses **real funds**. Start with small amounts to test.
-- **Never share your private key.**
-- Trades are **irreversible**.
+Primary runtime components:
 
----
+- `src/index.ts`: app bootstrap, setup guard, runtime mode dispatch.
+- `src/server.ts`: Express server, auth gates, API route mounts, static UI serving.
+- `src/copyTrader.ts`: copy-trade orchestration and trade safety decisions.
+- `src/tradeExecutor.ts` + `src/clobClient*.ts`: order construction/submission.
+- `src/discovery/discoveryWorker.ts`: discovery worker runtime.
+- `src/discovery/v3/*`: Discovery v3 ingest, scoring, worker integration.
+- `src/storage.ts` + `src/database.ts`: JSON/SQLite persistence surfaces.
 
-## What you need
+Related docs:
 
-- **Node.js** 20 or higher (and npm, which comes with it)
-- **Git** (to clone the repo)
-- **Crypto wallet** with a private key (e.g. MetaMask)
-- **Polymarket Builder API** credentials from [polymarket.com/settings → Builder](https://polymarket.com/settings?tab=builder)
+- `CODEBASE_GUIDE.md` (maintainer architecture and operations)
+- `docs/discovery-v3-operations.md` (Discovery v3 runbook)
 
----
+## Authentication Modes
 
-## Table of contents
+Configured in `src/config.ts` and enforced in `src/server.ts`.
 
-1. [Install prerequisites](#step-0-install-prerequisites)
-2. [Clone and enter the project](#step-1-clone-the-repository)
-3. [Install dependencies](#step-3-install-dependencies)
-4. [Set up wallet and API keys](#step-4-set-up-your-wallet-and-api-keys)
-5. [Start the bot and discovery engine](#step-5-start-the-bot-and-discovery-engine)
-6. [Use the dashboard](#step-6-use-the-dashboard)
-7. [Troubleshooting](#troubleshooting)
-8. [Quick reference commands](#quick-reference-commands)
+### Legacy mode
 
----
+- `AUTH_MODE=legacy` (or default when OIDC vars are absent).
+- Uses bearer token auth via `API_SECRET` for protected `/api` routes.
+- If `REQUIRE_API_SECRET=true` and `API_SECRET` is missing, startup fails closed.
 
-## Step 0: Install prerequisites
+### OIDC mode
 
-### Check Node.js and npm
+- `AUTH_MODE=oidc`.
+- Requires:
+  - `AUTH_SESSION_SECRET`
+  - `AUTH0_ISSUER_BASE_URL`
+  - `AUTH0_BASE_URL`
+  - `AUTH0_CLIENT_ID`
+  - `AUTH0_CLIENT_SECRET`
+- Used for hosted/multi-tenant deployments.
 
-Open **Terminal** (Mac/Linux) or **Command Prompt** (Windows) and run:
+## Hosted Multi-Tenant Mode
 
-```bash
-node --version
-npm --version
-```
+Hosted mode is detected by code as:
 
-You should see version numbers (e.g. `v20.10.0` and `10.2.0`). If not, install Node.js from [nodejs.org](https://nodejs.org/) (use the LTS version).
+- `AUTH_MODE=oidc` **and** `STORAGE_BACKEND=sqlite`
 
-### Check Git
+In hosted mode:
 
-```bash
-git --version
-```
+- Server-level `PRIVATE_KEY` is forbidden by validation.
+- Tenant wallets are expected through encrypted keystore flows.
 
-If that fails, install Git: [git-scm.com](https://git-scm.com/) (Windows) or `xcode-select --install` (Mac).
+See:
 
----
+- `src/hostedMode.ts`
+- `src/config.ts`
 
-## Step 1: Clone the repository
+## Commands (Source: `package.json`)
 
-Clone the repo into a folder you choose (e.g. `~/websites` or Desktop):
+### Core
 
-```bash
-cd ~/websites
-git clone https://github.com/username/polymarket-bot-test.git
-```
+- `npm run setup`: interactive `.env` generator.
+- `npm run dev`: app + discovery worker (watch mode).
+- `npm run dev:app`: alias to `node start.cjs` (same dual-process runner).
+- `npm run dev:discovery`: discovery worker watch only.
+- `npm run build`: TypeScript compile to `dist/`.
+- `npm run start`: same as `dev` (`node start.cjs`).
+- `npm run lint`: ESLint for `src/**/*.ts`.
+- `npm test`: Node test runner with `tsx`.
 
-Replace the URL with your actual repo URL if different.
+### Runtime-specific
 
----
+- `npm run start:app`: run app once via `tsx src/index.ts`.
+- `npm run start:discovery`: run discovery worker once via `tsx src/discovery/discoveryWorker.ts`.
+- `npm run start:prod:app`: run built app (`node dist/index.js`).
+- `npm run start:prod:discovery`: run built worker (`node dist/discovery/discoveryWorker.js`).
 
-## Step 2: Navigate to the project folder
+### Verification / Ops helpers
 
-```bash
-cd polymarket-bot-test
-```
+- `npm run validate:egress`
+- `npm run verify:pnl`
+- `npm run verify:pnl:smoke`
+- `npm run verify:pnl:full`
+- `npm run verify:pnl:dry-run`
+- `npm run verify:promotion-gate`
+- `npm run verify:staging-display`
+- `npm run verify:soak`
 
-Check you’re in the right place:
+## Environment Configuration
 
-```bash
-ls
-```
-
-You should see `package.json`, `README.md`, `src`, etc.
-
----
-
-## Step 3: Install dependencies
-
-```bash
-npm install
-```
-
-Wait for it to finish (often 1–3 minutes). When done you should see something like “added … packages” and no red errors.
-
----
-
-## Step 4: Set up your wallet and API keys
-
-The bot needs:
-
-1. Your wallet **private key**
-2. **Polymarket Builder API** key, secret, and passphrase
-
-### Option A: Use the setup script (recommended)
-
-From the project folder:
+Use:
 
 ```bash
-npm run setup
+cp ENV_EXAMPLE.txt .env
 ```
 
-The script will ask for:
+Then edit `.env` values.
 
-| Step | What it asks | Where to get it |
-|------|----------------|------------------|
-| 1 | **Private key** | MetaMask: ⋮ → Account details → Show private key (or your wallet’s equivalent). Should start with `0x`, 66 characters. |
-| 2 | **Builder API Key** | [polymarket.com/settings → Builder](https://polymarket.com/settings?tab=builder) → Create API Key → copy the key |
-| 3 | **Builder API Secret** | Same page, shown when you create the key |
-| 4 | **Builder API Passphrase** | The passphrase you set when creating the key |
+Important notes from current code/config:
 
-When it finishes you’ll see: **Setup complete** and a `.env` file will exist in the project.
+- `POLYMARKET_BUILDER_CODE` is optional for order attribution in V2.
+- Legacy builder HMAC credentials are still used for relayer flows.
+- `MONITORING_INTERVAL_MS` defaults to `5000` in code if unset.
+- `STORAGE_BACKEND` defaults to `json` if unset.
 
-### Option B: Create `.env` manually
+For complete variable reference, use `ENV_EXAMPLE.txt` and `src/config.ts`.
 
-1. Copy the example env file:
+## API Surfaces
 
-   ```bash
-   cp ENV_EXAMPLE.txt .env
-   ```
+Mounted in `src/server.ts`:
 
-2. Edit `.env` and replace:
+- `/api/*` primary application API (`src/api/routes.ts`).
+- `/api/discovery/*` legacy discovery API (`src/api/discoveryRoutes.ts`).
+- `/api/discovery/v3/*` Discovery v3 API (`src/api/discoveryRoutesV3.ts`).
+- `/api/olympics/*` olympics routes.
+- `/health` health endpoint.
 
-   - `PRIVATE_KEY=...` with your wallet private key
-   - `POLYMARKET_BUILDER_API_KEY=...`, `POLYMARKET_BUILDER_SECRET=...`, `POLYMARKET_BUILDER_PASSPHRASE=...` with your Builder API values
+Auth behavior:
 
-3. Save the file.
+- Discovery v3 read endpoints are mounted publicly when v3 is enabled.
+- Discovery v3 mutating endpoints require auth middleware at route level.
 
-### Optional but important for some users
+## Discovery v3 Operational Notes
 
-- **Proxy / trading wallet** – If Polymarket shows a “Proxy Wallet” or “Trading Wallet” and your dashboard balance is wrong, set `POLYMARKET_FUNDER_ADDRESS` in `.env` to that address (see `ENV_EXAMPLE.txt`).
-- **Signature errors** – If you get invalid-signature errors, set `POLYMARKET_SIGNATURE_TYPE` in `.env` (0 = EOA, 1 = POLY_PROXY, 2 = POLY_GNOSIS_SAFE, 3 = POLY_1271). Details are in `ENV_EXAMPLE.txt`.
-- **Storage** – Default is JSON files in `./data`. You can set `STORAGE_BACKEND=sqlite` to use SQLite instead.
+- Feature-flagged by `DISCOVERY_V3=true`.
+- Worker bootstrap is in `src/discovery/discoveryWorker.ts` via `startDiscoveryV3Worker`.
+- Goldsky listener is disabled by default after V2 cutover unless explicitly enabled.
+- RPC log forward-fill is enabled by default when v3 is enabled.
 
-Never commit `.env` or share it; it contains secrets.
+Use `docs/discovery-v3-operations.md` for runbook details.
 
----
+## CI and Quality Gate
 
-## Step 5: Start the bot and discovery engine
+Current CI workflow (`.github/workflows/ci.yml`) runs:
 
-One command starts **both** the trading bot and the discovery engine:
+- `npm ci --legacy-peer-deps`
+- `npm run build`
+- `npm run lint`
+- `npm run test`
+- `node --test --import tsx tests/v3-pnl-formula.test.ts`
+
+Before opening a PR, run the same checks locally.
+If your shell environment does not expand `tests/**/*.test.ts` for `npm test`, run:
 
 ```bash
-npm run dev
+node --test --import tsx tests/*.test.ts
 ```
 
-This will:
+## Deployment Scripts
 
-1. Run setup automatically if `.env` is missing.
-2. Start the **main app** (copy trader + dashboard).
-3. Start the **discovery worker** (finds and scores traders).
+Repository deployment helpers live in `scripts/`:
 
-You should see logs from both. When ready, you’ll see something like:
+- `deploy-staging.sh`, `deploy-production.sh`
+- `deploy-staging-v2.sh`, `deploy-production-v2.sh`
+- `verify-release-commit.sh`
 
-```
-✅ BOT STARTED SUCCESSFULLY
-```
-
-- **Dashboard:** open **http://localhost:3001** in your browser.
-- **Stop everything:** press `Ctrl + C` in the terminal.
-
-### Running parts separately (optional)
-
-| What you want | Command |
-|---------------|--------|
-| **Both bot + discovery** (normal use) | `npm run dev` |
-| **Discovery worker only** (e.g. another machine) | `npm run dev:discovery` |
-| **Discovery worker, single run** (no watch) | `npm run discovery:worker` |
-
-The main app (dashboard + copy trading) is started only by `npm run dev` (or `npm run dev:app`); it does not run when you use `dev:discovery` alone.
-
----
-
-## Step 6: Use the dashboard
-
-1. Open **http://localhost:3001** in your browser.
-2. **Add wallets to copy** – In the dashboard, add the wallet addresses you want to copy. The bot will monitor them and copy their Polymarket trades (within your settings).
-3. **Discovery** – Enable and configure the discovery engine from the dashboard to find and score traders; use the results to decide which wallets to add.
-4. **Settings** – Configure copy-trade behavior, stop-loss, and other options from the dashboard.
-
-Keep the terminal open while using the bot; closing it or pressing `Ctrl + C` stops the bot and discovery.
-
----
+Review script assumptions (paths, service names, target host) before running on any server.
 
 ## Troubleshooting
 
-| Problem | What to do |
-|--------|------------|
-| `node` or `npm` not found | Install Node.js from [nodejs.org](https://nodejs.org/) (LTS). Restart the terminal. |
-| `npm install` fails | Ensure you’re in the project folder (`cd polymarket-bot-test`), Node is 18+, and you have internet. Try: `rm -rf node_modules package-lock.json` then `npm install` again. |
-| “PRIVATE_KEY is required” | Run `npm run setup` or add `PRIVATE_KEY` to `.env`. |
-| “Builder API credentials not configured” | Add `POLYMARKET_BUILDER_API_KEY`, `POLYMARKET_BUILDER_SECRET`, and `POLYMARKET_BUILDER_PASSPHRASE` to `.env` from [Polymarket Builder settings](https://polymarket.com/settings?tab=builder). Restart with `npm run dev`. |
-| Dashboard not loading at http://localhost:3001 | Ensure `npm run dev` is running and no other app is using port 3001. Or set `PORT=3002` (or another port) in `.env`. |
-| Trades failing / orders blocked | Check Builder API credentials and that there are no extra spaces in `.env`. If you use a proxy wallet, set `POLYMARKET_FUNDER_ADDRESS` and `POLYMARKET_SIGNATURE_TYPE` (see `ENV_EXAMPLE.txt`). Check dashboard stop-loss / USDC limits. |
-| “No wallets are being tracked” | Normal at first. Add wallet addresses in the dashboard at http://localhost:3001. |
-| Port 3001 already in use | Stop the other process using 3001, or set `PORT=3002` in `.env` and restart. |
+- **App not starting with config errors:** inspect `src/config.ts` validation requirements.
+- **Auth failures:** verify mode (`AUTH_MODE`) and matching secret/provider variables.
+- **No trades copied:** check tracked wallets are active and bot status is started.
+- **Discovery v3 endpoints return 404:** ensure `DISCOVERY_V3=true`.
+- **Hosted mode startup fails with PRIVATE_KEY present:** remove `PRIVATE_KEY` from server env in hosted setup.
+- **`npm test` says it cannot find `tests/**/*.test.ts`:** run `node --test --import tsx tests/*.test.ts` in the same repo checkout.
 
----
+## Contribution Workflow
 
-## Quick reference commands
+1. Create a feature/fix/docs branch.
+2. Make focused changes.
+3. Run build/lint/tests.
+4. Open PR with verification evidence.
+5. Merge only after CI and review pass.
 
-Copy-paste from the project folder (`cd polymarket-bot-test`):
-
-```bash
-# Install dependencies (once)
-npm install
-
-# Configure wallet and API keys (once, or when you need to change them)
-npm run setup
-
-# Start trading bot + discovery engine (dashboard at http://localhost:3001)
-npm run dev
-
-# Stop the bot
-# Press Ctrl + C in the terminal
-
-# Discovery worker only (optional)
-npm run dev:discovery
-
-# Production build and run (optional)
-npm run build
-npm start
-```
-
----
-
-## Summary
-
-- **One command runs everything:** `npm run dev` starts the copy-trading bot and the discovery engine and serves the dashboard at **http://localhost:3001**.
-- Use the dashboard to add wallets to copy, turn on discovery, and adjust settings.
-- Keep real-money risk in mind: start small, protect your private key, and never share `.env`.
-
-If something still doesn’t work, re-check [Step 4](#step-4-set-up-your-wallet-and-api-keys) and the [Troubleshooting](#troubleshooting) section above.
+If you need a deeper systems map, open `CODEBASE_GUIDE.md`.
