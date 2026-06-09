@@ -52,7 +52,74 @@
 
 ## 3. Money path — trade safety invariant verification
 
-_(populated below from full code walk)_
+Full line-by-line walk of `copyTrader.ts`, `walletMonitor.ts`, `tradeExecutor.ts`,
+`clobClient.ts`, `storage.ts`, `walletConfigSafety.ts`, `noRepeatReconciliation.ts`,
+`clobClientFactory.ts`, `tenantContext.ts`, `tenantPolicy.ts`.
+
+| Invariant | Verdict |
+| --- | --- |
+| 1. No-repeat always active + recorded | **FAIL → FIXED** (3.1) |
+| 2. Concurrency guard before any await | PASS (`copyTrader.ts` ~455-475, finally ~1480) |
+| 3. Stop-loss fail-safe | PASS legacy / **FAIL hosted → FIXED** (3.3) |
+| 4. All wallet settings passed through | PASS (all 16 settings + tenantId, verified twice) |
+| 5. Order size safety cap | PASS fixed / **FAIL proportional → FIXED** (3.2) |
+| 6. Hosted tenant routing | PASS (per-tenant context, per-(tenant,wallet) CLOB clients) |
+
+### 3.1 LAUNCH-BLOCKER (fixed): no-repeat protection permanently disarmed after first window
+- **What:** `Storage.addExecutedPosition` was a silent no-op when a matching executed
+  record already existed — it never refreshed the timestamp. After the first no-repeat
+  window expired for a market, every later trade on that market left the stale original
+  timestamp in place, so the no-repeat check (which compares timestamps against the
+  cutoff) could never block again. Configured 24h windows silently shrank to ~zero after
+  one cycle; the 5-minute safety minimum was equally dead. In-memory dedup hid this
+  within a session but not across restarts (the record's documented purpose).
+- **Fix:** existing executed records are now refreshed (timestamp + order details) on
+  every successful trade, re-arming the window. Covered by a new regression test.
+- **Where:** `src/storage.ts` (`addExecutedPosition`), `tests/storage.test.ts`
+
+### 3.2 LAUNCH-BLOCKER (fixed): proportional-mode safety cap could never fire
+- **What:** the cap compared the calculated size against `max(2 × itself, $500)` — a
+  condition that is mathematically false for every positive number. Proportional trades
+  had no effective cap; one bad sizing input (e.g., a wrong portfolio value from the API)
+  could spend the entire wallet balance on a single trade.
+- **Fix:** proportional cap now references the configured baseline size
+  (`max(2 × configured size, $500)`), which is independent of the calculated value.
+- **Where:** `src/copyTrader.ts` (~line 1026)
+
+### 3.3 SHOULD-FIX (fixed): hosted-mode stop-loss silently failed OPEN
+- **What:** in hosted mode there is no global wallet, so the USDC-commitment stop-loss
+  returned `active: false` ("wallet address not available") — an enabled risk control
+  silently provided zero protection for every hosted tenant.
+- **Fix:** hosted mode now resolves the tenant's first active trading wallet (proxy →
+  derived proxy → address) and its own CLOB client; if no wallet can be resolved while
+  stop-loss is enabled, it now fails CLOSED (blocks) per the fail-safe rule.
+- **Where:** `src/copyTrader.ts` (`getUsageStopLossStatus`)
+
+### 3.4 SHOULD-FIX (fixed): hosted pending-order reconciliation could permanently block a market
+- **What:** the confirmation pass of pending-order reconciliation called
+  `getCurrentPositionSize(trade)` without the probe wallet id (the first pass passed it).
+  In hosted mode that throws, the caller's fail-safe catches it, and the market stays
+  blocked forever for that tenant.
+- **Fix:** pass `probeWalletId` in the confirmation pass, same as the first pass.
+- **Where:** `src/copyTrader.ts` (~line 1606)
+
+### 3.5 Flagged, NOT changed (trade logic — deliberate caution)
+| # | Severity | Issue | Where |
+| --- | --- | --- | --- |
+| 1 | should-fix | Multi-wallet fan-out: `isPositionBlocked` falls back to market+side matching even with a per-wallet `positionKey`, so with multiple trading wallets assigned, only the first wallet ever trades (fails SAFE — no money risk, feature limitation) | `src/storage.ts:756` |
+| 2 | later | Allocation weight (≤2.0) × hot-streak multiplier (1.5) can exceed the 2× fixed cap → legitimate upsized trades get blocked instead of clamped | `src/copyTrader.ts:1008` |
+| 3 | later | Sizing/collateral/min-size pre-flight checks only use the FIRST execution target's CLOB client | `src/copyTrader.ts:872+` |
+| 4 | later | SELL clamped to owned shares can drop below market min order size → unsellable dust positions | `src/copyTrader.ts:1253` |
+| 5 | later | Ditto-state rejections happen before dedup keys are marked → duplicate "rejected" rows possible in feed | `src/copyTrader.ts:379-473` |
+| 6 | later | Rate-limit counters only increment on fully executed trades; resting "pending" orders don't count | `src/copyTrader.ts:1375` |
+| 7 | later | Missing txHash/id → random synthetic hash defeats tx-level dedup for that row | `src/walletMonitor.ts:369` |
+| 8 | later | `storage.ts` uses `getTenantIdOrDefault()` (not strict) — a future code path missing `runWithTenant` would silently use the default tenant instead of throwing | `src/storage.ts:74` |
+
+### 3.6 Verified clean
+Side filter, price limits (0.01/0.99 defaults), value filter, rate-limit windows
+(tenant+wallet keyed), fixed sizing math, slippage resolution and tick alignment, SELL
+share-ownership verification (fail-safe skip), min-order-size double check, pending vs
+executed discrimination, trade-feed recording on all outcome paths.
 
 ---
 
@@ -106,6 +173,27 @@ _(populated below)_
 
 ---
 
+### 5.2 Verified: session expiry handled correctly
+- `public/js/api.js` intercepts 401s: OIDC mode redirects to `/auth/login?returnTo=<page>`;
+  legacy mode reopens the token modal. No silent failures.
+
 ## 6. UI walkthrough findings (before-baseline)
 
-_(populated below with screenshots)_
+Full click-through of every tab, dialog, and form on a clean local instance, plus
+responsive checks at 1280/1024/768. Empty states, dialogs, and forms all behave; zero
+console errors. Defects found (to be fixed in the UI overhaul PR):
+
+| # | Severity | Issue |
+| --- | --- | --- |
+| 1 | launch-blocker | Topbar nav clips at 1024px — "Settings" truncates to "Set", items overlap (common laptop width) |
+| 2 | should-fix | Trading wallet address ellipsized with no copy button/tooltip |
+| 3 | should-fix | 768px: Jungle Agents + Trade history squeezed side-by-side; should stack |
+| 4 | should-fix | "BOT RUNNING"/"BOT OFFLINE" status pill overflows its container at some widths |
+| 5 | later | "Continue setup" button placement awkward at certain widths |
+
+Also reproduced from the owner's report at narrow widths: trade-history columns truncate
+("AMOUN…"), nav items clip. All to be addressed by the design-system + overhaul PR.
+
+### 4.x addendum — fixed during audit
+- Foreign `x-tenant-id` now returns **403** with a clean JSON error (was 500);
+  verified live with a forged header from a second user's session.

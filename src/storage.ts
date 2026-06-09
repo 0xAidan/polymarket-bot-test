@@ -633,20 +633,32 @@ export class Storage {
     const existing = positions.find(
       p => matchesIdentity(p) && (p.status ?? 'executed') === 'executed'
     );
-    
-    if (!existing) {
-      positions.push({
-        marketId,
-        side,
-        timestamp: Date.now(),
-        walletAddress: walletAddress.toLowerCase(),
-        status: 'executed',
-        orderId: details?.orderId,
-        tokenId: details?.tokenId,
-        positionKey: details?.positionKey,
-      });
+
+    if (existing) {
+      // SAFETY: refresh the timestamp on every successful trade. Without this, the
+      // no-repeat window is anchored to the FIRST trade on a market forever — once that
+      // window expires, repeat protection is permanently dead for the market even though
+      // newer trades executed (real duplicate-trade losses).
+      existing.timestamp = Date.now();
+      existing.walletAddress = walletAddress.toLowerCase();
+      existing.orderId = details?.orderId ?? existing.orderId;
+      existing.tokenId = details?.tokenId ?? existing.tokenId;
+      existing.positionKey = details?.positionKey ?? existing.positionKey;
       await this.saveExecutedPositions(positions);
+      return;
     }
+
+    positions.push({
+      marketId,
+      side,
+      timestamp: Date.now(),
+      walletAddress: walletAddress.toLowerCase(),
+      status: 'executed',
+      orderId: details?.orderId,
+      tokenId: details?.tokenId,
+      positionKey: details?.positionKey,
+    });
+    await this.saveExecutedPositions(positions);
   }
 
   static async addPendingPosition(

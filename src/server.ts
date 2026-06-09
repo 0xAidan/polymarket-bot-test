@@ -312,7 +312,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
       try {
         const { user, memberships } = resolveOidcUserContext(req);
         if (memberships.length === 0) {
-          return next(new Error('Authenticated user has no tenant memberships'));
+          return _res.status(403).json({ success: false, error: 'Authenticated user has no tenant memberships' });
         }
 
         const requestedTenantId = String(req.header('x-tenant-id') || '').trim();
@@ -323,7 +323,9 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 
         if (!activeTenant) {
           writeAuthAuditLog(user.id, 'tenant_request_denied', { requestedTenantId, ip: req.ip });
-          return next(new Error('Requested tenant is not accessible for this account'));
+          // Permission denial, not a server fault: respond 403 so clients and logs
+          // don't treat a forged/stale x-tenant-id as an outage.
+          return _res.status(403).json({ success: false, error: 'Requested tenant is not accessible for this account' });
         }
 
         setUserLastActiveTenant(user.id, activeTenant.tenantId);
