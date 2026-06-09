@@ -36,6 +36,7 @@ export async function initDatabase(): Promise<Database.Database> {
   migrateTrackedWalletsToTenantScoped(db);
   migrateBotConfigToTenantScoped(db);
   safeAddColumn(db, 'executed_positions', 'tenant_id', `TEXT NOT NULL DEFAULT '${DEFAULT_TENANT_ID}'`);
+  safeAddColumn(db, 'tracked_wallets', 'tags_json', 'TEXT');
   safeCreateIndex(
     db,
     'idx_tracked_wallets_tenant',
@@ -972,6 +973,21 @@ import {
   ExecutedPosition,
 } from './types.js';
 
+/** Parse a tags_json column value into a string array (or undefined when empty/invalid). */
+function parseTagsJson(raw: unknown): string[] | undefined {
+  if (typeof raw !== 'string' || raw.length === 0) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      const tags = parsed.filter((t): t is string => typeof t === 'string' && t.length > 0);
+      return tags.length > 0 ? tags : undefined;
+    }
+  } catch {
+    // Corrupt tags_json should never block wallet loading — treat as no tags.
+  }
+  return undefined;
+}
+
 /** Convert a DB row to a TrackedWallet object */
 function rowToWallet(row: any): TrackedWallet {
   return {
@@ -981,6 +997,7 @@ function rowToWallet(row: any): TrackedWallet {
     active: row.active === 1,
     lastSeen: row.last_seen ? new Date(row.last_seen) : undefined,
     label: row.label ?? undefined,
+    tags: parseTagsJson(row.tags_json),
 
     tradeSizingMode: row.trade_sizing_mode ?? undefined,
     fixedTradeSize: row.fixed_trade_size ?? undefined,
@@ -1017,7 +1034,7 @@ export function dbSaveTrackedWallets(wallets: TrackedWallet[], tenantId = DEFAUL
     database.prepare('DELETE FROM tracked_wallets WHERE tenant_id = ?').run(tenantId);
     const insert = database.prepare(`
       INSERT INTO tracked_wallets (
-        tenant_id, address, added_at, active, last_seen, label,
+        tenant_id, address, added_at, active, last_seen, label, tags_json,
         trade_sizing_mode, fixed_trade_size, threshold_enabled, threshold_percent,
         trade_side_filter,
         no_repeat_enabled, no_repeat_period_hours,
@@ -1026,7 +1043,7 @@ export function dbSaveTrackedWallets(wallets: TrackedWallet[], tenantId = DEFAUL
         value_filter_enabled, value_filter_min, value_filter_max,
         slippage_percent
       ) VALUES (
-        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?,
         ?, ?,
@@ -1044,6 +1061,7 @@ export function dbSaveTrackedWallets(wallets: TrackedWallet[], tenantId = DEFAUL
         w.active ? 1 : 0,
         w.lastSeen ? w.lastSeen.toISOString() : null,
         w.label ?? null,
+        w.tags && w.tags.length > 0 ? JSON.stringify(w.tags) : null,
 
         w.tradeSizingMode ?? null,
         w.fixedTradeSize ?? null,
