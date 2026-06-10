@@ -103,13 +103,16 @@ const renderAgentTableRow = (agent) => {
     ? `<img src="${agent.avatarUrl}" alt="" class="j-agents-avatar-img" />`
     : `<span class="j-agents-avatar-fallback">${agent.displayName.slice(0, 1)}</span>`;
   const metaLine = [agent.tagline, agent.modelLabel].filter(Boolean).join(' · ');
+  const categoryBadge = agent.category
+    ? `<span class="j-badge j-agents-category">${agent.category}</span>`
+    : '';
 
   return `
     <tr data-agent-id="${agent.id}">
       <td class="j-agents-cell-agent">
         <span class="j-agents-avatar-sm">${avatar}</span>
         <span class="j-agents-cell-text">
-          <span class="j-agents-name font-serif">${agent.displayName}</span>
+          <span class="j-agents-name font-serif">${agent.displayName} ${categoryBadge}</span>
           ${metaLine ? `<span class="j-agents-meta">${metaLine}</span>` : ''}
         </span>
       </td>
@@ -131,7 +134,35 @@ const renderAgentTableRow = (agent) => {
   `;
 };
 
-const renderAgentTable = (agents) => `
+/** Group agents by their (optional) admin-curated collection, preserving roster order. */
+const groupAgentsByCollection = (agents) => {
+  const groups = [];
+  const byName = new Map();
+  for (const agent of agents) {
+    const name = (agent.collection || '').trim();
+    if (!byName.has(name)) {
+      const group = { name, agents: [] };
+      byName.set(name, group);
+      groups.push(group);
+    }
+    byName.get(name).agents.push(agent);
+  }
+  // Ungrouped agents always render last so curated collections lead the page.
+  return groups.sort((a, b) => (a.name === '' ? 1 : 0) - (b.name === '' ? 1 : 0));
+};
+
+const renderAgentTable = (agents) => {
+  const groups = groupAgentsByCollection(agents);
+  const hasCollections = groups.some((g) => g.name !== '');
+
+  const body = groups.map((group) => {
+    const header = hasCollections
+      ? `<tr class="j-agents-collection-row"><td colspan="5">${group.name || 'More agents'}</td></tr>`
+      : '';
+    return header + group.agents.map(renderAgentTableRow).join('');
+  }).join('');
+
+  return `
   <div class="j-panel j-agents-table-panel">
     <div class="j-agents-table-scroll">
       <table class="jw-listview j-agents-table">
@@ -145,12 +176,13 @@ const renderAgentTable = (agents) => `
           </tr>
         </thead>
         <tbody>
-          ${agents.map(renderAgentTableRow).join('')}
+          ${body}
         </tbody>
       </table>
     </div>
   </div>
 `;
+};
 
 const handleFollowAgent = async (agent) => {
   if (agent.addressPending || !agent.polymarketAddress) {

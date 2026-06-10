@@ -9,6 +9,21 @@ const log = createComponentLogger('JungleAgentsStore');
 
 type LegacyOlympicsAgent = { id: string; displayName: string; walletAddress: string };
 
+export const JUNGLE_AGENT_CATEGORIES = [
+  'sports',
+  'politics',
+  'crypto',
+  'macro',
+  'company',
+  'legal',
+  'geopolitics',
+  'entertainment',
+  'event',
+  'other',
+] as const;
+
+export type JungleAgentCategory = (typeof JUNGLE_AGENT_CATEGORIES)[number];
+
 export type JungleAgentRecord = {
   id: string;
   /** Stable slug aligned with legacy Olympics roster ids (migration + public API). */
@@ -19,6 +34,10 @@ export type JungleAgentRecord = {
   polymarketAddress: string;
   olympicsProfileUrl: string;
   avatarUrl?: string;
+  /** Market focus shown to users (sports, politics, crypto, …). */
+  category?: JungleAgentCategory;
+  /** Named group for curation (e.g. "MLB Opening Week"). Free text, ≤60 chars. */
+  collection?: string;
   sortOrder: number;
   enabled: boolean;
   createdAtMs: number;
@@ -69,6 +88,24 @@ const assertDisplayName = (name: string): void => {
   const t = name?.trim();
   if (!t) throw new Error('displayName is required');
   if (t.length > 80) throw new Error('displayName too long');
+};
+
+/** Returns the normalized category, or undefined for empty input. Throws on unknown values. */
+const normalizeCategory = (value: unknown): JungleAgentCategory | undefined => {
+  const t = String(value ?? '').trim().toLowerCase();
+  if (!t) return undefined;
+  if (!(JUNGLE_AGENT_CATEGORIES as readonly string[]).includes(t)) {
+    throw new Error(`Invalid category "${t}" — allowed: ${JUNGLE_AGENT_CATEGORIES.join(', ')}`);
+  }
+  return t as JungleAgentCategory;
+};
+
+/** Returns the trimmed collection name, or undefined for empty input. Throws when too long. */
+const normalizeCollection = (value: unknown): string | undefined => {
+  const t = String(value ?? '').trim();
+  if (!t) return undefined;
+  if (t.length > 60) throw new Error('collection too long (max 60 characters)');
+  return t;
 };
 
 const duplicateEnabledAddress = (agents: JungleAgentRecord[], address: string, selfId?: string): boolean => {
@@ -150,6 +187,8 @@ export async function createAgent(input: Partial<JungleAgentRecord>): Promise<Ju
     polymarketAddress,
     olympicsProfileUrl,
     avatarUrl: input.avatarUrl?.trim() || undefined,
+    category: normalizeCategory(input.category),
+    collection: normalizeCollection(input.collection),
     sortOrder: typeof input.sortOrder === 'number' ? input.sortOrder : agents.length + 1,
     enabled: input.enabled !== false,
     createdAtMs: now,
@@ -179,6 +218,8 @@ export async function updateAgent(id: string, patch: Partial<JungleAgentRecord>)
     olympicsProfileUrl:
       patch.olympicsProfileUrl !== undefined ? String(patch.olympicsProfileUrl).trim() : cur.olympicsProfileUrl,
     avatarUrl: patch.avatarUrl !== undefined ? patch.avatarUrl?.trim() || undefined : cur.avatarUrl,
+    category: patch.category !== undefined ? normalizeCategory(patch.category) : cur.category,
+    collection: patch.collection !== undefined ? normalizeCollection(patch.collection) : cur.collection,
     sortOrder: typeof patch.sortOrder === 'number' ? patch.sortOrder : cur.sortOrder,
     enabled: typeof patch.enabled === 'boolean' ? patch.enabled : cur.enabled,
     updatedAtMs: Date.now()
