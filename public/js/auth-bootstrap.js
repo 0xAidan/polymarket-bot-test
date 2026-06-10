@@ -89,8 +89,8 @@ window.handleTenantWorkspaceChange = async (tenantId) => {
     window.location.reload();
   } catch (err) {
     console.error(err);
-    if (typeof win95Dialog !== 'undefined' && win95Dialog.error) {
-      await win95Dialog.error(String(err.message || err));
+    if (typeof jungleDialog !== 'undefined' && jungleDialog.error) {
+      await jungleDialog.error(String(err.message || err));
     }
   }
 };

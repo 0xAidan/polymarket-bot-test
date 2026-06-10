@@ -60,11 +60,11 @@ polymarket-bot-test/
 │   ├── plans/
 │   └── research/
 ├── public/                  # Frontend (served by Express static)
-│   ├── index.html           # Main dashboard HTML (Win95 UI)
-│   ├── styles.css           # Win95 styles
+│   ├── index.html           # Main dashboard HTML (Jungle Agents UI)
+│   ├── styles.css           # Jungle Agents styles
 │   ├── tour.css             # Walkthrough tour styles
 │   └── js/
-│       ├── app.js           # Main frontend logic, win95Dialog system
+│       ├── app.js           # Main frontend logic, jungleModal dialog system
 │       ├── api.js           # API client (fetch wrapper with auth)
 │       └── tour.js          # Walkthrough tour
 ├── src/                     # Backend TypeScript source
@@ -182,7 +182,7 @@ polymarket-bot-test/
 4. Discovery worker: separate process, communicates via HTTP to `DISCOVERY_WORKER_URL`
 
 ### Dashboard
-- `http://localhost:3001` — Win95-style web dashboard
+- `http://localhost:3001` — Jungle Agents web dashboard (dark/gold)
 - Manages tracked wallets, trading wallets, trade feed, discovery, configuration
 
 ---
@@ -595,16 +595,20 @@ These rules protect real money. Violating them has caused actual financial losse
 
 ## 13. FRONTEND RULES
 
-### Win95 UI
-- All UI is Windows 95 themed (no modern frameworks)
-- Custom dialog system in `public/js/app.js`:
-  - `await win95Dialog.alert(message, title?)`
-  - `await win95Dialog.success(message, title?)`
-  - `await win95Dialog.error(message, title?)`
-  - `await win95Dialog.confirm(message, title?)` → `true` | `false`
-  - `await win95Dialog.prompt(message, defaultValue?, title?)` → `string` | `null`
-- **NEVER** use native `alert()`, `confirm()`, `prompt()` — use `win95Dialog` instead
+### Jungle Agents UI (Win95 is fully removed)
+- The UI is "Jungle Agents" branded: dark navy background, gold accents, serif display
+  headers, monospace body. Design tokens live in `public/shared/jungle-brand.css`;
+  component classes use the `j-` and `jw-` prefixes (no frameworks).
+- Two custom dialog systems with the same async API (alert/success/error/confirm/prompt):
+  - `jungleModal` — centered modals, defined at the top of `public/js/app.js`, used
+    inside `app.js`
+  - `window.jungleDialog` — toasts + side drawers (`public/js/jungleDialog.js`), used by
+    `admin.js`, `jungleAgents.js`, `auth-bootstrap.js`
+- **NEVER** use native `alert()`, `confirm()`, `prompt()` — use `jungleModal` (in app.js)
+  or `jungleDialog` (elsewhere)
 - All dialog calls are async — use `await`
+- `window.win95Dialog` is a deprecated alias of `jungleDialog`; do not write new code
+  against it
 
 ### API client
 - `public/js/api.js` wraps `fetch` with auth header from `sessionStorage.getItem('api_token')`
@@ -700,7 +704,7 @@ CMD ["node", "dist/index.js"]
 2. Phase 0B: SQLite storage
 3. Phase 1A: Real-time trade detection improvements
 4. Phase 1B: Multi-wallet support
-5. Phase 2: Win95 UI
+5. Phase 2: Dashboard UI (originally Win95-themed; rebranded to Jungle Agents)
 6. Phase 3: Auto-redemption + Discovery Engine
 7. Phase 4: Arbitrage detection
 8. Phase 5: Entity linking
@@ -717,7 +721,7 @@ Located in `.cursor/rules/`:
 |------|-------|---------|
 | `trade-safety-invariants.mdc` | `src/copyTrader.ts`, `walletMonitor.ts`, `tradeExecutor.ts`, `clobClient.ts` | Critical safety rules for trade execution |
 | `polymarket-auth.mdc` | — | Polymarket CLOB authentication setup and common errors |
-| `no-native-dialogs.mdc` | `public/js/**/*.js`, `public/**/*.html` | Use win95Dialog, never native dialogs |
+| `no-native-dialogs.mdc` | `public/js/**/*.js`, `public/**/*.html` | Use jungleDialog/jungleModal, never native dialogs |
 | `notion-board-standards.mdc` | Always | Notion board creation standards |
 | `agent-knowledge.mdc` | Always | This file |
 
@@ -816,8 +820,8 @@ maxSignalsPerDay: 50
 - Test with small amounts before deploying
 
 ### When modifying frontend
-- Use `win95Dialog` for all dialogs
-- Maintain Win95 aesthetic
+- Use `jungleModal` (app.js) or `jungleDialog` for all dialogs
+- Maintain the Jungle Agents aesthetic (dark/gold, tokens from jungle-brand.css)
 - Use `apiCall()` from `api.js` for backend requests
 - Test the dashboard at `http://localhost:3001`
 

@@ -34,9 +34,9 @@
       </div>
       <div class="auth-gate-footer" id="authGateHint">If sign-in is required, Ditto will send you to the secure hosted login automatically.</div>
       <div class="auth-gate-actions hidden" id="authGateActions">
-        <button class="win-btn" id="authGateRetryBtn" type="button" onclick="window.location.reload()">Retry check</button>
-        <button class="win-btn win-btn-primary" id="authGateLoginBtn" type="button" onclick="redirectToMagicLinkLogin()">Open sign in</button>
-        <button class="win-btn hidden" id="authGateLegacyBtn" type="button" onclick="showAuthModal()">Use local fallback</button>
+        <button class="jw-btn" id="authGateRetryBtn" type="button" onclick="window.location.reload()">Retry check</button>
+        <button class="jw-btn jw-btn-primary" id="authGateLoginBtn" type="button" onclick="redirectToMagicLinkLogin()">Open sign in</button>
+        <button class="jw-btn hidden" id="authGateLegacyBtn" type="button" onclick="showAuthModal()">Use local fallback</button>
       </div>
     </div>
   </div>
@@ -75,11 +75,11 @@
     </header>
     <main class="j-main">
       <!-- Tab Content -->
-      <div class="win-body">
+      <div class="jw-body">
         <!-- ============================================================
              DASHBOARD TAB
              ============================================================ -->
-        <div id="tab-dashboard" class="win-tab-panel active j-dashboard">
+        <div id="tab-dashboard" class="jw-tab-panel active j-dashboard">
           <header class="j-dash-header">
             <div>
               <p class="j-dash-eyebrow">Live workspace</p>
@@ -177,7 +177,7 @@
                   <span class="j-panel-meta" id="tradesCountLabel">0 trades</span>
                 </header>
                 <div class="j-trade-scroll trades-scroll-container">
-                  <table class="win-listview j-trade-table" id="tradesTable">
+                  <table class="jw-listview j-trade-table" id="tradesTable">
                     <thead>
                       <tr>
                         <th>Time</th>
@@ -220,53 +220,53 @@
             <div class="flex-between mb-8">
               <div class="text-sm text-muted">Configure staged take-profit exits on open positions.</div>
               <div class="flex-row gap-4">
-                <button class="win-btn win-btn-sm" onclick="toggleLadderLiveMode()">Toggle Live</button>
-                <button class="win-btn win-btn-sm" onclick="openCreateLadderForm()">+ New Ladder</button>
+                <button class="jw-btn jw-btn-sm" onclick="toggleLadderLiveMode()">Toggle Live</button>
+                <button class="jw-btn jw-btn-sm" onclick="openCreateLadderForm()">+ New Ladder</button>
               </div>
             </div>
 
             <!-- Position Picker for Ladder Creation (hidden by default) -->
-            <div id="createLadderForm" class="hidden" style="background:var(--win-surface);border:1px solid var(--win-dark);padding:8px;margin-bottom:8px;">
+            <div id="createLadderForm" class="hidden" style="background:var(--jw-surface);border:1px solid var(--jw-dark);padding:8px;margin-bottom:8px;">
               <div class="flex-between mb-4">
                 <div class="text-bold">Select Position for Ladder Exit</div>
-                <button class="win-btn win-btn-sm" onclick="closeCreateLadderForm()" aria-label="Close ladder creation form" tabindex="0">Close</button>
+                <button class="jw-btn jw-btn-sm" onclick="closeCreateLadderForm()" aria-label="Close ladder creation form" tabindex="0">Close</button>
               </div>
               <div class="flex-row gap-8 mb-4" style="align-items:center;">
                 <label class="text-sm">Trading Wallet:</label>
-                <select id="ladderWalletSelect" class="win-input" style="width:250px;" onchange="loadWalletPositionsForLadder()" aria-label="Select trading wallet">
+                <select id="ladderWalletSelect" class="jw-input" style="width:250px;" onchange="loadWalletPositionsForLadder()" aria-label="Select trading wallet">
                   <option value="">-- Select a wallet --</option>
                 </select>
-                <button class="win-btn win-btn-sm" onclick="loadWalletPositionsForLadder()" aria-label="Refresh positions" tabindex="0">Refresh</button>
+                <button class="jw-btn jw-btn-sm" onclick="loadWalletPositionsForLadder()" aria-label="Refresh positions" tabindex="0">Refresh</button>
               </div>
               <div id="ladderPositionsList" style="max-height:400px;overflow-y:auto;">
                 <div class="text-center text-muted" style="padding:12px;">Select a trading wallet to see your positions</div>
               </div>
 
               <!-- Ladder Config Panel (shown when user clicks Add Ladder on a position) -->
-              <div id="ladderConfigPanel" class="hidden" style="background:var(--win-highlight);border:1px solid var(--win-dark);padding:8px;margin-top:8px;">
+              <div id="ladderConfigPanel" class="hidden" style="background:var(--jw-highlight);border:1px solid var(--jw-dark);padding:8px;margin-top:8px;">
                 <div class="text-bold mb-4">Configure Ladder Steps</div>
                 <div class="text-sm mb-4" id="ladderConfigPositionSummary"></div>
                 <div class="flex-row gap-8 flex-wrap mb-4">
                   <div>
                     <label class="text-sm">Steps</label>
-                    <input type="number" id="ladderStepCount" class="win-input" value="4" min="2" max="10" style="width:70px;" aria-label="Number of ladder steps">
+                    <input type="number" id="ladderStepCount" class="jw-input" value="4" min="2" max="10" style="width:70px;" aria-label="Number of ladder steps">
                   </div>
                   <div>
                     <label class="text-sm">Start %</label>
-                    <input type="number" id="ladderStartPercent" class="win-input" value="10" min="1" max="100" style="width:70px;" aria-label="Start profit percent for first step">
+                    <input type="number" id="ladderStartPercent" class="jw-input" value="10" min="1" max="100" style="width:70px;" aria-label="Start profit percent for first step">
                   </div>
                   <div>
                     <label class="text-sm">Step Spread %</label>
-                    <input type="number" id="ladderStepSpread" class="win-input" value="10" min="1" max="100" style="width:70px;" aria-label="Percent spread between steps">
+                    <input type="number" id="ladderStepSpread" class="jw-input" value="10" min="1" max="100" style="width:70px;" aria-label="Percent spread between steps">
                   </div>
                   <div>
                     <label class="text-sm">Sell % per step</label>
-                    <input type="number" id="ladderSellPercent" class="win-input" value="25" min="5" max="100" style="width:70px;" aria-label="Percent of remaining to sell at each step">
+                    <input type="number" id="ladderSellPercent" class="jw-input" value="25" min="5" max="100" style="width:70px;" aria-label="Percent of remaining to sell at each step">
                   </div>
                 </div>
                 <div class="flex-row gap-4">
-                  <button class="win-btn win-btn-primary win-btn-sm" onclick="confirmCreateLadder()" aria-label="Confirm and create ladder" tabindex="0">Create Ladder</button>
-                  <button class="win-btn win-btn-sm" onclick="cancelLadderConfig()" aria-label="Cancel ladder configuration" tabindex="0">Cancel</button>
+                  <button class="jw-btn jw-btn-primary jw-btn-sm" onclick="confirmCreateLadder()" aria-label="Confirm and create ladder" tabindex="0">Create Ladder</button>
+                  <button class="jw-btn jw-btn-sm" onclick="cancelLadderConfig()" aria-label="Cancel ladder configuration" tabindex="0">Cancel</button>
                 </div>
               </div>
             </div>
@@ -282,7 +282,7 @@
         <!-- ============================================================
              TRACKED WALLETS TAB
              ============================================================ -->
-        <div id="tab-wallets" class="win-tab-panel j-page">
+        <div id="tab-wallets" class="jw-tab-panel j-page">
           <header class="j-page-header">
             <div>
               <p class="j-dash-eyebrow">Roster</p>
@@ -291,22 +291,22 @@
             </div>
           </header>
           <!-- Add Wallet -->
-          <div class="win-group">
-            <div class="win-group-title">Add Tracked Wallet</div>
+          <div class="jw-group">
+            <div class="jw-group-title">Add Tracked Wallet</div>
             <div class="flex-row gap-8">
-              <input type="text" id="newWalletAddress" placeholder="0x..." class="win-input" style="flex:1;">
-              <button class="win-btn win-btn-primary" onclick="addWallet()">Add Wallet</button>
+              <input type="text" id="newWalletAddress" placeholder="0x..." class="jw-input" style="flex:1;">
+              <button class="jw-btn jw-btn-primary" onclick="addWallet()">Add Wallet</button>
             </div>
           </div>
 
-          <div class="win-group">
-            <div class="win-group-title">Jungle Agent Presets (One-Click Track)</div>
+          <div class="jw-group">
+            <div class="jw-group-title">Jungle Agent Presets (One-Click Track)</div>
             <div class="flex-row gap-8 mb-8">
               <label class="text-sm" for="jungleAgentCategoryFilter">Category:</label>
-              <select id="jungleAgentCategoryFilter" class="win-select" onchange="renderJungleAgentPresets()" aria-label="Filter jungle agents by category">
+              <select id="jungleAgentCategoryFilter" class="jw-select" onchange="renderJungleAgentPresets()" aria-label="Filter jungle agents by category">
                 <option value="ALL">All</option>
               </select>
-              <button class="win-btn win-btn-sm" onclick="loadJungleAgentPresets(true)">Refresh</button>
+              <button class="jw-btn jw-btn-sm" onclick="loadJungleAgentPresets(true)">Refresh</button>
             </div>
             <div id="jungleAgentPresetList">
               <div class="text-center text-muted" style="padding:12px;">Loading Jungle Agent presets...</div>
@@ -314,8 +314,8 @@
           </div>
 
           <!-- Tracked Wallets List -->
-          <div class="win-group">
-            <div class="win-group-title">Tracked Wallets</div>
+          <div class="jw-group">
+            <div class="jw-group-title">Tracked Wallets</div>
             <div id="walletsList">
               <div class="text-center text-muted" style="padding:20px;">No wallets tracked yet</div>
             </div>
@@ -325,7 +325,7 @@
         <!-- ============================================================
              TRADING WALLETS TAB (Multi-Wallet)
              ============================================================ -->
-        <div id="tab-trading-wallets" class="win-tab-panel j-page">
+        <div id="tab-trading-wallets" class="jw-tab-panel j-page">
           <header class="j-page-header">
             <div>
               <p class="j-dash-eyebrow">Execution team</p>
@@ -343,7 +343,7 @@
             <div id="unlockFirstTime" class="hidden">
               <div class="mb-8" style="font-size:18px;"><strong>Create Your Master Password</strong></div>
 
-              <div class="win-warning mb-8" style="max-width:440px;margin-left:auto;margin-right:auto;text-align:left;">
+              <div class="jw-warning mb-8" style="max-width:440px;margin-left:auto;margin-right:auto;text-align:left;">
                 <span style="font-size:18px;">&#9888;</span>
                 <div>
                   <strong>This password cannot be changed or recovered.</strong><br>
@@ -360,18 +360,18 @@
               <div style="max-width:340px;margin:0 auto;">
                 <div class="form-row" style="margin-bottom:6px;">
                   <label for="masterPasswordNew" style="min-width:130px;">Password:</label>
-                  <input type="password" id="masterPasswordNew" placeholder="Choose a password..." class="win-input" style="flex:1;" aria-label="New master password" autocomplete="new-password">
+                  <input type="password" id="masterPasswordNew" placeholder="Choose a password..." class="jw-input" style="flex:1;" aria-label="New master password" autocomplete="new-password">
                 </div>
                 <div class="form-row" style="margin-bottom:6px;">
                   <label for="masterPasswordConfirm" style="min-width:130px;">Confirm:</label>
-                  <input type="password" id="masterPasswordConfirm" placeholder="Type it again..." class="win-input" style="flex:1;" aria-label="Confirm master password" autocomplete="new-password">
+                  <input type="password" id="masterPasswordConfirm" placeholder="Type it again..." class="jw-input" style="flex:1;" aria-label="Confirm master password" autocomplete="new-password">
                 </div>
                 <div id="passwordMatchError" class="hidden" style="color:var(--danger);font-size:13px;margin-left:138px;margin-bottom:6px;">
                   Passwords do not match.
                 </div>
                 <div class="form-row">
                   <label style="min-width:130px;"></label>
-                  <button class="win-btn win-btn-primary" onclick="createMasterPassword()" aria-label="Create master password and unlock" tabindex="0">Create Password &amp; Unlock</button>
+                  <button class="jw-btn jw-btn-primary" onclick="createMasterPassword()" aria-label="Create master password and unlock" tabindex="0">Create Password &amp; Unlock</button>
                 </div>
               </div>
 
@@ -388,14 +388,14 @@
               <div class="text-sm text-muted mb-8">Enter your master password to unlock your encrypted trading wallets</div>
 
               <div class="flex-row gap-8" style="justify-content:center;">
-                <input type="password" id="masterPasswordInput" placeholder="Master password..." class="win-input" style="width:250px;" aria-label="Master password" autocomplete="current-password">
-                <button class="win-btn win-btn-primary" onclick="unlockVault()" aria-label="Unlock wallet vault" tabindex="0">Unlock</button>
+                <input type="password" id="masterPasswordInput" placeholder="Master password..." class="jw-input" style="width:250px;" aria-label="Master password" autocomplete="current-password">
+                <button class="jw-btn jw-btn-primary" onclick="unlockVault()" aria-label="Unlock wallet vault" tabindex="0">Unlock</button>
               </div>
             </div>
 
             <!-- Help section (always visible) -->
             <details style="margin-top:12px;max-width:400px;margin-left:auto;margin-right:auto;text-align:left;">
-              <summary class="text-sm" style="cursor:pointer;color:var(--win-text);">How does the master password work?</summary>
+              <summary class="text-sm" style="cursor:pointer;color:var(--jw-text);">How does the master password work?</summary>
               <div class="text-sm text-muted" style="padding:8px 0;">
                 <ul style="margin:0;padding-left:16px;">
                   <li>Your trading wallet private keys and API credentials are encrypted on disk using AES-256-GCM.</li>
@@ -411,76 +411,76 @@
           <!-- Trading Wallets (shown after access check) -->
           <div id="tradingWalletsSection" class="hidden">
             <!-- Add Trading Wallet -->
-            <div class="win-group">
-              <div class="win-group-title">Add Trading Wallet</div>
+            <div class="jw-group">
+              <div class="jw-group-title">Add Trading Wallet</div>
               <div class="form-row">
                 <label>Wallet ID:</label>
-                <input type="text" id="newTradingWalletId" placeholder="e.g. arb, test" class="win-input">
+                <input type="text" id="newTradingWalletId" placeholder="e.g. arb, test" class="jw-input">
               </div>
               <div class="form-row">
                 <label>Label:</label>
-                <input type="text" id="newTradingWalletLabel" placeholder="e.g. Arbitrage Wallet" class="win-input">
+                <input type="text" id="newTradingWalletLabel" placeholder="e.g. Arbitrage Wallet" class="jw-input">
               </div>
               <div class="form-row">
                 <label>Private Key:</label>
-                <input type="password" id="newTradingWalletKey" placeholder="0x..." class="win-input">
+                <input type="password" id="newTradingWalletKey" placeholder="0x..." class="jw-input">
               </div>
 
-              <div style="border-top:1px solid var(--win-border);margin:8px 0;padding-top:8px;">
+              <div style="border-top:1px solid var(--jw-border);margin:8px 0;padding-top:8px;">
                 <div class="text-sm text-muted mb-4" style="margin-left:110px;">
                   <strong>Polymarket Builder API Credentials</strong> &mdash; Required to place orders.
-                  <a href="https://polymarket.com/settings?tab=builder" target="_blank" rel="noopener noreferrer" style="color:var(--win-link);">Get them here</a>
+                  <a href="https://polymarket.com/settings?tab=builder" target="_blank" rel="noopener noreferrer" style="color:var(--jw-link);">Get them here</a>
                 </div>
                 <div class="form-row">
                   <label>API Key:</label>
-                  <input type="password" id="newTradingWalletApiKey" placeholder="Your Builder API key" class="win-input" aria-label="Polymarket Builder API Key">
+                  <input type="password" id="newTradingWalletApiKey" placeholder="Your Builder API key" class="jw-input" aria-label="Polymarket Builder API Key">
                 </div>
                 <div class="form-row">
                   <label>API Secret:</label>
-                  <input type="password" id="newTradingWalletApiSecret" placeholder="Your Builder API secret" class="win-input" aria-label="Polymarket Builder API Secret">
+                  <input type="password" id="newTradingWalletApiSecret" placeholder="Your Builder API secret" class="jw-input" aria-label="Polymarket Builder API Secret">
                 </div>
                 <div class="form-row">
                   <label>API Passphrase:</label>
-                  <input type="password" id="newTradingWalletApiPassphrase" placeholder="Your Builder API passphrase" class="win-input" aria-label="Polymarket Builder API Passphrase">
+                  <input type="password" id="newTradingWalletApiPassphrase" placeholder="Your Builder API passphrase" class="jw-input" aria-label="Polymarket Builder API Passphrase">
                 </div>
               </div>
 
               <div class="form-row">
                 <label></label>
-                <button class="win-btn win-btn-primary" onclick="addNewTradingWallet()">Add Wallet</button>
+                <button class="jw-btn jw-btn-primary" onclick="addNewTradingWallet()">Add Wallet</button>
               </div>
             </div>
 
             <!-- Wallets List -->
-            <div class="win-group">
-              <div class="win-group-title">Your Trading Wallets</div>
+            <div class="jw-group">
+              <div class="jw-group-title">Your Trading Wallets</div>
               <div id="tradingWalletsList" class="trading-wallets-grid">
                 <div class="text-center text-muted" style="padding:20px;">No trading wallets configured</div>
               </div>
             </div>
 
             <!-- Copy Assignments -->
-            <div class="win-group">
-              <div class="win-group-title">Copy Assignments</div>
+            <div class="jw-group">
+              <div class="jw-group-title">Copy Assignments</div>
               <div class="text-sm text-muted mb-8">Map which tracked wallets copy to which of your trading wallets</div>
               <div id="copyAssignmentsList">
                 <div class="text-center text-muted" style="padding:12px;">No copy assignments yet</div>
               </div>
               <div class="flex-row gap-8 mt-8">
-                <select id="assignTrackedWallet" class="win-select" style="flex:1;">
+                <select id="assignTrackedWallet" class="jw-select" style="flex:1;">
                   <option value="">Select tracked wallet...</option>
                 </select>
-                <select id="assignTradingWallet" class="win-select" style="flex:1;">
+                <select id="assignTradingWallet" class="jw-select" style="flex:1;">
                   <option value="">Select trading wallet...</option>
                 </select>
-                <button class="win-btn win-btn-sm" onclick="addAssignment()">Assign</button>
+                <button class="jw-btn jw-btn-sm" onclick="addAssignment()">Assign</button>
               </div>
             </div>
           </div>
         </div>
 
 
-        <div id="tab-jungle-agents" class="win-tab-panel j-page j-agents-tab">
+        <div id="tab-jungle-agents" class="jw-tab-panel j-page j-agents-tab">
           <header class="j-page-header">
             <div>
               <p class="j-dash-eyebrow">Curated roster</p>
@@ -494,7 +494,7 @@
         <!-- ============================================================
              DISCOVERY TAB
              ============================================================ -->
-        <div id="tab-discovery" class="win-tab-panel j-page">
+        <div id="tab-discovery" class="jw-tab-panel j-page">
           <header class="j-page-header">
             <div>
               <p class="j-dash-eyebrow">Qualifiers</p>
@@ -503,10 +503,10 @@
             </div>
           </header>
           <!-- Discovery Settings -->
-          <div class="win-group">
-            <div class="win-group-title">Discovery Settings</div>
+          <div class="jw-group">
+            <div class="jw-group-title">Discovery Settings</div>
             <div class="flex-row gap-8 mb-8">
-              <label class="win-checkbox">
+              <label class="jw-checkbox">
                 <input type="checkbox" id="discoveryEnabled" onchange="handleDiscoveryToggle()">
                 <span>Enable Discovery Engine</span>
               </label>
@@ -514,14 +514,14 @@
             <div class="form-row mb-8">
               <label>Optional Fast-Mode WS URL:</label>
               <div style="flex:1;">
-                <input type="text" id="discoveryAlchemyUrl" placeholder="Optional: fast-mode websocket for later acceleration" class="win-input" style="width:100%;" aria-label="Optional fast-mode websocket URL" autocomplete="off">
+                <input type="text" id="discoveryAlchemyUrl" placeholder="Optional: fast-mode websocket for later acceleration" class="jw-input" style="width:100%;" aria-label="Optional fast-mode websocket URL" autocomplete="off">
                 <div id="discoveryAlchemyUrlHasKey" class="text-sm text-muted" style="margin-top:2px;display:none;"></div>
               </div>
             </div>
             <div class="flex-row gap-16 mb-8 flex-wrap">
               <div class="form-row">
                 <label>Poll Interval (s):</label>
-                <input type="number" id="discoveryPollInterval" value="30" min="15" max="120" class="win-input" style="width:80px;">
+                <input type="number" id="discoveryPollInterval" value="30" min="15" max="120" class="jw-input" style="width:80px;">
               </div>
               <div class="form-row">
                 <label>Fast mode:</label>
@@ -532,25 +532,25 @@
               </div>
               <div class="form-row">
                 <label>Markets to monitor:</label>
-                <input type="number" id="discoveryMarketCount" value="50" min="10" max="200" class="win-input" style="width:80px;">
+                <input type="number" id="discoveryMarketCount" value="50" min="10" max="200" class="jw-input" style="width:80px;">
               </div>
               <div class="form-row">
                 <label>Stats interval (min):</label>
-                <input type="number" id="discoveryStatsInterval" value="5" min="1" max="60" class="win-input" style="width:80px;">
+                <input type="number" id="discoveryStatsInterval" value="5" min="1" max="60" class="jw-input" style="width:80px;">
               </div>
             </div>
             <div class="flex-row gap-8">
-              <button class="win-btn win-btn-primary" onclick="saveDiscoveryConfig()" aria-label="Save discovery settings" tabindex="0">Save Settings</button>
-              <button class="win-btn" onclick="restartDiscovery()" aria-label="Restart discovery engine" tabindex="0">Restart Discovery</button>
-              <button class="win-btn" onclick="purgeDiscoveryData()" aria-label="Clear all discovery data" tabindex="0">Clear Discovery Data</button>
+              <button class="jw-btn jw-btn-primary" onclick="saveDiscoveryConfig()" aria-label="Save discovery settings" tabindex="0">Save Settings</button>
+              <button class="jw-btn" onclick="restartDiscovery()" aria-label="Restart discovery engine" tabindex="0">Restart Discovery</button>
+              <button class="jw-btn" onclick="purgeDiscoveryData()" aria-label="Clear all discovery data" tabindex="0">Clear Discovery Data</button>
             </div>
           </div>
 
           <!-- Signals & Alerts -->
-          <div class="win-group" id="discoverySignalsGroup">
-            <div class="win-group-title">Signals &amp; Alerts</div>
+          <div class="jw-group" id="discoverySignalsGroup">
+            <div class="jw-group-title">Signals &amp; Alerts</div>
             <div class="flex-row gap-8 mb-8">
-              <select id="signalSeverityFilter" class="win-select" onchange="loadDiscoverySignals()" aria-label="Filter by severity">
+              <select id="signalSeverityFilter" class="jw-select" onchange="loadDiscoverySignals()" aria-label="Filter by severity">
                 <option value="">All Severities</option>
                 <option value="critical">Critical</option>
                 <option value="high">High</option>
@@ -564,8 +564,8 @@
           </div>
 
           <!-- Discovery Status -->
-          <div class="win-group">
-            <div class="win-group-title">Discovery Status</div>
+          <div class="jw-group">
+            <div class="jw-group-title">Discovery Status</div>
             <div class="metrics-row" id="discoveryStatusMetrics">
               <div class="metric-box">
                 <div class="metric-value" id="discoveryChainStatus">--</div>
@@ -590,15 +590,15 @@
             </div>
             <div class="discovery-filters" id="discoveryFilters">
               <label>Focus:</label>
-              <select id="discoveryFocus" class="win-select" onchange="applyDiscoveryFilters()" aria-label="Discovery focus filter">
+              <select id="discoveryFocus" class="jw-select" onchange="applyDiscoveryFilters()" aria-label="Discovery focus filter">
                 <option value="all-real-world" selected>All Real-World</option>
                 <option value="high-information">High-Information</option>
               </select>
               <label>Min Score:</label>
-              <input type="range" id="filterMinScore" min="0" max="100" value="0" class="win-input" style="width:80px;" oninput="document.getElementById('filterMinScoreVal').textContent=this.value" onchange="applyDiscoveryFilters()">
+              <input type="range" id="filterMinScore" min="0" max="100" value="0" class="jw-input" style="width:80px;" oninput="document.getElementById('filterMinScoreVal').textContent=this.value" onchange="applyDiscoveryFilters()">
               <span id="filterMinScoreVal" class="text-sm">0</span>
               <label>Heat:</label>
-              <select id="filterHeat" class="win-select" onchange="applyDiscoveryFilters()" aria-label="Filter by heat">
+              <select id="filterHeat" class="jw-select" onchange="applyDiscoveryFilters()" aria-label="Filter by heat">
                 <option value="">All</option>
                 <option value="HOT">HOT</option>
                 <option value="WARMING">WARMING</option>
@@ -607,15 +607,15 @@
                 <option value="COLD">COLD</option>
                 <option value="NEW">NEW</option>
               </select>
-              <label class="win-checkbox">
+              <label class="jw-checkbox">
                 <input type="checkbox" id="filterHasSignals" onchange="applyDiscoveryFilters()">
                 <span>Has Signals</span>
               </label>
             </div>
           </div>
 
-          <div class="win-group">
-            <div class="win-group-title">Discovery Evaluation</div>
+          <div class="jw-group">
+            <div class="jw-group-title">Discovery Evaluation</div>
             <div class="metrics-row" id="discoveryOverviewMetrics">
               <div class="metric-box">
                 <div class="metric-value" id="discoverySurfacedToday">0</div>
@@ -651,22 +651,22 @@
           </div>
 
           <!-- Discovered Wallets -->
-          <div class="win-group">
-            <div class="win-group-title">Real-World Discovery Feed</div>
+          <div class="jw-group">
+            <div class="jw-group-title">Real-World Discovery Feed</div>
             <div class="text-sm text-muted mb-8">Primary feed excludes crypto and sports, keeps entertainment lower-priority, and favors politics, macro, company, legal, and geopolitics.</div>
             <div class="flex-row gap-8 mb-8">
               <label class="text-sm">Sort by:</label>
-              <select id="discoveryWalletSort" class="win-select" onchange="loadDiscoveryWallets()" aria-label="Sort discovered wallets">
+              <select id="discoveryWalletSort" class="jw-select" onchange="loadDiscoveryWallets()" aria-label="Sort discovered wallets">
                 <option value="volume">7d Volume</option>
                 <option value="trades">Trade Count</option>
                 <option value="recent">Most Recent</option>
                 <option value="score" selected>Sharp Score</option>
                 <option value="roi">ROI</option>
               </select>
-              <button class="win-btn win-btn-sm" onclick="loadDiscoveryWallets()" aria-label="Refresh wallet list" tabindex="0">Refresh</button>
+              <button class="jw-btn jw-btn-sm" onclick="loadDiscoveryWallets()" aria-label="Refresh wallet list" tabindex="0">Refresh</button>
             </div>
             <div class="trades-scroll-container" style="max-height:400px;overflow-y:auto;overflow-x:auto;">
-              <table class="win-listview" id="discoveryWalletsTable">
+              <table class="jw-listview" id="discoveryWalletsTable">
                 <thead>
                   <tr>
                     <th>Heat</th>
@@ -688,15 +688,15 @@
             </div>
             <div class="flex-between mt-8">
               <span class="text-sm text-muted" id="discoveryWalletsCount">0 wallets</span>
-              <button class="win-btn win-btn-sm" id="discoveryLoadMoreBtn" onclick="loadMoreDiscoveryWallets()" style="display:none;" aria-label="Load more wallets" tabindex="0">Load More</button>
+              <button class="jw-btn jw-btn-sm" id="discoveryLoadMoreBtn" onclick="loadMoreDiscoveryWallets()" style="display:none;" aria-label="Load more wallets" tabindex="0">Load More</button>
             </div>
           </div>
 
           <!-- Unusual Markets -->
-          <div class="win-group" id="discoveryUnusualMarketsGroup">
-            <div class="win-group-title">Unusual Markets</div>
+          <div class="jw-group" id="discoveryUnusualMarketsGroup">
+            <div class="jw-group-title">Unusual Markets</div>
             <div class="trades-scroll-container" style="max-height:250px;overflow-y:auto;">
-              <table class="win-listview" id="unusualMarketsTable">
+              <table class="jw-listview" id="unusualMarketsTable">
                 <thead>
                   <tr>
                     <th>Market</th>
@@ -716,7 +716,7 @@
         <!-- ============================================================
              SETTINGS TAB
              ============================================================ -->
-        <div id="tab-settings" class="win-tab-panel j-page">
+        <div id="tab-settings" class="jw-tab-panel j-page">
           <header class="j-page-header">
             <div>
               <p class="j-dash-eyebrow">Rules</p>
@@ -725,11 +725,11 @@
             </div>
           </header>
           <!-- Stop-Loss -->
-          <div class="win-group">
-            <div class="win-group-title">Stop-Loss Protection</div>
+          <div class="jw-group">
+            <div class="jw-group-title">Stop-Loss Protection</div>
             <div class="text-sm text-muted mb-8">Stop taking new trades when too much USDC is committed to positions</div>
             <div class="flex-row gap-8 mb-8">
-              <label class="win-checkbox">
+              <label class="jw-checkbox">
                 <input type="checkbox" id="stopLossEnabled" onchange="updateStopLoss()">
                 <span>Enable Stop-Loss</span>
               </label>
@@ -737,25 +737,25 @@
             <div id="stopLossInputs" class="hidden">
               <div class="form-row">
                 <label>Max commitment %:</label>
-                <input type="number" id="stopLossPercent" value="80" min="1" max="99" class="win-input" style="width:80px;" onchange="updateStopLoss()">
+                <input type="number" id="stopLossPercent" value="80" min="1" max="99" class="jw-input" style="width:80px;" onchange="updateStopLoss()">
               </div>
               <div class="form-hint">Stop new trades when this % of your USDC is in open positions</div>
             </div>
           </div>
 
           <!-- Monitoring Interval -->
-          <div class="win-group">
-            <div class="win-group-title">Monitoring Settings</div>
+          <div class="jw-group">
+            <div class="jw-group-title">Monitoring Settings</div>
             <div class="form-row">
               <label>Scan Frequency (sec):</label>
-              <input type="number" id="monitoringInterval" value="15" min="1" max="300" class="win-input" style="width:80px;" onchange="updateMonitoringInterval()">
+              <input type="number" id="monitoringInterval" value="15" min="1" max="300" class="jw-input" style="width:80px;" onchange="updateMonitoringInterval()">
             </div>
             <div class="form-hint">How often to check tracked wallets for new trades</div>
-            <hr style="margin: 12px 0; border-color: var(--win-dark);">
+            <hr style="margin: 12px 0; border-color: var(--jw-dark);">
             <div class="form-row">
               <label>Proxy Wallet:</label>
-              <input type="text" id="proxyWalletAddress" placeholder="0x..." class="win-input text-mono">
-              <button class="win-btn win-btn-sm" onclick="updateProxyWallet()">Update</button>
+              <input type="text" id="proxyWalletAddress" placeholder="0x..." class="jw-input text-mono">
+              <button class="jw-btn jw-btn-sm" onclick="updateProxyWallet()">Update</button>
             </div>
             <div class="form-hint">Your Polymarket proxy wallet holds your USDC. Required for accurate balance display.</div>
           </div>
@@ -764,7 +764,7 @@
         <!-- ============================================================
              DIAGNOSTICS TAB
              ============================================================ -->
-        <div id="tab-diagnostics" class="win-tab-panel j-page">
+        <div id="tab-diagnostics" class="jw-tab-panel j-page">
           <header class="j-page-header">
             <div>
               <p class="j-dash-eyebrow">Review</p>
@@ -773,24 +773,24 @@
             </div>
           </header>
           <!-- CLOB Connectivity Test -->
-          <div class="win-group">
-            <div class="win-group-title">CLOB API Connectivity</div>
-            <button class="win-btn win-btn-primary" onclick="testClobConnectivity()">Run Connectivity Test</button>
+          <div class="jw-group">
+            <div class="jw-group-title">CLOB API Connectivity</div>
+            <button class="jw-btn jw-btn-primary" onclick="testClobConnectivity()">Run Connectivity Test</button>
             <div id="clobTestResults" class="hidden" style="margin-top:8px;"></div>
           </div>
 
           <!-- Failed Trades Analysis -->
-          <div class="win-group">
-            <div class="win-group-title">Failed Trades Analysis</div>
+          <div class="jw-group">
+            <div class="jw-group-title">Failed Trades Analysis</div>
             <div id="failedTradesAnalysis">
               <div class="text-center text-muted" style="padding:12px;">Click refresh to load failed trades analysis</div>
             </div>
-            <button class="win-btn" onclick="loadFailedTrades()" style="margin-top:8px;">Refresh Analysis</button>
+            <button class="jw-btn" onclick="loadFailedTrades()" style="margin-top:8px;">Refresh Analysis</button>
           </div>
 
           <!-- System Issues Log -->
-          <div class="win-group">
-            <div class="win-group-title">System Issues Log</div>
+          <div class="jw-group">
+            <div class="jw-group-title">System Issues Log</div>
             <div id="systemIssuesLog">
               <div class="text-center text-muted" style="padding:12px;">No issues recorded</div>
             </div>
@@ -800,18 +800,18 @@
         <!-- ============================================================
              PLATFORMS TAB
              ============================================================ -->
-        <div id="tab-platforms" class="win-tab-panel">
+        <div id="tab-platforms" class="jw-tab-panel">
           <!-- Platform Status -->
-          <div class="win-group">
-            <div class="win-group-title">Platform Status</div>
+          <div class="jw-group">
+            <div class="jw-group-title">Platform Status</div>
             <div id="platformStatusGrid" class="platform-grid">
               <!-- Populated by JS -->
             </div>
           </div>
 
           <!-- Platform Balances -->
-          <div class="win-group">
-            <div class="win-group-title">Platform Balances</div>
+          <div class="jw-group">
+            <div class="jw-group-title">Platform Balances</div>
             <div class="metrics-row" id="platformBalances">
               <div class="metric-box">
                 <div class="metric-value" id="polymarketBalance">--</div>
@@ -829,35 +829,35 @@
           </div>
 
           <!-- Kalshi Configuration -->
-          <div class="win-group">
-            <div class="win-group-title">Kalshi API Configuration</div>
+          <div class="jw-group">
+            <div class="jw-group-title">Kalshi API Configuration</div>
             <div class="form-grid">
               <div class="form-group">
                 <label class="form-label">API Key ID</label>
-                <input type="text" class="win-input" id="kalshiApiKeyId" placeholder="Enter Kalshi API Key ID">
+                <input type="text" class="jw-input" id="kalshiApiKeyId" placeholder="Enter Kalshi API Key ID">
               </div>
               <div class="form-group">
                 <label class="form-label">Private Key (PEM)</label>
-                <textarea class="win-input" id="kalshiPrivateKeyPem" rows="3" placeholder="Paste RSA private key PEM"></textarea>
+                <textarea class="jw-input" id="kalshiPrivateKeyPem" rows="3" placeholder="Paste RSA private key PEM"></textarea>
               </div>
               <div class="form-group">
-                <button class="win-btn win-btn-primary" onclick="saveKalshiConfig()">Save Kalshi Config</button>
-                <button class="win-btn" onclick="testKalshiConnection()">Test Connection</button>
+                <button class="jw-btn jw-btn-primary" onclick="saveKalshiConfig()">Save Kalshi Config</button>
+                <button class="jw-btn" onclick="testKalshiConnection()">Test Connection</button>
               </div>
             </div>
             <div id="kalshiTestResult" class="hidden" style="margin-top:8px;"></div>
           </div>
 
           <!-- Cross-Platform Entity Mapping -->
-          <div class="win-group">
-            <div class="win-group-title">Entity Wallet Mapping</div>
+          <div class="jw-group">
+            <div class="jw-group-title">Entity Wallet Mapping</div>
             <p class="form-hint">Link Polymarket wallets and Kalshi accounts to the same entity for cross-platform hedge detection.</p>
             <div id="entityPlatformMap">
               <!-- Populated by JS -->
               <div class="text-center text-muted" style="padding:12px;">Loading entities...</div>
             </div>
             <div style="margin-top: 8px;">
-              <button class="win-btn" onclick="addPlatformWalletDialog()">+ Link Platform Wallet</button>
+              <button class="jw-btn" onclick="addPlatformWalletDialog()">+ Link Platform Wallet</button>
             </div>
           </div>
         </div>
@@ -865,14 +865,14 @@
         <!-- ============================================================
              CROSS-PLATFORM TAB
              ============================================================ -->
-        <div id="tab-cross-platform" class="win-tab-panel">
+        <div id="tab-cross-platform" class="jw-tab-panel">
           <!-- Executor Status -->
-          <div class="win-group">
-            <div class="win-group-title">Cross-Platform Executor</div>
+          <div class="jw-group">
+            <div class="jw-group-title">Cross-Platform Executor</div>
             <div class="metrics-row" id="executorMetrics">
               <div class="metric-box">
                 <div class="metric-value" id="execPaperMode">ON</div>
-                <div class="metric-label">Paper Mode <button class="win-btn" style="padding:0 4px;min-width:auto;font-size:11px;vertical-align:middle;" onclick="event.stopPropagation();openPaperModeModal()" title="What is Paper Mode?" aria-label="What is Paper Mode?" tabindex="0">?</button></div>
+                <div class="metric-label">Paper Mode <button class="jw-btn" style="padding:0 4px;min-width:auto;font-size:11px;vertical-align:middle;" onclick="event.stopPropagation();openPaperModeModal()" title="What is Paper Mode?" aria-label="What is Paper Mode?" tabindex="0">?</button></div>
               </div>
               <div class="metric-box success">
                 <div class="metric-value" id="execSuccessful">0</div>
@@ -888,17 +888,17 @@
               </div>
             </div>
             <div style="margin-top: 8px; display: flex; gap: 8px;">
-              <button class="win-btn win-btn-primary" onclick="toggleExecutorPaperMode()">Toggle Paper Mode</button>
-              <button class="win-btn" onclick="refreshExecutorStatus()">Refresh</button>
+              <button class="jw-btn jw-btn-primary" onclick="toggleExecutorPaperMode()">Toggle Paper Mode</button>
+              <button class="jw-btn" onclick="refreshExecutorStatus()">Refresh</button>
             </div>
           </div>
 
           <!-- Arbitrage Opportunities -->
-          <div class="win-group">
-            <div class="win-group-title">Arbitrage Opportunities</div>
-            <button class="win-btn" onclick="scanArbitrageOpportunities()" style="margin-bottom: 8px;">Scan Now</button>
+          <div class="jw-group">
+            <div class="jw-group-title">Arbitrage Opportunities</div>
+            <button class="jw-btn" onclick="scanArbitrageOpportunities()" style="margin-bottom: 8px;">Scan Now</button>
             <div style="overflow-x: auto;">
-              <table class="win-listview" id="arbTable">
+              <table class="jw-listview" id="arbTable">
                 <thead>
                   <tr>
                     <th>Event</th>
@@ -917,11 +917,11 @@
           </div>
 
           <!-- Cross-Platform Hedges -->
-          <div class="win-group">
-            <div class="win-group-title">Cross-Platform Hedge Detection</div>
-            <button class="win-btn" onclick="detectCrossPlatformHedges()" style="margin-bottom: 8px;">Detect Hedges</button>
+          <div class="jw-group">
+            <div class="jw-group-title">Cross-Platform Hedge Detection</div>
+            <button class="jw-btn" onclick="detectCrossPlatformHedges()" style="margin-bottom: 8px;">Detect Hedges</button>
             <div style="overflow-x: auto;">
-              <table class="win-listview" id="crossHedgeTable">
+              <table class="jw-listview" id="crossHedgeTable">
                 <thead>
                   <tr>
                     <th>Entity</th>
@@ -940,17 +940,17 @@
           </div>
 
           <!-- Hedge Recommendations -->
-          <div class="win-group">
-            <div class="win-group-title">Hedge Recommendations</div>
-            <button class="win-btn" onclick="generateHedgeRecommendations()" style="margin-bottom: 8px;">Generate Recommendations</button>
+          <div class="jw-group">
+            <div class="jw-group-title">Hedge Recommendations</div>
+            <button class="jw-btn" onclick="generateHedgeRecommendations()" style="margin-bottom: 8px;">Generate Recommendations</button>
             <div id="hedgeRecommendations">
               <div class="text-center text-muted" style="padding:12px;">Generate recommendations to see actionable trades</div>
             </div>
           </div>
 
           <!-- Cross-Platform P&L -->
-          <div class="win-group">
-            <div class="win-group-title">Cross-Platform P&L</div>
+          <div class="jw-group">
+            <div class="jw-group-title">Cross-Platform P&L</div>
             <div class="metrics-row" id="pnlMetrics">
               <div class="metric-box">
                 <div class="metric-value" id="pnlTotalInvested">--</div>
@@ -973,10 +973,10 @@
           </div>
 
           <!-- Execution History -->
-          <div class="win-group">
-            <div class="win-group-title">Execution History</div>
+          <div class="jw-group">
+            <div class="jw-group-title">Execution History</div>
             <div style="overflow-x: auto;">
-              <table class="win-listview" id="execHistoryTable">
+              <table class="jw-listview" id="execHistoryTable">
                 <thead>
                   <tr>
                     <th>Time</th>
@@ -995,16 +995,16 @@
           </div>
 
           <!-- Executor Configuration -->
-          <div class="win-group">
-            <div class="win-group-title">Executor Configuration</div>
+          <div class="jw-group">
+            <div class="jw-group-title">Executor Configuration</div>
             <div class="form-grid">
               <div class="form-group">
                 <label class="form-label">Max Trade Size (USD)</label>
-                <input type="number" class="win-input" id="execMaxTradeSize" value="50">
+                <input type="number" class="jw-input" id="execMaxTradeSize" value="50">
               </div>
               <div class="form-group">
                 <label class="form-label">Min Spread (%)</label>
-                <input type="number" class="win-input" id="execMinSpread" value="2" step="0.5">
+                <input type="number" class="jw-input" id="execMinSpread" value="2" step="0.5">
               </div>
               <div class="form-group">
                 <label class="form-label">
@@ -1012,7 +1012,7 @@
                 </label>
               </div>
               <div class="form-group">
-                <button class="win-btn win-btn-primary" onclick="saveExecutorConfig()">Save Config</button>
+                <button class="jw-btn jw-btn-primary" onclick="saveExecutorConfig()">Save Config</button>
               </div>
             </div>
           </div>
@@ -1020,12 +1020,12 @@
       </div>
 
       <!-- Status Bar -->
-      <div class="win-statusbar">
-        <div class="win-statusbar-section" id="statusBarMain">Ready</div>
-        <div class="win-statusbar-section fixed" id="statusBarPoly" title="Polymarket">POLY: --</div>
-        <div class="win-statusbar-section fixed" id="statusBarKalshi" title="Kalshi">KALSHI: --</div>
-        <div class="win-statusbar-section fixed" id="statusBarMode">Polling</div>
-        <div class="win-statusbar-section fixed" id="statusBarBot">Stopped</div>
+      <div class="jw-statusbar">
+        <div class="jw-statusbar-section" id="statusBarMain">Ready</div>
+        <div class="jw-statusbar-section fixed" id="statusBarPoly" title="Polymarket">POLY: --</div>
+        <div class="jw-statusbar-section fixed" id="statusBarKalshi" title="Kalshi">KALSHI: --</div>
+        <div class="jw-statusbar-section fixed" id="statusBarMode">Polling</div>
+        <div class="jw-statusbar-section fixed" id="statusBarBot">Stopped</div>
       </div>
     </div>
   </div>
@@ -1033,16 +1033,16 @@
   <!-- ============================================================
        MIRROR POSITIONS MODAL
        ============================================================ -->
-  <div id="mirrorModal" class="win-modal-overlay hidden">
-    <div class="win-modal" style="max-width:800px;">
-      <div class="win-titlebar">
-        <div class="win-titlebar-icon">&#128196;</div>
-        <div class="win-titlebar-text" id="mirrorModalTitle">Mirror Positions Preview</div>
-        <div class="win-titlebar-buttons">
-          <button class="win-titlebar-btn" onclick="closeMirrorModal()">X</button>
+  <div id="mirrorModal" class="jw-modal-overlay hidden">
+    <div class="jw-modal" style="max-width:800px;">
+      <div class="jw-titlebar">
+        <div class="jw-titlebar-icon">&#128196;</div>
+        <div class="jw-titlebar-text" id="mirrorModalTitle">Mirror Positions Preview</div>
+        <div class="jw-titlebar-buttons">
+          <button class="jw-titlebar-btn" onclick="closeMirrorModal()">X</button>
         </div>
       </div>
-      <div class="win-modal-body" id="mirrorModalBody">
+      <div class="jw-modal-body" id="mirrorModalBody">
         <div class="mirror-summary-bar">
           <div class="mirror-summary-item">
             <div class="label">Your Portfolio:</div>
@@ -1058,7 +1058,7 @@
           </div>
         </div>
 
-        <div id="mirrorBalanceWarning" class="win-warning hidden">
+        <div id="mirrorBalanceWarning" class="jw-warning hidden">
           <span>&#9888;</span>
           <div>
             <strong>Insufficient Balance Warning</strong>
@@ -1067,7 +1067,7 @@
         </div>
 
         <div class="mirror-trades-wrap">
-          <table class="win-listview" id="mirrorTradesTable">
+          <table class="jw-listview" id="mirrorTradesTable">
             <thead>
               <tr>
                 <th style="width:30px;"></th>
@@ -1090,9 +1090,9 @@
           <span id="mirrorSummaryText">No trades selected</span>
         </div>
       </div>
-      <div class="win-modal-footer">
-        <button class="win-btn" onclick="closeMirrorModal()">Cancel</button>
-        <button class="win-btn win-btn-primary" id="mirrorExecuteBtn" onclick="executeMirrorTrades()" disabled>Execute Selected</button>
+      <div class="jw-modal-footer">
+        <button class="jw-btn" onclick="closeMirrorModal()">Cancel</button>
+        <button class="jw-btn jw-btn-primary" id="mirrorExecuteBtn" onclick="executeMirrorTrades()" disabled>Execute Selected</button>
       </div>
     </div>
   </div>
@@ -1103,19 +1103,19 @@
   <div id="walletModal" class="j-drawer-backdrop hidden">
     <aside class="j-drawer wallet-config-drawer" role="dialog" aria-modal="true">
       <header class="j-drawer-header">
-        <div class="win-titlebar-icon">&#9881;</div>
-        <div class="win-titlebar-text" id="walletModalTitle">Configure Wallet</div>
+        <div class="jw-titlebar-icon">&#9881;</div>
+        <div class="jw-titlebar-text" id="walletModalTitle">Configure Wallet</div>
         <button type="button" class="j-btn j-btn-ghost" onclick="closeWalletModal()" aria-label="Close">×</button>
       </header>
-      <div class="win-modal-body" id="walletModalBody">
+      <div class="jw-modal-body" id="walletModalBody">
         <!-- Wallet Info -->
         <div class="flex-row gap-8 mb-8">
           <span class="text-mono" id="modalWalletAddress">0x...</span>
-          <span class="win-badge" id="modalWalletStatus">Inactive</span>
+          <span class="jw-badge" id="modalWalletStatus">Inactive</span>
         </div>
         <div class="form-row mb-12">
           <label>Label:</label>
-          <input type="text" id="modalWalletLabel" class="win-input" placeholder="e.g., WhaleTrader">
+          <input type="text" id="modalWalletLabel" class="jw-input" placeholder="e.g., WhaleTrader">
         </div>
 
         <div class="form-row mb-12">
@@ -1129,62 +1129,62 @@
               <button type="button" class="tag-filter-btn" onclick="toggleModalTag('markets')" data-tag="markets" aria-label="Toggle markets tag" tabindex="0">markets</button>
             </div>
             <div class="flex-row gap-4">
-              <input type="text" id="modalCustomTag" class="win-input" placeholder="Custom tag..." style="width:140px;" aria-label="Custom tag name">
-              <button type="button" class="win-btn win-btn-sm" onclick="addCustomModalTag()" aria-label="Add custom tag" tabindex="0">Add</button>
+              <input type="text" id="modalCustomTag" class="jw-input" placeholder="Custom tag..." style="width:140px;" aria-label="Custom tag name">
+              <button type="button" class="jw-btn jw-btn-sm" onclick="addCustomModalTag()" aria-label="Add custom tag" tabindex="0">Add</button>
             </div>
             <input type="hidden" id="modalWalletTags" value="">
           </div>
         </div>
 
         <!-- Trade Size -->
-        <div class="win-group">
-          <div class="win-group-title">Trade Size [Required]</div>
+        <div class="jw-group">
+          <div class="jw-group-title">Trade Size [Required]</div>
           <div class="text-sm text-muted mb-8">How much USDC to use when copying trades from this wallet</div>
           <div class="flex-row gap-8">
             <span>$</span>
-            <input type="number" id="modalTradeSize" class="win-input" value="2" min="0.01" step="0.01" style="width:120px;">
+            <input type="number" id="modalTradeSize" class="jw-input" value="2" min="0.01" step="0.01" style="width:120px;">
             <span>USDC</span>
           </div>
         </div>
 
         <!-- Trade Sizing Mode -->
-        <div class="win-group">
-          <div class="win-group-title">Trade Sizing Mode</div>
-          <label class="win-radio">
+        <div class="jw-group">
+          <div class="jw-group-title">Trade Sizing Mode</div>
+          <label class="jw-radio">
             <input type="radio" name="modalTradeSizingMode" value="fixed" checked>
             <span>Fixed size (use the trade size above for every trade)</span>
           </label>
-          <label class="win-radio">
+          <label class="jw-radio">
             <input type="radio" name="modalTradeSizingMode" value="proportional">
             <span>Proportional (match their portfolio %)</span>
           </label>
           <div style="margin-top:8px;">
-            <label class="win-checkbox">
+            <label class="jw-checkbox">
               <input type="checkbox" id="modalThresholdEnabled">
               <span>Enable threshold filter (only copy trades &gt; X% of their portfolio)</span>
             </label>
             <div id="modalThresholdInputs" class="hidden" style="margin-left:24px;margin-top:4px;">
               <div class="form-row">
                 <label>Threshold %:</label>
-                <input type="number" id="modalThresholdPercent" class="win-input" value="10" min="0.1" max="100" step="0.1" style="width:80px;">
+                <input type="number" id="modalThresholdPercent" class="jw-input" value="10" min="0.1" max="100" step="0.1" style="width:80px;">
               </div>
             </div>
           </div>
         </div>
 
         <!-- Trade Side Filter -->
-        <div class="win-group">
-          <div class="win-group-title">Trade Side Filter</div>
+        <div class="jw-group">
+          <div class="jw-group-title">Trade Side Filter</div>
           <div class="flex-row gap-16 flex-wrap">
-            <label class="win-radio">
+            <label class="jw-radio">
               <input type="radio" name="modalTradeSideFilter" value="all" checked>
               <span>All trades</span>
             </label>
-            <label class="win-radio">
+            <label class="jw-radio">
               <input type="radio" name="modalTradeSideFilter" value="buy_only">
               <span>BUY only</span>
             </label>
-            <label class="win-radio">
+            <label class="jw-radio">
               <input type="radio" name="modalTradeSideFilter" value="sell_only">
               <span>SELL only</span>
             </label>
@@ -1192,20 +1192,20 @@
         </div>
 
         <!-- Advanced Filters -->
-        <div class="win-group">
-          <div class="win-group-title">Advanced Filters</div>
+        <div class="jw-group">
+          <div class="jw-group-title">Advanced Filters</div>
 
           <!-- No Repeat -->
           <div class="filter-block">
             <div class="filter-header">
               <span>No Repeat Trades</span>
-              <label class="win-toggle"><input type="checkbox" id="modalNoRepeatEnabled"></label>
+              <label class="jw-toggle"><input type="checkbox" id="modalNoRepeatEnabled"></label>
             </div>
             <div class="filter-hint">Block repeat trades in the same market+side</div>
             <div id="modalNoRepeatInputs" class="hidden">
               <div class="form-row">
                 <label>Block period:</label>
-                <select id="modalNoRepeatPeriod" class="win-select">
+                <select id="modalNoRepeatPeriod" class="jw-select">
                   <option value="0">Forever (until cleared)</option>
                   <option value="1">1 hour</option>
                   <option value="6">6 hours</option>
@@ -1222,14 +1222,14 @@
           <div class="filter-block">
             <div class="filter-header">
               <span>Price Limits</span>
-              <span class="win-badge" id="modalPriceBadge">DEFAULT</span>
+              <span class="jw-badge" id="modalPriceBadge">DEFAULT</span>
             </div>
             <div class="filter-hint">Only copy trades within this price range</div>
             <div class="flex-row gap-8">
               <label>Min:</label>
-              <input type="number" id="modalPriceLimitsMin" class="win-input" value="0.01" min="0.01" max="0.98" step="0.01" style="width:80px;">
+              <input type="number" id="modalPriceLimitsMin" class="jw-input" value="0.01" min="0.01" max="0.98" step="0.01" style="width:80px;">
               <label>Max:</label>
-              <input type="number" id="modalPriceLimitsMax" class="win-input" value="0.99" min="0.02" max="0.99" step="0.01" style="width:80px;">
+              <input type="number" id="modalPriceLimitsMax" class="jw-input" value="0.99" min="0.02" max="0.99" step="0.01" style="width:80px;">
             </div>
           </div>
 
@@ -1237,15 +1237,15 @@
           <div class="filter-block">
             <div class="filter-header">
               <span>Trade Value Filter</span>
-              <label class="win-toggle"><input type="checkbox" id="modalValueFilterEnabled"></label>
+              <label class="jw-toggle"><input type="checkbox" id="modalValueFilterEnabled"></label>
             </div>
             <div class="filter-hint">Filter by the detected trade value (their trade size)</div>
             <div id="modalValueFilterInputs" class="hidden">
               <div class="flex-row gap-8">
                 <label>Min ($):</label>
-                <input type="number" id="modalValueFilterMin" class="win-input" placeholder="No min" min="0" style="width:80px;">
+                <input type="number" id="modalValueFilterMin" class="jw-input" placeholder="No min" min="0" style="width:80px;">
                 <label>Max ($):</label>
-                <input type="number" id="modalValueFilterMax" class="win-input" placeholder="No max" min="0" style="width:80px;">
+                <input type="number" id="modalValueFilterMax" class="jw-input" placeholder="No max" min="0" style="width:80px;">
               </div>
             </div>
           </div>
@@ -1254,15 +1254,15 @@
           <div class="filter-block">
             <div class="filter-header">
               <span>Rate Limiting</span>
-              <label class="win-toggle"><input type="checkbox" id="modalRateLimitEnabled"></label>
+              <label class="jw-toggle"><input type="checkbox" id="modalRateLimitEnabled"></label>
             </div>
             <div class="filter-hint">Limit trades copied from this wallet</div>
             <div id="modalRateLimitInputs" class="hidden">
               <div class="flex-row gap-8">
                 <label>Max/hour:</label>
-                <input type="number" id="modalRateLimitPerHour" class="win-input" value="10" min="1" max="100" style="width:80px;">
+                <input type="number" id="modalRateLimitPerHour" class="jw-input" value="10" min="1" max="100" style="width:80px;">
                 <label>Max/day:</label>
-                <input type="number" id="modalRateLimitPerDay" class="win-input" value="50" min="1" max="500" style="width:80px;">
+                <input type="number" id="modalRateLimitPerDay" class="jw-input" value="50" min="1" max="500" style="width:80px;">
               </div>
             </div>
           </div>
@@ -1271,19 +1271,19 @@
           <div class="filter-block">
             <div class="filter-header">
               <span>Slippage</span>
-              <span class="win-badge" id="modalSlippageBadge">DEFAULT (2%)</span>
+              <span class="jw-badge" id="modalSlippageBadge">DEFAULT (2%)</span>
             </div>
             <div class="filter-hint">Adjust order price for immediate fills</div>
             <div class="form-row">
               <label>Slippage %:</label>
-              <input type="number" id="modalSlippagePercent" class="win-input" placeholder="2" min="0.5" max="10" step="0.5" style="width:80px;">
+              <input type="number" id="modalSlippagePercent" class="jw-input" placeholder="2" min="0.5" max="10" step="0.5" style="width:80px;">
             </div>
           </div>
         </div>
 
         <!-- Pipeline Preview -->
-        <div class="win-group">
-          <div class="win-group-title">Trade Filter Pipeline</div>
+        <div class="jw-group">
+          <div class="jw-group-title">Trade Filter Pipeline</div>
           <div class="text-sm text-muted mb-8">Trades from this wallet pass through these filters in order:</div>
           <div class="pipeline-preview" id="modalPipelinePreview">
             <div class="pipeline-step">
@@ -1368,20 +1368,20 @@
   </div>
 
   <!-- Builder Credentials Modal -->
-  <div id="builderCredsModal" class="win-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="builderCredsModalTitle">
-    <div class="win-modal" style="max-width:480px;">
-      <div class="win-titlebar">
-        <div class="win-titlebar-icon">&#128273;</div>
-        <div class="win-titlebar-text" id="builderCredsModalTitle">Add Builder API Credentials</div>
-        <div class="win-titlebar-buttons">
-          <button class="win-titlebar-btn" onclick="closeBuilderCredsModal()" aria-label="Close" tabindex="0">&#10005;</button>
+  <div id="builderCredsModal" class="jw-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="builderCredsModalTitle">
+    <div class="jw-modal" style="max-width:480px;">
+      <div class="jw-titlebar">
+        <div class="jw-titlebar-icon">&#128273;</div>
+        <div class="jw-titlebar-text" id="builderCredsModalTitle">Add Builder API Credentials</div>
+        <div class="jw-titlebar-buttons">
+          <button class="jw-titlebar-btn" onclick="closeBuilderCredsModal()" aria-label="Close" tabindex="0">&#10005;</button>
         </div>
       </div>
-      <div class="win-modal-body">
-        <div class="win-info mb-8">
+      <div class="jw-modal-body">
+        <div class="jw-info mb-8">
           <span>&#9432;</span>
           <span>These credentials are required to place orders on Polymarket. Get them from
-            <a href="https://polymarket.com/settings?tab=builder" target="_blank" rel="noopener noreferrer" style="color:var(--win-blue);font-weight:bold;">polymarket.com/settings &rarr; Builder tab</a>
+            <a href="https://polymarket.com/settings?tab=builder" target="_blank" rel="noopener noreferrer" style="color:var(--jw-blue);font-weight:bold;">polymarket.com/settings &rarr; Builder tab</a>
           </span>
         </div>
         <div class="text-sm mb-8">Wallet: <strong id="builderCredsWalletLabel"></strong></div>
@@ -1390,33 +1390,33 @@
         <div class="form-row">
           <label for="builderCredsApiKey">API Key:</label>
           <div style="flex:1;display:flex;gap:4px;max-width:260px;">
-            <input type="password" id="builderCredsApiKey" placeholder="Enter API key" class="win-input" style="flex:1;" aria-label="Builder API Key" autocomplete="off">
-            <button class="win-btn win-btn-sm" type="button" onclick="toggleCredFieldVisibility('builderCredsApiKey', this)" aria-label="Show/hide API key" tabindex="0" style="min-width:40px;">Show</button>
+            <input type="password" id="builderCredsApiKey" placeholder="Enter API key" class="jw-input" style="flex:1;" aria-label="Builder API Key" autocomplete="off">
+            <button class="jw-btn jw-btn-sm" type="button" onclick="toggleCredFieldVisibility('builderCredsApiKey', this)" aria-label="Show/hide API key" tabindex="0" style="min-width:40px;">Show</button>
           </div>
         </div>
         <div class="form-row">
           <label for="builderCredsApiSecret">API Secret:</label>
           <div style="flex:1;display:flex;gap:4px;max-width:260px;">
-            <input type="password" id="builderCredsApiSecret" placeholder="Enter API secret" class="win-input" style="flex:1;" aria-label="Builder API Secret" autocomplete="off">
-            <button class="win-btn win-btn-sm" type="button" onclick="toggleCredFieldVisibility('builderCredsApiSecret', this)" aria-label="Show/hide API secret" tabindex="0" style="min-width:40px;">Show</button>
+            <input type="password" id="builderCredsApiSecret" placeholder="Enter API secret" class="jw-input" style="flex:1;" aria-label="Builder API Secret" autocomplete="off">
+            <button class="jw-btn jw-btn-sm" type="button" onclick="toggleCredFieldVisibility('builderCredsApiSecret', this)" aria-label="Show/hide API secret" tabindex="0" style="min-width:40px;">Show</button>
           </div>
         </div>
         <div class="form-row">
           <label for="builderCredsPassphrase">Passphrase:</label>
           <div style="flex:1;display:flex;gap:4px;max-width:260px;">
-            <input type="password" id="builderCredsPassphrase" placeholder="Enter passphrase" class="win-input" style="flex:1;" aria-label="Builder API Passphrase" autocomplete="off">
-            <button class="win-btn win-btn-sm" type="button" onclick="toggleCredFieldVisibility('builderCredsPassphrase', this)" aria-label="Show/hide passphrase" tabindex="0" style="min-width:40px;">Show</button>
+            <input type="password" id="builderCredsPassphrase" placeholder="Enter passphrase" class="jw-input" style="flex:1;" aria-label="Builder API Passphrase" autocomplete="off">
+            <button class="jw-btn jw-btn-sm" type="button" onclick="toggleCredFieldVisibility('builderCredsPassphrase', this)" aria-label="Show/hide passphrase" tabindex="0" style="min-width:40px;">Show</button>
           </div>
         </div>
 
-        <div id="builderCredsError" class="win-error hidden" style="margin-top:8px;">
+        <div id="builderCredsError" class="jw-error hidden" style="margin-top:8px;">
           <span>&#9888;</span>
           <span id="builderCredsErrorText"></span>
         </div>
       </div>
-      <div class="win-modal-footer">
-        <button class="win-btn" onclick="closeBuilderCredsModal()" tabindex="0">Cancel</button>
-        <button class="win-btn win-btn-primary" onclick="submitBuilderCredentials()" tabindex="0">Save Credentials</button>
+      <div class="jw-modal-footer">
+        <button class="jw-btn" onclick="closeBuilderCredsModal()" tabindex="0">Cancel</button>
+        <button class="jw-btn jw-btn-primary" onclick="submitBuilderCredentials()" tabindex="0">Save Credentials</button>
       </div>
     </div>
   </div>
@@ -1424,21 +1424,21 @@
   <!-- ============================================================
        TRADE DETAIL MODAL
        ============================================================ -->
-  <div id="tradeDetailModal" class="win-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="tradeDetailModalTitle">
-    <div class="win-modal" style="max-width:520px;">
-      <div class="win-titlebar">
-        <div class="win-titlebar-icon">&#128196;</div>
-        <div class="win-titlebar-text" id="tradeDetailModalTitle">Trade Details</div>
-        <div class="win-titlebar-buttons">
-          <button class="win-titlebar-btn" onclick="closeTradeDetailModal()" aria-label="Close" tabindex="0">X</button>
+  <div id="tradeDetailModal" class="jw-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="tradeDetailModalTitle">
+    <div class="jw-modal" style="max-width:520px;">
+      <div class="jw-titlebar">
+        <div class="jw-titlebar-icon">&#128196;</div>
+        <div class="jw-titlebar-text" id="tradeDetailModalTitle">Trade Details</div>
+        <div class="jw-titlebar-buttons">
+          <button class="jw-titlebar-btn" onclick="closeTradeDetailModal()" aria-label="Close" tabindex="0">X</button>
         </div>
       </div>
-      <div class="win-modal-body" id="tradeDetailModalBody">
+      <div class="jw-modal-body" id="tradeDetailModalBody">
         <div class="trade-detail-grid" id="tradeDetailContent">
         </div>
       </div>
-      <div class="win-modal-footer">
-        <button class="win-btn" onclick="closeTradeDetailModal()" tabindex="0">Close</button>
+      <div class="jw-modal-footer">
+        <button class="jw-btn" onclick="closeTradeDetailModal()" tabindex="0">Close</button>
       </div>
     </div>
   </div>
@@ -1446,16 +1446,16 @@
   <!-- ============================================================
        PAPER MODE INFO MODAL
        ============================================================ -->
-  <div id="paperModeModal" class="win-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="paperModeModalTitle">
-    <div class="win-modal" style="max-width:420px;">
-      <div class="win-titlebar">
-        <div class="win-titlebar-icon">&#9432;</div>
-        <div class="win-titlebar-text" id="paperModeModalTitle">What is Paper Mode?</div>
-        <div class="win-titlebar-buttons">
-          <button class="win-titlebar-btn" onclick="closePaperModeModal()" aria-label="Close" tabindex="0">X</button>
+  <div id="paperModeModal" class="jw-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="paperModeModalTitle">
+    <div class="jw-modal" style="max-width:420px;">
+      <div class="jw-titlebar">
+        <div class="jw-titlebar-icon">&#9432;</div>
+        <div class="jw-titlebar-text" id="paperModeModalTitle">What is Paper Mode?</div>
+        <div class="jw-titlebar-buttons">
+          <button class="jw-titlebar-btn" onclick="closePaperModeModal()" aria-label="Close" tabindex="0">X</button>
         </div>
       </div>
-      <div class="win-modal-body" style="padding:16px;">
+      <div class="jw-modal-body" style="padding:16px;">
         <div style="display:flex;gap:12px;align-items:flex-start;">
           <span style="font-size:32px;">&#128203;</span>
           <div>
@@ -1464,7 +1464,7 @@
               When Paper Mode is <strong>ON</strong>, the bot simulates trades without spending real money.
               It logs what it <em>would</em> do &mdash; which orders it would place, at what price, and on which platform &mdash; but no actual orders are sent to the exchange.
             </div>
-            <div style="margin:12px 0;border:1px solid var(--win-dark);background:var(--win-surface);padding:8px;">
+            <div style="margin:12px 0;border:1px solid var(--jw-dark);background:var(--jw-surface);padding:8px;">
               <div class="text-sm"><strong>Use Paper Mode to:</strong></div>
               <ul style="margin:4px 0 0 16px;padding:0;font-size:13px;line-height:1.6;">
                 <li>Test new strategies safely</li>
@@ -1480,8 +1480,8 @@
           </div>
         </div>
       </div>
-      <div class="win-modal-footer">
-        <button class="win-btn win-btn-primary" onclick="closePaperModeModal()" tabindex="0">OK</button>
+      <div class="jw-modal-footer">
+        <button class="jw-btn jw-btn-primary" onclick="closePaperModeModal()" tabindex="0">OK</button>
       </div>
     </div>
   </div>
@@ -1489,31 +1489,31 @@
   <!-- ============================================================
        ABOUT MODAL
        ============================================================ -->
-  <div id="aboutModal" class="win-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="aboutModalTitle">
-    <div class="win-modal" style="max-width:380px;">
-      <div class="win-titlebar">
-        <div class="win-titlebar-icon">&#128200;</div>
-        <div class="win-titlebar-text" id="aboutModalTitle">About Ditto</div>
-        <div class="win-titlebar-buttons">
-          <button class="win-titlebar-btn" onclick="closeAboutModal()" aria-label="Close" tabindex="0">X</button>
+  <div id="aboutModal" class="jw-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="aboutModalTitle">
+    <div class="jw-modal" style="max-width:380px;">
+      <div class="jw-titlebar">
+        <div class="jw-titlebar-icon">&#128200;</div>
+        <div class="jw-titlebar-text" id="aboutModalTitle">About Ditto</div>
+        <div class="jw-titlebar-buttons">
+          <button class="jw-titlebar-btn" onclick="closeAboutModal()" aria-label="Close" tabindex="0">X</button>
         </div>
       </div>
-      <div class="win-modal-body" style="padding:20px;text-align:center;">
+      <div class="jw-modal-body" style="padding:20px;text-align:center;">
         <div style="font-size:36px;margin-bottom:4px;">&#128200;</div>
         <div style="font-size:22px;font-weight:bold;">Ditto</div>
         <div class="text-sm text-muted" style="margin-bottom:12px;">Pure silicon competition for prediction markets</div>
-        <div style="border:2px inset var(--win-surface);background:var(--win-field-bg);padding:12px;text-align:left;font-size:13px;line-height:1.5;">
+        <div style="border:2px inset var(--jw-surface);background:var(--jw-field-bg);padding:12px;text-align:left;font-size:13px;line-height:1.5;">
           <div>Polymarket Copy Trading Bot</div>
           <div class="text-muted">Monitors tracked wallets and automatically copies their trades to your wallets with configurable filters and risk controls.</div>
-          <hr style="margin:8px 0;border-color:var(--win-dark);">
+          <hr style="margin:8px 0;border-color:var(--jw-dark);">
           <div>Features: Multi-wallet, Ladder Exits, Cross-Platform Arb, Stop-Loss, Auto-Redemption</div>
         </div>
         <div style="margin-top:12px;">
-          <a href="https://github.com/0xAidan/polymarket-bot-test" target="_blank" rel="noopener noreferrer" id="aboutGithubLink" class="win-btn" style="text-decoration:none;display:inline-block;">View on GitHub</a>
+          <a href="https://github.com/0xAidan/polymarket-bot-test" target="_blank" rel="noopener noreferrer" id="aboutGithubLink" class="jw-btn" style="text-decoration:none;display:inline-block;">View on GitHub</a>
         </div>
       </div>
-      <div class="win-modal-footer">
-        <button class="win-btn win-btn-primary" onclick="closeAboutModal()" tabindex="0">OK</button>
+      <div class="jw-modal-footer">
+        <button class="jw-btn jw-btn-primary" onclick="closeAboutModal()" tabindex="0">OK</button>
       </div>
     </div>
   </div>
@@ -1521,23 +1521,23 @@
   <!-- ============================================================
        TRADING WALLET SETTINGS MODAL
        ============================================================ -->
-  <div id="tradingWalletSettingsModal" class="win-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="twSettingsModalTitle">
-    <div class="win-modal" style="max-width:480px;">
-      <div class="win-titlebar">
-        <div class="win-titlebar-icon">&#9881;</div>
-        <div class="win-titlebar-text" id="twSettingsModalTitle">Wallet Settings</div>
-        <div class="win-titlebar-buttons">
-          <button class="win-titlebar-btn" onclick="closeTradingWalletSettingsModal()" aria-label="Close" tabindex="0">X</button>
+  <div id="tradingWalletSettingsModal" class="jw-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="twSettingsModalTitle">
+    <div class="jw-modal" style="max-width:480px;">
+      <div class="jw-titlebar">
+        <div class="jw-titlebar-icon">&#9881;</div>
+        <div class="jw-titlebar-text" id="twSettingsModalTitle">Wallet Settings</div>
+        <div class="jw-titlebar-buttons">
+          <button class="jw-titlebar-btn" onclick="closeTradingWalletSettingsModal()" aria-label="Close" tabindex="0">X</button>
         </div>
       </div>
-      <div class="win-modal-body" style="padding:12px;">
+      <div class="jw-modal-body" style="padding:12px;">
         <input type="hidden" id="twSettingsWalletId">
         <!-- Auto-Redemption -->
-        <div class="win-group">
-          <div class="win-group-title">Auto-Redemption</div>
+        <div class="jw-group">
+          <div class="jw-group-title">Auto-Redemption</div>
           <div class="text-sm text-muted mb-8">Automatically redeem winning positions when markets resolve. Your USDC is returned without manual action.</div>
           <div class="flex-row gap-8 mb-8">
-            <label class="win-checkbox">
+            <label class="jw-checkbox">
               <input type="checkbox" id="twAutoRedeemEnabled" onchange="handleAutoRedeemToggle()">
               <span>Enable Auto-Redemption</span>
             </label>
@@ -1545,18 +1545,18 @@
           <div id="twAutoRedeemInputs" class="hidden">
             <div class="form-row">
               <label>Min value ($):</label>
-              <input type="number" id="twMinRedeemValue" value="0.10" min="0.01" step="0.01" class="win-input" style="width:80px;">
+              <input type="number" id="twMinRedeemValue" value="0.10" min="0.01" step="0.01" class="jw-input" style="width:80px;">
             </div>
             <div class="form-hint">Skip redeeming positions worth less than this amount</div>
           </div>
         </div>
 
         <!-- Auto-Merge -->
-        <div class="win-group">
-          <div class="win-group-title">Auto-Merge</div>
+        <div class="jw-group">
+          <div class="jw-group-title">Auto-Merge</div>
           <div class="text-sm text-muted mb-8">Automatically merge complementary position fragments to recover USDC</div>
           <div class="flex-row gap-8">
-            <label class="win-checkbox">
+            <label class="jw-checkbox">
               <input type="checkbox" id="twAutoMergeEnabled">
               <span>Enable Auto-Merge</span>
             </label>
@@ -1564,20 +1564,20 @@
         </div>
 
         <!-- Redeemable Positions -->
-        <div class="win-group">
-          <div class="win-group-title">Redeemable Now</div>
+        <div class="jw-group">
+          <div class="jw-group-title">Redeemable Now</div>
           <div id="twRedeemableList">
             <div class="text-center text-muted" style="padding:8px;">Click "Check Now" to scan</div>
           </div>
           <div class="flex-row gap-8 mt-8">
-            <button class="win-btn win-btn-sm" onclick="checkRedeemablePositions()">Check Now</button>
-            <button class="win-btn win-btn-sm win-btn-primary" onclick="redeemAllPositions()">Redeem All</button>
+            <button class="jw-btn jw-btn-sm" onclick="checkRedeemablePositions()">Check Now</button>
+            <button class="jw-btn jw-btn-sm jw-btn-primary" onclick="redeemAllPositions()">Redeem All</button>
           </div>
         </div>
       </div>
-      <div class="win-modal-footer">
-        <button class="win-btn" onclick="closeTradingWalletSettingsModal()" tabindex="0">Cancel</button>
-        <button class="win-btn win-btn-primary" onclick="saveTradingWalletSettings()" tabindex="0">Save Settings</button>
+      <div class="jw-modal-footer">
+        <button class="jw-btn" onclick="closeTradingWalletSettingsModal()" tabindex="0">Cancel</button>
+        <button class="jw-btn jw-btn-primary" onclick="saveTradingWalletSettings()" tabindex="0">Save Settings</button>
       </div>
     </div>
   </div>
@@ -1588,20 +1588,20 @@
   <!-- ============================================================
        API AUTH LOGIN MODAL
        ============================================================ -->
-  <div id="authModal" class="win-modal-overlay hidden">
-    <div class="win-modal auth-modal-card" style="max-width:460px;">
-      <div class="win-titlebar">
-        <div class="win-titlebar-icon app-mark">&#128274;</div>
-        <div class="win-titlebar-text">Enter Ditto</div>
+  <div id="authModal" class="jw-modal-overlay hidden">
+    <div class="jw-modal auth-modal-card" style="max-width:460px;">
+      <div class="jw-titlebar">
+        <div class="jw-titlebar-icon app-mark">&#128274;</div>
+        <div class="jw-titlebar-text">Enter Ditto</div>
       </div>
-      <div class="win-modal-body auth-modal-body" style="text-align:left;padding:24px 24px 20px;">
+      <div class="jw-modal-body auth-modal-body" style="text-align:left;padding:24px 24px 20px;">
         <div class="app-section-kicker">Technical Fallback</div>
         <div class="auth-modal-title"><strong>Use local fallback access</strong></div>
         <div class="text-sm text-muted mb-12">Hosted Ditto uses secure sign-in. This API-secret screen is only for local or internal environments that still use legacy access.</div>
         <div style="max-width:300px;margin:0 auto;">
-          <input type="password" id="authTokenInput" placeholder="Enter fallback API secret..." class="win-input" style="width:100%;margin-bottom:8px;" autocomplete="off" aria-label="Fallback API secret token">
+          <input type="password" id="authTokenInput" placeholder="Enter fallback API secret..." class="jw-input" style="width:100%;margin-bottom:8px;" autocomplete="off" aria-label="Fallback API secret token">
           <div id="authError" class="hidden" style="color:var(--danger);font-size:13px;margin-bottom:8px;">Invalid token. Please try again.</div>
-          <button class="win-btn win-btn-primary" onclick="submitAuthToken()" style="width:100%;">Continue with fallback</button>
+          <button class="jw-btn jw-btn-primary" onclick="submitAuthToken()" style="width:100%;">Continue with fallback</button>
         </div>
       </div>
     </div>
@@ -1612,7 +1612,7 @@
     <div class="wallet-detail-modal">
       <div class="wallet-detail-titlebar">
         <span id="walletDetailTitle">Wallet Detail</span>
-        <button class="win-btn win-btn-sm" onclick="closeWalletDetail()" aria-label="Close">X</button>
+        <button class="jw-btn jw-btn-sm" onclick="closeWalletDetail()" aria-label="Close">X</button>
       </div>
       <div class="wallet-detail-body" id="walletDetailBody">
         <!-- Populated by JS -->
@@ -1634,8 +1634,8 @@
         <p class="setup-wizard-step-body" id="setupWizardBody">One moment while Ditto checks which parts of your workspace are already configured.</p>
         <div id="setupWizardFacts" class="setup-wizard-facts"></div>
         <div class="setup-wizard-actions">
-          <button class="win-btn" type="button" onclick="dismissSetupWizard()">Maybe later</button>
-          <button class="win-btn win-btn-primary" id="setupWizardPrimaryBtn" type="button" onclick="handleSetupWizardPrimaryAction()">Open setup</button>
+          <button class="jw-btn" type="button" onclick="dismissSetupWizard()">Maybe later</button>
+          <button class="jw-btn jw-btn-primary" id="setupWizardPrimaryBtn" type="button" onclick="handleSetupWizardPrimaryAction()">Open setup</button>
         </div>
       </div>
     </div>
