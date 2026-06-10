@@ -106,7 +106,10 @@
                 <span class="j-dash-live-dot pulse-dot" aria-hidden="true" title="Live balance"></span>
               </div>
               <div class="j-dash-wallet-row">
-                <code class="j-dash-wallet-addr" id="walletAddress">Not configured</code>
+                <span class="j-dash-wallet-addr-wrap">
+                  <code class="j-dash-wallet-addr" id="walletAddress">Not configured</code>
+                  <button type="button" class="j-addr-copy hidden" id="walletAddressCopy" onclick="copyWalletAddress()" aria-label="Copy wallet address" title="Copy full address">⧉</button>
+                </span>
                 <div class="j-dash-wallet-balance">
                   <span class="j-dash-balance" id="walletBalance">$0.00</span>
                   <span class="j-dash-balance-delta positive" id="balanceChange">+$0.00 (24h)</span>
@@ -189,7 +192,9 @@
                       </tr>
                     </thead>
                     <tbody id="tradesTableBody">
-                      <tr class="empty-row"><td colspan="6">No trades yet — add a tracked wallet and start the bot to see activity here.</td></tr>
+                      <tr class="j-skeleton-row"><td><span class="j-skeleton j-skeleton-line"></span></td><td><span class="j-skeleton j-skeleton-line"></span></td><td><span class="j-skeleton j-skeleton-line"></span></td><td><span class="j-skeleton j-skeleton-line short"></span></td><td><span class="j-skeleton j-skeleton-line short"></span></td><td><span class="j-skeleton j-skeleton-line short"></span></td></tr>
+                      <tr class="j-skeleton-row"><td><span class="j-skeleton j-skeleton-line"></span></td><td><span class="j-skeleton j-skeleton-line"></span></td><td><span class="j-skeleton j-skeleton-line"></span></td><td><span class="j-skeleton j-skeleton-line short"></span></td><td><span class="j-skeleton j-skeleton-line short"></span></td><td><span class="j-skeleton j-skeleton-line short"></span></td></tr>
+                      <tr class="j-skeleton-row"><td><span class="j-skeleton j-skeleton-line"></span></td><td><span class="j-skeleton j-skeleton-line"></span></td><td><span class="j-skeleton j-skeleton-line"></span></td><td><span class="j-skeleton j-skeleton-line short"></span></td><td><span class="j-skeleton j-skeleton-line short"></span></td><td><span class="j-skeleton j-skeleton-line short"></span></td></tr>
                     </tbody>
                   </table>
                 </div>

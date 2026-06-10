@@ -2413,6 +2413,8 @@ body.app-ready .auth-gate-screen {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .app-status-pill.running {
@@ -3015,8 +3017,15 @@ body.app-ready .auth-gate-screen {
   gap: 6px;
 }
 
+.j-btn {
+  transition: border-color var(--j-motion-fast), color var(--j-motion-fast), background var(--j-motion-fast), box-shadow var(--j-motion-fast);
+}
+
 .j-btn:hover { border-color: var(--jungle-gold); color: var(--jungle-gold); }
+.j-btn:active { transform: translateY(1px); }
+.j-btn:focus-visible { outline: 2px solid rgba(229, 184, 11, 0.45); outline-offset: 1px; }
 .j-btn-primary { background: rgba(229, 184, 11, 0.15); color: var(--jungle-gold); border-color: var(--jungle-border-strong); }
+.j-btn-primary:hover { background: rgba(229, 184, 11, 0.24); box-shadow: 0 0 14px rgba(229, 184, 11, 0.12); }
 .j-btn-ghost { background: transparent; border-color: transparent; }
 .j-btn-sm { padding: 6px 10px; font-size: 12px; }
 
@@ -3027,6 +3036,13 @@ body.app-ready .auth-gate-screen {
   color: var(--jungle-text);
   border-radius: var(--j-radius-sm);
   padding: 8px 10px;
+  transition: border-color var(--j-motion-fast), box-shadow var(--j-motion-fast);
+}
+
+.j-input:focus-visible {
+  outline: none;
+  border-color: rgba(229, 184, 11, 0.55);
+  box-shadow: 0 0 0 2px rgba(229, 184, 11, 0.15);
 }
 .j-input-sm { font-size: 12px; padding: 6px 8px; }
 
@@ -3131,15 +3147,23 @@ body.j-drawer-open { overflow: hidden; }
 .jw-titlebar-buttons,
 .jw-menubar { display: none !important; }
 
+/* Below 1280px the inline nav runs out of room (items used to clip with a hidden
+   scrollbar at common laptop widths) — wrap it onto its own full-width row instead. */
+@media (max-width: 1280px) {
+  .j-topbar { flex-wrap: wrap; row-gap: 6px; }
+  /* flex-basis must be set explicitly: the base .j-nav { flex: 1 } sets basis 0%,
+     which beats width:100% in flex layout and kept the nav clipping on one row. */
+  .j-nav { order: 3; flex: 0 0 100%; width: 100%; justify-content: flex-start; }
+  .j-topbar-actions { margin-left: auto; }
+}
+
 @media (max-width: 900px) {
-  .j-topbar { flex-wrap: wrap; }
-  .j-nav { order: 3; width: 100%; justify-content: flex-start; }
   .j-teaser-grid { grid-template-columns: 1fr; }
   .j-drawer-backdrop { align-items: flex-end; }
   .j-drawer { width: 100%; max-height: 85vh; border-left: none; border-top: 1px solid var(--jungle-border-strong); }
-  .j-dash-grid { grid-template-columns: 1fr; }
-  .j-dash-aside { order: -1; }
-  .j-trade-scroll { min-height: 320px; max-height: min(52vh, 520px); }
+  /* NOTE: .j-dash-grid / .j-dash-aside / .j-trade-scroll responsive rules live in the
+     "DASHBOARD responsive" block near the end of the file — they must come AFTER the
+     base definitions or the cascade silently ignores them (that bug shipped once). */
 }
 
 /* ============================================================
@@ -3412,12 +3436,43 @@ body.j-drawer-open { overflow: hidden; }
   flex-wrap: wrap;
 }
 
+.j-dash-wallet-addr-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .j-dash-wallet-addr {
   font-family: var(--font-mono);
   font-size: 13px;
   color: var(--jungle-gold-light);
   letter-spacing: 0.02em;
 }
+
+.j-addr-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--jungle-text-muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--jungle-border);
+  border-radius: var(--j-radius-sm);
+  cursor: pointer;
+  transition: color var(--j-motion-fast, 0.15s ease), border-color var(--j-motion-fast, 0.15s ease);
+}
+
+.j-addr-copy:hover {
+  color: var(--jungle-gold);
+  border-color: rgba(229, 184, 11, 0.45);
+}
+
+.j-addr-copy.hidden { display: none; }
 
 .j-dash-wallet-balance {
   text-align: right;
@@ -3597,6 +3652,8 @@ body.j-drawer-open { overflow: hidden; }
   border: none;
   border-radius: 0;
   background: transparent;
+  /* Columns scroll horizontally inside .j-trade-scroll instead of crushing/truncating. */
+  min-width: 580px;
 }
 
 .j-trade-table th {
@@ -4004,6 +4061,15 @@ body.j-drawer-open { overflow: hidden; }
   .j-agents-table {
     min-width: 640px;
   }
+}
+
+/* DASHBOARD responsive — must stay AFTER the base .j-dash-* definitions above. */
+@media (max-width: 900px) {
+  .j-dash-grid { grid-template-columns: 1fr; }
+  .j-dash-aside { order: -1; }
+  .j-trade-scroll { min-height: 320px; max-height: min(52vh, 520px); }
+  /* Nav: prefer wrapping to a second row over an invisible horizontal scroll. */
+  .j-nav { flex-wrap: wrap; }
 }
 
 @media (max-width: 640px) {
