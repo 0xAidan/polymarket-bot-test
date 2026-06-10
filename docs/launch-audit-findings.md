@@ -197,3 +197,30 @@ Also reproduced from the owner's report at narrow widths: trade-history columns 
 ### 4.x addendum — fixed during audit
 - Foreign `x-tenant-id` now returns **403** with a clean JSON error (was 500);
   verified live with a forged header from a second user's session.
+
+---
+
+## 7. Final QA (June 9, post-overhaul)
+
+Run against the local hosted-mode instance with all six PRs applied, logged in as a
+platform-admin test user:
+
+- **Console errors:** 0 across all 9 tabs (Home, Jungle Agents, Discovery, Tracked
+  Wallets, Trading Wallets, Platforms, Cross-Platform, Settings, Diagnostics).
+- **API route sweep:** 27 representative routes exercised with a live session — all 200
+  except three *by-design* responses: `/api/lifecycle/status` 403 (lifecycle intentionally
+  disabled in hosted mode), `/api/platforms` 403 (disabled in hosted mode), and one probe
+  with a wrong path (real `/api/stoploss/status` returns 200).
+- **`npm test`:** 402/402 green. **`npm run build`:** clean. **`npm run lint`:** 0 errors
+  (18 pre-existing warnings, untouched files).
+- **End-to-end flows verified live during the PR series:** branded login → onboarding
+  auto-launch → tab navigation → admin curation → logout; two-user tenant isolation;
+  tutorial resume/skip/replay.
+
+### Launch-day notes for the owner
+1. Production env must point at the **new Auth0 tenant** (see `docs/auth0-branding/README.md`).
+2. Google login runs on Auth0 dev keys — add real Google OAuth creds or hide the button.
+3. Local `.env` has two audit leftovers (safe, local-only): `PLATFORM_ADMIN_EMAILS`
+   includes `audit-user-a@jungletest.dev`, and `AUTH0_BASE_URL` points at localhost for
+   testing. Original values are preserved in `backup.env.local`.
+4. Money-path items deliberately deferred (all fail-safe): see section 3.5.

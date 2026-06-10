@@ -8,7 +8,7 @@ alwaysApply: true
 
 > **Purpose**: This document gives a new AI agent instance everything it needs to execute tasks in this codebase without re-scanning files. It is the single source of truth for project context. Keep it updated after every significant change.
 >
-> **Last updated**: 2026-03-26 (hosted multitenant: ladder/stop-loss per-tenant sync, price monitor hosted tick, UI workspace switcher)
+> **Last updated**: 2026-06-09 (GTM launch prep: Jungle Agents branding canonical / Win95 removed, Auth0 Universal Login rebrand on new tenant, onboarding tutorial system, admin category/collection curation, money-path safety fixes)
 
 ---
 
@@ -18,7 +18,8 @@ alwaysApply: true
 - **Repo**: `git@github.com:0xAidan/polymarket-bot-test.git`
 - **What it does**: A Node.js bot that monitors "whale" wallets on Polymarket (a prediction market platform on Polygon) and automatically copies their trades into the user's own wallet(s). It also has a Discovery Engine that finds profitable wallets to track.
 - **Owner context**: The owner (Aidan) is non-technical. All code changes, explanations, and decisions must be presented as if to someone with no engineering background. Every idea should be evaluated honestly — do not blindly affirm bad ideas.
-- **Current branch**: `integrate/pr47-api-auth` (check `git status` before branching)
+- **Product brand**: "Ditto" by **Jungle Agents** — dark navy UI (#161721) with gold accents (#E5B80B), serif display headers (Instrument Serif), monospace body (IBM Plex Mono). The Win95 theme is fully removed.
+- **Current branch**: check `git status` before branching (branch from `main` unless told otherwise)
 - **Main branch**: `main`
 
 ---
@@ -32,10 +33,10 @@ alwaysApply: true
 | Build | tsc | target ES2022, module NodeNext |
 | Dev runner | tsx | watch mode for hot reload |
 | Web framework | Express | 4.18 |
-| Frontend | Vanilla JS + HTML + CSS | Windows 95 retro theme, NO frameworks |
+| Frontend | Vanilla JS + HTML + CSS | Jungle Agents theme (dark/gold), NO frameworks |
 | Database | JSON files (default) OR SQLite | `STORAGE_BACKEND` env var (`json` | `sqlite`) |
-| SQLite lib | better-sqlite3 | 12.6 |
-| Blockchain | Polygon chain via ethers 5 + viem 2 | |
+| SQLite lib | better-sqlite3 | ^12.10 (12.6 cannot compile on Node 26) |
+| Blockchain | Polygon chain via ethers 6 + viem 2 | |
 | Polymarket SDK | @polymarket/clob-client-v2 1.0.2, builder-relayer-client 0.0.8 | V2 orders via builderCode (not HMAC on POST /order) |
 | Real-time data | Polling + WebSocket utilities (ws 8.14) | |
 | HTTP client | axios 1.6 | |
@@ -58,15 +59,30 @@ polymarket-bot-test/
 ├── .cursor/rules/           # Cursor AI rules (trade safety, auth, dialogs, this file)
 ├── docs/                    # Plans, research, roadmap
 │   ├── plans/
-│   └── research/
+│   ├── research/
+│   ├── auth0-branding/      # Auth0 Universal Login theme + apply.sh (reproducible branding)
+│   ├── launch-audit-findings.md  # June 2026 pre-launch audit report (severities + fixes)
+│   └── onboarding-videos.md # How the owner drops screen recordings into the tutorial
 ├── public/                  # Frontend (served by Express static)
-│   ├── index.html           # Main dashboard HTML (Win95 UI)
-│   ├── styles.css           # Win95 styles
-│   ├── tour.css             # Walkthrough tour styles
+│   ├── index.html           # Main dashboard HTML (Jungle Agents UI)
+│   ├── styles.css           # Jungle Agents styles (jw-* legacy window classes, j-* components)
+│   ├── tour.css             # Tour + onboarding tutorial styles (tour-*, onb-*)
+│   ├── shared/
+│   │   ├── jungle-brand.css # ★ DESIGN TOKENS: colors, spacing, type scale, motion, elevation, skeletons
+│   │   ├── logo.png         # Official jungle-eyes mark (black on transparent, from agent-olympics)
+│   │   ├── logo-gold.png    # Gold recolor for dark backgrounds (topbar, Auth0, tutorial)
+│   │   └── favicon-gold.png # Favicon (gold mark on jungle navy), wired into all 3 pages
+│   ├── admin/               # Platform-admin panel (/admin): jungle agents curation
+│   ├── discovery-v3/        # Discovery v3 dashboard (separate sub-app)
 │   └── js/
-│       ├── app.js           # Main frontend logic, win95Dialog system
-│       ├── api.js           # API client (fetch wrapper with auth)
-│       └── tour.js          # Walkthrough tour
+│       ├── app.js           # Main frontend logic, jungleModal dialog system (centered modals)
+│       ├── jungleDialog.js  # jungleDialog: toasts + drawers (window.win95Dialog = deprecated alias)
+│       ├── api.js           # API client (fetch wrapper with auth + x-tenant-id)
+│       ├── auth-bootstrap.js# OIDC session boot, tenant switcher, admin capability flags
+│       ├── jungleAgents.js  # Jungle Agents public tab (collections + category badges)
+│       ├── tour.js          # 13-step dashboard tour (what-is-where)
+│       ├── onboarding-steps.js # ★ Onboarding tutorial step data (owner edits videoSrc here)
+│       └── onboarding.js    # Onboarding engine: video slots, completion checks, persistence
 ├── src/                     # Backend TypeScript source
 │   ├── index.ts             # ★ MAIN ENTRY POINT
 │   ├── hostedMode.ts        # Hosted multi-tenant detection (OIDC + SQLite)
@@ -182,8 +198,20 @@ polymarket-bot-test/
 4. Discovery worker: separate process, communicates via HTTP to `DISCOVERY_WORKER_URL`
 
 ### Dashboard
-- `http://localhost:3001` — Win95-style web dashboard
+- `http://localhost:<PORT>` (PORT from .env; owner's local uses 3000) — Jungle Agents web dashboard (dark/gold)
+- Production: `https://ditto.jungle.win`
 - Manages tracked wallets, trading wallets, trade feed, discovery, configuration
+- `/admin` — platform-admin panel (jungle agents curation); gated by `PLATFORM_ADMIN_EMAILS`
+
+### Auth0 (hosted login)
+- Tenant: `dev-rjdevt32s21vhh86.us.auth0.com` (account linked to the owner's GitHub; replaced
+  the inaccessible `dev-uan21r7z3d6onvec` tenant in June 2026)
+- Application: "Jungle Agents" (Regular Web App), callbacks for `http://localhost:3000/auth/callback`
+  and `https://ditto.jungle.win/auth/callback`
+- Universal Login is fully branded (dark/gold theme, jungle-eyes logo, custom copy).
+  Branding is reproducible: `bash docs/auth0-branding/apply.sh` after `auth0 login`.
+- Pre-launch TODO documented in `docs/auth0-branding/README.md`: the Google social
+  connection uses Auth0 dev keys (rate-limited) — add real Google OAuth creds or hide the button.
 
 ---
 
@@ -504,7 +532,7 @@ interface CopyAssignment {
 - `Storage.getTradeHistory()` / `.getFailedTrades()`
 
 ### SQLite tables
-`tracked_wallets`, `bot_config`, `executed_positions`, `discovery_trades`, `discovery_wallets`, `discovery_market_cache`, `discovery_market_pool`, `discovery_positions`, `discovery_wallet_candidates`, `discovery_wallet_validation`, `discovery_wallet_scores`, `discovery_wallet_reasons`, `discovery_run_log`, `discovery_token_map`, `schema_version`
+`tracked_wallets` (tenant-scoped; incl. `tags_json` since June 2026), `bot_config` (tenant-scoped), `executed_positions` (tenant-scoped), `app_users`, `app_tenants`, `app_tenant_memberships`, `app_auth_audit_log`, `discovery_trades`, `discovery_wallets`, `discovery_market_cache`, `discovery_market_pool`, `discovery_positions`, `discovery_wallet_candidates`, `discovery_wallet_validation`, `discovery_wallet_scores`, `discovery_wallet_reasons`, `discovery_run_log`, `discovery_token_map`, `schema_version`
 
 ---
 
@@ -595,20 +623,58 @@ These rules protect real money. Violating them has caused actual financial losse
 
 ## 13. FRONTEND RULES
 
-### Win95 UI
-- All UI is Windows 95 themed (no modern frameworks)
-- Custom dialog system in `public/js/app.js`:
-  - `await win95Dialog.alert(message, title?)`
-  - `await win95Dialog.success(message, title?)`
-  - `await win95Dialog.error(message, title?)`
-  - `await win95Dialog.confirm(message, title?)` → `true` | `false`
-  - `await win95Dialog.prompt(message, defaultValue?, title?)` → `string` | `null`
-- **NEVER** use native `alert()`, `confirm()`, `prompt()` — use `win95Dialog` instead
+### Jungle Agents UI (Win95 is fully removed)
+- The UI is "Jungle Agents" branded: dark navy background, gold accents, serif display
+  headers, monospace body. Design tokens live in `public/shared/jungle-brand.css`;
+  component classes use the `j-` and `jw-` prefixes (no frameworks).
+- Two custom dialog systems with the same async API (alert/success/error/confirm/prompt):
+  - `jungleModal` — centered modals, defined at the top of `public/js/app.js`, used
+    inside `app.js`
+  - `window.jungleDialog` — toasts + side drawers (`public/js/jungleDialog.js`), used by
+    `admin.js`, `jungleAgents.js`, `auth-bootstrap.js`
+- **NEVER** use native `alert()`, `confirm()`, `prompt()` — use `jungleModal` (in app.js)
+  or `jungleDialog` (elsewhere)
 - All dialog calls are async — use `await`
+- `window.win95Dialog` is a deprecated alias of `jungleDialog`; do not write new code
+  against it
 
 ### API client
 - `public/js/api.js` wraps `fetch` with auth header from `sessionStorage.getItem('api_token')`
+  (legacy mode) or cookie session (OIDC mode); sends `x-tenant-id` when a workspace is selected
+- 401 responses redirect to `/auth/login?returnTo=…` (OIDC) or reopen the token modal (legacy)
 - Base path: `/api`
+
+### Design system (`public/shared/jungle-brand.css`)
+- Color/spacing/radius tokens (`--jungle-*`, `--space-*`, `--j-radius-*`)
+- Motion standards: `--j-motion-fast` (hovers) / `--j-motion-base` (reveals) / `--j-motion-slow` (entrances)
+- Elevation: `--j-shadow-1/2/3`; type scale: `--j-text-*` (mono), `--j-display-*` (serif)
+- Skeleton loading: `.j-skeleton` / `.j-skeleton-line`; `prefers-reduced-motion` is respected globally
+- Logo assets: `public/shared/logo.png` (black), `logo-gold.png` (dark backgrounds), `favicon-gold.png`
+- Legacy window-chrome classes use the `jw-*` prefix; component classes use `j-*`
+- CSS gotcha (bit us once): responsive `@media` overrides MUST appear after the base
+  selector definitions in `styles.css`, or the cascade silently ignores them
+
+### Onboarding tutorial (first-run setup walkthrough)
+- Steps are DATA in `public/js/onboarding-steps.js` (8 steps: create wallet → export key →
+  paste key → connect Polymarket → builder codes → paste credentials → fund → start)
+- Engine in `public/js/onboarding.js`: centered card with HTML5 video slot (placeholder when
+  `videoSrc: null`), spotlight, live completion detection (polls real API every 3s),
+  per-workspace progress in localStorage (`ditto_onboarding_v1::<tenant>`), Esc skips
+- Entry points: auto-launches on first login (no saved progress + no trading wallet);
+  "Tutorial" topbar button replays; interrupted runs auto-resume at the saved step
+- Owner adds videos by dropping .mp4 files in `public/videos/` and editing one line —
+  see `docs/onboarding-videos.md`
+- The separate 13-step dashboard tour (`tour.js`, `window.startTour`) still exists
+
+### Admin: jungle agents curation (`/admin`)
+- Roster store: `src/jungleAgentsStore.ts` → `data/jungle_agents.json` (global, NOT tenant-scoped)
+- Per agent: displayName, tagline, modelLabel, polymarketAddress, avatarUrl, `category`
+  (validated enum: sports/politics/crypto/macro/company/legal/geopolitics/entertainment/event/other),
+  `collection` (free text ≤60 chars, named grouping), sortOrder (reorder), enabled (visibility)
+- Admin routes under `/api/admin/jungle-agents*` gated by `requirePlatformAdmin`
+  (OIDC email in `PLATFORM_ADMIN_EMAILS` or legacy API_SECRET bearer)
+- Public tab groups agents under collection headers (curated first, ungrouped last) and
+  shows category badges; grouping only appears when collections are assigned
 
 ---
 
@@ -700,7 +766,7 @@ CMD ["node", "dist/index.js"]
 2. Phase 0B: SQLite storage
 3. Phase 1A: Real-time trade detection improvements
 4. Phase 1B: Multi-wallet support
-5. Phase 2: Win95 UI
+5. Phase 2: Dashboard UI (originally Win95-themed; rebranded to Jungle Agents)
 6. Phase 3: Auto-redemption + Discovery Engine
 7. Phase 4: Arbitrage detection
 8. Phase 5: Entity linking
@@ -717,7 +783,7 @@ Located in `.cursor/rules/`:
 |------|-------|---------|
 | `trade-safety-invariants.mdc` | `src/copyTrader.ts`, `walletMonitor.ts`, `tradeExecutor.ts`, `clobClient.ts` | Critical safety rules for trade execution |
 | `polymarket-auth.mdc` | — | Polymarket CLOB authentication setup and common errors |
-| `no-native-dialogs.mdc` | `public/js/**/*.js`, `public/**/*.html` | Use win95Dialog, never native dialogs |
+| `no-native-dialogs.mdc` | `public/js/**/*.js`, `public/**/*.html` | Use jungleDialog/jungleModal, never native dialogs |
 | `notion-board-standards.mdc` | Always | Notion board creation standards |
 | `agent-knowledge.mdc` | Always | This file |
 
@@ -816,8 +882,8 @@ maxSignalsPerDay: 50
 - Test with small amounts before deploying
 
 ### When modifying frontend
-- Use `win95Dialog` for all dialogs
-- Maintain Win95 aesthetic
+- Use `jungleModal` (app.js) or `jungleDialog` for all dialogs
+- Maintain the Jungle Agents aesthetic (dark/gold, tokens from jungle-brand.css)
 - Use `apiCall()` from `api.js` for backend requests
 - Test the dashboard at `http://localhost:3001`
 

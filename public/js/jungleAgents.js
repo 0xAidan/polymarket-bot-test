@@ -62,9 +62,9 @@ const bindAgentGridEvents = (grid, agents) => {
       if (!value) return;
       try {
         await navigator.clipboard.writeText(value);
-        await win95Dialog.success('Address copied');
+        await jungleDialog.success('Address copied');
       } catch {
-        await win95Dialog.error('Could not copy address');
+        await jungleDialog.error('Could not copy address');
       }
     });
   });
@@ -103,13 +103,16 @@ const renderAgentTableRow = (agent) => {
     ? `<img src="${agent.avatarUrl}" alt="" class="j-agents-avatar-img" />`
     : `<span class="j-agents-avatar-fallback">${agent.displayName.slice(0, 1)}</span>`;
   const metaLine = [agent.tagline, agent.modelLabel].filter(Boolean).join(' · ');
+  const categoryBadge = agent.category
+    ? `<span class="j-badge j-agents-category">${agent.category}</span>`
+    : '';
 
   return `
     <tr data-agent-id="${agent.id}">
       <td class="j-agents-cell-agent">
         <span class="j-agents-avatar-sm">${avatar}</span>
         <span class="j-agents-cell-text">
-          <span class="j-agents-name font-serif">${agent.displayName}</span>
+          <span class="j-agents-name font-serif">${agent.displayName} ${categoryBadge}</span>
           ${metaLine ? `<span class="j-agents-meta">${metaLine}</span>` : ''}
         </span>
       </td>
@@ -131,10 +134,38 @@ const renderAgentTableRow = (agent) => {
   `;
 };
 
-const renderAgentTable = (agents) => `
+/** Group agents by their (optional) admin-curated collection, preserving roster order. */
+const groupAgentsByCollection = (agents) => {
+  const groups = [];
+  const byName = new Map();
+  for (const agent of agents) {
+    const name = (agent.collection || '').trim();
+    if (!byName.has(name)) {
+      const group = { name, agents: [] };
+      byName.set(name, group);
+      groups.push(group);
+    }
+    byName.get(name).agents.push(agent);
+  }
+  // Ungrouped agents always render last so curated collections lead the page.
+  return groups.sort((a, b) => (a.name === '' ? 1 : 0) - (b.name === '' ? 1 : 0));
+};
+
+const renderAgentTable = (agents) => {
+  const groups = groupAgentsByCollection(agents);
+  const hasCollections = groups.some((g) => g.name !== '');
+
+  const body = groups.map((group) => {
+    const header = hasCollections
+      ? `<tr class="j-agents-collection-row"><td colspan="5">${group.name || 'More agents'}</td></tr>`
+      : '';
+    return header + group.agents.map(renderAgentTableRow).join('');
+  }).join('');
+
+  return `
   <div class="j-panel j-agents-table-panel">
     <div class="j-agents-table-scroll">
-      <table class="win-listview j-agents-table">
+      <table class="jw-listview j-agents-table">
         <thead>
           <tr>
             <th>Agent</th>
@@ -145,32 +176,33 @@ const renderAgentTable = (agents) => `
           </tr>
         </thead>
         <tbody>
-          ${agents.map(renderAgentTableRow).join('')}
+          ${body}
         </tbody>
       </table>
     </div>
   </div>
 `;
+};
 
 const handleFollowAgent = async (agent) => {
   if (agent.addressPending || !agent.polymarketAddress) {
-    await win95Dialog.alert('This agent does not have a Polymarket address yet.');
+    await jungleDialog.alert('This agent does not have a Polymarket address yet.');
     return;
   }
   const addr = agent.polymarketAddress.toLowerCase();
   if (trackedAddressSet.has(addr)) {
-    await win95Dialog.alert('You are already following this wallet. Open Tracked Wallets to configure and enable copying.');
+    await jungleDialog.alert('You are already following this wallet. Open Tracked Wallets to configure and enable copying.');
     switchTab('wallets');
     return;
   }
   try {
     await API.addWallet(addr, agent.displayName);
     trackedAddressSet.add(addr);
-    await win95Dialog.success(`Added ${agent.displayName} to Tracked Wallets (inactive until you enable copying).`);
+    await jungleDialog.success(`Added ${agent.displayName} to Tracked Wallets (inactive until you enable copying).`);
     if (typeof loadWallets === 'function') await loadWallets(true);
     syncFollowButtons(cachedAgents);
   } catch (error) {
-    await win95Dialog.error(error.message || 'Could not follow agent');
+    await jungleDialog.error(error.message || 'Could not follow agent');
   }
 };
 

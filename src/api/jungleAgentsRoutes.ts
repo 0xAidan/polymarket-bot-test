@@ -32,6 +32,8 @@ const toPublicAgent = (a: JungleAgentRecord) => ({
   polymarketAddress: a.polymarketAddress,
   olympicsProfileUrl: a.olympicsProfileUrl,
   avatarUrl: a.avatarUrl ?? null,
+  category: a.category ?? null,
+  collection: a.collection ?? null,
   sortOrder: a.sortOrder,
   addressPending: !a.polymarketAddress
 });

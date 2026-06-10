@@ -18,11 +18,18 @@ const isValidAddress = (addr) => !addr || EVM_RE.test(addr.trim());
 
 const sortByRosterOrder = (agents) => [...agents].sort((a, b) => a.sortOrder - b.sortOrder);
 
+const AGENT_CATEGORIES = [
+  'sports', 'politics', 'crypto', 'macro', 'company',
+  'legal', 'geopolitics', 'entertainment', 'event', 'other',
+];
+
 const defaultDraft = (agent) => ({
   displayName: agent.displayName || '',
   tagline: agent.tagline || '',
   modelLabel: agent.modelLabel || '',
   polymarketAddress: agent.polymarketAddress || '',
+  category: agent.category || '',
+  collection: agent.collection || '',
   enabled: agent.enabled !== false,
 });
 
@@ -41,6 +48,8 @@ const draftChanged = (agent) => {
     || d.tagline.trim() !== (saved.tagline || '').trim()
     || d.modelLabel.trim() !== (saved.modelLabel || '').trim()
     || d.polymarketAddress.trim() !== saved.polymarketAddress.trim()
+    || (d.category || '') !== (saved.category || '')
+    || d.collection.trim() !== (saved.collection || '').trim()
     || d.enabled !== saved.enabled
   );
 };
@@ -181,6 +190,27 @@ const renderTable = () => {
           aria-label="Model for ${escapeHtml(agent.displayName)}"
         />
       </td>
+      <td class="col-curation">
+        <select
+          class="j-admin-field-input j-admin-category-select"
+          data-field="category"
+          data-agent-id="${agent.id}"
+          aria-label="Category for ${escapeHtml(agent.displayName)}"
+        >
+          <option value="">No category</option>
+          ${AGENT_CATEGORIES.map((c) => `<option value="${c}"${draft.category === c ? ' selected' : ''}>${c}</option>`).join('')}
+        </select>
+        <input
+          type="text"
+          class="j-admin-field-input"
+          data-field="collection"
+          data-agent-id="${agent.id}"
+          value="${escapeHtml(draft.collection)}"
+          maxlength="60"
+          placeholder="Collection (e.g. MLB Opening Week)"
+          aria-label="Collection for ${escapeHtml(agent.displayName)}"
+        />
+      </td>
       <td class="col-wallet">
         <div class="j-admin-wallet-row">
           <input
@@ -230,7 +260,7 @@ const renderTable = () => {
       }
       updateRowVisuals(id);
     };
-    if (el.type === 'checkbox') {
+    if (el.type === 'checkbox' || el.tagName === 'SELECT') {
       el.addEventListener('change', handler);
     } else {
       el.addEventListener('input', handler);
@@ -246,9 +276,9 @@ const renderTable = () => {
       if (!val) return;
       try {
         await navigator.clipboard.writeText(val);
-        await win95Dialog.success('Wallet copied');
+        await jungleDialog.success('Wallet copied');
       } catch {
-        await win95Dialog.alert(val, 'Copy manually');
+        await jungleDialog.alert(val, 'Copy manually');
       }
     });
   });
@@ -291,6 +321,9 @@ const collectUpdates = () => {
       tagline: d.tagline.trim() || undefined,
       modelLabel: d.modelLabel.trim() || undefined,
       polymarketAddress: addr,
+      // Empty string means "clear" — the store normalizes '' to undefined.
+      category: d.category || '',
+      collection: d.collection.trim(),
       enabled: d.enabled,
     });
   }
@@ -300,20 +333,20 @@ const collectUpdates = () => {
 const saveAllChanges = async () => {
   const { updates, invalid } = collectUpdates();
   if (invalid.length > 0) {
-    await win95Dialog.error(`Invalid wallet format for: ${invalid.join(', ')}. Use 0x plus 40 hex characters, or leave blank.`);
+    await jungleDialog.error(`Invalid wallet format for: ${invalid.join(', ')}. Use 0x plus 40 hex characters, or leave blank.`);
     return;
   }
   if (updates.length === 0) {
-    await win95Dialog.alert('No changes to save.');
+    await jungleDialog.alert('No changes to save.');
     return;
   }
   try {
     await API.bulkSaveAdminJungleAgents(updates);
     rowDrafts.clear();
     await loadAdminAgents();
-    await win95Dialog.success(`Saved ${updates.length} agent${updates.length === 1 ? '' : 's'}.`);
+    await jungleDialog.success(`Saved ${updates.length} agent${updates.length === 1 ? '' : 's'}.`);
   } catch (error) {
-    await win95Dialog.error(error.message || 'Save failed');
+    await jungleDialog.error(error.message || 'Save failed');
   }
 };
 
@@ -347,7 +380,7 @@ const bootAdmin = async () => {
 
 document.getElementById('adminRefreshBtn')?.addEventListener('click', () => {
   rowDrafts.clear();
-  loadAdminAgents().catch((e) => win95Dialog.error(e.message));
+  loadAdminAgents().catch((e) => jungleDialog.error(e.message));
 });
 document.getElementById('adminSaveAllBtn')?.addEventListener('click', () => saveAllChanges());
 
