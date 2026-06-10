@@ -10,8 +10,9 @@ const loadScriptsInOrder = () => {
   const sandbox: Record<string, unknown> = {
     window: {},
     document: {
-      body: { classList: { remove: () => {}, add: () => {} }, className: 'app-loading' },
+      body: { classList: { remove: () => {}, add: () => {}, contains: () => false }, className: 'app-loading' },
       addEventListener: () => {},
+      removeEventListener: () => {},
       getElementById: (id: string) => (id === 'taskbarClock' ? { textContent: '' } : null),
       querySelector: () => null,
       querySelectorAll: () => [],
@@ -19,6 +20,9 @@ const loadScriptsInOrder = () => {
     console: { log: () => {}, warn: () => {}, error: () => {} },
     setInterval: () => 0,
     clearInterval: () => {},
+    setTimeout: () => 0,
+    clearTimeout: () => {},
+    localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
     fetch: async () => ({ ok: true, json: async () => ({ required: false }) }),
     sessionStorage: { getItem: () => null, setItem: () => {} },
     location: { href: 'http://localhost/', pathname: '/', search: '', reload: () => {} },
@@ -34,6 +38,8 @@ const loadScriptsInOrder = () => {
     'shell.js',
     'jungleAgents.js',
     'app.js',
+    'onboarding-steps.js',
+    'onboarding.js',
   ];
 
   for (const file of scripts) {
@@ -41,10 +47,30 @@ const loadScriptsInOrder = () => {
     vm.runInNewContext(code, sandbox, { filename: file });
   }
 
-  return sandbox.window as { switchTab?: (...args: unknown[]) => unknown };
+  return sandbox.window as {
+    switchTab?: (...args: unknown[]) => unknown;
+    startOnboarding?: (...args: unknown[]) => unknown;
+    DITTO_ONBOARDING_STEPS?: Array<Record<string, unknown>>;
+  };
 };
 
 test('dashboard scripts load together and expose switchTab', () => {
   const win = loadScriptsInOrder();
   assert.equal(typeof win.switchTab, 'function');
+});
+
+test('onboarding tutorial loads, exposes startOnboarding, and defines 8 valid steps', () => {
+  const win = loadScriptsInOrder();
+  assert.equal(typeof win.startOnboarding, 'function');
+  const steps = win.DITTO_ONBOARDING_STEPS || [];
+  assert.equal(steps.length, 8);
+  const ids = new Set<string>();
+  for (const step of steps) {
+    assert.equal(typeof step.id, 'string');
+    assert.ok(!ids.has(step.id as string), `duplicate step id: ${step.id}`);
+    ids.add(step.id as string);
+    assert.equal(typeof step.title, 'string');
+    assert.ok(Array.isArray(step.copy) && (step.copy as unknown[]).length > 0);
+    assert.ok(step.videoSrc === null || typeof step.videoSrc === 'string');
+  }
 });
