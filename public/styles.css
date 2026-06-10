@@ -2927,20 +2927,16 @@ body.app-ready .auth-gate-screen {
   line-height: 1.1;
 }
 
+/* Wrap instead of overflow: an invisible horizontal scroll with centered content
+   clips tabs off both edges whenever the topbar gets crowded. */
 .j-nav {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 4px;
   flex: 1;
+  min-width: 0;
   justify-content: center;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
   padding: 2px 0;
-}
-
-.j-nav::-webkit-scrollbar {
-  display: none;
 }
 
 .j-nav-btn {
@@ -4088,8 +4084,6 @@ body.j-drawer-open { overflow: hidden; }
   .j-dash-grid { grid-template-columns: 1fr; }
   .j-dash-aside { order: -1; }
   .j-trade-scroll { min-height: 320px; max-height: min(52vh, 520px); }
-  /* Nav: prefer wrapping to a second row over an invisible horizontal scroll. */
-  .j-nav { flex-wrap: wrap; }
 }
 
 @media (max-width: 640px) {
