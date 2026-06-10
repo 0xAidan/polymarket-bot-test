@@ -699,14 +699,31 @@ function updateStatusUI(data) {
   }
 }
 
+const copyWalletAddress = async () => {
+  const addrEl = document.getElementById('walletAddress');
+  const full = addrEl?.dataset.fullAddress;
+  if (!full) return;
+  try {
+    await navigator.clipboard.writeText(full);
+    jungleModal.success('Wallet address copied to clipboard.', 'Copied');
+  } catch {
+    await jungleModal.alert(full, 'Wallet address');
+  }
+};
+
 async function loadWalletBalance() {
   try {
     const wallet = await API.getWallet();
     const balance = await API.getWalletBalance();
 
     const displayAddress = wallet.proxyWalletAddress || wallet.walletAddress;
-    document.getElementById('walletAddress').textContent =
+    const addrEl = document.getElementById('walletAddress');
+    addrEl.textContent =
       displayAddress ? `${displayAddress.slice(0, 6)}...${displayAddress.slice(-4)}` : 'Not configured';
+    addrEl.dataset.fullAddress = displayAddress || '';
+    addrEl.title = displayAddress || '';
+    const copyBtn = document.getElementById('walletAddressCopy');
+    if (copyBtn) copyBtn.classList.toggle('hidden', !displayAddress);
 
     document.getElementById('walletBalance').textContent =
       `$${(balance.currentBalance || 0).toFixed(2)}`;
@@ -775,7 +792,7 @@ async function loadTrades() {
     const loadMoreBtn = document.getElementById('loadMoreTradesBtn');
 
     if (!data.trades || data.trades.length === 0) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No trades yet</td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No trades yet — add a tracked wallet (or follow a Jungle Agent) and press Start to see live activity here.</td></tr>';
       if (countLabel) countLabel.textContent = '0 trades';
       if (loadMoreBtn) loadMoreBtn.style.display = 'none';
       return;
