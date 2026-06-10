@@ -1,26 +1,26 @@
 /* ============================================================
    COPYTRADE DASHBOARD — Jungle Agents theme (shared/jungle-brand.css)
-   Legacy --win-* names kept for markup compatibility.
+   Legacy --jw-* names kept for markup compatibility.
    ============================================================ */
 
 :root {
-  /* Map Win95-era variables to Jungle Agents tokens */
-  --win-bg: var(--jungle-bg);
-  --win-surface: var(--jungle-bg-card);
-  --win-dark: var(--jungle-text-dim);
-  --win-darker: #0a0b12;
-  --win-light: rgba(255, 255, 255, 0.08);
-  --win-white: var(--jungle-text);
-  --win-black: var(--jungle-text);
-  --win-blue: var(--jungle-gold);
-  --win-title-active: #1a1c2e;
-  --win-title-inactive: var(--jungle-bg-elevated);
-  --win-title-text: var(--jungle-gold);
-  --win-field-bg: var(--jungle-bg-elevated);
-  --win-field-border: var(--jungle-border-strong);
-  --win-selection: rgba(229, 184, 11, 0.22);
-  --win-selected-text: var(--jungle-text);
-  --win-highlight: var(--jungle-gold);
+  /* Legacy variable aliases mapped to Jungle Agents tokens */
+  --jw-bg: var(--jungle-bg);
+  --jw-surface: var(--jungle-bg-card);
+  --jw-dark: var(--jungle-text-dim);
+  --jw-darker: #0a0b12;
+  --jw-light: rgba(255, 255, 255, 0.08);
+  --jw-white: var(--jungle-text);
+  --jw-black: var(--jungle-text);
+  --jw-blue: var(--jungle-gold);
+  --jw-title-active: #1a1c2e;
+  --jw-title-inactive: var(--jungle-bg-elevated);
+  --jw-title-text: var(--jungle-gold);
+  --jw-field-bg: var(--jungle-bg-elevated);
+  --jw-field-border: var(--jungle-border-strong);
+  --jw-selection: rgba(229, 184, 11, 0.22);
+  --jw-selected-text: var(--jungle-text);
+  --jw-highlight: var(--jungle-gold);
 
   --success: var(--jungle-win);
   --danger: var(--jungle-loss);
@@ -28,10 +28,10 @@
   --info: var(--jungle-neutral);
 
   /* Index layout helpers */
-  --win-border: var(--jungle-border);
-  --win-face: var(--jungle-bg-elevated);
-  --win-text: var(--jungle-text);
-  --win-link: var(--jungle-gold);
+  --jw-border: var(--jungle-border);
+  --jw-face: var(--jungle-bg-elevated);
+  --jw-text: var(--jungle-text);
+  --jw-link: var(--jungle-gold);
 
   --font-system: var(--font-mono);
 }
@@ -42,8 +42,8 @@
 
 #tenantWorkspaceBar {
   padding: 6px 12px;
-  border-bottom: 1px solid var(--win-border, #808080);
-  background: var(--win-face);
+  border-bottom: 1px solid var(--jw-border, #808080);
+  background: var(--jw-face);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -69,7 +69,7 @@ body {
 }
 
 /* ============================================================
-   WIN95 TASKBAR
+   TASKBAR
    ============================================================ */
 .taskbar {
   position: fixed;
@@ -77,8 +77,8 @@ body {
   left: 0;
   right: 0;
   height: 36px;
-  background: var(--win-surface);
-  border-top: 2px solid var(--win-white);
+  background: var(--jw-surface);
+  border-top: 2px solid var(--jw-white);
   display: flex;
   align-items: center;
   padding: 2px 4px;
@@ -96,9 +96,9 @@ body {
   font-size: 16px;
   font-weight: bold;
   cursor: pointer;
-  background: var(--win-surface);
-  border: 2px outset var(--win-surface);
-  color: var(--win-black);
+  background: var(--jw-surface);
+  border: 2px outset var(--jw-surface);
+  color: var(--jw-black);
 }
 
 .start-btn:active {
@@ -114,8 +114,8 @@ body {
 .taskbar-divider {
   width: 2px;
   height: 24px;
-  border-left: 1px solid var(--win-dark);
-  border-right: 1px solid var(--win-white);
+  border-left: 1px solid var(--jw-dark);
+  border-right: 1px solid var(--jw-white);
   margin: 0 2px;
 }
 
@@ -134,8 +134,8 @@ body {
   height: 24px;
   font-family: var(--font-system);
   font-size: 14px;
-  background: var(--win-surface);
-  border: 2px outset var(--win-surface);
+  background: var(--jw-surface);
+  border: 2px outset var(--jw-surface);
   cursor: pointer;
   white-space: nowrap;
   max-width: 160px;
@@ -145,7 +145,7 @@ body {
 
 .taskbar-item.active {
   border-style: inset;
-  background: var(--win-light);
+  background: var(--jw-light);
 }
 
 .taskbar-clock {
@@ -155,8 +155,8 @@ body {
   height: 24px;
   font-family: var(--font-system);
   font-size: 14px;
-  border: 2px inset var(--win-surface);
-  background: var(--win-surface);
+  border: 2px inset var(--jw-surface);
+  background: var(--jw-surface);
   min-width: 70px;
   justify-content: center;
 }
@@ -167,7 +167,7 @@ body {
   gap: 4px;
   padding: 2px 6px;
   height: 24px;
-  border: 2px inset var(--win-surface);
+  border: 2px inset var(--jw-surface);
   font-size: 12px;
 }
 
@@ -181,7 +181,7 @@ body {
 .status-indicator.stopped { background: #ff0000; }
 
 /* ============================================================
-   WIN95 DESKTOP
+   DESKTOP
    ============================================================ */
 .desktop {
   padding: 8px;
@@ -194,13 +194,13 @@ body {
 }
 
 /* ============================================================
-   WIN95 WINDOW
+   WINDOW CHROME
    ============================================================ */
-.win-window {
-  background: var(--win-surface);
+.jw-window {
+  background: var(--jw-surface);
   border: 2px solid;
-  border-color: var(--win-light) var(--win-darker) var(--win-darker) var(--win-light);
-  box-shadow: 1px 1px 0 var(--win-black);
+  border-color: var(--jw-light) var(--jw-darker) var(--jw-darker) var(--jw-light);
+  box-shadow: 1px 1px 0 var(--jw-black);
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -208,27 +208,27 @@ body {
   margin: 0 auto;
 }
 
-.win-window.win-maximized {
+.jw-window.jw-maximized {
   max-width: 100%;
 }
 
 /* Title Bar */
-.win-titlebar {
+.jw-titlebar {
   display: flex;
   align-items: center;
   padding: 2px 3px;
-  background: linear-gradient(90deg, var(--win-title-active), #1084d0);
-  color: var(--win-title-text);
+  background: linear-gradient(90deg, var(--jw-title-active), #1084d0);
+  color: var(--jw-title-text);
   height: 22px;
   gap: 4px;
   user-select: none;
 }
 
-.win-titlebar.inactive {
-  background: linear-gradient(90deg, var(--win-title-inactive), #b0b0b0);
+.jw-titlebar.inactive {
+  background: linear-gradient(90deg, var(--jw-title-inactive), #b0b0b0);
 }
 
-.win-titlebar-icon {
+.jw-titlebar-icon {
   width: 16px;
   height: 16px;
   display: flex;
@@ -237,7 +237,7 @@ body {
   font-size: 12px;
 }
 
-.win-titlebar-text {
+.jw-titlebar-text {
   flex: 1;
   font-family: var(--font-system);
   font-size: 14px;
@@ -247,16 +247,16 @@ body {
   text-overflow: ellipsis;
 }
 
-.win-titlebar-buttons {
+.jw-titlebar-buttons {
   display: flex;
   gap: 2px;
 }
 
-.win-titlebar-btn {
+.jw-titlebar-btn {
   width: 16px;
   height: 14px;
-  background: var(--win-surface);
-  border: 2px outset var(--win-surface);
+  background: var(--jw-surface);
+  border: 2px outset var(--jw-surface);
   font-family: var(--font-system);
   font-size: 10px;
   display: flex;
@@ -265,45 +265,45 @@ body {
   cursor: pointer;
   padding: 0;
   line-height: 1;
-  color: var(--win-black);
+  color: var(--jw-black);
 }
 
-.win-titlebar-btn:active {
+.jw-titlebar-btn:active {
   border-style: inset;
 }
 
 /* Menu Bar */
-.win-menubar {
+.jw-menubar {
   display: flex;
   padding: 0 2px;
-  border-bottom: 1px solid var(--win-dark);
-  background: var(--win-surface);
+  border-bottom: 1px solid var(--jw-dark);
+  background: var(--jw-surface);
   height: 22px;
   align-items: center;
 }
 
-.win-menu-item {
+.jw-menu-item {
   padding: 2px 8px;
   font-family: var(--font-system);
   font-size: 14px;
   cursor: pointer;
-  color: var(--win-black);
+  color: var(--jw-black);
   background: none;
   border: none;
 }
 
-.win-menu-item:hover {
-  background: var(--win-selection);
-  color: var(--win-selected-text);
+.jw-menu-item:hover {
+  background: var(--jw-selection);
+  color: var(--jw-selected-text);
 }
 
-.win-menu-item.active {
-  background: var(--win-selection);
-  color: var(--win-selected-text);
+.jw-menu-item.active {
+  background: var(--jw-selection);
+  color: var(--jw-selected-text);
 }
 
 /* Window Body */
-.win-body {
+.jw-body {
   padding: 8px;
   flex: 1;
   overflow-y: auto;
@@ -311,37 +311,37 @@ body {
 }
 
 /* Status Bar */
-.win-statusbar {
+.jw-statusbar {
   display: flex;
   padding: 2px 4px;
   border-top: 2px solid;
-  border-color: var(--win-dark) var(--win-light) var(--win-light) var(--win-dark);
-  background: var(--win-surface);
+  border-color: var(--jw-dark) var(--jw-light) var(--jw-light) var(--jw-dark);
+  background: var(--jw-surface);
   font-size: 13px;
   gap: 2px;
   min-height: 22px;
 }
 
-.win-statusbar-section {
+.jw-statusbar-section {
   padding: 1px 4px;
   border: 1px solid;
-  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
+  border-color: var(--jw-dark) var(--jw-white) var(--jw-white) var(--jw-dark);
   flex: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.win-statusbar-section.fixed {
+.jw-statusbar-section.fixed {
   flex: none;
   min-width: 80px;
   text-align: center;
 }
 
 /* ============================================================
-   WIN95 TABS
+   TABS
    ============================================================ */
-.win-tabs {
+.jw-tabs {
   display: flex;
   padding: 0 4px;
   margin-bottom: -1px;
@@ -349,48 +349,48 @@ body {
   z-index: 1;
 }
 
-.win-tab {
+.jw-tab {
   padding: 4px 12px;
   font-family: var(--font-system);
   font-size: 14px;
-  background: var(--win-surface);
+  background: var(--jw-surface);
   border: 2px solid;
-  border-color: var(--win-light) var(--win-darker) var(--win-darker) var(--win-light);
+  border-color: var(--jw-light) var(--jw-darker) var(--jw-darker) var(--jw-light);
   border-bottom: none;
   margin-right: 2px;
   cursor: pointer;
   position: relative;
-  color: var(--win-black);
+  color: var(--jw-black);
 }
 
-.win-tab.active {
-  background: var(--win-surface);
-  border-bottom: 2px solid var(--win-surface);
+.jw-tab.active {
+  background: var(--jw-surface);
+  border-bottom: 2px solid var(--jw-surface);
   margin-bottom: -2px;
   z-index: 2;
   padding-bottom: 6px;
 }
 
-.win-tab:hover:not(.active) {
-  background: var(--win-light);
+.jw-tab:hover:not(.active) {
+  background: var(--jw-light);
 }
 
-.win-tab-content {
+.jw-tab-content {
   border: 2px solid;
-  border-color: var(--win-light) var(--win-darker) var(--win-darker) var(--win-light);
-  background: var(--win-surface);
+  border-color: var(--jw-light) var(--jw-darker) var(--jw-darker) var(--jw-light);
+  background: var(--jw-surface);
   padding: 12px;
 }
 
-.win-tab-panel {
+.jw-tab-panel {
   display: none !important;
 }
 
-.win-tab-panel.active {
+.jw-tab-panel.active {
   display: block !important;
 }
 
-.win-tab-panel.active.j-dashboard {
+.jw-tab-panel.active.j-dashboard {
   display: flex !important;
   flex-direction: column;
   gap: var(--space-md);
@@ -398,114 +398,114 @@ body {
 }
 
 /* ============================================================
-   WIN95 GROUP BOX
+   GROUP BOX
    ============================================================ */
-.win-group {
+.jw-group {
   border: 2px solid;
-  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
+  border-color: var(--jw-dark) var(--jw-white) var(--jw-white) var(--jw-dark);
   padding: 12px 8px 8px;
   margin-bottom: 12px;
   position: relative;
 }
 
-.win-group-title {
+.jw-group-title {
   position: absolute;
   top: -8px;
   left: 10px;
-  background: var(--win-surface);
+  background: var(--jw-surface);
   padding: 0 4px;
   font-size: 14px;
   font-weight: bold;
 }
 
 /* ============================================================
-   WIN95 BUTTONS
+   BUTTONS
    ============================================================ */
-.win-btn {
+.jw-btn {
   font-family: var(--font-system);
   font-size: 15px;
   padding: 4px 16px;
-  background: var(--win-surface);
-  border: 2px outset var(--win-surface);
+  background: var(--jw-surface);
+  border: 2px outset var(--jw-surface);
   cursor: pointer;
-  color: var(--win-black);
+  color: var(--jw-black);
   min-width: 75px;
   text-align: center;
 }
 
-.win-btn:active {
+.jw-btn:active {
   border-style: inset;
 }
 
-.win-btn:disabled {
-  color: var(--win-dark);
-  text-shadow: 1px 1px 0 var(--win-white);
+.jw-btn:disabled {
+  color: var(--jw-dark);
+  text-shadow: 1px 1px 0 var(--jw-white);
 }
 
-.win-btn:focus {
-  outline: 1px dotted var(--win-black);
+.jw-btn:focus {
+  outline: 1px dotted var(--jw-black);
   outline-offset: -4px;
 }
 
-.win-btn-primary {
+.jw-btn-primary {
   font-weight: bold;
-  border: 3px outset var(--win-surface);
+  border: 3px outset var(--jw-surface);
 }
 
-.win-btn-primary:active {
+.jw-btn-primary:active {
   border-style: inset;
 }
 
-.win-btn-success {
+.jw-btn-success {
   background: #c0dcc0;
 }
 
-.win-btn-danger {
+.jw-btn-danger {
   background: #dcc0c0;
 }
 
-.win-btn-sm {
+.jw-btn-sm {
   padding: 2px 8px;
   min-width: 50px;
   font-size: 13px;
 }
 
 /* ============================================================
-   WIN95 INPUTS
+   INPUTS
    ============================================================ */
-.win-input {
+.jw-input {
   font-family: var(--font-system);
   font-size: 15px;
   padding: 3px 4px;
-  background: var(--win-field-bg);
+  background: var(--jw-field-bg);
   border: 2px solid;
-  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
-  color: var(--win-black);
+  border-color: var(--jw-dark) var(--jw-white) var(--jw-white) var(--jw-dark);
+  color: var(--jw-black);
 }
 
-.win-input:focus {
+.jw-input:focus {
   outline: none;
 }
 
-.win-input-full {
+.jw-input-full {
   width: 100%;
 }
 
-.win-select {
+.jw-select {
   font-family: var(--font-system);
   font-size: 15px;
   padding: 2px;
-  background: var(--win-field-bg);
+  background: var(--jw-field-bg);
   border: 2px solid;
-  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
-  color: var(--win-black);
+  border-color: var(--jw-dark) var(--jw-white) var(--jw-white) var(--jw-dark);
+  color: var(--jw-black);
 }
 
 /* ============================================================
-   WIN95 CHECKBOX / RADIO
+   CHECKBOX / RADIO
    ============================================================ */
-.win-checkbox,
-.win-radio {
+.jw-checkbox,
+.jw-radio {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -514,65 +514,65 @@ body {
   margin: 4px 0;
 }
 
-.win-checkbox input[type="checkbox"],
-.win-radio input[type="radio"] {
+.jw-checkbox input[type="checkbox"],
+.jw-radio input[type="radio"] {
   width: 14px;
   height: 14px;
-  accent-color: var(--win-black);
+  accent-color: var(--jw-black);
 }
 
 /* Toggle switch styled as classic checkbox */
-.win-toggle {
+.jw-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
   cursor: pointer;
 }
 
-.win-toggle input {
+.jw-toggle input {
   appearance: none;
   width: 32px;
   height: 16px;
-  background: var(--win-field-bg);
-  border: 2px inset var(--win-surface);
+  background: var(--jw-field-bg);
+  border: 2px inset var(--jw-surface);
   position: relative;
   cursor: pointer;
 }
 
-.win-toggle input::after {
+.jw-toggle input::after {
   content: '';
   position: absolute;
   width: 10px;
   height: 10px;
-  background: var(--win-dark);
+  background: var(--jw-dark);
   top: 1px;
   left: 1px;
   transition: left 0.1s;
 }
 
-.win-toggle input:checked {
+.jw-toggle input:checked {
   background: #c0dcc0;
 }
 
-.win-toggle input:checked::after {
+.jw-toggle input:checked::after {
   left: 17px;
   background: var(--success);
 }
 
 /* ============================================================
-   WIN95 TABLE / LISTVIEW
+   TABLE / LISTVIEW
    ============================================================ */
-.win-listview {
+.jw-listview {
   width: 100%;
   border: 2px solid;
-  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
-  background: var(--win-field-bg);
+  border-color: var(--jw-dark) var(--jw-white) var(--jw-white) var(--jw-dark);
+  background: var(--jw-field-bg);
   border-collapse: collapse;
 }
 
-.win-listview th {
-  background: var(--win-surface);
-  border: 1px outset var(--win-surface);
+.jw-listview th {
+  background: var(--jw-surface);
+  border: 1px outset var(--jw-surface);
   padding: 2px 8px;
   text-align: left;
   font-size: 13px;
@@ -582,50 +582,50 @@ body {
   user-select: none;
 }
 
-.win-listview td {
+.jw-listview td {
   padding: 2px 8px;
   font-size: 14px;
-  border-bottom: 1px solid var(--win-light);
+  border-bottom: 1px solid var(--jw-light);
   white-space: nowrap;
 }
 
-.win-listview tr:hover td {
-  background: var(--win-selection);
-  color: var(--win-selected-text);
+.jw-listview tr:hover td {
+  background: var(--jw-selection);
+  color: var(--jw-selected-text);
 }
 
-.win-listview .empty-row td {
+.jw-listview .empty-row td {
   text-align: center;
   padding: 20px;
-  color: var(--win-dark);
+  color: var(--jw-dark);
 }
 
-.win-listview .empty-row:hover td {
-  background: var(--win-field-bg);
-  color: var(--win-dark);
+.jw-listview .empty-row:hover td {
+  background: var(--jw-field-bg);
+  color: var(--jw-dark);
 }
 
 /* ============================================================
-   WIN95 PROGRESS BAR
+   PROGRESS BAR
    ============================================================ */
-.win-progress {
+.jw-progress {
   width: 100%;
   height: 18px;
   border: 2px solid;
-  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
-  background: var(--win-field-bg);
+  border-color: var(--jw-dark) var(--jw-white) var(--jw-white) var(--jw-dark);
+  background: var(--jw-field-bg);
 }
 
-.win-progress-bar {
+.jw-progress-bar {
   height: 100%;
-  background: var(--win-blue);
+  background: var(--jw-blue);
   display: flex;
 }
 
-.win-progress-block {
+.jw-progress-block {
   width: 10px;
   height: 100%;
-  background: var(--win-blue);
+  background: var(--jw-blue);
   margin-right: 2px;
 }
 
@@ -659,7 +659,7 @@ body {
 .mt-8 { margin-top: 8px; }
 
 .text-mono { font-family: var(--font-mono); font-size: 13px; }
-.text-muted { color: var(--win-dark); }
+.text-muted { color: var(--jw-dark); }
 .text-success { color: var(--success); }
 .text-danger { color: var(--danger); }
 .text-warning { color: var(--warning); }
@@ -701,8 +701,8 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
   flex: 1;
   min-width: 120px;
   border: 2px solid;
-  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
-  background: var(--win-field-bg);
+  border-color: var(--jw-dark) var(--jw-white) var(--jw-white) var(--jw-dark);
+  background: var(--jw-field-bg);
   padding: 8px;
   text-align: center;
 }
@@ -711,12 +711,12 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
   font-size: 24px;
   font-weight: bold;
   font-family: var(--font-system);
-  color: var(--win-black);
+  color: var(--jw-black);
 }
 
 .metric-box .metric-label {
   font-size: 12px;
-  color: var(--win-dark);
+  color: var(--jw-dark);
   text-transform: uppercase;
 }
 
@@ -728,8 +728,8 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
    ============================================================ */
 .wallet-entry {
   border: 2px solid;
-  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
-  background: var(--win-field-bg);
+  border-color: var(--jw-dark) var(--jw-white) var(--jw-white) var(--jw-dark);
+  background: var(--jw-field-bg);
   padding: 8px;
   margin-bottom: 6px;
   display: flex;
@@ -744,16 +744,16 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
 }
 
 .wallet-entry.inactive-wallet {
-  border-left: 4px solid var(--win-dark);
+  border-left: 4px solid var(--jw-dark);
   opacity: 0.55;
 }
 
 .wallet-entry.inactive-wallet .balance-val {
-  color: var(--win-dark) !important;
+  color: var(--jw-dark) !important;
   font-size: 13px;
 }
 
-.wallet-entry.inactive-wallet .win-badge {
+.wallet-entry.inactive-wallet .jw-badge {
   opacity: 0.45;
 }
 
@@ -766,9 +766,9 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
   padding: 0 5px;
   font-size: 10px;
   font-weight: bold;
-  border: 1px solid var(--win-dark);
-  background: var(--win-surface);
-  color: var(--win-dark);
+  border: 1px solid var(--jw-dark);
+  background: var(--jw-surface);
+  color: var(--jw-dark);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-left: 6px;
@@ -791,7 +791,7 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
 
 .wallet-entry-config {
   font-size: 12px;
-  color: var(--win-dark);
+  color: var(--jw-dark);
   margin-top: 2px;
 }
 
@@ -815,28 +815,28 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
 /* ============================================================
    BADGE
    ============================================================ */
-.win-badge {
+.jw-badge {
   display: inline-block;
   padding: 1px 6px;
   font-size: 11px;
   font-family: var(--font-system);
-  border: 1px solid var(--win-dark);
-  background: var(--win-surface);
+  border: 1px solid var(--jw-dark);
+  background: var(--jw-surface);
   margin-right: 4px;
 }
 
-.win-badge.badge-success { background: #c0dcc0; border-color: var(--success); }
-.win-badge.badge-danger { background: #dcc0c0; border-color: var(--danger); }
-.win-badge.badge-warning { background: #dcdcc0; border-color: var(--warning); }
-.win-badge.badge-info { background: #c0c0dc; border-color: var(--info); }
+.jw-badge.badge-success { background: #c0dcc0; border-color: var(--success); }
+.jw-badge.badge-danger { background: #dcc0c0; border-color: var(--danger); }
+.jw-badge.badge-warning { background: #dcdcc0; border-color: var(--warning); }
+.jw-badge.badge-info { background: #c0c0dc; border-color: var(--info); }
 
 /* Tag badges for wallet categories */
 .tag-badge {
   display: inline-block;
   padding: 0 5px;
   font-size: 10px;
-  border: 1px solid var(--win-dark);
-  background: var(--win-highlight);
+  border: 1px solid var(--jw-dark);
+  background: var(--jw-highlight);
   cursor: default;
   margin-right: 2px;
 }
@@ -846,8 +846,8 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
 .tag-badge.tag-crypto { background: #e2d5f1; border-color: #6f42c1; color: #6f42c1; }
 .tag-badge.tag-markets { background: #d1ecf1; border-color: #0c5460; color: #0c5460; }
 .tag-filter-bar { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
-.tag-filter-btn { cursor: pointer; padding: 1px 8px; font-size: 11px; border: 1px solid var(--win-dark); background: var(--win-surface); }
-.tag-filter-btn:hover, .tag-filter-btn.active { background: var(--win-highlight); color: var(--win-selected-text); font-weight: bold; }
+.tag-filter-btn { cursor: pointer; padding: 1px 8px; font-size: 11px; border: 1px solid var(--jw-dark); background: var(--jw-surface); }
+.tag-filter-btn:hover, .tag-filter-btn.active { background: var(--jw-highlight); color: var(--jw-selected-text); font-weight: bold; }
 
 /* ============================================================
    STATUS PILL
@@ -865,9 +865,9 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
 .status-pill.pending { background: #dcdcc0; border-color: var(--warning); color: var(--warning); }
 
 /* ============================================================
-   WIN95 MODAL (Dialog Box)
+   MODAL (Dialog Box)
    ============================================================ */
-.win-modal-overlay {
+.jw-modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
@@ -881,11 +881,11 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
   padding: 20px;
 }
 
-.win-modal {
-  background: var(--win-surface);
+.jw-modal {
+  background: var(--jw-surface);
   border: 2px solid;
-  border-color: var(--win-light) var(--win-darker) var(--win-darker) var(--win-light);
-  box-shadow: 2px 2px 0 var(--win-black);
+  border-color: var(--jw-light) var(--jw-darker) var(--jw-darker) var(--jw-light);
+  box-shadow: 2px 2px 0 var(--jw-black);
   max-width: 700px;
   width: 100%;
   max-height: 85vh;
@@ -893,18 +893,18 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
   flex-direction: column;
 }
 
-.win-modal-body {
+.jw-modal-body {
   padding: 12px;
   overflow-y: auto;
   flex: 1;
 }
 
-.win-modal-footer {
+.jw-modal-footer {
   padding: 8px 12px;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  border-top: 1px solid var(--win-dark);
+  border-top: 1px solid var(--jw-dark);
 }
 
 /* ============================================================
@@ -923,14 +923,14 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
   text-align: right;
 }
 
-.form-row .win-input {
+.form-row .jw-input {
   flex: 1;
   max-width: 200px;
 }
 
 .form-hint {
   font-size: 12px;
-  color: var(--win-dark);
+  color: var(--jw-dark);
   margin-top: 2px;
   margin-left: 138px;
 }
@@ -939,8 +939,8 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
    FILTER BLOCK
    ============================================================ */
 .filter-block {
-  border: 1px solid var(--win-dark);
-  background: var(--win-surface);
+  border: 1px solid var(--jw-dark);
+  background: var(--jw-surface);
   padding: 8px;
   margin-bottom: 8px;
 }
@@ -956,7 +956,7 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
 
 .filter-hint {
   font-size: 12px;
-  color: var(--win-dark);
+  color: var(--jw-dark);
   margin-bottom: 6px;
 }
 
@@ -970,8 +970,8 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
   gap: 4px;
   padding: 8px;
   border: 2px solid;
-  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
-  background: var(--win-field-bg);
+  border-color: var(--jw-dark) var(--jw-white) var(--jw-white) var(--jw-dark);
+  background: var(--jw-field-bg);
 }
 
 .pipeline-step {
@@ -981,8 +981,8 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
   width: 100%;
   max-width: 450px;
   padding: 4px 8px;
-  background: var(--win-surface);
-  border: 1px solid var(--win-dark);
+  background: var(--jw-surface);
+  border: 1px solid var(--jw-dark);
 }
 
 .pipeline-step.final {
@@ -996,7 +996,7 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--win-blue);
+  background: var(--jw-blue);
   color: white;
   font-size: 12px;
   font-weight: bold;
@@ -1008,22 +1008,22 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
 
 .step-content { flex: 1; }
 .step-title { font-size: 13px; font-weight: bold; }
-.step-desc { font-size: 11px; color: var(--win-dark); }
+.step-desc { font-size: 11px; color: var(--jw-dark); }
 
 .step-status {
   padding: 1px 6px;
   font-size: 10px;
   font-weight: bold;
   text-transform: uppercase;
-  border: 1px solid var(--win-dark);
+  border: 1px solid var(--jw-dark);
 }
 
 .step-status.on { background: #c0dcc0; color: var(--success); }
-.step-status.off { background: var(--win-surface); color: var(--win-dark); }
+.step-status.off { background: var(--jw-surface); color: var(--jw-dark); }
 .step-status.always-on { background: #c0c0dc; color: var(--info); }
 
 .pipeline-arrow {
-  color: var(--win-dark);
+  color: var(--jw-dark);
   font-size: 14px;
 }
 
@@ -1032,8 +1032,8 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
    ============================================================ */
 .wallet-info-bar {
   border: 2px solid;
-  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
-  background: var(--win-field-bg);
+  border-color: var(--jw-dark) var(--jw-white) var(--jw-white) var(--jw-dark);
+  background: var(--jw-field-bg);
   padding: 8px 12px;
   display: flex;
   justify-content: space-between;
@@ -1056,37 +1056,37 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
   display: flex;
   gap: 16px;
   padding: 8px;
-  border: 1px solid var(--win-dark);
-  background: var(--win-surface);
+  border: 1px solid var(--jw-dark);
+  background: var(--jw-surface);
   margin-bottom: 8px;
 }
 
-.mirror-summary-item .label { font-size: 11px; color: var(--win-dark); }
+.mirror-summary-item .label { font-size: 11px; color: var(--jw-dark); }
 .mirror-summary-item .value { font-size: 18px; font-weight: bold; }
 
 .mirror-trades-wrap {
   max-height: 350px;
   overflow-y: auto;
   border: 2px solid;
-  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
+  border-color: var(--jw-dark) var(--jw-white) var(--jw-white) var(--jw-dark);
 }
 
 .execution-summary-bar {
   margin-top: 8px;
   padding: 8px;
-  border: 1px solid var(--win-dark);
-  background: var(--win-surface);
+  border: 1px solid var(--jw-dark);
+  background: var(--jw-surface);
   font-size: 14px;
 }
 
 .execution-summary-bar .buy-summary { color: var(--success); font-weight: bold; }
 .execution-summary-bar .sell-summary { color: var(--danger); font-weight: bold; }
-.execution-summary-bar .excluded-note { color: var(--win-dark); font-size: 12px; }
+.execution-summary-bar .excluded-note { color: var(--jw-dark); font-size: 12px; }
 
 /* ============================================================
    WARNING / INFO BANNERS
    ============================================================ */
-.win-warning {
+.jw-warning {
   border: 2px solid var(--warning);
   background: #ffffcc;
   padding: 8px 12px;
@@ -1097,7 +1097,7 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
   font-size: 13px;
 }
 
-.win-info {
+.jw-info {
   border: 2px solid var(--info);
   background: #ccccff;
   padding: 8px 12px;
@@ -1108,7 +1108,7 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
   font-size: 13px;
 }
 
-.win-error {
+.jw-error {
   border: 2px solid var(--danger);
   background: #ffcccc;
   padding: 8px 12px;
@@ -1131,8 +1131,8 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
 
 .trading-wallet-card {
   border: 2px solid;
-  border-color: var(--win-light) var(--win-darker) var(--win-darker) var(--win-light);
-  background: var(--win-field-bg);
+  border-color: var(--jw-light) var(--jw-darker) var(--jw-darker) var(--jw-light);
+  background: var(--jw-field-bg);
   padding: 8px;
 }
 
@@ -1141,7 +1141,7 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
 }
 
 .trading-wallet-card.inactive-card {
-  border-left: 4px solid var(--win-dark);
+  border-left: 4px solid var(--jw-dark);
   opacity: 0.7;
 }
 
@@ -1150,8 +1150,8 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
    ============================================================ */
 .unlock-prompt {
   border: 2px solid;
-  border-color: var(--win-dark) var(--win-white) var(--win-white) var(--win-dark);
-  background: var(--win-field-bg);
+  border-color: var(--jw-dark) var(--jw-white) var(--jw-white) var(--jw-dark);
+  background: var(--jw-field-bg);
   padding: 16px;
   text-align: center;
   margin-bottom: 12px;
@@ -1166,8 +1166,8 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
    ISSUES LIST
    ============================================================ */
 .issue-item {
-  border: 1px solid var(--win-dark);
-  background: var(--win-field-bg);
+  border: 1px solid var(--jw-dark);
+  background: var(--jw-field-bg);
   padding: 6px 8px;
   margin-bottom: 4px;
   display: flex;
@@ -1195,11 +1195,11 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
   .form-row label { min-width: auto; text-align: left; }
   .form-hint { margin-left: 0; }
   
-  .win-modal { max-height: 100vh; }
+  .jw-modal { max-height: 100vh; }
   
   .mirror-summary-bar { flex-direction: column; gap: 8px; }
   
-  .win-tabs { flex-wrap: wrap; }
+  .jw-tabs { flex-wrap: wrap; }
 }
 
 /* Scrollbar styling for classic feel */
@@ -1209,18 +1209,18 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--win-light);
-  border: 1px solid var(--win-dark);
+  background: var(--jw-light);
+  border: 1px solid var(--jw-dark);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--win-surface);
-  border: 2px outset var(--win-surface);
+  background: var(--jw-surface);
+  border: 2px outset var(--jw-surface);
 }
 
 ::-webkit-scrollbar-button {
-  background: var(--win-surface);
-  border: 2px outset var(--win-surface);
+  background: var(--jw-surface);
+  border: 2px outset var(--jw-surface);
   width: 16px;
   height: 16px;
 }
@@ -1236,8 +1236,8 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
 }
 
 .platform-card {
-  background: var(--win-surface);
-  border: 2px inset var(--win-surface);
+  background: var(--jw-surface);
+  border: 2px inset var(--jw-surface);
   padding: 8px;
 }
 
@@ -1279,8 +1279,8 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
 
 /* Entity Wallet Mapping */
 .entity-map-card {
-  background: var(--win-surface);
-  border: 2px inset var(--win-surface);
+  background: var(--jw-surface);
+  border: 2px inset var(--jw-surface);
   padding: 8px;
   margin-bottom: 6px;
 }
@@ -1315,8 +1315,8 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
 
 /* Hedge Recommendation Cards */
 .hedge-rec-card {
-  background: var(--win-surface);
-  border: 2px inset var(--win-surface);
+  background: var(--jw-surface);
+  border: 2px inset var(--jw-surface);
   padding: 8px;
   margin-bottom: 6px;
 }
@@ -1341,7 +1341,7 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
   gap: 6px;
 }
 
-.win-btn-sm {
+.jw-btn-sm {
   padding: 1px 6px;
   font-size: 10px;
 }
@@ -1363,7 +1363,7 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
 
 .trade-detail-grid .detail-label {
   font-weight: bold;
-  color: var(--win-dark);
+  color: var(--jw-dark);
   text-align: right;
   white-space: nowrap;
   padding: 2px 0;
@@ -1376,80 +1376,80 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
 
 .trade-detail-grid .detail-divider {
   grid-column: 1 / -1;
-  border-bottom: 1px solid var(--win-dark);
+  border-bottom: 1px solid var(--jw-dark);
   margin: 4px 0;
 }
 
-.win-listview tr.clickable-row {
+.jw-listview tr.clickable-row {
   cursor: pointer;
 }
 
-.win-listview tr.clickable-row:hover td {
-  background: var(--win-selection);
-  color: var(--win-selected-text);
+.jw-listview tr.clickable-row:hover td {
+  background: var(--jw-selection);
+  color: var(--jw-selected-text);
 }
 
 .trades-scroll-container {
-  border: 2px inset var(--win-surface);
+  border: 2px inset var(--jw-surface);
 }
 
 /* ============================================================
    DROPDOWN MENUS (classic style)
    ============================================================ */
-.win-menubar {
+.jw-menubar {
   position: relative;
 }
 
-.win-menu-wrapper {
+.jw-menu-wrapper {
   position: relative;
   display: inline-block;
 }
 
-.win-menu-dropdown {
+.jw-menu-dropdown {
   position: absolute;
   top: 100%;
   left: 0;
-  background: var(--win-surface);
-  border: 2px outset var(--win-surface);
+  background: var(--jw-surface);
+  border: 2px outset var(--jw-surface);
   box-shadow: 2px 2px 0 rgba(0,0,0,0.3);
   min-width: 200px;
   z-index: 100;
   padding: 2px;
 }
 
-.win-menu-dropdown-item {
+.jw-menu-dropdown-item {
   display: block;
   width: 100%;
   padding: 3px 24px 3px 8px;
   font-family: var(--font-system);
   font-size: 14px;
   cursor: pointer;
-  color: var(--win-black);
+  color: var(--jw-black);
   background: none;
   border: none;
   text-align: left;
   white-space: nowrap;
 }
 
-.win-menu-dropdown-item:hover {
-  background: var(--win-selection);
-  color: var(--win-selected-text);
+.jw-menu-dropdown-item:hover {
+  background: var(--jw-selection);
+  color: var(--jw-selected-text);
 }
 
-.win-menu-dropdown-item:disabled {
-  color: var(--win-dark);
+.jw-menu-dropdown-item:disabled {
+  color: var(--jw-dark);
 }
 
-.win-menu-dropdown-item:disabled:hover {
+.jw-menu-dropdown-item:disabled:hover {
   background: none;
-  color: var(--win-dark);
+  color: var(--jw-dark);
 }
 
-.win-menu-separator {
+.jw-menu-separator {
   height: 1px;
-  background: var(--win-dark);
+  background: var(--jw-dark);
   margin: 3px 2px;
-  border-bottom: 1px solid var(--win-white);
+  border-bottom: 1px solid var(--jw-white);
 }
 
 /* ======================= Discovery Intelligence ======================= */
@@ -1471,8 +1471,8 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
 .signal-card {
   padding: 6px 8px;
   margin-bottom: 4px;
-  background: var(--win-surface);
-  border: 1px solid var(--win-dark);
+  background: var(--jw-surface);
+  border: 1px solid var(--jw-dark);
 }
 .signal-card.severity-critical { border-left: 4px solid #cc0000; }
 .signal-card.severity-high { border-left: 4px solid #e67e00; }
@@ -1483,8 +1483,8 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
   padding: 0 4px;
   font-size: 10px;
   font-family: var(--font-mono);
-  background: var(--win-bg);
-  border: 1px solid var(--win-dark);
+  background: var(--jw-bg);
+  border: 1px solid var(--jw-dark);
   margin-right: 4px;
 }
 
@@ -1495,7 +1495,7 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
   display: inline-block;
   width: 50px;
   height: 8px;
-  background: var(--win-dark);
+  background: var(--jw-dark);
   vertical-align: middle;
   margin-right: 4px;
 }
@@ -1511,8 +1511,8 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
   justify-content: center;
 }
 .wallet-detail-modal {
-  background: var(--win-surface);
-  border: 2px outset var(--win-highlight);
+  background: var(--jw-surface);
+  border: 2px outset var(--jw-highlight);
   width: 90%;
   max-width: 800px;
   max-height: 80vh;
@@ -1520,7 +1520,7 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
   padding: 0;
 }
 .wallet-detail-titlebar {
-  background: var(--win-title-active);
+  background: var(--jw-title-active);
   color: white;
   padding: 2px 4px;
   font-weight: bold;
@@ -1575,7 +1575,7 @@ body.grid-pattern::before {
   display: block;
 }
 
-.win-window {
+.jw-window {
   max-width: 100%;
   width: min(1500px, 100%);
   border: 1px solid var(--jungle-border);
@@ -1585,15 +1585,15 @@ body.grid-pattern::before {
   overflow: hidden;
 }
 
-.win-titlebar {
+.jw-titlebar {
   height: 52px;
   padding: 0 16px;
-  background: linear-gradient(90deg, #1a1b2e 0%, var(--win-title-active) 50%, #141528 100%);
+  background: linear-gradient(90deg, #1a1b2e 0%, var(--jw-title-active) 50%, #141528 100%);
   border-bottom: 1px solid var(--jungle-border);
   gap: 10px;
 }
 
-.win-titlebar-icon {
+.jw-titlebar-icon {
   width: 28px;
   height: 28px;
   border-radius: 6px;
@@ -1602,7 +1602,7 @@ body.grid-pattern::before {
   color: var(--jungle-gold);
 }
 
-.win-titlebar-text {
+.jw-titlebar-text {
   font-family: var(--font-serif);
   font-weight: 400;
   letter-spacing: 0.04em;
@@ -1610,11 +1610,11 @@ body.grid-pattern::before {
   color: var(--jungle-text);
 }
 
-.win-titlebar-buttons {
+.jw-titlebar-buttons {
   gap: 8px;
 }
 
-.win-titlebar-btn {
+.jw-titlebar-btn {
   width: 26px;
   height: 24px;
   border-radius: 4px;
@@ -1624,13 +1624,13 @@ body.grid-pattern::before {
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
-.win-titlebar-btn:hover {
+.jw-titlebar-btn:hover {
   background: rgba(229, 184, 11, 0.12);
   color: var(--jungle-gold);
   border-color: rgba(229, 184, 11, 0.35);
 }
 
-.win-menubar {
+.jw-menubar {
   background: var(--jungle-bg-elevated);
   border-bottom: 1px solid var(--jungle-border);
   height: 44px;
@@ -1638,7 +1638,7 @@ body.grid-pattern::before {
   gap: 4px;
 }
 
-.win-menu-item {
+.jw-menu-item {
   font-size: 13px;
   font-weight: 500;
   color: var(--jungle-text-muted);
@@ -1647,13 +1647,13 @@ body.grid-pattern::before {
   transition: background 0.15s ease, color 0.15s ease;
 }
 
-.win-menu-item:hover,
-.win-menu-item.active {
+.jw-menu-item:hover,
+.jw-menu-item.active {
   color: var(--jungle-gold);
   background: rgba(229, 184, 11, 0.1);
 }
 
-.win-menu-dropdown {
+.jw-menu-dropdown {
   margin-top: 6px;
   background: var(--jungle-bg-elevated);
   border: 1px solid var(--jungle-border-strong);
@@ -1661,37 +1661,37 @@ body.grid-pattern::before {
   box-shadow: var(--app-shadow);
 }
 
-.win-menu-dropdown-item {
+.jw-menu-dropdown-item {
   color: var(--jungle-text);
   font-size: 13px;
   padding: 8px 12px;
   border-radius: 4px;
 }
 
-.win-menu-dropdown-item:hover {
+.jw-menu-dropdown-item:hover {
   background: rgba(229, 184, 11, 0.12);
   color: var(--jungle-gold);
 }
 
-.win-menu-separator {
+.jw-menu-separator {
   border-bottom: 1px solid var(--jungle-border);
   background: transparent;
 }
 
-.win-body {
+.jw-body {
   max-height: calc(100vh - 220px);
   padding: 18px;
   background: transparent;
 }
 
-.win-tabs {
+.jw-tabs {
   gap: 6px;
   padding: 0;
   margin-bottom: 12px;
   flex-wrap: wrap;
 }
 
-.win-tab {
+.jw-tab {
   border: 1px solid var(--jungle-border);
   border-radius: 6px;
   margin: 0;
@@ -1704,13 +1704,13 @@ body.grid-pattern::before {
   letter-spacing: 0.08em;
 }
 
-.win-tab:hover:not(.active) {
+.jw-tab:hover:not(.active) {
   color: var(--jungle-text);
   border-color: var(--jungle-border-strong);
   background: var(--jungle-bg-surface);
 }
 
-.win-tab.active {
+.jw-tab.active {
   color: var(--jungle-gold);
   background: linear-gradient(180deg, rgba(229, 184, 11, 0.12), var(--jungle-bg-card));
   border-color: rgba(229, 184, 11, 0.35);
@@ -1719,7 +1719,7 @@ body.grid-pattern::before {
   box-shadow: inset 0 -2px 0 var(--jungle-gold);
 }
 
-.win-group {
+.jw-group {
   border: 1px solid var(--jungle-border);
   border-radius: var(--app-radius);
   background: rgba(28, 29, 46, 0.65);
@@ -1728,7 +1728,7 @@ body.grid-pattern::before {
   position: relative;
 }
 
-.win-group-title {
+.jw-group-title {
   position: static;
   margin-bottom: 10px;
   padding: 0;
@@ -1781,7 +1781,7 @@ body.grid-pattern::before {
   font-size: 22px;
 }
 
-.win-btn {
+.jw-btn {
   border: 1px solid var(--jungle-border-strong);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.04);
@@ -1793,30 +1793,30 @@ body.grid-pattern::before {
   transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 
-.win-btn:hover {
+.jw-btn:hover {
   border-color: rgba(229, 184, 11, 0.45);
   background: rgba(229, 184, 11, 0.08);
   box-shadow: 0 0 16px rgba(229, 184, 11, 0.12);
 }
 
-.win-btn:active {
+.jw-btn:active {
   transform: none;
 }
 
-.win-btn-primary {
+.jw-btn-primary {
   background: linear-gradient(180deg, rgba(229, 184, 11, 0.25), rgba(229, 184, 11, 0.12));
   border-color: rgba(229, 184, 11, 0.5);
   color: var(--jungle-gold-light);
 }
 
-.win-btn-sm {
+.jw-btn-sm {
   font-size: 12px;
   padding: 6px 10px;
 }
 
-.win-input,
-.win-select,
-textarea.win-input {
+.jw-input,
+.jw-select,
+textarea.jw-input {
   border: 1px solid var(--jungle-border-strong);
   border-radius: 6px;
   background: var(--jungle-bg-elevated);
@@ -1825,14 +1825,14 @@ textarea.win-input {
   min-height: 36px;
 }
 
-.win-input::placeholder,
-textarea.win-input::placeholder {
+.jw-input::placeholder,
+textarea.jw-input::placeholder {
   color: var(--jungle-text-dim);
 }
 
-.win-input:focus,
-.win-select:focus,
-textarea.win-input:focus {
+.jw-input:focus,
+.jw-select:focus,
+textarea.jw-input:focus {
   outline: 2px solid rgba(229, 184, 11, 0.25);
   outline-offset: 0;
   border-color: rgba(229, 184, 11, 0.55);
@@ -1846,43 +1846,43 @@ textarea.win-input:focus {
   color: var(--jungle-text-muted);
 }
 
-.win-checkbox,
-.win-radio {
+.jw-checkbox,
+.jw-radio {
   color: var(--jungle-text);
 }
 
-.win-checkbox input[type="checkbox"],
-.win-radio input[type="radio"] {
+.jw-checkbox input[type="checkbox"],
+.jw-radio input[type="radio"] {
   accent-color: var(--jungle-gold);
 }
 
-.win-toggle input {
+.jw-toggle input {
   background: var(--jungle-bg-elevated);
   border: 1px solid var(--jungle-border-strong);
   border-radius: 999px;
 }
 
-.win-toggle input::after {
+.jw-toggle input::after {
   border-radius: 50%;
   background: var(--jungle-text-dim);
 }
 
-.win-toggle input:checked {
+.jw-toggle input:checked {
   background: rgba(0, 212, 170, 0.2);
 }
 
-.win-toggle input:checked::after {
+.jw-toggle input:checked::after {
   background: var(--jungle-win);
 }
 
-.win-listview {
+.jw-listview {
   border: 1px solid var(--jungle-border);
   border-radius: 8px;
   overflow: hidden;
   background: var(--jungle-bg-elevated);
 }
 
-.win-listview th {
+.jw-listview th {
   background: var(--jungle-bg-surface);
   color: var(--jungle-text-muted);
   border: none;
@@ -1893,35 +1893,35 @@ textarea.win-input:focus {
   padding: 10px 12px;
 }
 
-.win-listview td {
+.jw-listview td {
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   color: var(--jungle-text);
   padding: 10px 12px;
 }
 
-.win-listview tr:hover td {
+.jw-listview tr:hover td {
   background: rgba(229, 184, 11, 0.08);
   color: var(--jungle-text);
 }
 
-.win-listview .empty-row td,
+.jw-listview .empty-row td,
 .text-center.text-muted {
   color: var(--jungle-text-muted);
 }
 
-.win-modal-overlay {
+.jw-modal-overlay {
   background: rgba(8, 9, 14, 0.78);
   backdrop-filter: blur(4px);
 }
 
-.win-modal {
+.jw-modal {
   border: 1px solid var(--jungle-border-strong);
   border-radius: var(--app-radius);
   background: linear-gradient(180deg, var(--jungle-bg-card), var(--jungle-bg));
   box-shadow: var(--app-shadow);
 }
 
-.win-modal-footer {
+.jw-modal-footer {
   border-top: 1px solid var(--jungle-border);
 }
 
@@ -1958,7 +1958,7 @@ textarea.win-input:focus {
   color: var(--jungle-gold);
 }
 
-.win-badge {
+.jw-badge {
   border: 1px solid var(--jungle-border-strong);
   background: rgba(229, 184, 11, 0.08);
   color: var(--jungle-text);
@@ -2018,33 +2018,33 @@ textarea.win-input:focus {
 .status-indicator.running { background: var(--jungle-win); }
 .status-indicator.stopped { background: var(--jungle-loss); }
 
-.win-statusbar {
+.jw-statusbar {
   border-top: 1px solid var(--jungle-border);
   background: var(--jungle-bg-elevated);
   font-size: 12px;
   padding: 6px 8px;
 }
 
-.win-statusbar-section {
+.jw-statusbar-section {
   border: 1px solid var(--jungle-border);
   border-radius: 6px;
   color: var(--jungle-text-muted);
   padding: 4px 8px;
 }
 
-.win-warning {
+.jw-warning {
   border: 1px solid rgba(229, 184, 11, 0.45);
   background: rgba(229, 184, 11, 0.08);
   color: var(--jungle-text);
 }
 
-.win-info {
+.jw-info {
   border: 1px solid rgba(155, 89, 182, 0.4);
   background: rgba(155, 89, 182, 0.1);
   color: var(--jungle-text);
 }
 
-.win-error {
+.jw-error {
   border: 1px solid rgba(255, 107, 107, 0.5);
   background: rgba(255, 107, 107, 0.1);
   color: var(--jungle-text);
@@ -2124,7 +2124,7 @@ textarea.win-input:focus {
 }
 
 .wallet-detail-titlebar {
-  background: linear-gradient(90deg, #1a1b2e, var(--win-title-active));
+  background: linear-gradient(90deg, #1a1b2e, var(--jw-title-active));
   color: var(--jungle-gold);
   border-bottom: 1px solid var(--jungle-border);
 }
@@ -2133,47 +2133,47 @@ textarea.win-input:focus {
   background: rgba(229, 184, 11, 0.1) !important;
 }
 
-.win-progress {
+.jw-progress {
   border-color: var(--jungle-border);
   background: var(--jungle-bg-elevated);
 }
 
-.win-progress-bar,
-.win-progress-block {
+.jw-progress-bar,
+.jw-progress-block {
   background: linear-gradient(90deg, var(--jungle-gold-dim), var(--jungle-gold));
 }
 
-.win-btn-success {
+.jw-btn-success {
   background: rgba(0, 212, 170, 0.15);
   border-color: rgba(0, 212, 170, 0.45);
   color: var(--jungle-win);
 }
 
-.win-btn-danger {
+.jw-btn-danger {
   background: rgba(255, 107, 107, 0.12);
   border-color: rgba(255, 107, 107, 0.45);
   color: var(--jungle-loss);
 }
 
-.win-badge.badge-success {
+.jw-badge.badge-success {
   background: rgba(0, 212, 170, 0.12);
   border-color: rgba(0, 212, 170, 0.4);
   color: var(--jungle-win);
 }
 
-.win-badge.badge-danger {
+.jw-badge.badge-danger {
   background: rgba(255, 107, 107, 0.12);
   border-color: rgba(255, 107, 107, 0.4);
   color: var(--jungle-loss);
 }
 
-.win-badge.badge-warning {
+.jw-badge.badge-warning {
   background: rgba(229, 184, 11, 0.1);
   border-color: rgba(229, 184, 11, 0.35);
   color: var(--jungle-gold);
 }
 
-.win-badge.badge-info {
+.jw-badge.badge-info {
   background: rgba(155, 89, 182, 0.12);
   border-color: rgba(155, 89, 182, 0.35);
   color: #d4b8e8;
@@ -2184,19 +2184,19 @@ textarea.win-input:focus {
   border-radius: 8px;
 }
 
-/* win95Dialog — title row uses win-title-bar (hyphen), not win-titlebar */
-.win-title-bar {
+/* jungleModal — title row uses jw-title-bar (hyphen), not jw-titlebar */
+.jw-title-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 10px 14px;
-  background: linear-gradient(90deg, #1a1b2e, var(--win-title-active));
+  background: linear-gradient(90deg, #1a1b2e, var(--jw-title-active));
   border-bottom: 1px solid var(--jungle-border);
   flex-shrink: 0;
 }
 
-.win-title-bar-text {
+.jw-title-bar-text {
   font-family: var(--font-serif);
   font-size: 17px;
   letter-spacing: 0.03em;
@@ -2204,13 +2204,13 @@ textarea.win-input:focus {
   flex: 1;
 }
 
-.win-title-bar-controls {
+.jw-title-bar-controls {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.win-title-bar-btn {
+.jw-title-bar-btn {
   width: 26px;
   height: 24px;
   border-radius: 4px;
@@ -2226,7 +2226,7 @@ textarea.win-input:focus {
   padding: 0;
 }
 
-.win-title-bar-btn:hover {
+.jw-title-bar-btn:hover {
   background: rgba(229, 184, 11, 0.12);
   color: var(--jungle-gold);
   border-color: rgba(229, 184, 11, 0.35);
@@ -2456,11 +2456,11 @@ body.app-ready .auth-gate-screen {
   letter-spacing: 0.04em;
 }
 
-.win-titlebar.app-titlebar .win-titlebar-buttons {
+.jw-titlebar.app-titlebar .jw-titlebar-buttons {
   display: none;
 }
 
-.win-titlebar.app-titlebar .win-titlebar-text {
+.jw-titlebar.app-titlebar .jw-titlebar-text {
   color: var(--jungle-text);
   font-size: 28px;
   line-height: 1;
@@ -2470,18 +2470,18 @@ body.app-ready .auth-gate-screen {
   padding: 14px 18px 0;
 }
 
-.win-tabs {
+.jw-tabs {
   align-items: stretch;
 }
 
-.win-tab {
+.jw-tab {
   position: relative;
   min-height: 44px;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.02);
 }
 
-.win-tab::after {
+.jw-tab::after {
   content: "";
   position: absolute;
   left: 12px;
@@ -2491,16 +2491,16 @@ body.app-ready .auth-gate-screen {
   background: rgba(229, 184, 11, 0.12);
 }
 
-.win-tab.active::after {
+.jw-tab.active::after {
   height: 2px;
   background: var(--jungle-gold);
 }
 
-.win-tab.nav-hidden {
+.jw-tab.nav-hidden {
   display: none;
 }
 
-.win-body {
+.jw-body {
   max-height: none;
   min-height: 0;
   padding: 0;
@@ -2517,7 +2517,7 @@ body.app-ready .auth-gate-screen {
 .app-hero-copy,
 .app-hero-aside-card,
 .section-intro,
-.auth-modal-card .win-modal-body {
+.auth-modal-card .jw-modal-body {
   border: 1px solid var(--jungle-border);
   border-radius: 18px;
   background:
@@ -2660,12 +2660,12 @@ body.app-ready .auth-gate-screen {
   justify-content: space-between;
 }
 
-.win-group {
+.jw-group {
   border-radius: 18px;
   background: linear-gradient(180deg, rgba(28, 29, 46, 0.84), rgba(18, 19, 31, 0.92));
 }
 
-.win-group-title {
+.jw-group-title {
   font-size: 18px;
   letter-spacing: 0.04em;
 }
@@ -2675,7 +2675,7 @@ body.app-ready .auth-gate-screen {
   overflow: hidden;
 }
 
-.auth-modal-card .win-titlebar {
+.auth-modal-card .jw-titlebar {
   min-height: 68px;
   padding: 14px 20px;
 }
@@ -2985,7 +2985,7 @@ body.app-ready .auth-gate-screen {
   margin: 0 auto;
 }
 
-.win-body {
+.jw-body {
   max-height: none;
   min-height: 0;
   padding: 0;
@@ -3123,13 +3123,13 @@ body.j-drawer-open { overflow: hidden; }
 }
 .j-section-header { margin-bottom: var(--space-md); }
 
-.win-listview th { position: sticky; top: 0; z-index: 1; background: var(--jungle-bg-elevated); }
-.win-listview tr { height: var(--j-table-row-h); }
+.jw-listview th { position: sticky; top: 0; z-index: 1; background: var(--jungle-bg-elevated); }
+.jw-listview tr { height: var(--j-table-row-h); }
 
 .desktop { padding: 0; padding-bottom: 0; }
 .taskbar,
-.win-titlebar-buttons,
-.win-menubar { display: none !important; }
+.jw-titlebar-buttons,
+.jw-menubar { display: none !important; }
 
 @media (max-width: 900px) {
   .j-topbar { flex-wrap: wrap; }
@@ -3777,7 +3777,7 @@ body.j-drawer-open { overflow: hidden; }
 /* ============================================================
    SHARED PAGE SHELL (all tabs except dashboard)
    ============================================================ */
-.win-tab-panel.active.j-page {
+.jw-tab-panel.active.j-page {
   display: flex !important;
   flex-direction: column;
   gap: 14px;
@@ -3811,7 +3811,7 @@ body.j-drawer-open { overflow: hidden; }
   text-decoration: underline;
 }
 
-.j-page .win-group {
+.j-page .jw-group {
   border-radius: var(--j-radius-lg);
   background: var(--jungle-bg-card);
   box-shadow: var(--j-shadow-1);
@@ -3821,7 +3821,7 @@ body.j-drawer-open { overflow: hidden; }
   border: 1px solid var(--jungle-border);
 }
 
-.j-page .win-group-title {
+.j-page .jw-group-title {
   font-size: 18px;
   padding: 0;
   margin-bottom: 12px;

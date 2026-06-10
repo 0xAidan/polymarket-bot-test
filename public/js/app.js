@@ -15,23 +15,23 @@ const SETUP_GUIDE_COMPLETED_KEY = 'ditto_setup_completed_v1';
 const SETUP_GUIDE_SESSION_DISMISS_KEY = 'ditto_setup_dismissed_session_v1';
 
 // ============================================================
-// WIN95 DIALOG SYSTEM (replaces native alert/confirm/prompt)
+// JUNGLE MODAL DIALOG SYSTEM (replaces native alert/confirm/prompt)
 // ============================================================
 
-const win95Dialog = (() => {
+const jungleModal = (() => {
   let container = null;
 
   const ensureContainer = () => {
     if (container) return container;
     container = document.createElement('div');
-    container.id = 'win95DialogContainer';
+    container.id = 'jungleModalContainer';
     document.body.appendChild(container);
     return container;
   };
 
   const createOverlay = () => {
     const overlay = document.createElement('div');
-    overlay.className = 'win-modal-overlay';
+    overlay.className = 'jw-modal-overlay';
     overlay.style.zIndex = '9999';
     return overlay;
   };
@@ -40,26 +40,26 @@ const win95Dialog = (() => {
     return new Promise((resolve) => {
       const overlay = createOverlay();
       const modal = document.createElement('div');
-      modal.className = 'win-modal';
+      modal.className = 'jw-modal';
       modal.style.maxWidth = '440px';
       modal.setAttribute('role', 'dialog');
       modal.setAttribute('aria-label', title);
 
       const titleBar = document.createElement('div');
-      titleBar.className = 'win-title-bar';
+      titleBar.className = 'jw-title-bar';
       titleBar.innerHTML = `
-        <span class="win-title-bar-text">${title}</span>
-        <div class="win-title-bar-controls">
-          <button class="win-title-bar-btn" aria-label="Close" data-action="close">&times;</button>
+        <span class="jw-title-bar-text">${title}</span>
+        <div class="jw-title-bar-controls">
+          <button class="jw-title-bar-btn" aria-label="Close" data-action="close">&times;</button>
         </div>`;
 
       const body = document.createElement('div');
-      body.className = 'win-modal-body';
+      body.className = 'jw-modal-body';
       body.style.padding = '16px';
       body.innerHTML = bodyHtml;
 
       const footer = document.createElement('div');
-      footer.className = 'win-modal-footer';
+      footer.className = 'jw-modal-footer';
 
       let resolved = false;
       const close = (value) => {
@@ -74,7 +74,7 @@ const win95Dialog = (() => {
 
       buttons.forEach((btn, i) => {
         const button = document.createElement('button');
-        button.className = 'win-btn';
+        button.className = 'jw-btn';
         button.textContent = btn.label;
         button.style.minWidth = '80px';
         if (btn.primary) button.style.fontWeight = 'bold';
@@ -133,10 +133,10 @@ const win95Dialog = (() => {
 
     prompt: (message, defaultValue = '', title = 'Input') => {
       const escaped = String(message).replace(/</g, '&lt;').replace(/\n/g, '<br>');
-      const inputId = 'win95PromptInput_' + Date.now();
+      const inputId = 'jungleModalPromptInput_' + Date.now();
       return createDialog(title, `
         <p style="margin:0 0 8px;line-height:1.5">${escaped}</p>
-        <input id="${inputId}" class="win-input" style="width:100%;box-sizing:border-box" value="${String(defaultValue).replace(/"/g, '&quot;')}" />
+        <input id="${inputId}" class="jw-input" style="width:100%;box-sizing:border-box" value="${String(defaultValue).replace(/"/g, '&quot;')}" />
       `, [
         { label: 'OK', value: '__OK__', primary: true },
         { label: 'Cancel', value: null },
@@ -160,7 +160,7 @@ window.handleLogout = async function handleLogout() {
     return;
   }
 
-  const ok = await win95Dialog.confirm('Log out and end your session?', 'Sign out');
+  const ok = await jungleModal.confirm('Log out and end your session?', 'Sign out');
   if (!ok) {
     return;
   }
@@ -619,11 +619,11 @@ function switchTab(tabName) {
   if (currentTab === 'discovery' && tabName !== 'discovery') {
     stopDiscoveryRefresh();
   }
-  document.querySelectorAll('.win-tab, .j-nav-btn').forEach(btn => {
+  document.querySelectorAll('.jw-tab, .j-nav-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tab === tabName);
   });
 
-  document.querySelectorAll('.win-tab-panel').forEach(panel => {
+  document.querySelectorAll('.jw-tab-panel').forEach(panel => {
     panel.classList.toggle('active', panel.id === `tab-${tabName}`);
   });
 
@@ -913,18 +913,18 @@ async function toggleBot() {
     await loadStatus();
     await refreshSetupExperience();
   } catch (error) {
-    await win95Dialog.error(`Failed: ${error.message}`);
+    await jungleModal.error(`Failed: ${error.message}`);
   }
 }
 
 async function startBot() {
   try { await API.startBot(); await loadStatus(); }
-  catch (error) { await win95Dialog.error(`Failed to start bot: ${error.message}`); }
+  catch (error) { await jungleModal.error(`Failed to start bot: ${error.message}`); }
 }
 
 async function stopBot() {
   try { await API.stopBot(); await loadStatus(); }
-  catch (error) { await win95Dialog.error(`Failed to stop bot: ${error.message}`); }
+  catch (error) { await jungleModal.error(`Failed to stop bot: ${error.message}`); }
 }
 
 // ============================================================
@@ -1015,8 +1015,8 @@ function renderJungleAgentPresets() {
 
   container.innerHTML = filtered.map((agent) => {
     const avatar = agent.avatarUrl
-      ? `<img src="${agent.avatarUrl}" alt="${agent.displayName}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;border:1px solid var(--win-dark);">`
-      : '<div style="width:28px;height:28px;border-radius:50%;border:1px solid var(--win-dark);display:flex;align-items:center;justify-content:center;font-size:12px;">?</div>';
+      ? `<img src="${agent.avatarUrl}" alt="${agent.displayName}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;border:1px solid var(--jw-dark);">`
+      : '<div style="width:28px;height:28px;border-radius:50%;border:1px solid var(--jw-dark);display:flex;align-items:center;justify-content:center;font-size:12px;">?</div>';
 
     const address = agent.polymarketAddress || '';
     const shortAddress = address
@@ -1030,13 +1030,13 @@ function renderJungleAgentPresets() {
           <div class="wallet-entry-address" style="display:flex;align-items:center;gap:8px;">
             ${avatar}
             <div>
-              <div><strong>${agent.displayName}</strong> <span class="win-badge">${agent.category || 'Uncategorized'}</span></div>
+              <div><strong>${agent.displayName}</strong> <span class="jw-badge">${agent.category || 'Uncategorized'}</span></div>
               <div class="text-sm text-muted">${agent.modelLabel || 'No model label'} - ${shortAddress}</div>
             </div>
           </div>
         </div>
         <div class="wallet-entry-actions">
-          <button class="win-btn win-btn-sm" onclick="oneClickTrackJungleAgent('${agent.id}')" ${disabled}>Track</button>
+          <button class="jw-btn jw-btn-sm" onclick="oneClickTrackJungleAgent('${agent.id}')" ${disabled}>Track</button>
         </div>
       </div>
     `;
@@ -1069,11 +1069,11 @@ async function loadJungleAgentPresets(forceRefresh = false) {
 async function oneClickTrackJungleAgent(agentId) {
   const agent = jungleAgentPresetCache.find((entry) => entry.id === agentId);
   if (!agent) {
-    await win95Dialog.error('Agent preset not found.');
+    await jungleModal.error('Agent preset not found.');
     return;
   }
   if (!agent.polymarketAddress) {
-    await win95Dialog.alert('This preset does not have a wallet address yet.');
+    await jungleModal.alert('This preset does not have a wallet address yet.');
     return;
   }
 
@@ -1083,11 +1083,11 @@ async function oneClickTrackJungleAgent(agentId) {
       label: agent.displayName,
       tags: [agent.category || 'Uncategorized']
     });
-    await win95Dialog.success(`${agent.displayName} added to tracked wallets.`);
+    await jungleModal.success(`${agent.displayName} added to tracked wallets.`);
     lastWalletHash = '';
     await loadWallets(true);
   } catch (error) {
-    await win95Dialog.error(`Failed to add preset wallet: ${error.message}`);
+    await jungleModal.error(`Failed to add preset wallet: ${error.message}`);
   }
 }
 
@@ -1157,12 +1157,12 @@ async function loadWallets(forceRebuild = false) {
             <span class="text-muted text-sm">Loading...</span>
           </div>
           <div class="wallet-entry-actions">
-            <label class="win-toggle">
+            <label class="jw-toggle">
               <input type="checkbox" ${isActive ? 'checked' : ''} onchange="toggleWallet('${wallet.address}', this.checked)">
             </label>
-            <button class="win-btn win-btn-sm" onclick="openMirrorModal('${wallet.address}')">Mirror</button>
-            <button class="win-btn win-btn-sm" onclick="openWalletModal('${wallet.address}')">Config</button>
-            <button class="win-btn win-btn-sm win-btn-danger" onclick="removeWallet('${wallet.address}')">X</button>
+            <button class="jw-btn jw-btn-sm" onclick="openMirrorModal('${wallet.address}')">Mirror</button>
+            <button class="jw-btn jw-btn-sm" onclick="openWalletModal('${wallet.address}')">Config</button>
+            <button class="jw-btn jw-btn-sm jw-btn-danger" onclick="removeWallet('${wallet.address}')">X</button>
           </div>
         </div>
       `;
@@ -1219,30 +1219,30 @@ function getWalletConfigBadges(wallet) {
   const badges = [];
 
   if (wallet.tradeSizingMode === 'fixed') {
-    badges.push(`<span class="win-badge badge-success">Fixed $${wallet.fixedTradeSize || '?'}</span>`);
-    if (wallet.thresholdEnabled) badges.push(`<span class="win-badge badge-success">${wallet.thresholdPercent}% threshold</span>`);
+    badges.push(`<span class="jw-badge badge-success">Fixed $${wallet.fixedTradeSize || '?'}</span>`);
+    if (wallet.thresholdEnabled) badges.push(`<span class="jw-badge badge-success">${wallet.thresholdPercent}% threshold</span>`);
   } else if (wallet.tradeSizingMode === 'proportional') {
-    badges.push(`<span class="win-badge badge-success">Proportional</span>`);
+    badges.push(`<span class="jw-badge badge-success">Proportional</span>`);
   } else {
-    badges.push(`<span class="win-badge">Global size</span>`);
+    badges.push(`<span class="jw-badge">Global size</span>`);
   }
 
   if (wallet.tradeSideFilter && wallet.tradeSideFilter !== 'all') {
     const label = wallet.tradeSideFilter === 'buy_only' ? 'BUY only' : 'SELL only';
-    badges.push(`<span class="win-badge badge-warning">${label}</span>`);
+    badges.push(`<span class="jw-badge badge-warning">${label}</span>`);
   }
 
-  if (wallet.noRepeatEnabled) badges.push(`<span class="win-badge badge-success">No repeat</span>`);
-  if (wallet.rateLimitEnabled) badges.push(`<span class="win-badge badge-success">Rate limited</span>`);
-  if (wallet.valueFilterEnabled) badges.push(`<span class="win-badge badge-success">Value filter</span>`);
+  if (wallet.noRepeatEnabled) badges.push(`<span class="jw-badge badge-success">No repeat</span>`);
+  if (wallet.rateLimitEnabled) badges.push(`<span class="jw-badge badge-success">Rate limited</span>`);
+  if (wallet.valueFilterEnabled) badges.push(`<span class="jw-badge badge-success">Value filter</span>`);
 
-  return badges.join(' ') || '<span class="win-badge">Using defaults</span>';
+  return badges.join(' ') || '<span class="jw-badge">Using defaults</span>';
 }
 
 async function addWallet() {
   const input = document.getElementById('newWalletAddress');
   const address = input.value.trim();
-  if (!address) { await win95Dialog.alert('Please enter a wallet address'); return; }
+  if (!address) { await jungleModal.alert('Please enter a wallet address'); return; }
 
   try {
     await API.addWallet(address);
@@ -1250,23 +1250,23 @@ async function addWallet() {
     lastWalletHash = '';
     await loadWallets(true);
     await refreshSetupExperience();
-    if (await win95Dialog.confirm('Wallet added (inactive by default). Configure it now?')) {
+    if (await jungleModal.confirm('Wallet added (inactive by default). Configure it now?')) {
       openWalletModal(address.toLowerCase());
     }
   } catch (error) {
-    await win95Dialog.error(`Failed to add wallet: ${error.message}`);
+    await jungleModal.error(`Failed to add wallet: ${error.message}`);
   }
 }
 
 async function removeWallet(address) {
-  if (!await win95Dialog.confirm('Remove this tracked wallet?')) return;
+  if (!await jungleModal.confirm('Remove this tracked wallet?')) return;
   try { lastWalletHash = ''; await API.removeWallet(address); await loadWallets(true); }
-  catch (error) { await win95Dialog.error(`Failed to remove wallet: ${error.message}`); }
+  catch (error) { await jungleModal.error(`Failed to remove wallet: ${error.message}`); }
 }
 
 async function toggleWallet(address, active) {
   try { lastWalletHash = ''; await API.toggleWallet(address, active); await loadWallets(true); }
-  catch (error) { await win95Dialog.error(`Failed to toggle wallet: ${error.message}`); await loadWallets(true); }
+  catch (error) { await jungleModal.error(`Failed to toggle wallet: ${error.message}`); await loadWallets(true); }
 }
 
 // ============================================================
@@ -1279,14 +1279,14 @@ async function openWalletModal(address) {
   try {
     const data = await API.getWallets();
     const wallet = data.wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
-    if (!wallet) { await win95Dialog.error('Wallet not found'); return; }
+    if (!wallet) { await jungleModal.error('Wallet not found'); return; }
 
     document.getElementById('walletModalTitle').textContent = `Configure: ${wallet.label || address.slice(0, 10) + '...'}`;
     document.getElementById('modalWalletAddress').textContent = address;
 
     const statusEl = document.getElementById('modalWalletStatus');
     statusEl.textContent = wallet.active ? 'Active' : 'Inactive';
-    statusEl.className = `win-badge ${wallet.active ? 'badge-success' : 'badge-danger'}`;
+    statusEl.className = `jw-badge ${wallet.active ? 'badge-success' : 'badge-danger'}`;
 
     document.getElementById('modalWalletLabel').value = wallet.label || '';
     document.getElementById('modalTradeSize').value = wallet.fixedTradeSize || 2;
@@ -1333,7 +1333,7 @@ async function openWalletModal(address) {
     document.body.classList.add('j-drawer-open');
     setupModalEventListeners();
   } catch (error) {
-    await win95Dialog.error(`Failed to load wallet: ${error.message}`);
+    await jungleModal.error(`Failed to load wallet: ${error.message}`);
   }
 }
 
@@ -1433,7 +1433,7 @@ function updatePriceBadge() {
   const isDefault = min === 0.01 && max === 0.99;
   const badge = document.getElementById('modalPriceBadge');
   badge.textContent = isDefault ? 'DEFAULT' : 'CUSTOM';
-  badge.className = `win-badge ${isDefault ? '' : 'badge-success'}`;
+  badge.className = `jw-badge ${isDefault ? '' : 'badge-success'}`;
 }
 
 function updateSlippageBadge() {
@@ -1441,10 +1441,10 @@ function updateSlippageBadge() {
   const badge = document.getElementById('modalSlippageBadge');
   if (!value || parseFloat(value) === 2) {
     badge.textContent = 'DEFAULT (2%)';
-    badge.className = 'win-badge';
+    badge.className = 'jw-badge';
   } else {
     badge.textContent = `${value}%`;
-    badge.className = 'win-badge badge-success';
+    badge.className = 'jw-badge badge-success';
   }
 }
 
@@ -1507,11 +1507,11 @@ async function saveWalletConfig() {
     await API.updateWalletLabel(currentWalletAddress, document.getElementById('modalWalletLabel').value.trim());
     await API.updateWalletTags(currentWalletAddress, tags);
     await API.updateWalletTradeConfig(currentWalletAddress, config);
-    await win95Dialog.success('Configuration saved (wallet remains inactive until enabled)');
+    await jungleModal.success('Configuration saved (wallet remains inactive until enabled)');
     closeWalletModal();
     lastWalletHash = '';
     await loadWallets(true);
-  } catch (error) { await win95Dialog.error(`Failed to save: ${error.message}`); }
+  } catch (error) { await jungleModal.error(`Failed to save: ${error.message}`); }
 }
 
 async function saveWalletConfigAndEnable() {
@@ -1523,11 +1523,11 @@ async function saveWalletConfigAndEnable() {
     await API.updateWalletTags(currentWalletAddress, tags);
     await API.updateWalletTradeConfig(currentWalletAddress, config);
     await API.toggleWallet(currentWalletAddress, true);
-    await win95Dialog.success('Configuration saved and wallet enabled!');
+    await jungleModal.success('Configuration saved and wallet enabled!');
     closeWalletModal();
     lastWalletHash = '';
     await loadWallets(true);
-  } catch (error) { await win95Dialog.error(`Failed to save: ${error.message}`); }
+  } catch (error) { await jungleModal.error(`Failed to save: ${error.message}`); }
 }
 
 function collectModalConfig() {
@@ -1582,27 +1582,27 @@ async function updateStopLoss() {
   const enabled = document.getElementById('stopLossEnabled').checked;
   const percent = parseInt(document.getElementById('stopLossPercent').value);
   document.getElementById('stopLossInputs').className = enabled ? '' : 'hidden';
-  try { await API.setStopLoss(enabled, percent); } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+  try { await API.setStopLoss(enabled, percent); } catch (error) { await jungleModal.error(`Failed: ${error.message}`); }
 }
 
 async function updateMonitoringInterval() {
   try { await API.setMonitoringInterval(parseInt(document.getElementById('monitoringInterval').value)); }
-  catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+  catch (error) { await jungleModal.error(`Failed: ${error.message}`); }
 }
 
 async function updateProxyWallet() {
   const addr = document.getElementById('proxyWalletAddress').value.trim();
-  if (!addr) { await win95Dialog.alert('Please enter your proxy wallet address'); return; }
-  if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) { await win95Dialog.error('Invalid address format.'); return; }
+  if (!addr) { await jungleModal.alert('Please enter your proxy wallet address'); return; }
+  if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) { await jungleModal.error('Invalid address format.'); return; }
   try {
     const response = await fetch('/api/config/proxy-wallet', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ proxyWalletAddress: addr })
     });
     const data = await response.json();
-    if (data.success) { await win95Dialog.success('Proxy wallet saved!'); loadWalletBalance(); }
-    else await win95Dialog.error(`Failed: ${data.error}`);
-  } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+    if (data.success) { await jungleModal.success('Proxy wallet saved!'); loadWalletBalance(); }
+    else await jungleModal.error(`Failed: ${data.error}`);
+  } catch (error) { await jungleModal.error(`Failed: ${error.message}`); }
 }
 
 // ============================================================
@@ -1658,7 +1658,7 @@ async function loadFailedTrades() {
     }
     let html = '<strong>Error Type Breakdown:</strong>';
     for (const [type, count] of Object.entries(data.analysis.errorTypes)) {
-      html += `<div class="flex-between" style="padding:4px 0;border-bottom:1px solid var(--win-dark)"><span>${type}</span><span>${count}</span></div>`;
+      html += `<div class="flex-between" style="padding:4px 0;border-bottom:1px solid var(--jw-dark)"><span>${type}</span><span>${count}</span></div>`;
     }
     html += '<br><strong>Recent Failures:</strong>';
     html += data.trades.slice(0, 5).map(t => `
@@ -1774,7 +1774,7 @@ async function createMasterPassword() {
     document.getElementById('masterPasswordConfirm').value = '';
 
     if (result.migrated && window.__hostedMultiTenant !== true) {
-      await win95Dialog.alert('Existing .env private key was migrated to encrypted storage as your "main" wallet.');
+      await jungleModal.alert('Existing .env private key was migrated to encrypted storage as your "main" wallet.');
     }
 
     document.getElementById('unlockSection').classList.add('hidden');
@@ -1790,7 +1790,7 @@ async function createMasterPassword() {
 // Returning user: unlock with existing master password
 async function unlockVault() {
   const pw = document.getElementById('masterPasswordInput').value;
-  if (!pw) { await win95Dialog.alert('Enter your master password'); return; }
+  if (!pw) { await jungleModal.alert('Enter your master password'); return; }
 
   try {
     const result = await API.unlockWallets(pw);
@@ -1800,14 +1800,14 @@ async function unlockVault() {
     document.getElementById('masterPasswordInput').value = '';
 
     if (result.migrated && window.__hostedMultiTenant !== true) {
-      await win95Dialog.alert('Existing .env private key was migrated to encrypted storage as "main" wallet.');
+      await jungleModal.alert('Existing .env private key was migrated to encrypted storage as "main" wallet.');
     }
     document.getElementById('unlockSection').classList.add('hidden');
     document.getElementById('tradingWalletsSection').classList.remove('hidden');
     await loadTradingWallets();
     await refreshSetupExperience();
   } catch (error) {
-    await win95Dialog.error(`Unlock failed: ${error.message}`);
+    await jungleModal.error(`Unlock failed: ${error.message}`);
   }
 }
 
@@ -1828,23 +1828,23 @@ async function loadTradingWallets() {
       <div class="trading-wallet-card ${w.isActive ? 'active-card' : 'inactive-card'}">
         <div class="flex-between flex-wrap gap-8">
           <div>
-            <div class="text-bold">${w.label} <span class="win-badge ${w.isActive ? 'badge-success' : ''}">${w.id}</span></div>
+            <div class="text-bold">${w.label} <span class="jw-badge ${w.isActive ? 'badge-success' : ''}">${w.id}</span></div>
             <div class="text-mono text-sm">${w.address}</div>
             <div class="text-sm text-muted">Created: ${new Date(w.createdAt).toLocaleDateString()}</div>
             <div class="text-sm" style="margin-top:2px;">
               ${w.hasCredentials
-          ? '<span style="color:var(--win-green,green);">Builder API: Configured</span>'
-          : '<span style="color:var(--win-red,#c00);font-weight:bold;">Builder API: Missing — cannot trade</span>'
+          ? '<span style="color:var(--jw-green,green);">Builder API: Configured</span>'
+          : '<span style="color:var(--jw-red,#c00);font-weight:bold;">Builder API: Missing — cannot trade</span>'
         }
             </div>
           </div>
           <div class="flex-row gap-4">
-            <button class="win-btn win-btn-sm" onclick="openTradingWalletSettingsModal('${w.id}', '${escapedLabel}')" title="Wallet settings (auto-redemption, etc.)">Settings</button>
-            ${!w.hasCredentials ? `<button class="win-btn win-btn-sm" onclick="openBuilderCredsModal('${w.id}', '${escapedLabel}')" title="Add Builder API credentials">Add Creds</button>` : `<button class="win-btn win-btn-sm" onclick="openBuilderCredsModal('${w.id}', '${escapedLabel}')" title="Update Builder API credentials">Update Creds</button>`}
-            <label class="win-toggle">
+            <button class="jw-btn jw-btn-sm" onclick="openTradingWalletSettingsModal('${w.id}', '${escapedLabel}')" title="Wallet settings (auto-redemption, etc.)">Settings</button>
+            ${!w.hasCredentials ? `<button class="jw-btn jw-btn-sm" onclick="openBuilderCredsModal('${w.id}', '${escapedLabel}')" title="Add Builder API credentials">Add Creds</button>` : `<button class="jw-btn jw-btn-sm" onclick="openBuilderCredsModal('${w.id}', '${escapedLabel}')" title="Update Builder API credentials">Update Creds</button>`}
+            <label class="jw-toggle">
               <input type="checkbox" ${w.isActive ? 'checked' : ''} onchange="toggleTradingWalletActive('${w.id}', this.checked)">
             </label>
-            <button class="win-btn win-btn-sm win-btn-danger" onclick="removeTradingWalletUI('${w.id}')">Remove</button>
+            <button class="jw-btn jw-btn-sm jw-btn-danger" onclick="removeTradingWalletUI('${w.id}')">Remove</button>
           </div>
         </div>
       </div>
@@ -1893,11 +1893,11 @@ async function addNewTradingWallet() {
   const apiPassphrase = document.getElementById('newTradingWalletApiPassphrase').value.trim();
   const passwordForRequest = usesHostedWalletAccess() ? undefined : masterPassword;
 
-  if (!id || !label || !pk) { await win95Dialog.alert('Wallet ID, Label, and Private Key are required'); return; }
-  if (!usesHostedWalletAccess() && !masterPassword) { await win95Dialog.alert('Wallets must be unlocked first'); return; }
+  if (!id || !label || !pk) { await jungleModal.alert('Wallet ID, Label, and Private Key are required'); return; }
+  if (!usesHostedWalletAccess() && !masterPassword) { await jungleModal.alert('Wallets must be unlocked first'); return; }
 
   if (!apiKey || !apiSecret || !apiPassphrase) {
-    const proceed = await win95Dialog.confirm(
+    const proceed = await jungleModal.confirm(
       'WARNING: You have not entered Builder API credentials.\n\n' +
       'Without these, this wallet CANNOT place orders on Polymarket.\n' +
       'Get them from: polymarket.com/settings → Builder tab\n\n' +
@@ -1914,23 +1914,23 @@ async function addNewTradingWallet() {
     document.getElementById('newTradingWalletApiKey').value = '';
     document.getElementById('newTradingWalletApiSecret').value = '';
     document.getElementById('newTradingWalletApiPassphrase').value = '';
-    await win95Dialog.success('Trading wallet added!');
+    await jungleModal.success('Trading wallet added!');
     await loadTradingWallets();
     await refreshSetupExperience();
   } catch (error) {
-    await win95Dialog.error(`Failed: ${error.message}`);
+    await jungleModal.error(`Failed: ${error.message}`);
   }
 }
 
 async function removeTradingWalletUI(id) {
-  if (!await win95Dialog.confirm(`Remove trading wallet "${id}"? This will delete the encrypted keystore.`)) return;
+  if (!await jungleModal.confirm(`Remove trading wallet "${id}"? This will delete the encrypted keystore.`)) return;
   try { await API.removeTradingWallet(id); await loadTradingWallets(); }
-  catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+  catch (error) { await jungleModal.error(`Failed: ${error.message}`); }
 }
 
 async function toggleTradingWalletActive(id, active) {
   try { await API.toggleTradingWallet(id, active); await loadTradingWallets(); }
-  catch (error) { await win95Dialog.error(`Failed: ${error.message}`); await loadTradingWallets(); }
+  catch (error) { await jungleModal.error(`Failed: ${error.message}`); await loadTradingWallets(); }
 }
 
 // ============================================================
@@ -1938,7 +1938,7 @@ async function toggleTradingWalletActive(id, active) {
 // ============================================================
 
 async function openBuilderCredsModal(walletId, walletLabel) {
-  if (!usesHostedWalletAccess() && !masterPassword) { await win95Dialog.alert('Wallets must be unlocked first'); return; }
+  if (!usesHostedWalletAccess() && !masterPassword) { await jungleModal.alert('Wallets must be unlocked first'); return; }
 
   document.getElementById('builderCredsWalletId').value = walletId;
   document.getElementById('builderCredsWalletLabel').textContent = `${walletLabel} (${walletId})`;
@@ -2027,7 +2027,7 @@ document.addEventListener('click', (e) => {
   if (e.target.id === 'builderCredsModal') {
     closeBuilderCredsModal();
   }
-  if (e.target.classList.contains('win-modal-overlay')) {
+  if (e.target.classList.contains('jw-modal-overlay')) {
     const id = e.target.id;
     if (id === 'tradeDetailModal') closeTradeDetailModal();
     if (id === 'paperModeModal') closePaperModeModal();
@@ -2061,12 +2061,12 @@ async function loadCopyAssignments() {
     }
 
     list.innerHTML = data.assignments.map(a => `
-      <div class="flex-between" style="padding:4px 0;border-bottom:1px solid var(--win-dark)">
+      <div class="flex-between" style="padding:4px 0;border-bottom:1px solid var(--jw-dark)">
         <span class="text-mono text-sm">${a.trackedWalletAddress.slice(0, 10)}...</span>
         <span>-></span>
         <span class="text-bold">${a.tradingWalletId}</span>
-        <span class="win-badge">${a.useOwnConfig ? 'Own config' : 'Inherited'}</span>
-        <button class="win-btn win-btn-sm win-btn-danger" onclick="removeAssignment('${a.trackedWalletAddress}', '${a.tradingWalletId}')">X</button>
+        <span class="jw-badge">${a.useOwnConfig ? 'Own config' : 'Inherited'}</span>
+        <button class="jw-btn jw-btn-sm jw-btn-danger" onclick="removeAssignment('${a.trackedWalletAddress}', '${a.tradingWalletId}')">X</button>
       </div>
     `).join('');
   } catch (error) { console.error('Error loading assignments:', error); }
@@ -2075,17 +2075,17 @@ async function loadCopyAssignments() {
 async function addAssignment() {
   const tracked = document.getElementById('assignTrackedWallet').value;
   const trading = document.getElementById('assignTradingWallet').value;
-  if (!tracked || !trading) { await win95Dialog.alert('Select both wallets'); return; }
+  if (!tracked || !trading) { await jungleModal.alert('Select both wallets'); return; }
 
   try {
     await API.addCopyAssignment(tracked, trading, false);
     await loadCopyAssignments();
-  } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+  } catch (error) { await jungleModal.error(`Failed: ${error.message}`); }
 }
 
 async function removeAssignment(tracked, trading) {
   try { await API.removeCopyAssignment(tracked, trading); await loadCopyAssignments(); }
-  catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+  catch (error) { await jungleModal.error(`Failed: ${error.message}`); }
 }
 
 // ============================================================
@@ -2141,7 +2141,7 @@ function renderMirrorTrades(trades) {
   let html = actionable.map(t => renderMirrorRow(t, false)).join('');
 
   if (skipped.length > 0) {
-    html += `<tr><td colspan="8" style="background:var(--win-surface);cursor:pointer;padding:4px 8px;font-size:12px;" onclick="toggleSkippedAccordion()">
+    html += `<tr><td colspan="8" style="background:var(--jw-surface);cursor:pointer;padding:4px 8px;font-size:12px;" onclick="toggleSkippedAccordion()">
       <span id="skippedAccordionIcon">+</span> Skipped positions (${skipped.length})</td></tr>`;
     html += skipped.map(t => renderMirrorRow(t, true)).join('');
   }
@@ -2226,8 +2226,8 @@ function updateMirrorSummary() {
 
 async function executeMirrorTrades() {
   const selected = currentMirrorTrades.filter(t => t.selected && t.action !== 'SKIP');
-  if (selected.length === 0) { await win95Dialog.alert('No trades selected'); return; }
-  if (!await win95Dialog.confirm(`Execute ${selected.length} trade(s)? This will place real orders.`)) return;
+  if (selected.length === 0) { await jungleModal.alert('No trades selected'); return; }
+  if (!await jungleModal.confirm(`Execute ${selected.length} trade(s)? This will place real orders.`)) return;
 
   const btn = document.getElementById('mirrorExecuteBtn');
   btn.disabled = true;
@@ -2248,10 +2248,10 @@ async function executeMirrorTrades() {
     if (result.success) msg = `All ${result.executedTrades} trade(s) executed!\n\n` + msg;
     else msg = `Partial: ${result.executedTrades} succeeded, ${result.failedTrades} failed\n\n` + msg;
 
-    result.success ? await win95Dialog.success(msg) : await win95Dialog.error(msg);
+    result.success ? await jungleModal.success(msg) : await jungleModal.error(msg);
     closeMirrorModal();
   } catch (error) {
-    await win95Dialog.error(`Execution failed: ${error.message}`);
+    await jungleModal.error(`Execution failed: ${error.message}`);
     btn.disabled = false;
     btn.textContent = 'Execute Selected';
   }
@@ -2284,19 +2284,19 @@ async function loadLadderStatus() {
     const monitorEl = document.getElementById('ladderPriceMonitorStatus');
     if (monitorData.isRunning) {
       monitorEl.textContent = 'RUNNING';
-      monitorEl.className = 'win-badge badge-success';
+      monitorEl.className = 'jw-badge badge-success';
     } else {
       monitorEl.textContent = 'OFF';
-      monitorEl.className = 'win-badge';
+      monitorEl.className = 'jw-badge';
     }
 
     const modeEl = document.getElementById('ladderModeStatus');
     if (statusData.config && statusData.config.liveMode) {
       modeEl.textContent = 'LIVE';
-      modeEl.className = 'win-badge badge-danger';
+      modeEl.className = 'jw-badge badge-danger';
     } else {
       modeEl.textContent = 'PAPER';
-      modeEl.className = 'win-badge badge-warning';
+      modeEl.className = 'jw-badge badge-warning';
     }
 
     // Pre-fill ladder config defaults from server config
@@ -2327,25 +2327,25 @@ async function loadLadderStatus() {
       const progressPct = totalSteps > 0 ? Math.round((executedSteps / totalSteps) * 100) : 0;
 
       html += `
-        <div style="background:var(--win-surface);border:1px solid var(--win-dark);padding:8px;margin-bottom:4px;">
+        <div style="background:var(--jw-surface);border:1px solid var(--jw-dark);padding:8px;margin-bottom:4px;">
           <div class="flex-between">
             <div>
               <span class="text-bold">${ladder.marketTitle || ladder.tokenId.slice(0, 12) + '...'}</span>
-              <span class="win-badge badge-success">${ladder.outcome}</span>
+              <span class="jw-badge badge-success">${ladder.outcome}</span>
               <span class="text-sm text-muted">Entry: $${ladder.entryPrice.toFixed(2)}</span>
             </div>
-            <button class="win-btn win-btn-sm win-btn-danger" onclick="cancelLadder('${ladder.id}')" aria-label="Cancel this ladder exit" tabindex="0">Cancel</button>
+            <button class="jw-btn jw-btn-sm jw-btn-danger" onclick="cancelLadder('${ladder.id}')" aria-label="Cancel this ladder exit" tabindex="0">Cancel</button>
           </div>
           <div class="flex-row gap-8 mt-4" style="margin-top:4px;">
             <span class="text-sm">Remaining: ${ladder.remainingShares.toFixed(1)} / ${ladder.totalShares.toFixed(1)} shares</span>
             <span class="text-sm">Steps: ${executedSteps}/${totalSteps}</span>
           </div>
-          <div style="background:var(--win-dark);height:6px;margin-top:4px;border:1px inset;">
+          <div style="background:var(--jw-dark);height:6px;margin-top:4px;border:1px inset;">
             <div style="background:#00aa00;height:100%;width:${progressPct}%;"></div>
           </div>
           <div class="flex-row gap-4 mt-4" style="margin-top:4px;flex-wrap:wrap;">
             ${ladder.steps.map((step, i) => `
-              <span class="text-sm" style="padding:2px 4px;border:1px solid var(--win-dark);background:${step.executed ? '#d4edda' : 'var(--win-surface)'};">
+              <span class="text-sm" style="padding:2px 4px;border:1px solid var(--jw-dark);background:${step.executed ? '#d4edda' : 'var(--jw-surface)'};">
                 $${step.triggerPrice.toFixed(2)} (${step.sellPercent}%)
                 ${step.executed ? ' &#10003;' : ''}
               </span>
@@ -2444,18 +2444,18 @@ async function loadWalletPositionsForLadder() {
       }).replace(/'/g, "\\'").replace(/"/g, '&quot;');
 
       html += `
-        <div style="background:var(--win-surface);border:1px solid var(--win-dark);padding:8px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;">
+        <div style="background:var(--jw-surface);border:1px solid var(--jw-dark);padding:8px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;">
           <div style="flex:1;min-width:0;">
             <div class="text-bold" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${title}</div>
             <div class="flex-row gap-8" style="margin-top:2px;">
-              <span class="win-badge ${outcome.toUpperCase() === 'YES' ? 'badge-success' : 'badge-danger'}">${outcome}</span>
+              <span class="jw-badge ${outcome.toUpperCase() === 'YES' ? 'badge-success' : 'badge-danger'}">${outcome}</span>
               <span class="text-sm">${size.toFixed(1)} shares</span>
               <span class="text-sm">Avg: $${avgPrice.toFixed(3)}</span>
               <span class="text-sm">Now: $${curPrice.toFixed(3)}</span>
               <span class="text-sm" style="color:${pnlColor};font-weight:bold;">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)</span>
             </div>
           </div>
-          <button class="win-btn win-btn-sm win-btn-primary" style="margin-left:8px;white-space:nowrap;"
+          <button class="jw-btn jw-btn-sm jw-btn-primary" style="margin-left:8px;white-space:nowrap;"
             onclick="selectPositionForLadder(this, '${posJson}')"
             aria-label="Add ladder exit for ${title}" tabindex="0">
             Add Ladder
@@ -2494,7 +2494,7 @@ function cancelLadderConfig() {
 
 async function confirmCreateLadder() {
   if (!selectedLadderPosition) {
-    await win95Dialog.alert('No position selected. Please select a position first.');
+    await jungleModal.alert('No position selected. Please select a position first.');
     return;
   }
 
@@ -2528,17 +2528,17 @@ async function confirmCreateLadder() {
     closeCreateLadderForm();
     await loadLadderStatus();
   } catch (error) {
-    await win95Dialog.error(`Failed to create ladder: ${error.message}`);
+    await jungleModal.error(`Failed to create ladder: ${error.message}`);
   }
 }
 
 async function cancelLadder(id) {
-  if (!await win95Dialog.confirm('Cancel this ladder exit? No further steps will execute.')) return;
+  if (!await jungleModal.confirm('Cancel this ladder exit? No further steps will execute.')) return;
   try {
     await API.cancelLadder(id);
     await loadLadderStatus();
   } catch (error) {
-    await win95Dialog.error(`Failed to cancel ladder: ${error.message}`);
+    await jungleModal.error(`Failed to cancel ladder: ${error.message}`);
   }
 }
 
@@ -2548,14 +2548,14 @@ async function toggleLadderLiveMode() {
     const currentLive = status.config?.liveMode || false;
     const newMode = !currentLive;
 
-    if (newMode && !await win95Dialog.confirm('Enable LIVE mode? Ladder steps will execute REAL sell orders on Polymarket. Make sure you understand the risks.')) {
+    if (newMode && !await jungleModal.confirm('Enable LIVE mode? Ladder steps will execute REAL sell orders on Polymarket. Make sure you understand the risks.')) {
       return;
     }
 
     await API.updateLadderConfig({ liveMode: newMode });
     await loadLadderStatus();
   } catch (error) {
-    await win95Dialog.error(`Failed to toggle mode: ${error.message}`);
+    await jungleModal.error(`Failed to toggle mode: ${error.message}`);
   }
 }
 
@@ -2634,15 +2634,15 @@ async function saveKalshiConfig() {
   const apiKeyId = document.getElementById('kalshiApiKeyId').value.trim();
   const privateKeyPem = document.getElementById('kalshiPrivateKeyPem').value.trim();
   if (!apiKeyId || !privateKeyPem) {
-    await win95Dialog.alert('Both API Key ID and Private Key PEM are required');
+    await jungleModal.alert('Both API Key ID and Private Key PEM are required');
     return;
   }
   try {
     await API.post('/config/kalshi', { apiKeyId, privateKeyPem });
-    await win95Dialog.success('Kalshi configuration saved');
+    await jungleModal.success('Kalshi configuration saved');
     loadPlatformStatus();
   } catch (err) {
-    await win95Dialog.error(`Failed to save: ${err.message}`);
+    await jungleModal.error(`Failed to save: ${err.message}`);
   }
 }
 
@@ -2680,7 +2680,7 @@ async function loadEntityPlatformMap() {
               <div class="entity-wallet-row">
                 <span class="platform-badge ${w.platform === 'polymarket' ? 'badge-poly' : 'badge-kalshi'}">${w.platform}</span>
                 <span class="address">${w.identifier.length > 20 ? w.identifier.slice(0, 8) + '...' + w.identifier.slice(-6) : w.identifier}</span>
-                <button class="win-btn win-btn-sm" onclick="removePlatformWalletUI('${entity.id}', '${w.platform}', '${w.identifier}')" title="Remove">X</button>
+                <button class="jw-btn jw-btn-sm" onclick="removePlatformWalletUI('${entity.id}', '${w.platform}', '${w.identifier}')" title="Remove">X</button>
               </div>
             `).join('')}
           </div>
@@ -2693,32 +2693,32 @@ async function loadEntityPlatformMap() {
 }
 
 async function addPlatformWalletDialog() {
-  const entityId = await win95Dialog.prompt('Entity ID:');
+  const entityId = await jungleModal.prompt('Entity ID:');
   if (!entityId) return;
-  const platform = await win95Dialog.prompt('Platform (polymarket or kalshi):');
+  const platform = await jungleModal.prompt('Platform (polymarket or kalshi):');
   if (!platform || !['polymarket', 'kalshi'].includes(platform)) {
-    await win95Dialog.error('Platform must be "polymarket" or "kalshi"');
+    await jungleModal.error('Platform must be "polymarket" or "kalshi"');
     return;
   }
-  const identifier = await win95Dialog.prompt(`${platform === 'polymarket' ? 'Wallet address (0x...)' : 'Kalshi account ID'}:`);
+  const identifier = await jungleModal.prompt(`${platform === 'polymarket' ? 'Wallet address (0x...)' : 'Kalshi account ID'}:`);
   if (!identifier) return;
 
   try {
     await API.addPlatformWallet(entityId, platform, identifier);
-    await win95Dialog.success('Platform wallet linked!');
+    await jungleModal.success('Platform wallet linked!');
     loadEntityPlatformMap();
   } catch (err) {
-    await win95Dialog.error(`Failed: ${err.message}`);
+    await jungleModal.error(`Failed: ${err.message}`);
   }
 }
 
 async function removePlatformWalletUI(entityId, platform, identifier) {
-  if (!await win95Dialog.confirm(`Remove ${platform} wallet ${identifier.slice(0, 12)}... from entity?`)) return;
+  if (!await jungleModal.confirm(`Remove ${platform} wallet ${identifier.slice(0, 12)}... from entity?`)) return;
   try {
     await API.removePlatformWallet(entityId, platform, identifier);
     loadEntityPlatformMap();
   } catch (err) {
-    await win95Dialog.error(`Failed: ${err.message}`);
+    await jungleModal.error(`Failed: ${err.message}`);
   }
 }
 
@@ -2746,7 +2746,7 @@ async function toggleExecutorPaperMode() {
     await API.updateExecutorConfig({ paperMode: !current.config.paperMode });
     refreshExecutorStatus();
   } catch (err) {
-    await win95Dialog.error(`Failed: ${err.message}`);
+    await jungleModal.error(`Failed: ${err.message}`);
   }
 }
 
@@ -2771,19 +2771,19 @@ async function scanArbitrageOpportunities() {
         <td class="${opp.spreadPercent > 3 ? 'text-success' : ''}">${opp.spreadPercent.toFixed(1)}%</td>
         <td>$${(opp.expectedProfit || 0).toFixed(2)}</td>
         <td>
-          <button class="win-btn win-btn-sm win-btn-primary" onclick='executeArbFromTable(${JSON.stringify(opp)})'>
+          <button class="jw-btn jw-btn-sm jw-btn-primary" onclick='executeArbFromTable(${JSON.stringify(opp)})'>
             Execute
           </button>
         </td>
       </tr>
     `).join('');
   } catch (err) {
-    await win95Dialog.error(`Scan failed: ${err.message}`);
+    await jungleModal.error(`Scan failed: ${err.message}`);
   }
 }
 
 async function executeArbFromTable(opp) {
-  if (!await win95Dialog.confirm(`Execute arb on "${opp.eventTitle}"?\nSpread: ${opp.spreadPercent.toFixed(1)}%`)) return;
+  if (!await jungleModal.confirm(`Execute arb on "${opp.eventTitle}"?\nSpread: ${opp.spreadPercent.toFixed(1)}%`)) return;
 
   try {
     const trade = {
@@ -2805,15 +2805,15 @@ async function executeArbFromTable(opp) {
 
     const result = await API.executeArb(trade);
     if (result.result.bothSucceeded) {
-      await win95Dialog.success('Arb executed successfully!');
+      await jungleModal.success('Arb executed successfully!');
     } else if (result.result.partialFill) {
-      await win95Dialog.error('WARNING: Partial fill — one leg failed. Check execution history.');
+      await jungleModal.error('WARNING: Partial fill — one leg failed. Check execution history.');
     } else {
-      await win95Dialog.error('Execution failed. Check execution history for details.');
+      await jungleModal.error('Execution failed. Check execution history for details.');
     }
     refreshExecutorStatus();
   } catch (err) {
-    await win95Dialog.error(`Execution failed: ${err.message}`);
+    await jungleModal.error(`Execution failed: ${err.message}`);
   }
 }
 
@@ -2841,7 +2841,7 @@ async function detectCrossPlatformHedges() {
       </tr>
     `).join('');
   } catch (err) {
-    await win95Dialog.error(`Hedge detection failed: ${err.message}`);
+    await jungleModal.error(`Hedge detection failed: ${err.message}`);
   }
 }
 
@@ -2872,19 +2872,19 @@ async function generateHedgeRecommendations() {
         </div>
         <div class="hedge-rec-actions">
           ${rec.executable
-        ? `<button class="win-btn win-btn-sm win-btn-primary" onclick='executeHedgeRec(${JSON.stringify(rec)})'>Execute</button>`
+        ? `<button class="jw-btn jw-btn-sm jw-btn-primary" onclick='executeHedgeRec(${JSON.stringify(rec)})'>Execute</button>`
         : '<span class="text-muted">Not executable</span>'
       }
         </div>
       </div>
     `).join('');
   } catch (err) {
-    await win95Dialog.error(`Failed: ${err.message}`);
+    await jungleModal.error(`Failed: ${err.message}`);
   }
 }
 
 async function executeHedgeRec(rec) {
-  if (!await win95Dialog.confirm(`Execute ${rec.action} ${rec.outcome} on ${rec.platform}?`)) return;
+  if (!await jungleModal.confirm(`Execute ${rec.action} ${rec.outcome} on ${rec.platform}?`)) return;
   try {
     const result = await API.executeHedge({
       platform: rec.platform,
@@ -2895,13 +2895,13 @@ async function executeHedgeRec(rec) {
       price: rec.estimatedPrice,
     });
     if (result.result.success) {
-      await win95Dialog.success('Hedge executed!');
+      await jungleModal.success('Hedge executed!');
     } else {
-      await win95Dialog.error(`Failed: ${result.result.error}`);
+      await jungleModal.error(`Failed: ${result.result.error}`);
     }
     refreshExecutorStatus();
   } catch (err) {
-    await win95Dialog.error(`Failed: ${err.message}`);
+    await jungleModal.error(`Failed: ${err.message}`);
   }
 }
 
@@ -2940,9 +2940,9 @@ async function saveExecutorConfig() {
       minSpread: parseFloat(document.getElementById('execMinSpread').value),
       simultaneousExecution: document.getElementById('execSimultaneous').checked,
     });
-    await win95Dialog.success('Executor config saved');
+    await jungleModal.success('Executor config saved');
   } catch (err) {
-    await win95Dialog.error(`Failed: ${err.message}`);
+    await jungleModal.error(`Failed: ${err.message}`);
   }
 }
 
@@ -3012,10 +3012,10 @@ const saveTradingWalletSettings = async () => {
       minRedeemValue: parseFloat(document.getElementById('twMinRedeemValue').value) || 0.10,
     };
     await API.updateLifecycleConfig(config);
-    await win95Dialog.success('Settings saved!');
+    await jungleModal.success('Settings saved!');
     closeTradingWalletSettingsModal();
   } catch (err) {
-    await win95Dialog.error(`Failed to save: ${err.message}`);
+    await jungleModal.error(`Failed to save: ${err.message}`);
   }
 };
 
@@ -3033,10 +3033,10 @@ const checkRedeemablePositions = async () => {
     }
 
     container.innerHTML = positions.map(pos => `
-      <div style="border:1px solid var(--win-dark);padding:4px 8px;margin-bottom:2px;display:flex;justify-content:space-between;align-items:center;">
+      <div style="border:1px solid var(--jw-dark);padding:4px 8px;margin-bottom:2px;display:flex;justify-content:space-between;align-items:center;">
         <div>
           <span class="text-bold">${pos.marketTitle || pos.tokenId?.slice(0, 12) || 'Unknown'}</span>
-          <span class="win-badge badge-success">${pos.outcome || 'YES'}</span>
+          <span class="jw-badge badge-success">${pos.outcome || 'YES'}</span>
           <span class="text-sm">${pos.size ? pos.size.toFixed(1) + ' shares' : ''}</span>
         </div>
         <div class="text-success text-bold">$${(pos.estimatedPayout || pos.estimatedValue || 0).toFixed(2)}</div>
@@ -3048,7 +3048,7 @@ const checkRedeemablePositions = async () => {
 };
 
 const redeemAllPositions = async () => {
-  if (!await win95Dialog.confirm('Redeem all eligible winning positions now?')) return;
+  if (!await jungleModal.confirm('Redeem all eligible winning positions now?')) return;
   try {
     const result = await API.redeemAll();
     const results = result.results || [];
@@ -3057,16 +3057,16 @@ const redeemAllPositions = async () => {
     const failed = results.filter(r => !r.success);
 
     if (succeeded === count && count > 0) {
-      await win95Dialog.success(`Successfully redeemed ${succeeded} position(s)!`);
+      await jungleModal.success(`Successfully redeemed ${succeeded} position(s)!`);
     } else if (failed.length > 0) {
       const errorMsg = failed[0].error || 'Unknown error';
-      await win95Dialog.error(`Redeemed ${succeeded}/${count} position(s).\n\nError: ${errorMsg}`);
+      await jungleModal.error(`Redeemed ${succeeded}/${count} position(s).\n\nError: ${errorMsg}`);
     } else {
-      await win95Dialog.alert(`Redeemed ${succeeded}/${count} position(s).`);
+      await jungleModal.alert(`Redeemed ${succeeded}/${count} position(s).`);
     }
     checkRedeemablePositions();
   } catch (err) {
-    await win95Dialog.error(`Redemption failed: ${err.message}`);
+    await jungleModal.error(`Redemption failed: ${err.message}`);
   }
 };
 
@@ -3077,8 +3077,8 @@ const redeemAllPositions = async () => {
 let activeMenu = null;
 
 const closeAllMenus = () => {
-  document.querySelectorAll('.win-menu-dropdown').forEach(m => m.remove());
-  document.querySelectorAll('.win-menu-item').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.jw-menu-dropdown').forEach(m => m.remove());
+  document.querySelectorAll('.jw-menu-item').forEach(b => b.classList.remove('active'));
   activeMenu = null;
 };
 
@@ -3094,17 +3094,17 @@ const showMenu = (menuId, items) => {
   activeMenu = menuId;
 
   const dropdown = document.createElement('div');
-  dropdown.className = 'win-menu-dropdown';
+  dropdown.className = 'jw-menu-dropdown';
 
   items.forEach(item => {
     if (item.separator) {
       const sep = document.createElement('div');
-      sep.className = 'win-menu-separator';
+      sep.className = 'jw-menu-separator';
       dropdown.appendChild(sep);
       return;
     }
     const el = document.createElement('button');
-    el.className = 'win-menu-dropdown-item';
+    el.className = 'jw-menu-dropdown-item';
     el.textContent = item.label;
     el.disabled = !!item.disabled;
     if (item.action) {
@@ -3116,7 +3116,7 @@ const showMenu = (menuId, items) => {
     dropdown.appendChild(el);
   });
 
-  const wrapper = btn.closest('.win-menu-wrapper') || btn.parentElement;
+  const wrapper = btn.closest('.jw-menu-wrapper') || btn.parentElement;
   const rect = btn.getBoundingClientRect();
   dropdown.style.position = 'fixed';
   dropdown.style.top = rect.bottom + 'px';
@@ -3135,7 +3135,7 @@ const toggleBotMenu = () => {
       { separator: true },
       {
         label: 'Lock Vault', action: async () => {
-          if (await win95Dialog.confirm('Lock the wallet vault? You will need to re-enter your master password to trade.')) {
+          if (await jungleModal.confirm('Lock the wallet vault? You will need to re-enter your master password to trade.')) {
             masterPassword = '';
             document.getElementById('unlockSection').classList.remove('hidden');
             document.getElementById('tradingWalletsSection').classList.add('hidden');
@@ -3360,7 +3360,7 @@ const addWalletToDiscoveryCompare = (address) => {
   const normalized = String(address || '').trim().toLowerCase();
   if (!normalized) return;
   if (discoveryCompareSelection.size >= 4 && !discoveryCompareSelection.has(normalized)) {
-    win95Dialog.alert('Compare limit', 'You can compare up to 4 wallets at once.');
+    jungleModal.alert('Compare limit', 'You can compare up to 4 wallets at once.');
     return;
   }
   discoveryCompareSelection.add(normalized);
@@ -3392,7 +3392,7 @@ const renderDiscoveryCompareChips = () => {
   chipsEl.innerHTML = addresses.map((address) => `
     <span class="discovery-chip">
       ${escapeHtml(getDiscoveryIdentityLabel(address))}
-      <button class="win-btn win-btn-sm" style="min-width:auto;padding:0 4px;" onclick="event.stopPropagation();removeWalletFromDiscoveryCompare('${escapeJsString(address)}')" aria-label="Remove compare wallet">x</button>
+      <button class="jw-btn jw-btn-sm" style="min-width:auto;padding:0 4px;" onclick="event.stopPropagation();removeWalletFromDiscoveryCompare('${escapeJsString(address)}')" aria-label="Remove compare wallet">x</button>
     </span>
   `).join('');
 };
@@ -3443,7 +3443,7 @@ const addSelectedDiscoveryWalletToWatchlist = async () => {
   const wallet = getDiscoveryWalletByAddress(discoverySelectedWalletAddress);
   if (!wallet?.address) return;
   try {
-    const note = await win95Dialog.prompt('Optional note for this watchlist wallet:', '', 'Watchlist');
+    const note = await jungleModal.prompt('Optional note for this watchlist wallet:', '', 'Watchlist');
     await fetch('/api/discovery/watchlist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3485,8 +3485,8 @@ const loadDiscoveryWatchlist = async () => {
         <td>${Number(row.discoveryScore || 0).toFixed(0)}</td>
         <td>${escapeHtml(row.allocationState || 'N/A')} ${row.allocationWeight != null ? `(${Number(row.allocationWeight).toFixed(2)}x)` : ''}</td>
         <td>
-          <button class="win-btn win-btn-sm" onclick="selectDiscoveryWallet('${escapeJsString(row.address)}')">Inspect</button>
-          <button class="win-btn win-btn-sm" onclick="removeDiscoveryWatchlist('${escapeJsString(row.address)}')">Remove</button>
+          <button class="jw-btn jw-btn-sm" onclick="selectDiscoveryWallet('${escapeJsString(row.address)}')">Inspect</button>
+          <button class="jw-btn jw-btn-sm" onclick="removeDiscoveryWatchlist('${escapeJsString(row.address)}')">Remove</button>
         </td>
       </tr>
     `).join('');
@@ -3516,7 +3516,7 @@ const loadDiscoveryAlertsCenter = async () => {
         <div class="text-xs text-muted">${escapeHtml(alert.description || '')}</div>
         <div class="text-xs text-muted">${escapeHtml(getDiscoveryIdentityLabel(alert.address || ''))} • ${escapeHtml(shortAddress(alert.address || ''))}</div>
         <div class="mt-8">
-          <button class="win-btn win-btn-sm" onclick="dismissDiscoveryAlert(${Number(alert.id || 0)})">Dismiss</button>
+          <button class="jw-btn jw-btn-sm" onclick="dismissDiscoveryAlert(${Number(alert.id || 0)})">Dismiss</button>
         </div>
       </div>
     `).join('');
@@ -3802,9 +3802,9 @@ const discoveryCategoryLabel = (category) => {
 const buildDiscoveryTrackButton = (wallet) => {
   const safeAddress = (wallet.address || '').replace(/'/g, "\\'");
   if (wallet.isTracked) {
-    return '<button class="win-btn win-btn-sm" disabled>Tracked</button>';
+    return '<button class="jw-btn jw-btn-sm" disabled>Tracked</button>';
   }
-  return `<button class="win-btn win-btn-sm win-btn-primary" onclick="event.stopPropagation();trackDiscoveredWallet('${safeAddress}', this)" aria-label="Track and activate wallet" tabindex="0">Track &amp; Activate</button>`;
+  return `<button class="jw-btn jw-btn-sm jw-btn-primary" onclick="event.stopPropagation();trackDiscoveredWallet('${safeAddress}', this)" aria-label="Track and activate wallet" tabindex="0">Track &amp; Activate</button>`;
 };
 
 const buildDiscoveryWalletCardHtml = (wallet) => {
@@ -3846,9 +3846,9 @@ const buildDiscoveryWalletCardHtml = (wallet) => {
       <div class="discovery-wallet-card-actions">
         <div class="discovery-wallet-scoreline">${escapeHtml(scoreStackLine)}</div>
         <div class="flex-row gap-8">
-          <button class="win-btn win-btn-sm" onclick="event.stopPropagation();addWalletToDiscoveryCompare('${safeAddress}')" aria-label="Add wallet to compare">Compare</button>
-          <button class="win-btn win-btn-sm" onclick="event.stopPropagation();selectDiscoveryWallet('${safeAddress}');addSelectedDiscoveryWalletToWatchlist()" aria-label="Add wallet to watchlist">Watch</button>
-          <button class="win-btn win-btn-sm" onclick="event.stopPropagation();openWalletDetail('${safeAddress}')" aria-label="Open detailed wallet modal" tabindex="0">Deep View</button>
+          <button class="jw-btn jw-btn-sm" onclick="event.stopPropagation();addWalletToDiscoveryCompare('${safeAddress}')" aria-label="Add wallet to compare">Compare</button>
+          <button class="jw-btn jw-btn-sm" onclick="event.stopPropagation();selectDiscoveryWallet('${safeAddress}');addSelectedDiscoveryWalletToWatchlist()" aria-label="Add wallet to watchlist">Watch</button>
+          <button class="jw-btn jw-btn-sm" onclick="event.stopPropagation();openWalletDetail('${safeAddress}')" aria-label="Open detailed wallet modal" tabindex="0">Deep View</button>
           ${buildDiscoveryTrackButton(wallet)}
         </div>
       </div>
@@ -3933,8 +3933,8 @@ const renderDiscoveryTable = (wallets) => {
         <td>$${Number(wallet.volume7d || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</td>
         <td>
           <div class="flex-row gap-8">
-            <button class="win-btn win-btn-sm" onclick="event.stopPropagation();openWalletDetail('${safeAddress}')">View</button>
-            <button class="win-btn win-btn-sm" onclick="event.stopPropagation();selectDiscoveryWallet('${safeAddress}');addSelectedDiscoveryWalletToWatchlist()">Watch</button>
+            <button class="jw-btn jw-btn-sm" onclick="event.stopPropagation();openWalletDetail('${safeAddress}')">View</button>
+            <button class="jw-btn jw-btn-sm" onclick="event.stopPropagation();selectDiscoveryWallet('${safeAddress}');addSelectedDiscoveryWalletToWatchlist()">Watch</button>
             ${buildDiscoveryTrackButton(wallet)}
           </div>
         </td>
@@ -4107,9 +4107,9 @@ const renderDiscoveryInspector = async () => {
       <div class="discovery-inspector-label">Actions</div>
       <div class="flex-row gap-8">
         ${buildDiscoveryTrackButton(wallet)}
-        <button class="win-btn win-btn-sm" onclick="addWalletToDiscoveryCompare('${safeAddress}')" aria-label="Add wallet to compare" tabindex="0">Compare</button>
-        <button class="win-btn win-btn-sm" onclick="addSelectedDiscoveryWalletToWatchlist()" aria-label="Add wallet to watchlist" tabindex="0">Watchlist</button>
-        <button class="win-btn win-btn-sm" onclick="openWalletDetail('${safeAddress}')" aria-label="Open deep wallet detail modal" tabindex="0">Deep View</button>
+        <button class="jw-btn jw-btn-sm" onclick="addWalletToDiscoveryCompare('${safeAddress}')" aria-label="Add wallet to compare" tabindex="0">Compare</button>
+        <button class="jw-btn jw-btn-sm" onclick="addSelectedDiscoveryWalletToWatchlist()" aria-label="Add wallet to watchlist" tabindex="0">Watchlist</button>
+        <button class="jw-btn jw-btn-sm" onclick="openWalletDetail('${safeAddress}')" aria-label="Open deep wallet detail modal" tabindex="0">Deep View</button>
       </div>
     </div>
     <div class="discovery-inspector-section text-xs text-muted">Loading live positions and signals...</div>
@@ -4174,10 +4174,10 @@ const renderDiscoveryInspector = async () => {
         <div class="discovery-inspector-label">Actions</div>
         <div class="flex-row gap-8">
           ${buildDiscoveryTrackButton(wallet)}
-          <button class="win-btn win-btn-sm" onclick="addWalletToDiscoveryCompare('${safeAddress}')" aria-label="Add wallet to compare" tabindex="0">Compare</button>
-          <button class="win-btn win-btn-sm" onclick="addSelectedDiscoveryWalletToWatchlist()" aria-label="Add wallet to watchlist" tabindex="0">Watchlist</button>
-          <button class="win-btn win-btn-sm" onclick="openWalletDetail('${safeAddress}')" aria-label="Open deep wallet detail modal" tabindex="0">Deep View</button>
-          ${detail?.profileUrl ? `<button class="win-btn win-btn-sm" onclick="window.open('${safeProfileUrl}', '_blank')" aria-label="Open Polymarket profile" tabindex="0">Polymarket</button>` : ''}
+          <button class="jw-btn jw-btn-sm" onclick="addWalletToDiscoveryCompare('${safeAddress}')" aria-label="Add wallet to compare" tabindex="0">Compare</button>
+          <button class="jw-btn jw-btn-sm" onclick="addSelectedDiscoveryWalletToWatchlist()" aria-label="Add wallet to watchlist" tabindex="0">Watchlist</button>
+          <button class="jw-btn jw-btn-sm" onclick="openWalletDetail('${safeAddress}')" aria-label="Open deep wallet detail modal" tabindex="0">Deep View</button>
+          ${detail?.profileUrl ? `<button class="jw-btn jw-btn-sm" onclick="window.open('${safeProfileUrl}', '_blank')" aria-label="Open Polymarket profile" tabindex="0">Polymarket</button>` : ''}
         </div>
       </div>
     `;
@@ -4224,7 +4224,7 @@ const loadDiscoverySignals = async () => {
     listEl.innerHTML = sortedSignals.map((s) => {
       const timeAgo = s.detectedAt ? (Date.now() - s.detectedAt < 60000 ? 'Just now' : Math.floor((Date.now() - s.detectedAt) / 60000) + 'm ago') : '';
       const dismissBtn = s.canDismiss
-        ? '<button class="win-btn win-btn-sm" onclick="dismissSignal(' + s.id + ')" aria-label="Dismiss">Dismiss</button>'
+        ? '<button class="jw-btn jw-btn-sm" onclick="dismissSignal(' + s.id + ')" aria-label="Dismiss">Dismiss</button>'
         : '';
       const meta = s.metadata || {};
       const detail = s.signalType === 'CONVICTION_BUILD'
@@ -4268,7 +4268,7 @@ const loadUnusualMarkets = async () => {
       const wallets = (m.wallets || '').split(',').filter(Boolean);
       const walletActions = wallets.slice(0, 3).map((wallet) => {
         const safeWallet = String(wallet).replace(/'/g, "\\'");
-        return `<button class="win-btn win-btn-sm" style="margin-right:4px;" onclick="event.stopPropagation();openWalletDetail('${safeWallet}')">${wallet.slice(0, 6)}...${wallet.slice(-4)}</button>`;
+        return `<button class="jw-btn jw-btn-sm" style="margin-right:4px;" onclick="event.stopPropagation();openWalletDetail('${safeWallet}')">${wallet.slice(0, 6)}...${wallet.slice(-4)}</button>`;
       }).join('');
       return `<tr>
         <td>${title}</td>
@@ -4371,7 +4371,7 @@ const openWalletDetail = async (address) => {
     if (positions.length === 0) {
       html += '<p class="text-muted text-sm">No positions</p>';
     } else {
-      html += '<table class="win-listview"><thead><tr><th>Market</th><th>Shares</th><th>Cost</th><th>PnL</th><th>ROI</th><th>Trust</th></tr></thead><tbody>';
+      html += '<table class="jw-listview"><thead><tr><th>Market</th><th>Shares</th><th>Cost</th><th>PnL</th><th>ROI</th><th>Trust</th></tr></thead><tbody>';
       positions.forEach((p) => {
         const marketLabel = (p.marketTitle || p.conditionId?.slice(0, 12) || '—') + (p.outcome ? ` (${p.outcome})` : '');
         const priceNote = (p.currentPrice === null || p.currentPrice === undefined) ? ' <span class="text-xs text-muted">(price pending)</span>' : '';
@@ -4392,7 +4392,7 @@ const openWalletDetail = async (address) => {
         html += '<div class="signal-card severity-' + (s.severity || 'medium') + ' mb-4"><strong>' + (s.title || '') + '</strong><br><span class="text-sm">' + (s.description || '') + '</span></div>';
       });
     }
-    html += '<div class="mt-8"><button class="win-btn win-btn-primary" onclick="trackDiscoveredWallet(\'' + address.replace(/'/g, "\\'") + '\', this); closeWalletDetail();">Track &amp; Activate</button></div>';
+    html += '<div class="mt-8"><button class="jw-btn jw-btn-primary" onclick="trackDiscoveredWallet(\'' + address.replace(/'/g, "\\'") + '\', this); closeWalletDetail();">Track &amp; Activate</button></div>';
     bodyEl.innerHTML = html;
   } catch (err) {
     bodyEl.innerHTML = '<p class="text-danger">Failed to load wallet details.</p>';
@@ -4430,17 +4430,17 @@ const trackDiscoveredWallet = async (address, btn) => {
 
       await fetch(`/api/discovery/wallets/${address}/track`, { method: 'POST' });
       btn.textContent = 'Active';
-      btn.classList.remove('win-btn-primary');
+      btn.classList.remove('jw-btn-primary');
     } else {
       btn.textContent = 'Track & Activate';
       btn.disabled = false;
-      win95Dialog.alert('Error', data.error || 'Failed to track wallet');
+      jungleModal.alert('Error', data.error || 'Failed to track wallet');
     }
   } catch (err) {
     btn.textContent = 'Track & Activate';
     btn.disabled = false;
     if (err?.message) {
-      win95Dialog.alert('Error', err.message);
+      jungleModal.alert('Error', err.message);
     }
   }
 };
@@ -4480,12 +4480,12 @@ const saveDiscoveryConfig = async () => {
       const msg = urlVal
         ? 'Settings saved. Restart the engine for URL changes to take effect.'
         : 'Settings saved.';
-      win95Dialog.alert('Settings Saved', msg);
+      jungleModal.alert('Settings Saved', msg);
     } else {
-      win95Dialog.alert('Error', data.error || 'Failed to save settings');
+      jungleModal.alert('Error', data.error || 'Failed to save settings');
     }
   } catch (err) {
-    win95Dialog.alert('Error', 'Failed to save settings: ' + err.message);
+    jungleModal.alert('Error', 'Failed to save settings: ' + err.message);
   }
 };
 
@@ -4509,23 +4509,23 @@ const restartDiscovery = async () => {
     const resp = await fetch('/api/discovery/config/restart', { method: 'POST' });
     const data = await resp.json();
     if (data.success) {
-      win95Dialog.alert('Restart Needed', 'Discovery settings were saved. The dedicated discovery worker is restarted separately.');
+      jungleModal.alert('Restart Needed', 'Discovery settings were saved. The dedicated discovery worker is restarted separately.');
     } else {
-      win95Dialog.alert('Error', data.error || 'Failed to restart');
+      jungleModal.alert('Error', data.error || 'Failed to restart');
     }
   } catch (err) {
-    win95Dialog.alert('Error', 'Failed to restart: ' + err.message);
+    jungleModal.alert('Error', 'Failed to restart: ' + err.message);
   }
 };
 
 const purgeDiscoveryData = async () => {
-  const firstConfirm = await win95Dialog.confirm(
+  const firstConfirm = await jungleModal.confirm(
     'Clear Discovery Data',
     'Warning: this will erase the full discovery feed (wallets, trades, positions, signals, and market cache).'
   );
   if (!firstConfirm) return;
 
-  const secondConfirm = await win95Dialog.confirm(
+  const secondConfirm = await jungleModal.confirm(
     'Confirm Permanent Deletion',
     'This cannot be undone. Click OK again to permanently clear discovery data.'
   );
@@ -4549,7 +4549,7 @@ const purgeDiscoveryData = async () => {
       ]);
 
       const deletedTotal = typeof data.deleted?.total === 'number' ? data.deleted.total : 0;
-      win95Dialog.alert('Cleared', `Discovery data cleared. Removed ${deletedTotal} records.`);
+      jungleModal.alert('Cleared', `Discovery data cleared. Removed ${deletedTotal} records.`);
     }
   } catch { /* best-effort */ }
 };
@@ -4690,7 +4690,7 @@ const originalSwitchTab = typeof switchTab === 'function' ? switchTab : null;
 
 // Close menus when clicking outside
 document.addEventListener('click', (e) => {
-  if (activeMenu && !e.target.closest('.win-menu-dropdown') && !e.target.closest('.win-menu-item')) {
+  if (activeMenu && !e.target.closest('.jw-menu-dropdown') && !e.target.closest('.jw-menu-item')) {
     closeAllMenus();
   }
 });

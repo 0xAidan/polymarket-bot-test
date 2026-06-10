@@ -246,9 +246,9 @@ const renderTable = () => {
       if (!val) return;
       try {
         await navigator.clipboard.writeText(val);
-        await win95Dialog.success('Wallet copied');
+        await jungleDialog.success('Wallet copied');
       } catch {
-        await win95Dialog.alert(val, 'Copy manually');
+        await jungleDialog.alert(val, 'Copy manually');
       }
     });
   });
@@ -300,20 +300,20 @@ const collectUpdates = () => {
 const saveAllChanges = async () => {
   const { updates, invalid } = collectUpdates();
   if (invalid.length > 0) {
-    await win95Dialog.error(`Invalid wallet format for: ${invalid.join(', ')}. Use 0x plus 40 hex characters, or leave blank.`);
+    await jungleDialog.error(`Invalid wallet format for: ${invalid.join(', ')}. Use 0x plus 40 hex characters, or leave blank.`);
     return;
   }
   if (updates.length === 0) {
-    await win95Dialog.alert('No changes to save.');
+    await jungleDialog.alert('No changes to save.');
     return;
   }
   try {
     await API.bulkSaveAdminJungleAgents(updates);
     rowDrafts.clear();
     await loadAdminAgents();
-    await win95Dialog.success(`Saved ${updates.length} agent${updates.length === 1 ? '' : 's'}.`);
+    await jungleDialog.success(`Saved ${updates.length} agent${updates.length === 1 ? '' : 's'}.`);
   } catch (error) {
-    await win95Dialog.error(error.message || 'Save failed');
+    await jungleDialog.error(error.message || 'Save failed');
   }
 };
 
@@ -347,7 +347,7 @@ const bootAdmin = async () => {
 
 document.getElementById('adminRefreshBtn')?.addEventListener('click', () => {
   rowDrafts.clear();
-  loadAdminAgents().catch((e) => win95Dialog.error(e.message));
+  loadAdminAgents().catch((e) => jungleDialog.error(e.message));
 });
 document.getElementById('adminSaveAllBtn')?.addEventListener('click', () => saveAllChanges());
 

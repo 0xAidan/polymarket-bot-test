@@ -62,9 +62,9 @@ const bindAgentGridEvents = (grid, agents) => {
       if (!value) return;
       try {
         await navigator.clipboard.writeText(value);
-        await win95Dialog.success('Address copied');
+        await jungleDialog.success('Address copied');
       } catch {
-        await win95Dialog.error('Could not copy address');
+        await jungleDialog.error('Could not copy address');
       }
     });
   });
@@ -134,7 +134,7 @@ const renderAgentTableRow = (agent) => {
 const renderAgentTable = (agents) => `
   <div class="j-panel j-agents-table-panel">
     <div class="j-agents-table-scroll">
-      <table class="win-listview j-agents-table">
+      <table class="jw-listview j-agents-table">
         <thead>
           <tr>
             <th>Agent</th>
@@ -154,23 +154,23 @@ const renderAgentTable = (agents) => `
 
 const handleFollowAgent = async (agent) => {
   if (agent.addressPending || !agent.polymarketAddress) {
-    await win95Dialog.alert('This agent does not have a Polymarket address yet.');
+    await jungleDialog.alert('This agent does not have a Polymarket address yet.');
     return;
   }
   const addr = agent.polymarketAddress.toLowerCase();
   if (trackedAddressSet.has(addr)) {
-    await win95Dialog.alert('You are already following this wallet. Open Tracked Wallets to configure and enable copying.');
+    await jungleDialog.alert('You are already following this wallet. Open Tracked Wallets to configure and enable copying.');
     switchTab('wallets');
     return;
   }
   try {
     await API.addWallet(addr, agent.displayName);
     trackedAddressSet.add(addr);
-    await win95Dialog.success(`Added ${agent.displayName} to Tracked Wallets (inactive until you enable copying).`);
+    await jungleDialog.success(`Added ${agent.displayName} to Tracked Wallets (inactive until you enable copying).`);
     if (typeof loadWallets === 'function') await loadWallets(true);
     syncFollowButtons(cachedAgents);
   } catch (error) {
-    await win95Dialog.error(error.message || 'Could not follow agent');
+    await jungleDialog.error(error.message || 'Could not follow agent');
   }
 };
 

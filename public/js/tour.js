@@ -10,7 +10,7 @@
   const STEPS = [
     {
       tab: 'dashboard',
-      target: '.win-tabs',
+      target: '.jw-tabs',
       title: 'Welcome to Ditto',
       body: "This walkthrough shows the core areas that matter for day-to-day use: setup, wallet management, discovery, and system controls."
     },
@@ -83,7 +83,7 @@
     },
     {
       tab: 'dashboard',
-      target: '.win-statusbar',
+      target: '.jw-statusbar',
       title: "You're all set",
       body: "Use the Start button when your setup is complete. Re-open the setup guide or this walkthrough any time from the Guide menu."
     }
