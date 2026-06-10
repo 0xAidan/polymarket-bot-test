@@ -2904,6 +2904,14 @@ body.app-ready .auth-gate-screen {
   color: var(--jungle-gold);
   border: 1px solid var(--jungle-border-strong);
   background: rgba(229, 184, 11, 0.08);
+  overflow: hidden;
+}
+
+.j-topbar-logo {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  display: block;
 }
 
 .j-topbar-eyebrow {

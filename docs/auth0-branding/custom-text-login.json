@@ -1,0 +1,12 @@
+{
+  "login": {
+    "pageTitle": "Log in | Jungle Agents",
+    "title": "Welcome to the Jungle",
+    "description": "Log in to your Ditto workspace to manage your copy trading.",
+    "buttonText": "Continue",
+    "emailPlaceholder": "Email address",
+    "passwordPlaceholder": "Password",
+    "signupActionLinkText": "Create one",
+    "signupActionText": "New to Jungle Agents?"
+  }
+}

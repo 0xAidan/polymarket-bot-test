@@ -1,0 +1,12 @@
+{
+  "signup": {
+    "pageTitle": "Sign up | Jungle Agents",
+    "title": "Join the Jungle",
+    "description": "Create your Ditto account. Your own private workspace is set up automatically.",
+    "buttonText": "Create account",
+    "emailPlaceholder": "Email address",
+    "passwordPlaceholder": "Password",
+    "loginActionLinkText": "Log in",
+    "loginActionText": "Already have an account?"
+  }
+}
