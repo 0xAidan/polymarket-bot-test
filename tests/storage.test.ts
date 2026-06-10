@@ -116,6 +116,28 @@ describe('Storage dual-backend', () => {
       assert.equal(notBlocked, false);
     });
 
+    it('addExecutedPosition refreshes timestamp on repeat trades so the no-repeat window re-arms', async () => {
+      await Storage.addExecutedPosition('mkt-rearm', 'YES', '0xwho', { orderId: 'order-old' });
+
+      // Simulate an old record: first trade happened 2 hours ago.
+      const positions = await Storage.getExecutedPositions();
+      positions[0].timestamp = Date.now() - 2 * 60 * 60 * 1000;
+      await Storage.saveExecutedPositions(positions);
+
+      // A 1-hour window has expired, so a new trade is allowed...
+      assert.equal(await Storage.isPositionBlocked('mkt-rearm', 'YES', 1), false);
+
+      // ...and once it executes, the record must be refreshed (not silently skipped),
+      // so the next trade inside the window is blocked again.
+      await Storage.addExecutedPosition('mkt-rearm', 'YES', '0xwho', { orderId: 'order-new' });
+      assert.equal(await Storage.isPositionBlocked('mkt-rearm', 'YES', 1), true);
+
+      const after = await Storage.getExecutedPositions();
+      assert.equal(after.length, 1, 'should update the existing record, not duplicate it');
+      assert.equal(after[0].orderId, 'order-new');
+      assert.ok(after[0].timestamp > Date.now() - 60_000, 'timestamp must be refreshed');
+    });
+
     it('clearExecutedPositions empties list', async () => {
       await Storage.addExecutedPosition('mkt2', 'NO', '0xwho');
       await Storage.clearExecutedPositions();

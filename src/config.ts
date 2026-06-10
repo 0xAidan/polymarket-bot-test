@@ -48,7 +48,10 @@ export const config = {
   // API authentication (static bearer token)
   authMode: (process.env.AUTH_MODE || (process.env.AUTH0_ISSUER_BASE_URL ? 'oidc' : 'legacy')).toLowerCase() as 'legacy' | 'oidc',
   authSessionSecret: process.env.AUTH_SESSION_SECRET || '',
-  auth0IssuerBaseUrl: process.env.AUTH0_ISSUER_BASE_URL || '',
+  // Auth0 requires a full https:// URI; a bare tenant domain crashes express-openid-connect at boot.
+  auth0IssuerBaseUrl: process.env.AUTH0_ISSUER_BASE_URL
+    ? ensureProtocol(process.env.AUTH0_ISSUER_BASE_URL, '')
+    : '',
   auth0BaseUrl: process.env.AUTH0_BASE_URL || '',
   auth0ClientId: process.env.AUTH0_CLIENT_ID || '',
   auth0ClientSecret: process.env.AUTH0_CLIENT_SECRET || '',

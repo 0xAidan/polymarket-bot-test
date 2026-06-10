@@ -1024,13 +1024,17 @@ export class CopyTrader {
       }
 
       // SAFETY CAP: Reject any order that exceeds a reasonable maximum.
-      // Proportional mode: cap at 2x calculated size with a floor of $500. Fixed/global: 2x configured size.
+      // Proportional mode: cap at 2x the CONFIGURED baseline size with a floor of $500.
+      // (The cap must reference a value independent of the calculated size — comparing the
+      // calculated size against 2x itself can never fire, which left proportional trades
+      // uncapped and able to spend the whole balance on one bad sizing input.)
+      // Fixed/global: 2x configured size.
       const configuredSize = trade.fixedTradeSize ?? parseFloat(await Storage.getTradeSize() || '50');
       const maxAllowedUsd = trade.tradeSizingMode === 'proportional'
-        ? Math.max(tradeSizeUsdcNum * 2, 500)
+        ? Math.max(configuredSize * 2, 500)
         : configuredSize * 2;
       if (tradeSizeUsdcNum > maxAllowedUsd) {
-        log.error(`\n❌ [CopyTrader] SAFETY CAP: Order $${tradeSizeUsdcNum.toFixed(2)} exceeds max $${maxAllowedUsd.toFixed(2)} (${trade.tradeSizingMode === 'proportional' ? 'proportional 2x / $500 floor' : `2x configured $${configuredSize}`})`);
+        log.error(`\n❌ [CopyTrader] SAFETY CAP: Order $${tradeSizeUsdcNum.toFixed(2)} exceeds max $${maxAllowedUsd.toFixed(2)} (${trade.tradeSizingMode === 'proportional' ? `proportional: 2x configured $${configuredSize} / $500 floor` : `2x configured $${configuredSize}`})`);
         log.error(`   Mode: ${tradeSizeSource}`);
         log.error(`   This likely indicates a bug in trade sizing. Trade BLOCKED.\n`);
         await this.performanceTracker.logIssue(
@@ -1599,7 +1603,9 @@ export class CopyTrader {
             .map(order => order?.orderID ?? order?.orderId ?? order?.id)
             .filter((orderId): orderId is string => typeof orderId === 'string' && orderId.length > 0)
         );
-        const confirmedPositionSize = await this.getCurrentPositionSize(trade);
+        // Must pass the probe wallet id — without it hosted mode cannot resolve a trading
+        // wallet, throws, and the pending block becomes permanent for this market.
+        const confirmedPositionSize = await this.getCurrentPositionSize(trade, probeWalletId);
         const confirmationDecision = decidePendingOrderReconciliation({
           pendingOrderId: pendingBlock.orderId,
           openOrderIds: confirmedOpenOrderIds,
@@ -1813,18 +1819,37 @@ export class CopyTrader {
         };
       }
 
-      // Get our wallet address
+      // Resolve the wallet whose commitment we measure. Legacy mode: global .env wallet
+      // (or its proxy). Hosted mode: the tenant's first active trading wallet.
+      let walletToCheck: string | null = null;
+      let tenantTradingWalletId: string | undefined;
+
       const userWallet = this.getWalletAddress();
       const proxyWallet = await this.getProxyWalletAddress();
-      const walletToCheck = proxyWallet || userWallet;
-      
+      walletToCheck = proxyWallet || userWallet;
+
       if (!walletToCheck) {
-        log.warn(`[CopyTrader] Cannot check stop-loss: wallet address not available`);
+        const tenantWallet = getActiveTradingWallets()[0];
+        if (tenantWallet) {
+          tenantTradingWalletId = tenantWallet.id;
+          walletToCheck =
+            tenantWallet.proxyAddress ||
+            (await this.monitor.getApi().getProxyWalletAddress(tenantWallet.address)) ||
+            tenantWallet.address;
+        }
+      }
+
+      if (!walletToCheck) {
+        // FAIL-SAFE: the stop-loss is enabled but we cannot identify a wallet to measure.
+        // Blocking is safe here — with no resolvable trading wallet, no trade could be
+        // placed correctly anyway. Returning active:false would silently disable an
+        // enabled risk control (previous behavior in hosted mode).
+        log.error('[CopyTrader] Stop-loss enabled but wallet address not available — BLOCKING trades for safety');
         return {
           enabled: true,
           maxCommitmentPercent: stopLossConfig.maxCommitmentPercent,
           commitmentPercent: null,
-          active: false,
+          active: true,
           error: 'Wallet address not available'
         };
       }
@@ -1832,7 +1857,9 @@ export class CopyTrader {
       // Get our current USDC balance from Polymarket CLOB API (free USDC for trading)
       let freeUsdc = 0;
       try {
-        const clobClient = this.executor.getClobClient();
+        const clobClient = tenantTradingWalletId
+          ? await this.executor.getClobClientForTradingWalletId(tenantTradingWalletId)
+          : this.executor.getClobClient();
         freeUsdc = await clobClient.getUsdcBalance();
       } catch (error: any) {
         log.error(`[CopyTrader] Cannot fetch USDC balance for stop-loss check — BLOCKING trades for safety: ${error.message}`);
