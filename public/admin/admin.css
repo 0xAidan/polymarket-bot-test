@@ -210,6 +210,20 @@
   width: 160px;
 }
 
+.col-curation {
+  min-width: 190px;
+}
+
+.col-curation .j-admin-field-input + .j-admin-field-input,
+.col-curation .j-admin-category-select + .j-admin-field-input {
+  margin-top: 6px;
+}
+
+.j-admin-category-select {
+  width: 100%;
+  text-transform: capitalize;
+}
+
 .col-wallet {
   min-width: 360px;
 }

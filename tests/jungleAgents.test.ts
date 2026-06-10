@@ -101,6 +101,41 @@ describe('jungleAgentsStore', () => {
     assert.equal(reordered[0].id, reversed[0]);
   });
 
+  it('persists category and collection with validation', async () => {
+    await seedJungleAgentsIfMissing();
+    const created = await createAgent({
+      displayName: 'Curated Agent',
+      olympicsProfileUrl: 'https://olympics.jungle.win/agents#curated',
+      category: 'sports',
+      collection: 'MLB Opening Week',
+      enabled: true,
+    });
+    assert.equal(created.category, 'sports');
+    assert.equal(created.collection, 'MLB Opening Week');
+
+    // Update normalizes case and trims (API delivers raw strings, hence the casts)
+    const updated = await updateAgent(created.id, { category: ' Politics ', collection: '  Election Desk  ' } as any);
+    assert.equal(updated.category, 'politics');
+    assert.equal(updated.collection, 'Election Desk');
+
+    // Clearing with empty strings removes the values
+    const cleared = await updateAgent(created.id, { category: '', collection: '' } as any);
+    assert.equal(cleared.category, undefined);
+    assert.equal(cleared.collection, undefined);
+
+    // Unknown category rejected
+    await assert.rejects(
+      () => updateAgent(created.id, { category: 'astrology' } as any),
+      /Invalid category/i
+    );
+
+    // Over-long collection rejected
+    await assert.rejects(
+      () => updateAgent(created.id, { collection: 'x'.repeat(61) }),
+      /collection too long/i
+    );
+  });
+
   it('rejects duplicate enabled Polymarket addresses', async () => {
     await seedJungleAgentsIfMissing();
     const addr = `0x${'2'.repeat(40)}`;

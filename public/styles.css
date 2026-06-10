@@ -4001,6 +4001,26 @@ body.j-drawer-open { overflow: hidden; }
   color: var(--jungle-text);
 }
 
+.j-agents-collection-row td {
+  padding: 14px 14px 6px;
+  font-family: var(--font-serif);
+  font-size: 16px;
+  color: var(--jungle-gold);
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--jungle-border);
+  background: rgba(229, 184, 11, 0.03);
+}
+
+.j-agents-category {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  vertical-align: middle;
+  margin-left: 4px;
+  color: var(--jungle-gold);
+  border-color: rgba(229, 184, 11, 0.35);
+}
+
 .j-agents-meta {
   font-size: 11px;
   color: var(--jungle-text-dim);
