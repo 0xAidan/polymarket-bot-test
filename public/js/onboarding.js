@@ -56,10 +56,10 @@
       if (step.id !== 'add-key-to-bot') return step;
       return {
         ...step,
-        copy: [
-          'Open the Trading Wallets tab, paste your private key into the field, and give the wallet a name.',
-          'In hosted Ditto your key is encrypted automatically when you sign in — there is no separate vault password to remember.',
-          'When the wallet appears in your list, this step is done. You\'ll see a green "Detected" badge below.',
+        actions: [
+          'Open the Trading Wallets tab, paste your private key, and name the wallet',
+          'In hosted Ditto your key is encrypted when you sign in — no vault password',
+          'When the wallet appears in your list, you\'ll see a green Detected badge',
         ],
       };
     });
