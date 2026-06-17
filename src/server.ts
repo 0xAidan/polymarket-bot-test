@@ -28,6 +28,7 @@ import {
 } from './authStore.js';
 import { seedJungleAgentsIfMissing, migrateOlympicsConfigToJungleStore } from './jungleAgentsStore.js';
 import { reconcileAgentAddressesFromPolymarket } from './jungleAgentsPolymarketSync.js';
+import { reconcileTrackedWalletAddresses } from './trackedWalletAddress.js';
 import { resolveIsPlatformAdmin } from './platformAdmin.js';
 import { getDiskMetrics, isEnospcError, DiskSpaceError } from './diskGuard.js';
 
@@ -52,6 +53,15 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     log.warn({ err: message }, 'Jungle Agents Polymarket address sync failed (non-fatal)');
+  }
+  try {
+    const trackedSync = await reconcileTrackedWalletAddresses();
+    if (trackedSync.migrated > 0 || trackedSync.invalid.length > 0) {
+      log.info(trackedSync, 'Tracked wallet address reconcile finished');
+    }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    log.warn({ err: message }, 'Tracked wallet address sync failed (non-fatal)');
   }
   const app = express();
   app.set('trust proxy', 1);

@@ -348,11 +348,19 @@ async function startAppRuntime() {
       return;
     }
 
-    // Hosted mode should not start global copy-trader loops without tenant scope.
+    // Hosted mode auto-starts when any tenant has active tracked wallets.
     if (isHostedMultiTenantMode() && !getTenantId()) {
-      log.info('Hosted multi-tenant mode detected: skipping global copy-trader auto-start until tenant context exists.');
-      registerAppShutdown(copyTrader, server);
-      return;
+      const { dbLoadAllActiveTrackedWalletsForMonitoring } = await import('./database.js');
+      const activeGlobal = dbLoadAllActiveTrackedWalletsForMonitoring();
+      if (activeGlobal.length === 0) {
+        log.info('Hosted multi-tenant mode detected: no active tracked wallets — copy trader will start from the dashboard.');
+        registerAppShutdown(copyTrader, server);
+        return;
+      }
+      log.info(
+        { activeWalletCount: activeGlobal.length },
+        'Hosted multi-tenant mode: auto-starting copy trader for active tracked wallets',
+      );
     }
 
     // Initialize copy trader
@@ -361,7 +369,9 @@ async function startAppRuntime() {
       await copyTrader.initialize();
 
       // Check if there are any tracked wallets
-      const trackedWallets = await Storage.getActiveWallets();
+      const trackedWallets = isHostedMultiTenantMode() && !getTenantId()
+        ? await Storage.loadAllActiveTrackedWalletsForMonitoring()
+        : await Storage.getActiveWallets();
       const activeWallets = trackedWallets.filter((w: { active: boolean }) => w.active);
 
       log.info(`\n${'='.repeat(60)}`);

@@ -56,6 +56,11 @@ const searchTermsForAgent = (agent: JungleAgentRecord): string[] => {
     terms.add(display.replace(/\s+/g, ''));
     terms.add(display.replace(/^Jungle\s+/i, 'JUNGLE'));
     terms.add(display.replace(/\s+/g, '').replace(/^Jungle/i, 'JUNGLE'));
+    terms.add(`${display.replace(/\s+/g, '')}Agent`.replace(/^Jungle/i, 'JUNGLE'));
+  }
+  if (agent.polymarketUsername?.trim()) {
+    terms.add(agent.polymarketUsername.trim());
+    terms.add(agent.polymarketUsername.trim().replace(/^@/, ''));
   }
   if (agent.modelLabel?.trim()) {
     terms.add(agent.modelLabel.trim());
@@ -81,29 +86,6 @@ const scoreProfileMatch = (agent: JungleAgentRecord, profile: GammaProfile): num
     }
   }
   return best;
-};
-
-const pickProfileAddress = (agent: JungleAgentRecord, profiles: GammaProfile[]): string | null => {
-  if (!profiles.length) return null;
-
-  let bestScore = 0;
-  let bestAddress: string | null = null;
-  const agentKey = normalizeName(agent.displayName);
-  for (const profile of profiles) {
-    const profileName = normalizeName(profile.name || '');
-    if (profileName === 'jungle' && agentKey !== 'jungle') {
-      continue;
-    }
-    const score = scoreProfileMatch(agent, profile);
-    if (score > bestScore && profile.proxyWallet) {
-      bestScore = score;
-      bestAddress = profile.proxyWallet.toLowerCase();
-    }
-  }
-
-  // Require a meaningful match — reject generic "jungle" hits unless score is high.
-  if (bestScore >= 60) return bestAddress;
-  return null;
 };
 
 const fetchGammaProfiles = async (query: string): Promise<GammaProfile[]> => {
@@ -167,7 +149,62 @@ export const verifyPolymarketAddress = async (address: string): Promise<Polymark
   };
 };
 
+type RankedProfile = {
+  profile: GammaProfile;
+  score: number;
+  verification: PolymarketAddressVerification;
+};
+
+const rankProfileCandidates = async (
+  agent: JungleAgentRecord,
+  profiles: GammaProfile[],
+): Promise<string | null> => {
+  const agentKey = normalizeName(agent.displayName);
+  const ranked: RankedProfile[] = [];
+
+  for (const profile of profiles) {
+    const profileName = normalizeName(profile.name || '');
+    if (profileName === 'jungle' && agentKey !== 'jungle') {
+      continue;
+    }
+    const score = scoreProfileMatch(agent, profile);
+    if (score < 60 || !profile.proxyWallet) continue;
+
+    const verification = await verifyPolymarketAddress(profile.proxyWallet);
+    ranked.push({ profile, score, verification });
+  }
+
+  ranked.sort((a, b) => {
+    if (a.verification.isLikelyValid !== b.verification.isLikelyValid) {
+      return a.verification.isLikelyValid ? -1 : 1;
+    }
+    return b.score - a.score;
+  });
+
+  const best = ranked[0];
+  if (!best?.verification.isLikelyValid || !best.profile.proxyWallet) {
+    return null;
+  }
+
+  return best.profile.proxyWallet.toLowerCase();
+};
+
 export const resolveAgentPolymarketProxy = async (agent: JungleAgentRecord): Promise<string | null> => {
+  if (agent.polymarketUsername?.trim()) {
+    const profiles = await fetchGammaProfiles(agent.polymarketUsername.trim());
+    const usernameKey = normalizeName(agent.polymarketUsername);
+    for (const profile of profiles) {
+      if (!profile.proxyWallet) continue;
+      const profileName = normalizeName(profile.name || '');
+      if (profileName === usernameKey || profileName.includes(usernameKey) || usernameKey.includes(profileName)) {
+        const verification = await verifyPolymarketAddress(profile.proxyWallet);
+        if (verification.isLikelyValid) {
+          return profile.proxyWallet.toLowerCase();
+        }
+      }
+    }
+  }
+
   const mergedProfiles: GammaProfile[] = [];
   for (const term of searchTermsForAgent(agent)) {
     const hits = await fetchGammaProfiles(term);
@@ -176,10 +213,9 @@ export const resolveAgentPolymarketProxy = async (agent: JungleAgentRecord): Pro
         mergedProfiles.push(hit);
       }
     }
-    const picked = pickProfileAddress(agent, mergedProfiles);
-    if (picked) return picked;
   }
-  return null;
+
+  return rankProfileCandidates(agent, mergedProfiles);
 };
 
 /** Prefer stored address when it has real Polymarket activity; otherwise resolve proxy via Gamma. */
@@ -197,13 +233,14 @@ export const resolveCanonicalPolymarketAddress = async (
 
   const gammaAddress = await resolveAgentPolymarketProxy(agent);
   if (gammaAddress) {
-    return { address: gammaAddress, source: 'gamma' };
+    const verification = await verifyPolymarketAddress(gammaAddress);
+    if (verification.isLikelyValid) {
+      return { address: gammaAddress, source: 'gamma' };
+    }
   }
 
   return { address: stored || null, source: 'none' };
 };
-
-const resolveAgentAddress = resolveAgentPolymarketProxy;
 
 export async function syncMissingAgentAddressesFromPolymarket(): Promise<{
   synced: number;
@@ -321,7 +358,7 @@ export async function reconcileAgentAddressesFromPolymarket(options?: {
       resolvedAddress: nextAddress,
       action: 'replaced',
       reason: resolved.source === 'gamma'
-        ? 'Replaced inactive address with Polymarket proxy wallet from profile search'
+        ? 'Replaced inactive address with verified Polymarket proxy wallet from profile search'
         : 'Updated address',
     });
     log.info(

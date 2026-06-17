@@ -202,6 +202,31 @@ export class Storage {
     await this.saveTrackedWallets(filtered);
   }
 
+  static async migrateWalletAddress(fromAddress: string, toAddress: string): Promise<TrackedWallet | null> {
+    const from = fromAddress.toLowerCase();
+    const to = toAddress.toLowerCase();
+    if (from === to) {
+      const wallets = await this.loadTrackedWallets();
+      return wallets.find((wallet) => wallet.address.toLowerCase() === from) ?? null;
+    }
+
+    const wallets = await this.loadTrackedWallets();
+    const source = wallets.find((wallet) => wallet.address.toLowerCase() === from);
+    if (!source) {
+      return null;
+    }
+
+    const existingTarget = wallets.find((wallet) => wallet.address.toLowerCase() === to);
+    if (existingTarget) {
+      await this.removeWallet(from);
+      return existingTarget;
+    }
+
+    source.address = to;
+    await this.saveTrackedWallets(wallets);
+    return source;
+  }
+
   static async getActiveWallets(): Promise<TrackedWallet[]> {
     const wallets = await this.loadTrackedWallets();
     return wallets.filter(w => w.active);
