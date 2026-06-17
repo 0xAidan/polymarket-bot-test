@@ -1286,6 +1286,11 @@ async function loadTrackedWalletBalance(address) {
 
     if (data.success && data.currentBalance !== undefined) {
       const totalValue = data.currentBalance;
+      const unhealthy = data.addressHealthy === false;
+      if (unhealthy) {
+        balanceEl.innerHTML = `<span class="text-danger" title="No Polymarket activity detected — copy trading will not work">$0 ⚠</span>`;
+        return;
+      }
       if (totalValue > 0) {
         balanceEl.innerHTML = `<span class="balance-val">$${formatNumber(totalValue)}</span>`;
       } else {
@@ -1332,16 +1337,19 @@ function getWalletConfigBadges(wallet) {
 async function addWallet() {
   const input = document.getElementById('newWalletAddress');
   const address = input.value.trim();
-  if (!address) { await jungleModal.alert('Please enter a wallet address'); return; }
+  if (!address) { await jungleModal.alert('Please enter a wallet address, @username, or Polymarket profile URL'); return; }
 
   try {
-    await API.addWallet(address);
+    const result = await API.addWallet(address);
     input.value = '';
     lastWalletHash = '';
     await loadWallets(true);
     await refreshSetupExperience();
-    if (await jungleModal.confirm('Wallet added (inactive by default). Configure it now?')) {
-      openWalletModal(address.toLowerCase());
+    const resolvedNote = result.resolvedAddress && result.resolvedAddress !== address.toLowerCase()
+      ? ` Verified proxy address: ${result.resolvedAddress.slice(0, 10)}...`
+      : '';
+    if (await jungleModal.confirm(`Wallet added (inactive by default).${resolvedNote} Configure it now?`)) {
+      openWalletModal((result.resolvedAddress || address).toLowerCase());
     }
   } catch (error) {
     await jungleModal.error(`Failed to add wallet: ${error.message}`);

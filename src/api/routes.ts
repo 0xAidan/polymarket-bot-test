@@ -38,6 +38,8 @@ import {
   summarizeClobConnectivityDiagnosis,
 } from '../tradeExecutionDiagnostics.js';
 import { createComponentLogger } from '../logger.js';
+import { resolveTrackedWalletAddress } from '../trackedWalletAddress.js';
+import { verifyPolymarketAddress } from '../jungleAgentsPolymarketSync.js';
 import { isHostedMultiTenantMode } from '../hostedMode.js';
 import { DEFAULT_TENANT_ID, getTenantId, runWithTenant } from '../tenantContext.js';
 import { listTenantIdsWithLadderOrStopLossActivity } from '../database.js';
@@ -296,18 +298,21 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         });
       }
 
-      // Basic address validation
-      if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+      const resolved = await resolveTrackedWalletAddress(address.trim());
+      if (!resolved.verification.isLikelyValid) {
         return res.status(400).json({
           success: false,
-          error: 'Invalid wallet address format'
+          error: 'This wallet has no Polymarket trading activity. Use a Polymarket profile URL, @username, or the account\'s active proxy wallet address.',
+          input: address,
+          monitoringAddress: resolved.monitoringAddress,
         });
       }
 
-      await Storage.addWallet(address);
+      const monitoringAddress = resolved.monitoringAddress.toLowerCase();
+      await Storage.addWallet(monitoringAddress);
 
       if (label && typeof label === 'string' && label.trim()) {
-        await Storage.updateWalletLabel(address, label.trim());
+        await Storage.updateWalletLabel(monitoringAddress, label.trim());
       }
 
       // Reload wallets in the monitor so the new wallet is tracked immediately
@@ -315,13 +320,17 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
       // Return the updated wallet list so the UI can update immediately
       const wallets = await Storage.loadTrackedWallets();
-      const addedWallet = wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
+      const addedWallet = wallets.find(w => w.address.toLowerCase() === monitoringAddress);
 
       res.json({
         success: true,
-        message: 'Wallet added successfully',
+        message: resolved.monitoringAddress !== address.trim().toLowerCase()
+          ? 'Wallet added using verified Polymarket proxy address'
+          : 'Wallet added successfully',
         wallet: addedWallet,
-        wallets: wallets
+        wallets: wallets,
+        resolvedAddress: monitoringAddress,
+        resolutionSource: resolved.source,
       });
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
@@ -1646,15 +1655,19 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       if (!(await requireTrackedWalletAccess(address, res))) {
         return;
       }
+      const resolved = await resolveTrackedWalletAddress(address);
+      const portfolioAddress = resolved.verification.isLikelyValid
+        ? resolved.monitoringAddress
+        : address;
       const polymarketApi = copyTrader.getPolymarketApi();
       const balanceTracker = copyTrader.getBalanceTracker();
 
-      log.info(`[API] Fetching tracked wallet portfolio for: ${address}`);
+      log.info(`[API] Fetching tracked wallet portfolio for: ${portfolioAddress}`);
 
       // Get full portfolio value (USDC + positions)
-      const portfolioData = await polymarketApi.getPortfolioValue(address, balanceTracker);
+      const portfolioData = await polymarketApi.getPortfolioValue(portfolioAddress, balanceTracker);
 
-      log.info(`[API] Tracked wallet ${address.substring(0, 8)}... portfolio: $${portfolioData.totalValue.toFixed(2)}`);
+      log.info(`[API] Tracked wallet ${portfolioAddress.substring(0, 8)}... portfolio: $${portfolioData.totalValue.toFixed(2)}`);
       log.info(`[API]   USDC: $${portfolioData.usdcBalance.toFixed(2)}`);
       log.info(`[API]   Positions: $${portfolioData.positionsValue.toFixed(2)} (${portfolioData.positionCount} positions)`);
 
@@ -1665,8 +1678,10 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         positionsValue: portfolioData.positionsValue,
         positionCount: portfolioData.positionCount,
         walletAddress: address,
+        monitoringAddress: portfolioAddress,
         proxyWallet: portfolioData.proxyWallet,
-        source: 'usdc_plus_positions'
+        source: 'usdc_plus_positions',
+        addressHealthy: resolved.verification.isLikelyValid && (portfolioData.totalValue > 0 || portfolioData.positionCount > 0),
       });
     } catch (error: any) {
       log.error({ detail: error.message }, `[API] Error fetching tracked wallet balance`)
@@ -1685,6 +1700,30 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const { active } = req.body;
       if (!(await requireTrackedWalletAccess(address, res))) {
         return;
+      }
+
+      const enabling = active === undefined ? undefined : Boolean(active);
+      if (enabling === true) {
+        const verification = await verifyPolymarketAddress(address);
+        if (!verification.isLikelyValid) {
+          const resolved = await resolveTrackedWalletAddress(address);
+          if (!resolved.verification.isLikelyValid) {
+            return res.status(400).json({
+              success: false,
+              error: 'Cannot enable copy trading — this wallet has no Polymarket activity. Remove it and re-add using a profile URL, @username, or verified proxy wallet address.',
+            });
+          }
+          await Storage.migrateWalletAddress(address, resolved.monitoringAddress);
+          await copyTrader.reloadWallets();
+          const wallet = await Storage.toggleWalletActive(resolved.monitoringAddress, true);
+          return res.json({
+            success: true,
+            message: 'Wallet copy trading enabled using verified Polymarket proxy address',
+            wallet,
+            migratedFrom: address,
+            resolvedAddress: resolved.monitoringAddress,
+          });
+        }
       }
 
       const wallet = await Storage.toggleWalletActive(address, active);

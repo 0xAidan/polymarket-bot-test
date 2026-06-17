@@ -13,6 +13,7 @@ import { DetectedTrade, TrackedWallet } from './types.js';
 import { createComponentLogger } from './logger.js';
 import { runWithTenant } from './tenantContext.js';
 import { resolveHostedTenantId } from './tenantPolicy.js';
+import { resolveMonitoringAddress, clearMonitoringAddressCache } from './trackedWalletAddress.js';
 
 const log = createComponentLogger('WalletMonitor');
 
@@ -161,12 +162,36 @@ export class WalletMonitor {
       try {
         const eoaAddress = wallet.address.toLowerCase();
         const shortAddr = eoaAddress.substring(0, 8) + '...';
+        const monitoring = await resolveMonitoringAddress(wallet.address);
+        const monitoringAddress = monitoring.monitoringAddress.toLowerCase();
+
+        if (!monitoring.verification.isLikelyValid) {
+          log.warn(
+            {
+              wallet: shortAddr,
+              monitoringAddress: monitoringAddress.substring(0, 8) + '...',
+            },
+            '[Monitor] Skipping wallet — no Polymarket activity detected at resolved address',
+          );
+          continue;
+        }
+
+        if (monitoringAddress !== eoaAddress) {
+          log.info(
+            {
+              wallet: shortAddr,
+              monitoringAddress: monitoringAddress.substring(0, 8) + '...',
+              source: monitoring.source,
+            },
+            '[Monitor] Using verified Polymarket proxy address for trade polling',
+          );
+        }
 
         // Check for recent trades from trade history API
         try {
           let recentTrades: any[] = [];
           try {
-            recentTrades = await this.api.getUserTrades(eoaAddress, 50);
+            recentTrades = await this.api.getUserTrades(monitoringAddress, 50);
             log.info({ wallet: shortAddr, tradeCount: recentTrades.length }, 'Fetched trade history');
           } catch (tradesError: any) {
             log.warn({ wallet: shortAddr, err: tradesError }, 'Failed to fetch trade history');
@@ -399,6 +424,7 @@ export class WalletMonitor {
    * Trade history polling uses Storage.loadAllActiveTrackedWalletsForMonitoring() each cycle, so no state to sync.
    */
   async reloadWallets(): Promise<void> {
+    clearMonitoringAddressCache();
     if (!this.isMonitoring) {
       return;
     }
