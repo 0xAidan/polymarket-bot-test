@@ -24,6 +24,7 @@ import { assertWalletCanBeEnabled } from './walletConfigSafety.js';
 import { createComponentLogger } from './logger.js';
 import { DEFAULT_TENANT_ID, getTenantIdOrDefault } from './tenantContext.js';
 import { isHostedMultiTenantMode } from './hostedMode.js';
+import { assertDiskWritable } from './diskGuard.js';
 
 const log = createComponentLogger('Storage');
 
@@ -152,6 +153,7 @@ export class Storage {
 
   private static async _saveTrackedWalletsJson(wallets: TrackedWallet[]): Promise<void> {
     await this.ensureDataDir();
+    assertDiskWritable(config.dataDir);
     await fs.writeFile(walletsFile(), JSON.stringify(wallets, null, 2));
   }
 
@@ -389,6 +391,7 @@ export class Storage {
 
   private static async _saveConfigJson(configData: any): Promise<void> {
     await this.ensureDataDir();
+    assertDiskWritable(config.dataDir);
     await fs.writeFile(configFile(), JSON.stringify(configData, null, 2));
   }
 
@@ -572,6 +575,7 @@ export class Storage {
 
   private static async _saveExecutedPositionsJson(positions: ExecutedPosition[]): Promise<void> {
     await this.ensureDataDir();
+    assertDiskWritable(config.dataDir);
     await fs.writeFile(executedPositionsFile(), JSON.stringify(positions, null, 2));
   }
 
@@ -612,6 +616,7 @@ export class Storage {
         if (position.tokenId && details.positionKey === `token:${position.tokenId}`) {
           return true;
         }
+        return false;
       }
 
       return position.marketId === marketId && position.side === side;
@@ -772,6 +777,7 @@ export class Storage {
           if (p.tokenId && positionKey === `token:${p.tokenId}`) {
             return true;
           }
+          return false;
         }
 
         return p.marketId === marketId && p.side === side;

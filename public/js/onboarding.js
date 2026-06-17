@@ -49,7 +49,21 @@
     }
   };
 
-  const getSteps = () => window.DITTO_ONBOARDING_STEPS || [];
+  const getSteps = () => {
+    const base = window.DITTO_ONBOARDING_STEPS || [];
+    if (!window.__hostedMultiTenant) return base;
+    return base.map((step) => {
+      if (step.id !== 'add-key-to-bot') return step;
+      return {
+        ...step,
+        copy: [
+          'Open the Trading Wallets tab, paste your private key into the field, and give the wallet a name.',
+          'In hosted Ditto your key is encrypted automatically when you sign in — there is no separate vault password to remember.',
+          'When the wallet appears in your list, this step is done. You\'ll see a green "Detected" badge below.',
+        ],
+      };
+    });
+  };
 
   /* ── Progress persistence (per workspace) ─────────────────────────────── */
   const storageKey = () => {

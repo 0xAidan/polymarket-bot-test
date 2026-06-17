@@ -13,6 +13,7 @@ import {
   updateAgent,
   reorderAgents,
   bulkUpdateAddresses,
+  bulkUpdateAgents,
   migrateOlympicsConfigToJungleStore,
   validateOlympicsProfileUrl,
   validatePolymarketAddress,
@@ -155,6 +156,21 @@ describe('jungleAgentsStore', () => {
         }),
       /already uses this Polymarket address/i
     );
+  });
+
+  it('bulk updates agents in a single save', async () => {
+    await seedJungleAgentsIfMissing();
+    const agents = await loadAgents();
+    const a = agents[0];
+    const b = agents[1];
+    const addrA = `0x${'a'.repeat(40)}`;
+    await bulkUpdateAgents([
+      { id: a.id, polymarketAddress: addrA },
+      { id: b.id, tagline: 'Bulk tagline' },
+    ]);
+    const after = await loadAgents();
+    assert.equal(after.find((x) => x.id === a.id)?.polymarketAddress, addrA);
+    assert.equal(after.find((x) => x.id === b.id)?.tagline, 'Bulk tagline');
   });
 
   it('bulk updates addresses with validation', async () => {

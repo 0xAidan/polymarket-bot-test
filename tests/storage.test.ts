@@ -181,6 +181,19 @@ describe('Storage dual-backend', () => {
       assert.equal(blocked, true);
     });
 
+    it('isPositionBlocked uses strict positionKey and ignores marketId fallback', async () => {
+      await Storage.addExecutedPosition('shared-market', 'YES', '0xwho', {
+        positionKey: 'token:token-a',
+        tokenId: 'token-a',
+      });
+
+      const blockedSameKey = await Storage.isPositionBlocked('shared-market', 'YES', 24, 'token:token-a');
+      assert.equal(blockedSameKey, true);
+
+      const blockedDifferentKey = await Storage.isPositionBlocked('shared-market', 'YES', 24, 'token:token-b');
+      assert.equal(blockedDifferentKey, false);
+    });
+
     it('keeps multiple pending orders for the same market and outcome', async () => {
       await Storage.addPendingPosition('mkt-multi', 'YES', '0xwallet-a', 'order-a', 'token-a');
       await Storage.addPendingPosition('mkt-multi', 'YES', '0xwallet-b', 'order-b', 'token-b');
