@@ -15,7 +15,7 @@ import {
   bulkUpdateAgents,
   type JungleAgentRecord,
 } from '../jungleAgentsStore.js';
-import { syncMissingAgentAddressesFromPolymarket } from '../jungleAgentsPolymarketSync.js';
+import { reconcileAgentAddressesFromPolymarket, resolveCanonicalPolymarketAddress } from '../jungleAgentsPolymarketSync.js';
 import { requirePlatformAdmin } from '../middleware/requirePlatformAdmin.js';
 
 const log = createComponentLogger('JungleAgentsRoutes');
@@ -23,6 +23,16 @@ const log = createComponentLogger('JungleAgentsRoutes');
 type PerfCacheEntry = { at: number; payload: Record<string, unknown> };
 const perfCache = new Map<string, PerfCacheEntry>();
 const PERF_TTL_MS = 90_000;
+
+const normalizeSavedAddress = async (
+  agent: JungleAgentRecord,
+  address: string,
+): Promise<string> => {
+  const trimmed = address.trim();
+  if (!trimmed) return '';
+  const resolved = await resolveCanonicalPolymarketAddress(agent, trimmed);
+  return resolved.address ?? trimmed;
+};
 
 const toPublicAgent = (a: JungleAgentRecord) => ({
   id: a.id,
@@ -122,7 +132,16 @@ export function createJungleAgentsRouter(copyTrader: CopyTrader): Router {
 
   router.patch('/admin/jungle-agents/:id', requirePlatformAdmin, async (req: Request, res: Response) => {
     try {
-      const updated = await updateAgent(req.params.id, req.body);
+      const existing = await getAgentById(req.params.id);
+      if (!existing) {
+        res.status(404).json({ success: false, error: 'Agent not found' });
+        return;
+      }
+      const patch = { ...req.body } as Partial<JungleAgentRecord>;
+      if (typeof patch.polymarketAddress === 'string' && patch.polymarketAddress.trim()) {
+        patch.polymarketAddress = await normalizeSavedAddress(existing, patch.polymarketAddress);
+      }
+      const updated = await updateAgent(req.params.id, patch);
       res.json({ success: true, agent: updated });
     } catch (error: any) {
       const code = error.message === 'Agent not found' ? 404 : 400;
@@ -175,16 +194,35 @@ export function createJungleAgentsRouter(copyTrader: CopyTrader): Router {
         res.status(400).json({ success: false, error: 'updates must be an array' });
         return;
       }
-      const agents = await bulkUpdateAgents(updates);
+      const normalizedUpdates = [];
+      for (const row of updates) {
+        if (!row || typeof row !== 'object' || typeof row.id !== 'string') {
+          res.status(400).json({ success: false, error: 'Each update must include an id' });
+          return;
+        }
+        const existing = await getAgentById(row.id);
+        if (!existing) {
+          res.status(400).json({ success: false, error: `Agent not found: ${row.id}` });
+          return;
+        }
+        const next = { ...row } as Partial<JungleAgentRecord> & { id: string };
+        if (typeof next.polymarketAddress === 'string' && next.polymarketAddress.trim()) {
+          next.polymarketAddress = await normalizeSavedAddress(existing, next.polymarketAddress);
+        }
+        normalizedUpdates.push(next);
+      }
+      const agents = await bulkUpdateAgents(normalizedUpdates);
       res.json({ success: true, agents });
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
     }
   });
 
-  router.post('/admin/jungle-agents/sync-polymarket', requirePlatformAdmin, async (_req: Request, res: Response) => {
+  router.post('/admin/jungle-agents/sync-polymarket', requirePlatformAdmin, async (req: Request, res: Response) => {
     try {
-      const result = await syncMissingAgentAddressesFromPolymarket();
+      const force = req.body?.force === true;
+      const onlyMissing = req.body?.onlyMissing === true;
+      const result = await reconcileAgentAddressesFromPolymarket({ force, onlyMissing });
       const agents = (await loadAgentsFile()).sort((a, b) => a.sortOrder - b.sortOrder);
       res.json({ success: true, ...result, agents });
     } catch (error: any) {
