@@ -298,6 +298,10 @@ export class CopyTrader {
     log.info(`${'='.repeat(60)}`);
     log.info({ detail: JSON.stringify(trade, null, 2) }, '   Trade object');
     log.info(`${'='.repeat(60)}\n`);
+
+    if (isHostedMultiTenantMode() && getTenantId()) {
+      await ensureWalletConfigLoaded();
+    }
     
     // CRITICAL: Verify the wallet is actually in the active tracked wallets list
     // This prevents executing trades from wallets that were removed or never tracked
