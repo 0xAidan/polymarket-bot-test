@@ -2,7 +2,7 @@
  * Ditto onboarding tutorial — ENGINE.
  *
  * Renders the guided, step-by-step setup walkthrough defined in
- * onboarding-steps.js: centered card with a video slot, progress bar,
+ * onboarding-steps.js: centered card with numbered actions, progress bar,
  * spotlighted UI targets, live "Detected" completion badges, and progress
  * persistence (resume where you left off).
  *
@@ -91,21 +91,9 @@
   };
 
   /* ── Rendering ──────────────────────────────────────────────────────── */
-  const renderVideoSlot = (step) => {
-    if (step.videoSrc) {
-      return (
-        '<div class="onb-video">' +
-        `<video controls preload="metadata" src="${step.videoSrc}"></video>` +
-        '</div>'
-      );
-    }
-    return (
-      '<div class="onb-video onb-video-placeholder" aria-label="Video coming soon">' +
-      '<div class="onb-video-placeholder-mark"><img src="/shared/logo-gold.png" alt=""></div>' +
-      '<div class="onb-video-placeholder-text">Video walkthrough coming soon</div>' +
-      '<div class="onb-video-placeholder-sub">The written steps below cover everything.</div>' +
-      '</div>'
-    );
+  const renderActionList = (actions) => {
+    const items = (actions || []).map((action) => '<li>' + action + '</li>').join('');
+    return '<ol class="onb-action-list">' + items + '</ol>';
   };
 
   const positionSpotlight = (selector) => {
@@ -167,8 +155,7 @@
       '<div class="onb-progress"><div class="onb-progress-fill" style="width:' + pct + '%"></div></div>' +
       '<div class="onb-step-count">Step ' + (currentIndex + 1) + ' of ' + steps.length + '</div>' +
       '<h2 class="onb-title">' + step.title + '</h2>' +
-      renderVideoSlot(step) +
-      '<div class="onb-copy">' + step.copy.map((p) => '<p>' + p + '</p>').join('') + '</div>' +
+      renderActionList(step.actions) +
       '<div class="onb-detected hidden" role="status"></div>' +
       '<div class="onb-actions">' +
       '<button type="button" class="onb-btn onb-btn-skip">Skip tutorial</button>' +

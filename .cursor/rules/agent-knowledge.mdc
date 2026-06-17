@@ -8,7 +8,7 @@ alwaysApply: true
 
 > **Purpose**: This document gives a new AI agent instance everything it needs to execute tasks in this codebase without re-scanning files. It is the single source of truth for project context. Keep it updated after every significant change.
 >
-> **Last updated**: 2026-06-09 (GTM launch prep: Jungle Agents branding canonical / Win95 removed, Auth0 Universal Login rebrand on new tenant, onboarding tutorial system, admin category/collection curation, money-path safety fixes)
+> **Last updated**: 2026-06-17 (onboarding tutorial: concise numbered steps, video slot removed)
 
 ---
 
@@ -62,7 +62,6 @@ polymarket-bot-test/
 │   ├── research/
 │   ├── auth0-branding/      # Auth0 Universal Login theme + apply.sh (reproducible branding)
 │   ├── launch-audit-findings.md  # June 2026 pre-launch audit report (severities + fixes)
-│   └── onboarding-videos.md # How the owner drops screen recordings into the tutorial
 ├── public/                  # Frontend (served by Express static)
 │   ├── index.html           # Main dashboard HTML (Jungle Agents UI)
 │   ├── styles.css           # Jungle Agents styles (jw-* legacy window classes, j-* components)
@@ -81,8 +80,8 @@ polymarket-bot-test/
 │       ├── auth-bootstrap.js# OIDC session boot, tenant switcher, admin capability flags
 │       ├── jungleAgents.js  # Jungle Agents public tab (collections + category badges)
 │       ├── tour.js          # 13-step dashboard tour (what-is-where)
-│       ├── onboarding-steps.js # ★ Onboarding tutorial step data (owner edits videoSrc here)
-│       └── onboarding.js    # Onboarding engine: video slots, completion checks, persistence
+│       ├── onboarding-steps.js # ★ Onboarding tutorial step data (owner edits actions here)
+│       └── onboarding.js    # Onboarding engine: numbered steps, completion checks, persistence
 ├── src/                     # Backend TypeScript source
 │   ├── index.ts             # ★ MAIN ENTRY POINT
 │   ├── hostedMode.ts        # Hosted multi-tenant detection (OIDC + SQLite)
@@ -657,13 +656,11 @@ These rules protect real money. Violating them has caused actual financial losse
 ### Onboarding tutorial (first-run setup walkthrough)
 - Steps are DATA in `public/js/onboarding-steps.js` (8 steps: create wallet → export key →
   paste key → connect Polymarket → builder codes → paste credentials → fund → start)
-- Engine in `public/js/onboarding.js`: centered card with HTML5 video slot (placeholder when
-  `videoSrc: null`), spotlight, live completion detection (polls real API every 3s),
+- Engine in `public/js/onboarding.js`: centered card with numbered action list, spotlight,
+  live completion detection (polls real API every 3s),
   per-workspace progress in localStorage (`ditto_onboarding_v1::<tenant>`), Esc skips
 - Entry points: auto-launches on first login (no saved progress + no trading wallet);
   "Tutorial" topbar button replays; interrupted runs auto-resume at the saved step
-- Owner adds videos by dropping .mp4 files in `public/videos/` and editing one line —
-  see `docs/onboarding-videos.md`
 - The separate 13-step dashboard tour (`tour.js`, `window.startTour`) still exists
 
 ### Admin: jungle agents curation (`/admin`)
