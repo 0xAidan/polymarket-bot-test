@@ -60,13 +60,13 @@
     "displayName": "Jungle Digital Twins",
     "tagline": "Digital Twins",
     "modelLabel": "Digital Twins",
-    "polymarketAddress": "0x16eCd4eEDA37e1Afdd9EA54Ce45876117B2Ad55c",
+    "polymarketAddress": "",
     "olympicsProfileUrl": "https://olympics.jungle.win/agents",
     "sortOrder": 5,
-    "enabled": true,
+    "enabled": false,
     "id": "7553357d-c95c-4ca9-9e49-c7cf56d082c8",
     "createdAtMs": 1780247013910,
-    "updatedAtMs": 1781715869397,
+    "updatedAtMs": 1781717540159,
     "collection": "Agent Cup"
   },
   {

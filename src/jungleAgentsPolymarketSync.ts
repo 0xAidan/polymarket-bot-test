@@ -88,7 +88,12 @@ const pickProfileAddress = (agent: JungleAgentRecord, profiles: GammaProfile[]):
 
   let bestScore = 0;
   let bestAddress: string | null = null;
+  const agentKey = normalizeName(agent.displayName);
   for (const profile of profiles) {
+    const profileName = normalizeName(profile.name || '');
+    if (profileName === 'jungle' && agentKey !== 'jungle') {
+      continue;
+    }
     const score = scoreProfileMatch(agent, profile);
     if (score > bestScore && profile.proxyWallet) {
       bestScore = score;
