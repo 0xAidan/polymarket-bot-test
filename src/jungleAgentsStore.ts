@@ -35,6 +35,8 @@ export type JungleAgentRecord = {
   polymarketAddress: string;
   /** Polymarket @username used for exact proxy-wallet lookup (e.g. junglekingagent). */
   polymarketUsername?: string;
+  /** MetaMask / login EOA from ops spreadsheet — not used for trade monitoring. */
+  loginWalletAddress?: string;
   olympicsProfileUrl: string;
   avatarUrl?: string;
   /** Market focus shown to users (sports, politics, crypto, …). */
