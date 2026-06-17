@@ -254,10 +254,32 @@
   flex-shrink: 0;
   border-radius: var(--j-radius-sm);
   border: 1px solid var(--jungle-border-strong);
-  background: var(--jungle-bg-surface);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background: rgba(229, 184, 11, 0.08);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.j-admin-agent-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.j-admin-agent-avatar-icon {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--jungle-gold);
+}
+
+.j-admin-agent-avatar-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.j-admin-agent-avatar-fallback {
   font-family: var(--font-serif);
   font-size: 18px;
   color: var(--jungle-gold);
