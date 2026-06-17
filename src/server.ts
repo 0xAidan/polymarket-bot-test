@@ -27,7 +27,7 @@ import {
   writeAuthAuditLog
 } from './authStore.js';
 import { seedJungleAgentsIfMissing, migrateOlympicsConfigToJungleStore } from './jungleAgentsStore.js';
-import { syncMissingAgentAddressesFromPolymarket } from './jungleAgentsPolymarketSync.js';
+import { reconcileAgentAddressesFromPolymarket } from './jungleAgentsPolymarketSync.js';
 import { resolveIsPlatformAdmin } from './platformAdmin.js';
 import { getDiskMetrics, isEnospcError, DiskSpaceError } from './diskGuard.js';
 
@@ -45,9 +45,9 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   await seedJungleAgentsIfMissing();
   await migrateOlympicsConfigToJungleStore();
   try {
-    const syncResult = await syncMissingAgentAddressesFromPolymarket();
-    if (syncResult.synced > 0 || syncResult.unresolved.length > 0) {
-      log.info(syncResult, 'Jungle Agents Polymarket address sync finished');
+    const syncResult = await reconcileAgentAddressesFromPolymarket();
+    if (syncResult.replaced > 0 || syncResult.unresolved > 0) {
+      log.info(syncResult, 'Jungle Agents Polymarket address reconcile finished');
     }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);

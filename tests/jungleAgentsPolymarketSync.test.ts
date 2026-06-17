@@ -1,42 +1,18 @@
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
-import { config } from '../src/config.js';
-import {
-  seedJungleAgentsIfMissing,
-  loadAgents,
-  updateAgent,
-} from '../src/jungleAgentsStore.js';
-import { syncMissingAgentAddressesFromPolymarket } from '../src/jungleAgentsPolymarketSync.js';
+import { verifyPolymarketAddress } from '../src/jungleAgentsPolymarketSync.js';
 
 describe('jungleAgentsPolymarketSync', () => {
-  let savedDataDir: string;
-  let tempDir: string;
-
-  beforeEach(async () => {
-    savedDataDir = config.dataDir;
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jungle-sync-'));
-    (config as { dataDir: string }).dataDir = tempDir;
-    await seedJungleAgentsIfMissing();
+  it('verifyPolymarketAddress marks inactive wallets as invalid', async () => {
+    const result = await verifyPolymarketAddress('0xbb08a5b089706db064441dbfbd323145f7164591');
+    assert.equal(result.hasActivity, false);
+    assert.equal(result.portfolioValueUsd, 0);
+    assert.equal(result.isLikelyValid, false);
   });
 
-  afterEach(() => {
-    (config as { dataDir: string }).dataDir = savedDataDir;
-    fs.rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  it('skips agents that already have addresses', async () => {
-    const agents = await loadAgents();
-    let i = 0;
-    for (const agent of agents) {
-      const hex = (i + 1).toString(16).padStart(40, '0');
-      await updateAgent(agent.id, { polymarketAddress: `0x${hex}` });
-      i++;
-    }
-    const result = await syncMissingAgentAddressesFromPolymarket();
-    assert.equal(result.synced, 0);
-    assert.equal(result.skipped, agents.length);
+  it('verifyPolymarketAddress marks active proxy wallets as valid', async () => {
+    const result = await verifyPolymarketAddress('0xa42451f52ee663df451a6fecc704850469b2ee6f');
+    assert.equal(result.isLikelyValid, true);
+    assert.ok(result.portfolioValueUsd > 0 || result.hasActivity);
   });
 });
