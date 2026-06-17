@@ -369,7 +369,9 @@ async function startAppRuntime() {
       await copyTrader.initialize();
 
       // Check if there are any tracked wallets
-      const trackedWallets = await Storage.getActiveWallets();
+      const trackedWallets = isHostedMultiTenantMode() && !getTenantId()
+        ? await Storage.loadAllActiveTrackedWalletsForMonitoring()
+        : await Storage.getActiveWallets();
       const activeWallets = trackedWallets.filter((w: { active: boolean }) => w.active);
 
       log.info(`\n${'='.repeat(60)}`);
