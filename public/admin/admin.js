@@ -150,14 +150,18 @@ const renderTable = () => {
     const missing = !agent.polymarketAddress;
     const addrInvalid = draft.polymarketAddress.trim() && !isValidAddress(draft.polymarketAddress);
     const perf = perfSnapshots.get(agent.id);
-    const initial = (draft.displayName || agent.displayName || '?').slice(0, 1).toUpperCase();
+    const avatarInner = renderJungleAgentAvatar(agent, {
+      imgClass: 'j-admin-agent-avatar-img',
+      iconClass: 'j-admin-agent-avatar-icon',
+      fallbackClass: 'j-admin-agent-avatar-fallback',
+    });
 
     return `
     <tr class="${missing ? 'row-missing' : ''}${dirty ? ' row-dirty' : ''}" data-agent-row="${agent.id}">
       <td class="col-order">${agent.sortOrder}</td>
       <td class="col-agent">
         <div class="j-admin-agent-cell">
-          <div class="j-admin-agent-avatar" aria-hidden="true">${escapeHtml(initial)}</div>
+          <div class="j-admin-agent-avatar" aria-hidden="true">${avatarInner}</div>
           <div class="j-admin-agent-fields">
             <input
               type="text"

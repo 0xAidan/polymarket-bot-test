@@ -99,9 +99,7 @@ const renderAgentTableRow = (agent) => {
   const followDisabled = agent.addressPending || isFollowing;
   const followLabel = isFollowing ? 'Following' : 'Follow';
   const profileUrl = polymarketProfileUrl(agent.polymarketAddress);
-  const avatar = agent.avatarUrl
-    ? `<img src="${agent.avatarUrl}" alt="" class="j-agents-avatar-img" />`
-    : `<span class="j-agents-avatar-fallback">${agent.displayName.slice(0, 1)}</span>`;
+  const avatar = renderJungleAgentAvatar(agent);
   const metaLine = [agent.tagline, agent.modelLabel].filter(Boolean).join(' · ');
   const categoryBadge = agent.category
     ? `<span class="j-badge j-agents-category">${agent.category}</span>`
@@ -277,9 +275,11 @@ window.renderHomeJungleAgentTeaser = async () => {
       </header>
       <div class="j-roster-list">
         ${agents.map((a) => {
-    const avatar = a.avatarUrl
-      ? `<img src="${a.avatarUrl}" alt="" />`
-      : `<span class="j-roster-avatar-fallback">${a.displayName.slice(0, 1)}</span>`;
+    const avatar = renderJungleAgentAvatar(a, {
+      imgClass: '',
+      iconClass: 'j-roster-avatar-icon',
+      fallbackClass: 'j-roster-avatar-fallback',
+    });
     return `
           <button type="button" class="j-roster-item" onclick="switchTab('jungle-agents')" aria-label="Open ${a.displayName} in Jungle Agents">
             <div class="j-roster-avatar">${avatar}</div>

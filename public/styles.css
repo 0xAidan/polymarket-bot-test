@@ -3821,6 +3821,19 @@ body.j-drawer-open { overflow: hidden; }
   color: var(--jungle-gold);
 }
 
+.j-roster-avatar-icon {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--jungle-gold);
+}
+
+.j-roster-avatar-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
 .j-roster-body {
   min-width: 0;
 }
@@ -4018,6 +4031,56 @@ body.j-drawer-open { overflow: hidden; }
 .j-agents-avatar-fallback {
   font-family: var(--font-serif);
   font-size: 13px;
+  color: var(--jungle-gold);
+}
+
+.j-agents-avatar-icon {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--jungle-gold);
+}
+
+.j-agents-avatar-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.j-preset-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--jungle-border-strong);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: rgba(229, 184, 11, 0.08);
+}
+
+.j-preset-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.j-preset-avatar-icon {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--jungle-gold);
+}
+
+.j-preset-avatar-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.j-preset-avatar-fallback {
+  font-family: var(--font-serif);
+  font-size: 12px;
   color: var(--jungle-gold);
 }
 

@@ -1101,9 +1101,12 @@ function renderJungleAgentPresets() {
   }
 
   container.innerHTML = filtered.map((agent) => {
-    const avatar = agent.avatarUrl
-      ? `<img src="${agent.avatarUrl}" alt="${agent.displayName}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;border:1px solid var(--jw-dark);">`
-      : '<div style="width:28px;height:28px;border-radius:50%;border:1px solid var(--jw-dark);display:flex;align-items:center;justify-content:center;font-size:12px;">?</div>';
+    const avatarInner = renderJungleAgentAvatar(agent, {
+      imgClass: 'j-preset-avatar-img',
+      iconClass: 'j-preset-avatar-icon',
+      fallbackClass: 'j-preset-avatar-fallback',
+    });
+    const avatar = `<div class="j-preset-avatar">${avatarInner}</div>`;
 
     const address = agent.polymarketAddress || '';
     const shortAddress = address
