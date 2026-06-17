@@ -197,6 +197,16 @@ const handleFollowAgent = async (agent) => {
   }
   try {
     await API.addWallet(addr, agent.displayName);
+    try {
+      const tw = await API.getTradingWallets();
+      const wallets = tw.wallets || [];
+      const credentialed = wallets.filter((w) => w.hasCredentials && w.active !== false);
+      if (credentialed.length === 1) {
+        await API.addCopyAssignment(addr, credentialed[0].id);
+      }
+    } catch {
+      // Non-fatal — user can assign manually under Trading Wallets
+    }
     trackedAddressSet.add(addr);
     await jungleDialog.success(`Added ${agent.displayName} to Tracked Wallets (inactive until you enable copying).`);
     if (typeof loadWallets === 'function') await loadWallets(true);

@@ -67,7 +67,8 @@
       tab: 'discovery',
       target: '#tab-discovery',
       title: 'Discovery',
-      body: 'Discovery helps you find promising wallets to track next. It is useful, but it should not get in the way of basic setup.'
+      body: 'Discovery helps you find promising wallets to track next. It is useful, but it should not get in the way of basic setup.',
+      adminOnly: true,
     },
     {
       tab: 'settings',

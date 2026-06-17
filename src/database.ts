@@ -3,6 +3,7 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import { config } from './config.js';
 import { DEFAULT_TENANT_ID } from './tenantContext.js';
+import { getDiskMetrics } from './diskGuard.js';
 
 let db: Database.Database | null = null;
 let currentDbPath: string | null = null;
@@ -129,6 +130,18 @@ export function getDatabase(): Database.Database {
     throw new Error('Database not initialized. Call initDatabase() first.');
   }
   return db;
+}
+
+/** Truncate WAL when disk is under pressure to reclaim space. */
+export function checkpointWalIfDiskPressure(): void {
+  if (!db) return;
+  try {
+    const metrics = getDiskMetrics();
+    if (metrics.status === 'ok') return;
+    db.pragma('wal_checkpoint(TRUNCATE)');
+  } catch {
+    // non-fatal
+  }
 }
 
 /**

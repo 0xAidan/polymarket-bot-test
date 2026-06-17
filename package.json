@@ -12,7 +12,7 @@
     "dev:app": "node start.cjs",
     "discovery:dev": "tsx watch src/discovery/discoveryWorker.ts",
     "build": "tsc",
-    "test": "node --test --import tsx tests/**/*.test.ts",
+    "test": "node --test --import tsx tests/*.test.ts",
     "start": "node start.cjs",
     "start:app": "tsx src/index.ts",
     "start:discovery": "tsx src/discovery/discoveryWorker.ts",

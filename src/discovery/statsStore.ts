@@ -8,6 +8,7 @@
 
 import { getDatabase } from '../database.js';
 import { config } from '../config.js';
+import { getDiskMetrics, logDiskPressure } from '../diskGuard.js';
 import {
   DiscoveredTrade,
   DiscoveryMarketCategory,
@@ -606,6 +607,21 @@ export const purgeAllDiscoveryData = (): {
 export const runRetentionCleanup = (): number => {
   const cfg = getDiscoveryConfig();
   return purgeOldTrades(cfg.retentionDays);
+};
+
+/** Use shorter retention windows when disk is under pressure. */
+export const runRetentionCleanupWithDiskPressure = (): number => {
+  const metrics = getDiskMetrics();
+  if (metrics.status === 'ok') {
+    return runRetentionCleanup();
+  }
+  logDiskPressure('discovery-retention');
+  const cfg = getDiscoveryConfig();
+  const aggressiveDays = Math.min(7, cfg.retentionDays);
+  let removed = purgeOldTrades(aggressiveDays);
+  removed += cleanupOldSignals(aggressiveDays);
+  removed += cleanupStalePositions(aggressiveDays);
+  return removed;
 };
 
 // ---------------------------------------------------------------------------

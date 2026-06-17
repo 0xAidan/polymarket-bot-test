@@ -194,7 +194,44 @@ function initApp() {
   setInterval(updateClock, 1000);
   void loadAllData();
   startAutoRefresh();
+  applyHostedUiGates();
+  void refreshDiskSpaceBanner();
+  setInterval(refreshDiskSpaceBanner, 60_000);
 }
+
+const applyHostedUiGates = () => {
+  const hosted = usesHostedWalletAccess();
+  document.getElementById('settingsProxyWalletSection')?.classList.toggle('hidden', hosted);
+  document.getElementById('settingsProxyWalletHostedNote')?.classList.toggle('hidden', !hosted);
+  document.getElementById('diagnosticsClobBtn')?.classList.toggle('hidden', hosted);
+  document.getElementById('diagnosticsClobHostedNote')?.classList.toggle('hidden', !hosted);
+  document.querySelectorAll('[data-hosted-hide]').forEach((el) => {
+    el.classList.toggle('hidden', hosted);
+  });
+};
+
+const refreshDiskSpaceBanner = async () => {
+  const banner = document.getElementById('diskSpaceBanner');
+  if (!banner) return;
+  try {
+    const resp = await fetch('/health');
+    const data = await resp.json();
+    const disk = data?.disk;
+    if (!disk || disk.status === 'ok') {
+      banner.classList.add('hidden');
+      banner.textContent = '';
+      return;
+    }
+    const availMb = Math.floor((disk.availableBytes || 0) / 1024 / 1024);
+    banner.textContent = disk.status === 'critical'
+      ? `Server disk is critically full (${disk.usedPercent}% used, ${availMb} MiB free). Saves may fail until space is freed.`
+      : `Server disk is running low (${disk.usedPercent}% used). Consider freeing space soon.`;
+    banner.classList.toggle('is-degraded', disk.status === 'degraded');
+    banner.classList.remove('hidden');
+  } catch {
+    banner.classList.add('hidden');
+  }
+};
 
 document.addEventListener('DOMContentLoaded', () => {
   // If auth is required and we don't have a valid token yet, don't init.
@@ -297,12 +334,19 @@ const updateHeaderStatusChip = () => {
   chip.classList.toggle('stopped', !botRunning);
 };
 
-const buildSetupGuideState = ({ status, walletsData, tradingData, lockData }) => {
-  const trackedCount = walletsData?.wallets?.length || 0;
-  const tradingCount = tradingData?.wallets?.length || 0;
+const buildSetupGuideState = ({ status, walletsData, tradingData, lockData, copyAssignments = [] }) => {
+  const trackedWallets = walletsData?.wallets || [];
+  const tradingWallets = tradingData?.wallets || [];
+  const trackedCount = trackedWallets.length;
+  const tradingCount = tradingWallets.length;
   const vaultUnlocked = usesHostedWalletAccess() ? true : !!lockData?.unlocked;
   const hasTradingWallet = tradingCount > 0;
-  const isReadyToStart = hasTradingWallet && trackedCount > 0;
+  const hasBuilderCreds = tradingWallets.some((w) => w.hasCredentials);
+  const hasActiveTracked = trackedWallets.some((w) => w.active);
+  const credentialedCount = tradingWallets.filter((w) => w.hasCredentials).length;
+  const needsCopyAssignment = credentialedCount >= 2;
+  const copyAssignmentReady = !needsCopyAssignment || copyAssignments.length > 0;
+  const isReadyToStart = hasTradingWallet && hasBuilderCreds && hasActiveTracked && copyAssignmentReady && trackedCount > 0;
   const isComplete = isReadyToStart && !!status?.running;
 
   const steps = [
@@ -318,23 +362,36 @@ const buildSetupGuideState = ({ status, walletsData, tradingData, lockData }) =>
     {
       key: 'trading-wallet',
       title: usesHostedWalletAccess() ? 'Add a trading wallet' : 'Unlock or create your vault',
-      detail: hasTradingWallet
-        ? `${tradingCount} trading wallet${tradingCount === 1 ? '' : 's'} ready`
-        : (vaultUnlocked
+      detail: !hasTradingWallet
+        ? (vaultUnlocked
           ? 'Add the wallet Ditto should use to place copied trades.'
-          : 'Open your vault first, then add the wallet Ditto should trade with.'),
-      complete: hasTradingWallet,
+          : 'Open your vault first, then add the wallet Ditto should trade with.')
+        : (!hasBuilderCreds
+          ? 'Add Builder API credentials to your trading wallet so Ditto can place orders.'
+          : `${tradingCount} trading wallet${tradingCount === 1 ? '' : 's'} ready`),
+      complete: hasTradingWallet && hasBuilderCreds,
       action: 'trading-wallets'
     },
     {
       key: 'tracked-wallet',
-      title: 'Add a tracked wallet',
-      detail: trackedCount > 0
-        ? `${trackedCount} tracked wallet${trackedCount === 1 ? '' : 's'} added`
-        : 'Choose the wallet addresses Ditto should follow and copy.',
-      complete: trackedCount > 0,
+      title: 'Follow and enable a wallet',
+      detail: trackedCount === 0
+        ? 'Follow a Jungle Agent or add a wallet address to copy.'
+        : (!hasActiveTracked
+          ? `${trackedCount} tracked — enable at least one to start copying.`
+          : `${trackedCount} tracked wallet${trackedCount === 1 ? '' : 's'} active`),
+      complete: hasActiveTracked,
       action: 'wallets'
     },
+    ...(needsCopyAssignment ? [{
+      key: 'copy-assignment',
+      title: 'Assign copy wallets',
+      detail: copyAssignmentReady
+        ? 'Each tracked wallet is mapped to a trading wallet.'
+        : 'With multiple trading wallets, map each tracked wallet to the wallet that should execute copies.',
+      complete: copyAssignmentReady,
+      action: 'trading-wallets'
+    }] : []),
     {
       key: 'start-bot',
       title: 'Review and start the bot',
@@ -342,7 +399,7 @@ const buildSetupGuideState = ({ status, walletsData, tradingData, lockData }) =>
         ? 'Ditto is currently live.'
         : (isReadyToStart
           ? 'Your basics are ready. Start the bot when you are comfortable.'
-          : 'This unlocks once your trading wallet and tracked wallet are both ready.'),
+          : 'Complete the steps above before starting the bot.'),
       complete: !!status?.running,
       action: 'dashboard'
     }
@@ -365,6 +422,7 @@ const SETUP_STEP_SHORT = {
   session: 'Session',
   'trading-wallet': 'Trading wallet',
   'tracked-wallet': 'Tracked wallet',
+  'copy-assignment': 'Copy map',
   'start-bot': 'Start bot',
 };
 
@@ -503,7 +561,19 @@ async function refreshSetupExperience(autoOpen = false) {
       lockPromise
     ]);
 
-    setupGuideState = buildSetupGuideState({ status, walletsData, tradingData, lockData });
+    const tradingCount = (tradingData?.wallets || []).length;
+    const credentialedCount = (tradingData?.wallets || []).filter((w) => w.hasCredentials).length;
+    const assignmentsData = credentialedCount >= 2
+      ? await API.getCopyAssignments().catch(() => ({ assignments: [] }))
+      : { assignments: [] };
+
+    setupGuideState = buildSetupGuideState({
+      status,
+      walletsData,
+      tradingData,
+      lockData,
+      copyAssignments: assignmentsData.assignments || [],
+    });
     renderSetupWizard(setupGuideState);
 
     if (setupGuideState.isComplete) {
@@ -602,7 +672,7 @@ async function loadAllData() {
 }
 
 // Tabs/features still in development — platform admins only.
-const ADMIN_ONLY_TABS = new Set(['platforms', 'cross-platform']);
+const ADMIN_ONLY_TABS = new Set(['platforms', 'cross-platform', 'discovery']);
 
 function isPlatformAdminUser() {
   return !!window.__isPlatformAdmin;
@@ -4536,6 +4606,10 @@ const restartDiscovery = async () => {
 };
 
 const purgeDiscoveryData = async () => {
+  if (!isPlatformAdminUser()) {
+    await jungleModal.alert('Platform admin required', 'Clear Discovery Data is restricted to platform admins.');
+    return;
+  }
   const firstConfirm = await jungleModal.confirm(
     'Clear Discovery Data',
     'Warning: this will erase the full discovery feed (wallets, trades, positions, signals, and market cache).'
@@ -4567,8 +4641,12 @@ const purgeDiscoveryData = async () => {
 
       const deletedTotal = typeof data.deleted?.total === 'number' ? data.deleted.total : 0;
       jungleModal.alert('Cleared', `Discovery data cleared. Removed ${deletedTotal} records.`);
+    } else if (data.error) {
+      await jungleModal.error(data.error);
     }
-  } catch { /* best-effort */ }
+  } catch (err) {
+    await jungleModal.error(err?.message || 'Failed to clear discovery data');
+  }
 };
 
 const clearDiscoveryUiState = () => {

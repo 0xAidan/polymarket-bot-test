@@ -29,6 +29,7 @@ import {
 import { seedJungleAgentsIfMissing, migrateOlympicsConfigToJungleStore } from './jungleAgentsStore.js';
 import { syncMissingAgentAddressesFromPolymarket } from './jungleAgentsPolymarketSync.js';
 import { resolveIsPlatformAdmin } from './platformAdmin.js';
+import { getDiskMetrics, isEnospcError, DiskSpaceError } from './diskGuard.js';
 
 const log = createComponentLogger('Server');
 
@@ -59,17 +60,35 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   app.use(cors());
   app.use(express.json({ limit: '5mb' }));  // Increased from default 100kb for large trade lists
 
-  // Serve static files from public directory
+  // Serve static files from public directory (discovery-v3 is mounted after auth below)
   // Note: Using process.cwd() since the app runs from project root
   const publicPath = path.join(process.cwd(), 'public');
-  app.use('/discovery-v3', (req, res, next) => {
-    if (!isDiscoveryV3Enabled()) {
-      res.status(404).send('Discovery v3 is not enabled');
+  app.use((req, res, next) => {
+    const urlPath = req.path || '';
+    if (urlPath === '/discovery-v3' || urlPath.startsWith('/discovery-v3/')) {
+      next();
       return;
     }
-    next();
+    express.static(publicPath)(req, res, next);
   });
-  app.use(express.static(publicPath));
+
+  const mountProtectedDiscoveryV3Static = (): void => {
+    app.use(
+      '/discovery-v3',
+      (req, res, next) => {
+        if (!isDiscoveryV3Enabled()) {
+          res.status(404).send('Discovery v3 is not enabled');
+          return;
+        }
+        if (!resolveIsPlatformAdmin(req)) {
+          res.status(403).send('Platform admin required');
+          return;
+        }
+        next();
+      },
+      express.static(path.join(publicPath, 'discovery-v3'))
+    );
+  };
 
   discoveryManagerInstance = new DiscoveryManager('passive');
   const discoveryControlPlane = new DiscoveryControlPlane();
@@ -226,6 +245,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 
     app.use('/auth', authLimiter);
     app.use(auth(oidcConfig));
+    mountProtectedDiscoveryV3Static();
 
     app.get('/api/auth/capabilities', sendAuthCapabilities);
 
@@ -337,6 +357,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     });
     log.info('🔐 OIDC authentication enabled (Auth0 session mode)');
   } else if (config.apiSecret) {
+    mountProtectedDiscoveryV3Static();
     app.get('/api/auth/capabilities', sendAuthCapabilities);
 
     app.post('/api/auth/check', (req, res) => {
@@ -376,6 +397,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
       throw new Error(message);
     }
     log.warn('⚠️  WARNING: API authentication is open in legacy mode.');
+    mountProtectedDiscoveryV3Static();
     app.get('/api/auth/capabilities', sendAuthCapabilities);
     mountDiscoveryV3Public();
     app.use('/api', apiLimiter, (_req, _res, next) => {
@@ -406,6 +428,15 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 
   // API error handler - ensure API errors return JSON, not HTML
   app.use('/api', (err: any, req: any, res: any, next: any) => {
+    if (isEnospcError(err) || err instanceof DiskSpaceError || err?.code === 'DISK_FULL') {
+      log.error({ err }, '[API] Disk full');
+      res.status(507).json({
+        success: false,
+        error: 'DISK_FULL',
+        message: 'Server disk is full. Saves are blocked until space is freed. Contact support if this persists.',
+      });
+      return;
+    }
     log.error({ err }, '[API] Error');
     res.status(err.status || 500).json({
       success: false,
@@ -414,8 +445,19 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   });
 
   // Health check
-  app.get('/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  app.get('/health', (_req, res) => {
+    const disk = getDiskMetrics();
+    const overallStatus = disk.status === 'critical' ? 'critical' : disk.status === 'degraded' ? 'degraded' : 'ok';
+    res.status(disk.status === 'critical' ? 503 : 200).json({
+      status: overallStatus,
+      timestamp: new Date().toISOString(),
+      disk: {
+        path: disk.path,
+        usedPercent: disk.usedPercent,
+        availableBytes: disk.availableBytes,
+        status: disk.status,
+      },
+    });
   });
 
   // Serve dashboard UI (fallback for SPA-style routing)

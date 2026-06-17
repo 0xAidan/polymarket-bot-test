@@ -15,7 +15,7 @@
   <div id="authGateScreen" class="auth-gate-screen" aria-live="polite">
     <div class="auth-gate-backdrop"></div>
     <div class="auth-gate-panel noise-overlay">
-      <div class="auth-gate-eyebrow">JUNGLE DAO</div>
+      <div class="auth-gate-eyebrow">JUNGLE AGENTS</div>
       <div class="auth-gate-brand-row">
         <div class="auth-gate-mark">D</div>
         <div>
@@ -53,7 +53,7 @@
       <nav class="j-nav" aria-label="Primary">
         <button type="button" class="j-nav-btn active" data-tab="dashboard">Home</button>
         <button type="button" class="j-nav-btn" data-tab="jungle-agents">Jungle Agents</button>
-        <button type="button" class="j-nav-btn" data-tab="discovery">Discovery</button>
+        <button type="button" class="j-nav-btn" data-tab="discovery" data-admin-only>Discovery</button>
         <button type="button" class="j-nav-btn" data-tab="wallets">Tracked Wallets</button>
         <button type="button" class="j-nav-btn" data-tab="trading-wallets">Trading Wallets</button>
         <button type="button" class="j-nav-btn" data-tab="platforms" data-admin-only>Platforms</button>
@@ -67,12 +67,13 @@
         <span class="j-status-mini hidden" aria-hidden="true"><span class="status-indicator stopped" id="taskbarIndicator"></span><span id="taskbarStatus">Stopped</span></span>
         <select id="tenantSwitcher" class="j-input j-input-sm hidden" aria-label="Active workspace" onchange="handleTenantWorkspaceChange(this.value)"></select>
         <button type="button" class="j-btn j-btn-ghost j-btn-sm" id="topbarTutorial" onclick="startOnboarding(true)" title="Replay the setup tutorial">Tutorial</button>
-        <a href="/discovery-v3/" class="j-btn j-btn-ghost j-btn-sm">Discovery v3</a>
+        <a href="/discovery-v3/" class="j-btn j-btn-ghost j-btn-sm" data-admin-only>Discovery v3</a>
         <a href="/admin" id="topbarAdminLink" class="j-btn j-btn-ghost j-btn-sm hidden">Admin</a>
         <span class="j-topbar-clock" id="taskbarClock">--:--</span>
         <button type="button" class="j-btn j-btn-ghost j-btn-sm hidden" id="topbarLogout" onclick="handleLogout()">Log out</button>
       </div>
     </header>
+    <div id="diskSpaceBanner" class="j-disk-banner hidden" role="alert" aria-live="polite"></div>
     <main class="j-main">
       <!-- Tab Content -->
       <div class="jw-body">
@@ -504,7 +505,7 @@
             <div>
               <p class="j-dash-eyebrow">Qualifiers</p>
               <h1 class="font-serif j-page-title">Discovery</h1>
-              <p class="j-page-sub">Evaluate promising wallets to track next. For institutional scores and tiers, use <a class="j-page-link" href="/discovery-v3/" target="_blank" rel="noopener noreferrer">Discovery v3 →</a></p>
+              <p class="j-page-sub">Evaluate promising wallets to track next. For institutional scores and tiers, use <a class="j-page-link" href="/discovery-v3/" target="_blank" rel="noopener noreferrer" data-admin-only>Discovery v3 →</a></p>
             </div>
           </header>
           <!-- Discovery Settings -->
@@ -546,8 +547,8 @@
             </div>
             <div class="flex-row gap-8">
               <button class="jw-btn jw-btn-primary" onclick="saveDiscoveryConfig()" aria-label="Save discovery settings" tabindex="0">Save Settings</button>
-              <button class="jw-btn" onclick="restartDiscovery()" aria-label="Restart discovery engine" tabindex="0">Restart Discovery</button>
-              <button class="jw-btn" onclick="purgeDiscoveryData()" aria-label="Clear all discovery data" tabindex="0">Clear Discovery Data</button>
+              <button class="jw-btn" data-admin-only onclick="restartDiscovery()" aria-label="Restart discovery engine" tabindex="0">Restart Discovery</button>
+              <button class="jw-btn" data-admin-only onclick="purgeDiscoveryData()" aria-label="Clear all discovery data" tabindex="0">Clear Discovery Data</button>
             </div>
           </div>
 
@@ -756,13 +757,16 @@
               <input type="number" id="monitoringInterval" value="15" min="1" max="300" class="jw-input" style="width:80px;" onchange="updateMonitoringInterval()">
             </div>
             <div class="form-hint">How often to check tracked wallets for new trades</div>
-            <hr style="margin: 12px 0; border-color: var(--jw-dark);">
-            <div class="form-row">
-              <label>Proxy Wallet:</label>
-              <input type="text" id="proxyWalletAddress" placeholder="0x..." class="jw-input text-mono">
-              <button class="jw-btn jw-btn-sm" onclick="updateProxyWallet()">Update</button>
+            <div id="settingsProxyWalletSection">
+              <hr style="margin: 12px 0; border-color: var(--jw-dark);">
+              <div class="form-row">
+                <label>Proxy Wallet:</label>
+                <input type="text" id="proxyWalletAddress" placeholder="0x..." class="jw-input text-mono">
+                <button class="jw-btn jw-btn-sm" onclick="updateProxyWallet()">Update</button>
+              </div>
+              <div class="form-hint">Your Polymarket proxy wallet holds your USDC. Required for accurate balance display.</div>
             </div>
-            <div class="form-hint">Your Polymarket proxy wallet holds your USDC. Required for accurate balance display.</div>
+            <div id="settingsProxyWalletHostedNote" class="form-hint hidden">In hosted mode, set the proxy address on each trading wallet under Trading Wallets → Settings.</div>
           </div>
         </div>
 
@@ -778,10 +782,18 @@
             </div>
           </header>
           <!-- CLOB Connectivity Test -->
-          <div class="jw-group">
+          <div class="jw-group" id="diagnosticsClobGroup">
             <div class="jw-group-title">CLOB API Connectivity</div>
-            <button class="jw-btn jw-btn-primary" onclick="testClobConnectivity()">Run Connectivity Test</button>
+            <button class="jw-btn jw-btn-primary" id="diagnosticsClobBtn" onclick="testClobConnectivity()">Run Connectivity Test</button>
+            <p id="diagnosticsClobHostedNote" class="form-hint hidden">CLOB connectivity tests are available in self-hosted mode only.</p>
             <div id="clobTestResults" class="hidden" style="margin-top:8px;"></div>
+          </div>
+
+          <!-- Geoblock eligibility -->
+          <div class="jw-group">
+            <div class="jw-group-title">Region Eligibility</div>
+            <button class="jw-btn jw-btn-primary" onclick="testGeoblockStatus()">Check Geoblock Status</button>
+            <div id="geoblockTestResults" class="hidden" style="margin-top:8px;"></div>
           </div>
 
           <!-- Failed Trades Analysis -->
@@ -1538,7 +1550,7 @@
       <div class="jw-modal-body" style="padding:12px;">
         <input type="hidden" id="twSettingsWalletId">
         <!-- Auto-Redemption -->
-        <div class="jw-group">
+        <div class="jw-group" data-hosted-hide>
           <div class="jw-group-title">Auto-Redemption</div>
           <div class="text-sm text-muted mb-8">Automatically redeem winning positions when markets resolve. Your USDC is returned without manual action.</div>
           <div class="flex-row gap-8 mb-8">
@@ -1557,7 +1569,7 @@
         </div>
 
         <!-- Auto-Merge -->
-        <div class="jw-group">
+        <div class="jw-group" data-hosted-hide>
           <div class="jw-group-title">Auto-Merge</div>
           <div class="text-sm text-muted mb-8">Automatically merge complementary position fragments to recover USDC</div>
           <div class="flex-row gap-8">
@@ -1569,7 +1581,7 @@
         </div>
 
         <!-- Redeemable Positions -->
-        <div class="jw-group">
+        <div class="jw-group" data-hosted-hide>
           <div class="jw-group-title">Redeemable Now</div>
           <div id="twRedeemableList">
             <div class="text-center text-muted" style="padding:8px;">Click "Check Now" to scan</div>

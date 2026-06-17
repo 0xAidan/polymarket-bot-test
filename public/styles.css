@@ -674,13 +674,20 @@ body {
 /* In-progress admin tools: hidden for all users unless body.platform-admin is set. */
 .j-nav-btn[data-tab="platforms"],
 .j-nav-btn[data-tab="cross-platform"],
+.j-nav-btn[data-tab="discovery"],
 [data-admin-only] {
   display: none !important;
 }
 
 body.platform-admin .j-nav-btn[data-tab="platforms"],
-body.platform-admin .j-nav-btn[data-tab="cross-platform"] {
-  display: inline-block !important;
+body.platform-admin .j-nav-btn[data-tab="cross-platform"],
+body.platform-admin .j-nav-btn[data-tab="discovery"],
+body.platform-admin [data-admin-only] {
+  display: inline-flex !important;
+}
+
+body.platform-admin a[data-admin-only].j-btn {
+  display: inline-flex !important;
 }
 
 body.platform-admin [data-admin-only].j-dash-collapsible {
@@ -2427,6 +2434,36 @@ body.app-ready .auth-gate-screen {
   border-color: rgba(255, 107, 107, 0.45);
   background: rgba(255, 107, 107, 0.1);
   color: var(--jungle-loss);
+}
+
+.j-disk-banner {
+  margin: 0 22px 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 107, 107, 0.45);
+  background: rgba(255, 107, 107, 0.12);
+  color: var(--jungle-loss);
+  font-size: 13px;
+}
+
+.j-disk-banner.is-degraded {
+  border-color: rgba(229, 184, 11, 0.45);
+  background: rgba(229, 184, 11, 0.1);
+  color: var(--jungle-gold);
+}
+
+@media (max-width: 1024px) {
+  .j-topbar-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .app-status-pill {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 .app-titlebar {

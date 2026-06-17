@@ -2376,7 +2376,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       if (isHostedMultiTenantMode()) {
         return res.status(403).json({
           success: false,
-          error: 'Server Builder credentials cannot be changed in hosted mode. Configure per trading wallet after unlocking.',
+          error: 'Server Builder credentials cannot be changed in hosted mode. Add Builder credentials per trading wallet under Trading Wallets.',
         });
       }
 

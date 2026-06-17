@@ -82,6 +82,16 @@ const API = {
         throw new Error('Authentication required');
       }
 
+      if (response.status === 507) {
+        throw new Error('Server disk is full. Saves are blocked until space is freed — contact support if this persists.');
+      }
+
+      if (response.status === 403) {
+        const parsed403 = await readApiResponseViaCore(response);
+        const msg = parsed403.data?.message || parsed403.error || 'You do not have permission for this action.';
+        throw new Error(msg);
+      }
+
       const parsed = await readApiResponseViaCore(response);
       if (!parsed.ok) {
         throw new Error(parsed.error || `HTTP ${response.status}`);

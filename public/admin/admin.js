@@ -346,7 +346,12 @@ const saveAllChanges = async () => {
     await loadAdminAgents();
     await jungleDialog.success(`Saved ${updates.length} agent${updates.length === 1 ? '' : 's'}.`);
   } catch (error) {
-    await jungleDialog.error(error.message || 'Save failed');
+    const message = error?.message || 'Save failed';
+    if (message.includes('DISK_FULL') || message.includes('Disk space')) {
+      await jungleDialog.error('Server disk is full. Free space on the server before saving agent changes.');
+      return;
+    }
+    await jungleDialog.error(message);
   }
 };
 
@@ -374,6 +379,12 @@ const bootAdmin = async () => {
     await loadAdminAgents();
   } catch (error) {
     console.error(error);
+    const panel = document.getElementById('adminUnauthorized');
+    const textEl = panel?.querySelector('p');
+    const isNetwork = error?.message?.includes('fetch') || error?.message?.includes('Failed to fetch');
+    if (textEl && isNetwork) {
+      textEl.textContent = 'Could not reach the server. Check your connection and try again.';
+    }
     showUnauthorized();
   }
 };
