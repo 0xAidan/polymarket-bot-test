@@ -16,7 +16,11 @@ const agentShortAddress = (address) => {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 };
 
-const polymarketProfileUrl = (address) => {
+const polymarketProfileUrl = (agent) => {
+  if (agent?.polymarketUsername) {
+    return `https://polymarket.com/@${agent.polymarketUsername.replace(/^@/, '')}`;
+  }
+  const address = typeof agent === 'string' ? agent : agent?.polymarketAddress;
   if (!address) return null;
   return `https://polymarket.com/profile/${address.trim().toLowerCase()}`;
 };
@@ -98,7 +102,7 @@ const renderAgentTableRow = (agent) => {
   const isFollowing = address && trackedAddressSet.has(address);
   const followDisabled = agent.addressPending || isFollowing;
   const followLabel = isFollowing ? 'Following' : 'Follow';
-  const profileUrl = polymarketProfileUrl(agent.polymarketAddress);
+  const profileUrl = polymarketProfileUrl(agent);
   const avatar = renderJungleAgentAvatar(agent);
   const metaLine = [agent.tagline, agent.modelLabel].filter(Boolean).join(' · ');
   const categoryBadge = agent.category

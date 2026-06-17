@@ -40,6 +40,7 @@ const toPublicAgent = (a: JungleAgentRecord) => ({
   tagline: a.tagline ?? null,
   modelLabel: a.modelLabel ?? null,
   polymarketAddress: a.polymarketAddress,
+  polymarketUsername: a.polymarketUsername ?? null,
   olympicsProfileUrl: a.olympicsProfileUrl,
   avatarUrl: a.avatarUrl ?? null,
   category: a.category ?? null,
@@ -75,31 +76,40 @@ export function createJungleAgentsRouter(copyTrader: CopyTrader): Router {
         res.status(404).json({ success: false, error: 'Agent not found' });
         return;
       }
-      if (!agent.polymarketAddress) {
+      if (!agent.polymarketAddress && !agent.polymarketUsername?.trim()) {
         res.status(400).json({ success: false, error: 'Agent has no Polymarket address yet' });
         return;
       }
-      const addr = agent.polymarketAddress.toLowerCase();
+      const cacheKey = agent.id;
       const now = Date.now();
-      const cached = perfCache.get(addr);
+      const cached = perfCache.get(cacheKey);
       if (cached && now - cached.at < PERF_TTL_MS) {
         res.json({ ...cached.payload, stale: true });
         return;
       }
       const api = copyTrader.getPolymarketApi();
-      const portfolio = await api.getPolymarketProfilePortfolio(addr);
+      const balanceTracker = copyTrader.getBalanceTracker();
+      const { resolveMonitoringAddress } = await import('../trackedWalletAddress.js');
+      const lookupInput = agent.polymarketUsername?.trim()
+        ? `@${agent.polymarketUsername.replace(/^@/, '')}`
+        : agent.polymarketAddress;
+      const resolved = await resolveMonitoringAddress(lookupInput);
+      const monitoringAddress = resolved.monitoringAddress.toLowerCase();
+      const portfolio = await api.getPortfolioValue(monitoringAddress, balanceTracker);
       const payload = {
         success: true,
         agentId: agent.id,
-        address: addr,
-        portfolioValueUsd: portfolio.portfolioValueUsd,
+        address: monitoringAddress,
+        portfolioValueUsd: portfolio.totalValue,
+        usdcBalance: portfolio.usdcBalance,
+        positionsValue: portfolio.positionsValue,
         positionCount: portfolio.positionCount,
         tradeCount30d: null as null,
         lastActiveAt: null as null,
-        source: portfolio.source,
-        stale: false
+        source: 'full_portfolio',
+        stale: false,
       };
-      perfCache.set(addr, { at: now, payload });
+      perfCache.set(cacheKey, { at: now, payload });
       res.json(payload);
     } catch (error: any) {
       log.warn({ err: error.message }, '[JungleAgents] performance fetch failed');
