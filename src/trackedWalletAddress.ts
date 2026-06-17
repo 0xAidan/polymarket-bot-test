@@ -281,7 +281,9 @@ export async function reconcileTrackedWalletAddresses(): Promise<{
       }
 
       if (resolved.monitoringAddress !== wallet.address.toLowerCase()) {
+        const { migrateCopyAssignmentAddress } = await import('./walletManager.js');
         await Storage.migrateWalletAddress(wallet.address, resolved.monitoringAddress);
+        await migrateCopyAssignmentAddress(wallet.address, resolved.monitoringAddress);
         migrated++;
         log.info(
           {
