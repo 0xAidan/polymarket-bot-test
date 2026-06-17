@@ -70,7 +70,9 @@ test('onboarding tutorial loads, exposes startOnboarding, and defines 8 valid st
     assert.ok(!ids.has(step.id as string), `duplicate step id: ${step.id}`);
     ids.add(step.id as string);
     assert.equal(typeof step.title, 'string');
-    assert.ok(Array.isArray(step.copy) && (step.copy as unknown[]).length > 0);
-    assert.ok(step.videoSrc === null || typeof step.videoSrc === 'string');
+    assert.ok(Array.isArray(step.actions) && (step.actions as unknown[]).length > 0);
+    for (const action of step.actions as unknown[]) {
+      assert.equal(typeof action, 'string');
+    }
   }
 });
