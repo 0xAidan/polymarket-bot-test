@@ -26,7 +26,7 @@ Restart: `sudo systemctl restart polymarket-app.service`
 
 ## Branded Auth0 verification
 
-- [ ] Incognito → `https://ditto.jungle.win` → Auth0 shows "Welcome to the Jungle", gold logo, dark navy
+- [ ] Incognito → `https://ditto.jungle.win` → Auth0 shows "Sign in to Ditto", gold logo, dark navy
 - [ ] `curl -s https://ditto.jungle.win/api/auth/required` → `"mode":"oidc"`, `"required":true`
 - [ ] Log out → branded login returns
 - [ ] No Google "development keys" banner (disable Google or use real OAuth)
