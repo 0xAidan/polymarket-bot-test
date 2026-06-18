@@ -414,7 +414,7 @@ document.querySelectorAll('[data-admin-nav]').forEach((el) => {
       return;
     }
     if (section === 'tenants') {
-      showComingSoon('Tenants', 'Multi-tenant workspace management is planned but not built yet.');
+      showComingSoon('Tenants', 'Multi-account management is planned but not built yet.');
       setActiveNav('tenants');
     }
   });

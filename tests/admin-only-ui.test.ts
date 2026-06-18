@@ -19,7 +19,8 @@ test('index marks in-progress tools as admin-only', () => {
   assert.match(html, /data-tab="cross-platform"[^>]*data-admin-only/);
   assert.match(html, /data-tab="discovery"[^>]*data-admin-only/);
   assert.match(html, /data-tour="ladder-exits"[^>]*data-admin-only/);
-  assert.match(html, /JUNGLE AGENTS/);
+  assert.match(html, /auth-gate-eyebrow">DITTO/);
+  assert.match(html, /Jungle Agents/);
   assert.doesNotMatch(html, /auth-gate-eyebrow">JUNGLE DAO/);
 });
 
