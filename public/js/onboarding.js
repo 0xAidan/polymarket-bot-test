@@ -49,21 +49,7 @@
     }
   };
 
-  const getSteps = () => {
-    const base = window.DITTO_ONBOARDING_STEPS || [];
-    if (!window.__hostedMultiTenant) return base;
-    return base.map((step) => {
-      if (step.id !== 'setup-wallet') return step;
-      return {
-        ...step,
-        actions: [
-          'Install any Polymarket-compatible wallet and get your private key',
-          'Open Trading Wallets, paste your key, and name the wallet',
-          'In hosted Ditto your key is encrypted when you sign in — no vault password',
-        ],
-      };
-    });
-  };
+  const getSteps = () => window.DITTO_ONBOARDING_STEPS || [];
 
   /* ── Progress persistence (per workspace) ─────────────────────────────── */
   const storageKey = () => {
