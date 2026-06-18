@@ -14,7 +14,7 @@ Jungle Agents design system (`public/shared/jungle-brand.css`).
 | Tenant friendly name | "Jungle Agents" (replaces the raw `dev-…` name on screens/emails) |
 | Logo | gold jungle-eyes mark, served from this repo (raw GitHub URL pinned to a commit) |
 | Theme | dark navy page (#161721), card #1C1D2E, gold primary (#E5B80B) — see `theme.json` |
-| Custom text | "Sign in to Ditto" / "Create your account" — see `custom-text-*.json` |
+| Custom text | "Sign in to Ditto" / "Start with Ditto" — see `custom-text-*.json` |
 
 ## How to re-apply (e.g. on a new tenant)
 
@@ -70,7 +70,7 @@ Current recommended copy (also in the JSON files):
 | Screen | Headline | Subtext |
 | --- | --- | --- |
 | Login | Sign in to Ditto | Your agents, wallets, and bot settings — right where you left them. |
-| Signup | Open a Ditto account | One email. Follow Jungle Agents and start copying in minutes. |
+| Signup | Start with Ditto | One email. Your private dashboard is ready when you sign in. |
 | Login alternate action | New to Ditto? | Create one |
 
 ## Fix: Auth0 development keys
