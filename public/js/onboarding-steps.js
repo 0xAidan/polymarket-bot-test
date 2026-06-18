@@ -37,24 +37,11 @@ window.DITTO_ONBOARDING_STEPS = [
     completionCheck: null
   },
   {
-    id: 'builder-codes',
-    title: 'Get builder credentials',
+    id: 'builder-credentials',
+    title: 'Add builder credentials',
     actions: [
-      'polymarket.com → Settings → Builder Profile',
-      'Create a profile if you don\'t have one',
-      'Copy API Key, Secret, and Passphrase'
-    ],
-    tab: null,
-    target: null,
-    completionCheck: null
-  },
-  {
-    id: 'add-builder-credentials',
-    title: 'Save builder credentials',
-    actions: [
-      'Trading Wallets → open wallet settings',
-      'Paste API Key, Secret, and Passphrase',
-      'Save'
+      'polymarket.com → Settings → Builder Profile → copy API Key, Secret, and Passphrase',
+      'Trading Wallets → open wallet settings → paste and save'
     ],
     tab: 'trading-wallets',
     target: '#tab-trading-wallets',
@@ -76,9 +63,9 @@ window.DITTO_ONBOARDING_STEPS = [
     id: 'start-bot',
     title: 'Start copying',
     actions: [
-      'Add a tracked wallet or follow a Jungle Agent',
-      'Click Start in the top bar',
-      'Click again anytime to stop'
+      'Follow a Jungle Agent (recommended) or add a tracked wallet',
+      'Configure copy settings for each wallet before you start',
+      'Click Start in the top bar — click again anytime to stop'
     ],
     tab: 'dashboard',
     target: '#startStopBtn',

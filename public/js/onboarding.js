@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const STORAGE_PREFIX = 'ditto_onboarding_v2';
+  const STORAGE_PREFIX = 'ditto_onboarding_v3';
   const CHECK_POLL_MS = 3000;
 
   let overlayEl = null;
@@ -82,19 +82,71 @@
     return '<ol class="onb-action-list">' + items + '</ol>';
   };
 
-  const positionSpotlight = (selector) => {
-    if (!spotlightEl) return;
-    const el = selector ? document.querySelector(selector) : null;
-    if (!el) {
-      spotlightEl.style.display = 'none';
-      return;
+  const MIN_SPOTLIGHT_PX = 8;
+
+  const isElementSpotlightable = (el) => {
+    if (!el || !el.isConnected) return false;
+    const style = window.getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
+      return false;
     }
     const rect = el.getBoundingClientRect();
+    if (rect.width < MIN_SPOTLIGHT_PX || rect.height < MIN_SPOTLIGHT_PX) return false;
+
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const visibleW = Math.min(rect.right, vw) - Math.max(rect.left, 0);
+    const visibleH = Math.min(rect.bottom, vh) - Math.max(rect.top, 0);
+    return visibleW >= MIN_SPOTLIGHT_PX && visibleH >= MIN_SPOTLIGHT_PX;
+  };
+
+  const hideSpotlight = () => {
+    if (!spotlightEl) return;
+    spotlightEl.style.display = 'none';
+    spotlightEl.style.width = '0';
+    spotlightEl.style.height = '0';
+  };
+
+  const positionSpotlight = (selector) => {
+    if (!spotlightEl) return;
+    if (!selector) {
+      hideSpotlight();
+      return;
+    }
+
+    const el = document.querySelector(selector);
+    if (!el) {
+      hideSpotlight();
+      return;
+    }
+
+    try {
+      el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    } catch {
+      el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+
+    if (!isElementSpotlightable(el)) {
+      hideSpotlight();
+      return;
+    }
+
+    const rect = el.getBoundingClientRect();
+    const pad = 4;
     spotlightEl.style.display = 'block';
-    spotlightEl.style.left = rect.left + 'px';
-    spotlightEl.style.top = rect.top + 'px';
-    spotlightEl.style.width = rect.width + 'px';
-    spotlightEl.style.height = rect.height + 'px';
+    spotlightEl.style.left = Math.max(0, rect.left - pad) + 'px';
+    spotlightEl.style.top = Math.max(0, rect.top - pad) + 'px';
+    spotlightEl.style.width = Math.max(MIN_SPOTLIGHT_PX, rect.width + pad * 2) + 'px';
+    spotlightEl.style.height = Math.max(MIN_SPOTLIGHT_PX, rect.height + pad * 2) + 'px';
+  };
+
+  const scheduleSpotlight = (selector) => {
+    // Wait for tab switches and layout before measuring targets.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        positionSpotlight(selector);
+      });
+    });
   };
 
   const stopCheckPolling = () => {
@@ -162,8 +214,7 @@
     });
     cardEl.querySelector('.onb-btn-skip').addEventListener('click', () => finish(false));
 
-    // Give the tab switch a beat to paint before measuring the spotlight target.
-    setTimeout(() => positionSpotlight(step.target), 120);
+    scheduleSpotlight(step.target);
 
     stopCheckPolling();
     runCompletionCheck(step);
@@ -243,7 +294,7 @@
 
     resizeHandler = () => {
       const step = getSteps()[currentIndex];
-      if (step) positionSpotlight(step.target);
+      if (step) scheduleSpotlight(step.target);
     };
     window.addEventListener('resize', resizeHandler);
 
