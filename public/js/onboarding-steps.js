@@ -16,7 +16,7 @@ window.DITTO_ONBOARDING_STEPS = [
     id: 'create-wallet',
     title: 'Create a wallet',
     actions: [
-      'Install Rabby or MetaMask',
+      'Install any Polymarket-compatible wallet (MetaMask, Rabby, Rainbow, etc.)',
       'Create a new wallet (dedicated to Ditto)',
       'Save your recovery phrase offline'
     ],
@@ -53,7 +53,7 @@ window.DITTO_ONBOARDING_STEPS = [
     title: 'Connect on Polymarket',
     actions: [
       'Go to polymarket.com',
-      'Connect wallet → approve in Rabby/MetaMask',
+      'Connect wallet → approve in your wallet extension',
       'Accept terms (no deposit required)'
     ],
     tab: null,
