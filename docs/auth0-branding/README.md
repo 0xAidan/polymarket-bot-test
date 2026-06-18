@@ -69,9 +69,9 @@ Current recommended copy (also in the JSON files):
 
 | Screen | Headline | Subtext |
 | --- | --- | --- |
-| Login | Sign in to Ditto | Your agents, wallets, and bot settings — right where you left them. |
-| Signup | Open a Ditto account | One email. Follow Jungle Agents and start copying in minutes. |
-| Login alternate action | New to Ditto? | Create one |
+| Login | Log in to copy Jungle Agents | Ditto mirrors their Polymarket trades into your wallet. |
+| Signup | Sign up to copy Jungle Agents | Create an account, pick your agents, connect your wallet. |
+| Login alternate action | No account yet? | Sign up |
 
 ## Fix: Auth0 development keys
 
