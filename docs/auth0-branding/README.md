@@ -14,7 +14,7 @@ Jungle Agents design system (`public/shared/jungle-brand.css`).
 | Tenant friendly name | "Jungle Agents" (replaces the raw `dev-…` name on screens/emails) |
 | Logo | gold jungle-eyes mark, served from this repo (raw GitHub URL pinned to a commit) |
 | Theme | dark navy page (#161721), card #1C1D2E, gold primary (#E5B80B) — see `theme.json` |
-| Custom text | "Sign in to Ditto" / "Start with Ditto" — see `custom-text-*.json` |
+| Custom text | "Log in to copy Jungle Agents" / "Sign up to copy Jungle Agents" — see `custom-text-*.json` |
 
 ## How to re-apply (e.g. on a new tenant)
 
