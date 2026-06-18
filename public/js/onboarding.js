@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const STORAGE_PREFIX = 'ditto_onboarding_v1';
+  const STORAGE_PREFIX = 'ditto_onboarding_v2';
   const CHECK_POLL_MS = 3000;
 
   let overlayEl = null;
@@ -53,13 +53,13 @@
     const base = window.DITTO_ONBOARDING_STEPS || [];
     if (!window.__hostedMultiTenant) return base;
     return base.map((step) => {
-      if (step.id !== 'add-key-to-bot') return step;
+      if (step.id !== 'setup-wallet') return step;
       return {
         ...step,
         actions: [
-          'Open the Trading Wallets tab, paste your private key, and name the wallet',
+          'Install any Polymarket-compatible wallet and get your private key',
+          'Open Trading Wallets, paste your key, and name the wallet',
           'In hosted Ditto your key is encrypted when you sign in — no vault password',
-          'When the wallet appears in your list, you\'ll see a green Detected badge',
         ],
       };
     });

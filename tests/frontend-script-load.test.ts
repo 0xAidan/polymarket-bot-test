@@ -59,11 +59,11 @@ test('dashboard scripts load together and expose switchTab', () => {
   assert.equal(typeof win.switchTab, 'function');
 });
 
-test('onboarding tutorial loads, exposes startOnboarding, and defines 8 valid steps', () => {
+test('onboarding tutorial loads, exposes startOnboarding, and defines 6 valid steps', () => {
   const win = loadScriptsInOrder();
   assert.equal(typeof win.startOnboarding, 'function');
   const steps = win.DITTO_ONBOARDING_STEPS || [];
-  assert.equal(steps.length, 8);
+  assert.equal(steps.length, 6);
   const ids = new Set<string>();
   for (const step of steps) {
     assert.equal(typeof step.id, 'string');

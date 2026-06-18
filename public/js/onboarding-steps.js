@@ -13,36 +13,12 @@
  */
 window.DITTO_ONBOARDING_STEPS = [
   {
-    id: 'create-wallet',
-    title: 'Create a wallet',
+    id: 'setup-wallet',
+    title: 'Set up your wallet',
     actions: [
       'Install any Polymarket-compatible wallet (MetaMask, Rabby, Rainbow, etc.)',
-      'Create a new wallet (dedicated to Ditto)',
-      'Save your recovery phrase offline'
-    ],
-    tab: null,
-    target: null,
-    completionCheck: null
-  },
-  {
-    id: 'export-key',
-    title: 'Export private key',
-    actions: [
-      'Open wallet menu → Account details',
-      'Show private key (confirm wallet password)',
-      'Copy the 0x… string — only paste it into Ditto'
-    ],
-    tab: null,
-    target: null,
-    completionCheck: null
-  },
-  {
-    id: 'add-key-to-bot',
-    title: 'Add wallet to Ditto',
-    actions: [
-      'Open the Trading Wallets tab',
-      'Paste private key, name the wallet, save',
-      'Unlock vault if prompted'
+      'Get your private key',
+      'Add it in Trading Wallets → save'
     ],
     tab: 'trading-wallets',
     target: '#tab-trading-wallets',
