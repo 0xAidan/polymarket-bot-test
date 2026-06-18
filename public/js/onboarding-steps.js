@@ -21,7 +21,7 @@ window.DITTO_ONBOARDING_STEPS = [
       'Add it in Trading Wallets → save'
     ],
     tab: 'trading-wallets',
-    target: '#tab-trading-wallets',
+    target: '.j-nav-btn[data-tab="trading-wallets"]',
     completionCheck: 'tradingWalletExists'
   },
   {
@@ -44,7 +44,7 @@ window.DITTO_ONBOARDING_STEPS = [
       'Trading Wallets → open wallet settings → paste and save'
     ],
     tab: 'trading-wallets',
-    target: '#tab-trading-wallets',
+    target: '.j-nav-btn[data-tab="trading-wallets"]',
     completionCheck: 'tradingWalletHasCredentials'
   },
   {
@@ -63,12 +63,12 @@ window.DITTO_ONBOARDING_STEPS = [
     id: 'start-bot',
     title: 'Start copying',
     actions: [
-      'Follow a Jungle Agent (recommended) or add a tracked wallet',
-      'Configure copy settings for each wallet before you start',
-      'Click Start in the top bar — click again anytime to stop'
+      'Browse Jungle Agents and follow one you like',
+      'Configure copy settings for each wallet before you enable it',
+      'Click Start in the top bar — click again to stop'
     ],
-    tab: 'dashboard',
-    target: '#startStopBtn',
+    tab: 'jungle-agents',
+    target: null,
     completionCheck: 'botRunning'
   }
 ];
