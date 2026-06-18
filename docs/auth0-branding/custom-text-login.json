@@ -2,11 +2,11 @@
   "login": {
     "pageTitle": "Log in | Ditto",
     "title": "Sign in to Ditto",
-    "description": "Your agents, wallets, and settings are waiting.",
+    "description": "Your agents, wallets, and bot settings — right where you left them.",
     "buttonText": "Continue",
     "emailPlaceholder": "Email address",
     "passwordPlaceholder": "Password",
     "signupActionLinkText": "Create one",
-    "signupActionText": "Don't have an account?"
+    "signupActionText": "New to Ditto?"
   }
 }

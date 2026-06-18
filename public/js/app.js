@@ -352,10 +352,10 @@ const buildSetupGuideState = ({ status, walletsData, tradingData, lockData, copy
   const steps = [
     {
       key: 'session',
-      title: 'Connected to your workspace',
+      title: 'Signed in',
       detail: usesHostedWalletAccess()
-        ? 'Your hosted account session is active.'
-        : 'Your dashboard session is active.',
+        ? 'Your Ditto account is active.'
+        : 'Your session is active.',
       complete: true,
       action: 'dashboard'
     },
@@ -513,17 +513,17 @@ const renderSetupWizard = (state) => {
 
   if (summaryEl) {
     summaryEl.textContent = state.isComplete
-      ? 'Everything essential is configured. You can close this guide and use Ditto normally.'
-      : 'Ditto checks the real app state and sends you to the next thing that matters.';
+      ? 'You’re set. Close this guide and run Ditto.'
+      : 'Ditto reads your real setup and sends you to what’s missing.';
   }
 
   if (titleEl) {
-    titleEl.textContent = state.isComplete ? 'You are ready to review the dashboard.' : state.nextStep.title;
+    titleEl.textContent = state.isComplete ? 'You’re live.' : state.nextStep.title;
   }
 
   if (bodyEl) {
     bodyEl.textContent = state.isComplete
-      ? 'Your workspace has a trading wallet, at least one tracked wallet, and the bot is running.'
+      ? 'Trading wallet connected, wallets tracked, bot running.'
       : state.nextStep.detail;
   }
 
@@ -1190,7 +1190,7 @@ async function loadWallets(forceRebuild = false) {
     if (!data.wallets || data.wallets.length === 0) {
       lastWalletHash = '';
       cachedWalletAddresses = [];
-      list.innerHTML = '<div class="text-center text-muted" style="padding:20px;">No wallets tracked yet. Add a wallet address above to start copy trading.</div>';
+      list.innerHTML = '<div class="text-center text-muted" style="padding:20px;">No wallets tracked yet. Add an address above.</div>';
       return;
     }
 
@@ -1288,7 +1288,7 @@ async function loadTrackedWalletBalance(address) {
       const totalValue = data.currentBalance;
       const unhealthy = data.addressHealthy === false;
       if (unhealthy) {
-        balanceEl.innerHTML = `<span class="text-danger" title="No Polymarket activity detected — copy trading will not work">$0 ⚠</span>`;
+        balanceEl.innerHTML = `<span class="text-danger" title="No Polymarket activity detected — Ditto can’t copy from this wallet">$0 ⚠</span>`;
         return;
       }
       if (totalValue > 0) {

@@ -1,8 +1,8 @@
 {
   "signup": {
     "pageTitle": "Sign up | Ditto",
-    "title": "Create your account",
-    "description": "Your private workspace is ready the moment you log in.",
+    "title": "Open a Ditto account",
+    "description": "One email. Follow Jungle Agents and start copying in minutes.",
     "buttonText": "Create account",
     "emailPlaceholder": "Email address",
     "passwordPlaceholder": "Password",

@@ -69,8 +69,9 @@ Current recommended copy (also in the JSON files):
 
 | Screen | Headline | Subtext |
 | --- | --- | --- |
-| Login | Sign in to Ditto | Your agents, wallets, and settings are waiting. |
-| Signup | Create your account | Your private workspace is ready the moment you log in. |
+| Login | Sign in to Ditto | Your agents, wallets, and bot settings — right where you left them. |
+| Signup | Open a Ditto account | One email. Follow Jungle Agents and start copying in minutes. |
+| Login alternate action | New to Ditto? | Create one |
 
 ## Fix: Auth0 development keys
 
