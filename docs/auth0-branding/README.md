@@ -25,18 +25,18 @@ bash docs/auth0-branding/apply.sh
 
 ## Production checklist (before launch)
 
+**Start here:** [production-gate.md](./production-gate.md) — dev-keys alert, clean login URL, and copy push.
+
 1. Set on the production server (values from the Auth0 dashboard → Applications → Jungle Agents):
-   - `AUTH0_ISSUER_BASE_URL=https://dev-rjdevt32s21vhh86.us.auth0.com`
+   - `AUTH0_BASE_URL=https://ditto.jungle.win`
+   - `AUTH0_ISSUER_BASE_URL=https://login.ditto.jungle.win` *(after custom domain — see [custom-domain-setup.md](./custom-domain-setup.md))*
    - `AUTH0_CLIENT_ID=<client id>`
    - `AUTH0_CLIENT_SECRET=<client secret>`
-   - `AUTH0_BASE_URL=https://ditto.jungle.win`
-2. **Google login uses Auth0 dev keys** — fine for testing, but rate-limited and shows a
-   tenant-admin warning ("development keys"). Before launch either:
-   - **Recommended:** create your own Google OAuth credentials and paste them into Auth0
-     (see [Fix: Auth0 development keys](#fix-auth0-development-keys) below), or
-   - disable the Google connection for the Jungle Agents app so only email/password shows.
-3. Optional polish: a custom domain (e.g. `login.jungle.win`) removes the
-   `dev-…us.auth0.com` address from the browser bar. Needs DNS access; not required.
+2. **Google dev keys (dashboard alert)** — not visible to end users, but must be fixed before GTM:
+   - **Fast:** `bash docs/auth0-branding/disable-google-login.sh` (email/password only), or
+   - **Full:** your own Google OAuth credentials in Auth0 (see below)
+3. **Custom login URL (required for GTM)** — set up `login.ditto.jungle.win` so users never see
+   `dev-…us.auth0.com`. Step-by-step: [custom-domain-setup.md](./custom-domain-setup.md).
 4. The logo URL is pinned to a git commit and never breaks. To swap the logo, replace
    `public/shared/logo-gold.png`, push, update `LOGO_URL` in `apply.sh`, re-run it.
 

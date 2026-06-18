@@ -9,11 +9,16 @@ AUTH_MODE=oidc
 AUTH_SESSION_SECRET=replace_with_a_long_random_secret
 
 # Auth0 OIDC settings (required when AUTH_MODE=oidc)
-# AUTH0_BASE_URL must match your public app URL, e.g. https://ditto.jungle.win
-AUTH0_ISSUER_BASE_URL=https://your-tenant.us.auth0.com
+# AUTH0_BASE_URL = your app (where users land after login)
+# AUTH0_ISSUER_BASE_URL = Auth0 login host — use a CUSTOM DOMAIN in production, not dev-xxx.us.auth0.com
+#   Dev:  https://your-tenant.us.auth0.com
+#   GTM:  https://login.ditto.jungle.win  (see docs/auth0-branding/custom-domain-setup.md)
+AUTH0_ISSUER_BASE_URL=https://login.ditto.jungle.win
 AUTH0_BASE_URL=https://ditto.jungle.win
 AUTH0_CLIENT_ID=your_auth0_client_id
 AUTH0_CLIENT_SECRET=your_auth0_client_secret
+# Optional: warn at boot if issuer does not contain this string (e.g. dev tenant id). Omit when using custom domain.
+# AUTH0_EXPECTED_TENANT=dev-rjdevt32s21vhh86
 
 # Session timing controls (hours)
 AUTH_SESSION_ABSOLUTE_DURATION_HOURS=168
