@@ -127,34 +127,37 @@ const bindAgentGridEvents = (grid, agents) => {
   });
 
   const agentById = new Map(agents.map((a) => [a.id, a]));
-  grid.querySelectorAll('[data-follow-agent]').forEach((btn) => {
+  grid.querySelectorAll('[data-copy-agent]').forEach((btn) => {
     if (btn.dataset.bound === 'true') return;
     btn.dataset.bound = 'true';
     btn.addEventListener('click', async (event) => {
       event.stopPropagation();
-      const id = btn.getAttribute('data-follow-agent');
+      const id = btn.getAttribute('data-copy-agent');
       const agent = agentById.get(id);
-      if (agent) await handleFollowAgent(agent);
+      if (agent) await handleCopyAgent(agent);
     });
   });
 };
 
-const syncFollowButtons = (agents) => {
+const syncCopyButtons = (agents) => {
   agents.forEach((agent) => {
-    const btn = document.querySelector(`[data-follow-agent="${agent.id}"]`);
+    const btn = document.querySelector(`[data-copy-agent="${agent.id}"]`);
     if (!btn) return;
     const address = agent.polymarketAddress?.toLowerCase() || '';
-    const isFollowing = address && trackedAddressSet.has(address);
-    btn.disabled = agent.addressPending || isFollowing;
-    btn.textContent = isFollowing ? 'Following' : 'Follow';
+    const isCopying = address && trackedAddressSet.has(address);
+    btn.disabled = agent.addressPending || isCopying;
+    btn.textContent = isCopying ? 'Copying' : 'Copy';
   });
 };
 
+/** @deprecated */
+const syncFollowButtons = syncCopyButtons;
+
 const renderAgentTableRow = (agent) => {
   const address = agent.polymarketAddress?.toLowerCase() || '';
-  const isFollowing = address && trackedAddressSet.has(address);
-  const followDisabled = agent.addressPending || isFollowing;
-  const followLabel = isFollowing ? 'Following' : 'Follow';
+  const isCopying = address && trackedAddressSet.has(address);
+  const copyDisabled = agent.addressPending || isCopying;
+  const copyLabel = isCopying ? 'Copying' : 'Copy';
   const profileUrl = polymarketProfileUrl(agent);
   const avatar = renderJungleAgentAvatar(agent);
   const metaLine = [agent.tagline, agent.modelLabel].filter(Boolean).join(' · ');
@@ -187,7 +190,7 @@ const renderAgentTableRow = (agent) => {
         ${profileUrl
     ? `<a class="j-btn j-btn-sm" href="${profileUrl}" target="_blank" rel="noopener noreferrer">View</a>`
     : ''}
-        <button type="button" class="j-btn j-btn-primary j-btn-sm" data-follow-agent="${agent.id}" ${followDisabled ? 'disabled' : ''}>${followLabel}</button>
+        <button type="button" class="j-btn j-btn-primary j-btn-sm" data-copy-agent="${agent.id}" ${copyDisabled ? 'disabled' : ''}>${copyLabel}</button>
       </td>
     </tr>
   `;
@@ -247,7 +250,7 @@ const renderAgentTable = (agents) => {
 `;
 };
 
-const handleFollowAgent = async (agent) => {
+const handleCopyAgent = async (agent) => {
   if (agent.addressPending || !agent.polymarketAddress) {
     await jungleDialog.alert('This agent does not have a Polymarket address yet.');
     return;
@@ -274,15 +277,18 @@ const handleFollowAgent = async (agent) => {
     }
     trackedAddressSet.add(addr);
     if (typeof loadWallets === 'function') await loadWallets(true);
-    syncFollowButtons(cachedAgents);
+    syncCopyButtons(cachedAgents);
     switchTab('wallets');
     if (typeof openWalletModal === 'function') {
       await openWalletModal(addr);
     }
   } catch (error) {
-    await jungleDialog.error(error.message || 'Could not follow agent');
+    await jungleDialog.error(error.message || 'Could not add wallet to copy');
   }
 };
+
+/** @deprecated */
+const handleFollowAgent = handleCopyAgent;
 
 window.initJungleAgentsTab = async (force = false) => {
   const grid = document.getElementById('jungleAgentsGrid');
@@ -291,7 +297,7 @@ window.initJungleAgentsTab = async (force = false) => {
 
   if (jungleAgentsBooted && !force && grid.querySelector('.j-agents-table tbody tr')) {
     await refreshTrackedSet();
-    syncFollowButtons(cachedAgents);
+    syncCopyButtons(cachedAgents);
     return;
   }
 
@@ -372,4 +378,3 @@ window.renderHomeJungleAgentTeaser = async () => {
     row.classList.add('hidden');
   }
 };
-

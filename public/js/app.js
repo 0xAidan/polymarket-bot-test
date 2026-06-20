@@ -351,12 +351,12 @@ const buildSetupGuideState = ({ status, walletsData, tradingData, lockData, copy
     },
     {
       key: 'tracked-wallet',
-      title: 'Follow and enable a wallet',
+      title: 'Copy and enable a wallet',
       detail: trackedCount === 0
-        ? 'Follow a Jungle Agent or add a wallet address to copy.'
+        ? 'Copy a Jungle Agent or add a wallet address.'
         : (!hasActiveTracked
-          ? `${trackedCount} tracked — enable at least one to start copying.`
-          : `${trackedCount} tracked wallet${trackedCount === 1 ? '' : 's'} active`),
+          ? `${trackedCount} on your copy list — enable at least one to go live.`
+          : `${trackedCount} wallet${trackedCount === 1 ? '' : 's'} copying`),
       complete: hasActiveTracked,
       action: 'wallets'
     },
@@ -398,7 +398,7 @@ const buildSetupGuideState = ({ status, walletsData, tradingData, lockData, copy
 const SETUP_STEP_SHORT = {
   session: 'Session',
   'trading-wallet': 'Trading wallet',
-  'tracked-wallet': 'Tracked wallet',
+  'tracked-wallet': 'Copy wallet',
   'copy-assignment': 'Copy map',
   'start-bot': 'Start bot',
 };
@@ -500,14 +500,14 @@ const renderSetupWizard = (state) => {
 
   if (bodyEl) {
     bodyEl.textContent = state.isComplete
-      ? 'Trading wallet connected, wallets tracked, bot running.'
+      ? 'Trading wallet connected, wallets copying, bot running.'
       : state.nextStep.detail;
   }
 
   if (factsEl) {
     factsEl.innerHTML = `
       <div class="setup-wizard-fact">Trading wallets configured: <strong>${state.tradingCount}</strong></div>
-      <div class="setup-wizard-fact">Tracked wallets configured: <strong>${state.trackedCount}</strong></div>
+      <div class="setup-wizard-fact">Wallets on copy list: <strong>${state.trackedCount}</strong></div>
       <div class="setup-wizard-fact">Bot status: <strong>${botRunning ? 'Running' : 'Stopped'}</strong></div>
     `;
   }
@@ -518,7 +518,7 @@ const renderSetupWizard = (state) => {
       : (setupGuideAction === 'trading-wallets'
         ? 'Open Trading Wallets'
         : setupGuideAction === 'wallets'
-          ? 'Open Tracked Wallets'
+          ? 'Open Copy List'
           : 'Go to Home');
   }
 
@@ -743,7 +743,7 @@ function updateStatusUI(data) {
   if (data.wallets) {
     const intervalSec = data.polling && data.polling.interval ? Math.round(data.polling.interval / 1000) : null;
     const modeText = intervalSec ? `Data source: Polymarket API, polling every ${intervalSec}s` : `${data.monitoringMode || 'polling'} mode`;
-    document.getElementById('statusBarMain').textContent = `${data.wallets.active} wallet(s) tracked | ${modeText}`;
+    document.getElementById('statusBarMain').textContent = `${data.wallets.active} wallet(s) copying | ${modeText}`;
   }
 }
 
@@ -812,7 +812,7 @@ async function loadTrades() {
     const loadMoreBtn = document.getElementById('loadMoreTradesBtn');
 
     if (!data.trades || data.trades.length === 0) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No trades yet — follow a Jungle Agent or add a wallet, then press Start Copying to see activity here.</td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No trades yet — copy a Jungle Agent or add a wallet, then press Start Copying to see activity here.</td></tr>';
       if (countLabel) countLabel.textContent = '0 trades';
       if (loadMoreBtn) loadMoreBtn.style.display = 'none';
       previousTradeIds = new Set();
@@ -1002,7 +1002,7 @@ const isMissingSizingError = (message) => (
 );
 
 const TAB_FIX_LABELS = {
-  wallets: 'Open Watch List',
+  wallets: 'Open Copy List',
   'trading-wallets': 'Open My Wallets',
   diagnostics: 'Open Diagnostics',
   settings: 'Open Settings',
@@ -1048,7 +1048,7 @@ const runClientPreflightChecks = async () => {
     if (activeTracked.length === 0) {
       issues.push({
         code: 'no_active_tracked',
-        message: 'Enable at least one wallet on your Watch List.',
+        message: 'Enable at least one wallet on your Copy List.',
         fixTab: 'wallets',
       });
     }
@@ -1274,7 +1274,7 @@ function renderJungleAgentPresets() {
           </div>
         </div>
         <div class="wallet-entry-actions">
-          <button class="jw-btn jw-btn-sm" onclick="oneClickTrackJungleAgent('${agent.id}')" ${disabled}>Track</button>
+          <button class="jw-btn jw-btn-sm jw-btn-primary" onclick="oneClickCopyJungleAgent('${agent.id}')" ${disabled}>Copy</button>
         </div>
       </div>
     `;
@@ -1304,7 +1304,7 @@ async function loadJungleAgentPresets(forceRefresh = false) {
   }
 }
 
-async function oneClickTrackJungleAgent(agentId) {
+async function oneClickCopyJungleAgent(agentId) {
   const agent = jungleAgentPresetCache.find((entry) => entry.id === agentId);
   if (!agent) {
     await jungleModal.error('Agent preset not found.');
@@ -1315,18 +1315,26 @@ async function oneClickTrackJungleAgent(agentId) {
     return;
   }
 
+  const addr = agent.polymarketAddress.toLowerCase();
   try {
     await API.post('/wallets', {
-      address: agent.polymarketAddress,
+      address: addr,
       label: agent.displayName,
       tags: [agent.category || 'Uncategorized']
     });
-    await jungleModal.success(`${agent.displayName} added to tracked wallets.`);
     lastWalletHash = '';
     await loadWallets(true);
+    await refreshSetupExperience();
+    switchTab('wallets');
+    await openWalletModal(addr);
   } catch (error) {
-    await jungleModal.error(`Failed to add preset wallet: ${error.message}`);
+    await jungleModal.error(`Failed to add wallet: ${error.message}`);
   }
+}
+
+/** @deprecated use oneClickCopyJungleAgent */
+async function oneClickTrackJungleAgent(agentId) {
+  return oneClickCopyJungleAgent(agentId);
 }
 
 async function loadWallets(forceRebuild = false) {
@@ -1349,8 +1357,8 @@ async function loadWallets(forceRebuild = false) {
       cachedWalletAddresses = [];
       list.innerHTML = `
         <div class="j-empty-state-card">
-          <p class="j-empty-state-title">No wallets on your Watch List yet</p>
-          <p class="text-sm text-muted">Follow Jungle Agents or paste a wallet address to start monitoring.</p>
+          <p class="j-empty-state-title">No wallets on your copy list yet</p>
+          <p class="text-sm text-muted">Copy a Jungle Agent or paste a wallet address to get started.</p>
           <button type="button" class="j-btn j-btn-primary" onclick="switchTab('jungle-agents')">Browse Jungle Agents</button>
         </div>`;
       return;
@@ -1392,12 +1400,12 @@ async function loadWallets(forceRebuild = false) {
       const configBadges = getWalletConfigBadges(wallet);
       const tagBadges = renderTagBadges(wallet.tags);
       const tagsDataAttr = (wallet.tags || []).join(',');
-      const pausedBadge = isActive ? '' : '<span class="paused-badge" aria-label="Paused">Paused</span>';
+      const pausedBadge = isActive ? '' : '<span class="paused-badge" aria-label="Draft">Draft</span>';
       const summary = walletSummaryByAddress.get(wallet.address.toLowerCase());
       const lastTradeLabel = formatRelativeTime(summary?.lastTradeTime);
       const enableBtn = isActive
         ? ''
-        : `<button type="button" class="jw-btn jw-btn-sm jw-btn-primary" onclick="toggleWallet('${wallet.address}', true)" aria-label="Enable wallet">Enable</button>`;
+        : `<button type="button" class="jw-btn jw-btn-sm jw-btn-primary" onclick="toggleWallet('${wallet.address}', true)" aria-label="Enable copying">Enable copying</button>`;
 
       return `
         <div class="wallet-entry ${isActive ? 'active-wallet' : 'inactive-wallet'}" id="wallet-${wallet.address}" data-tags="${tagsDataAttr}">
@@ -1415,12 +1423,12 @@ async function loadWallets(forceRebuild = false) {
             <span class="balance-skeleton" aria-hidden="true"></span>
           </div>
           <div class="wallet-entry-actions">
-            <label class="jw-toggle" title="${isActive ? 'Active' : 'Paused'}">
+            <label class="jw-toggle" title="${isActive ? 'Copying live' : 'Draft (not copying)'}">
               <input type="checkbox" ${isActive ? 'checked' : ''} onchange="toggleWallet('${wallet.address}', this.checked)" aria-checked="${isActive}">
             </label>
             ${enableBtn}
             <button type="button" class="jw-btn jw-btn-sm" onclick="openMirrorModal('${wallet.address}')" aria-label="Mirror positions">Mirror</button>
-            <button type="button" class="jw-btn jw-btn-sm" onclick="openWalletModal('${wallet.address}')" aria-label="Configure wallet">Configure</button>
+            <button type="button" class="jw-btn jw-btn-sm" onclick="openWalletModal('${wallet.address}')" aria-label="Edit copy settings">Edit copy</button>
             <button type="button" class="jw-btn jw-btn-sm jw-btn-danger" onclick="removeWallet('${wallet.address}')" aria-label="Remove wallet">Remove</button>
           </div>
         </div>
@@ -1543,7 +1551,7 @@ async function addWallet() {
 }
 
 async function removeWallet(address) {
-  if (!await jungleModal.confirm('Remove this tracked wallet?')) return;
+  if (!await jungleModal.confirm('Remove this wallet from your copy list?')) return;
   try { lastWalletHash = ''; await API.removeWallet(address); await loadWallets(true); }
   catch (error) { await jungleModal.error(`Failed to remove wallet: ${error.message}`); }
 }
@@ -1592,9 +1600,14 @@ async function openWalletModal(address) {
     const wallet = data.wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
     if (!wallet) { await jungleModal.error('Wallet not found'); return; }
 
+    const displayName = wallet.label || `${address.slice(0, 6)}…${address.slice(-4)}`;
+    const eyebrow = document.getElementById('copySetupEyebrow');
+    if (eyebrow) {
+      eyebrow.textContent = wallet.active ? 'Edit copy' : 'Copy setup';
+    }
     document.getElementById('walletModalTitle').textContent = wallet.active
-      ? `Configure: ${wallet.label || address.slice(0, 10) + '...'}`
-      : `Set up copying: ${wallet.label || address.slice(0, 10) + '...'}`;
+      ? `Copy settings: ${displayName}`
+      : `Set up copy: ${displayName}`;
 
     const setupHint = document.getElementById('walletModalSetupHint');
     if (setupHint) {
@@ -1603,21 +1616,23 @@ async function openWalletModal(address) {
     document.getElementById('modalWalletAddress').textContent = address;
 
     const statusEl = document.getElementById('modalWalletStatus');
-    statusEl.textContent = wallet.active ? 'Active' : 'Inactive';
-    statusEl.className = `jw-badge ${wallet.active ? 'badge-success' : 'badge-danger'}`;
+    statusEl.textContent = wallet.active ? 'Copying live' : 'Draft';
+    statusEl.className = `jw-badge copy-setup-status-badge ${wallet.active ? 'badge-success' : ''}`;
 
     document.getElementById('modalWalletLabel').value = wallet.label || '';
     document.getElementById('modalTradeSize').value = wallet.fixedTradeSize || 2;
 
     const modeValue = wallet.tradeSizingMode || 'fixed';
-    document.querySelector(`input[name="modalTradeSizingMode"][value="${modeValue}"]`).checked = true;
+    const modeRadio = document.querySelector(`input[name="modalTradeSizingMode"][value="${modeValue}"]`);
+    if (modeRadio) modeRadio.checked = true;
 
     document.getElementById('modalThresholdEnabled').checked = wallet.thresholdEnabled || false;
-    document.getElementById('modalThresholdInputs').className = wallet.thresholdEnabled ? '' : 'hidden';
+    document.getElementById('modalThresholdInputs').className = wallet.thresholdEnabled ? 'copy-setup-subpanel' : 'copy-setup-subpanel hidden';
     document.getElementById('modalThresholdPercent').value = wallet.thresholdPercent || 10;
 
     const sideValue = wallet.tradeSideFilter || 'all';
-    document.querySelector(`input[name="modalTradeSideFilter"][value="${sideValue}"]`).checked = true;
+    const sideRadio = document.querySelector(`input[name="modalTradeSideFilter"][value="${sideValue}"]`);
+    if (sideRadio) sideRadio.checked = true;
 
     document.getElementById('modalNoRepeatEnabled').checked = wallet.noRepeatEnabled || false;
     document.getElementById('modalNoRepeatInputs').className = wallet.noRepeatEnabled ? '' : 'hidden';
@@ -1640,7 +1655,6 @@ async function openWalletModal(address) {
     document.getElementById('modalSlippagePercent').value = wallet.slippagePercent || '';
     updateSlippageBadge();
 
-    // Initialize tags
     const currentTags = wallet.tags || [];
     document.getElementById('modalWalletTags').value = JSON.stringify(currentTags);
     refreshModalTagButtons(currentTags);
@@ -1650,98 +1664,233 @@ async function openWalletModal(address) {
     modal.classList.remove('hidden');
     document.body.classList.add('j-drawer-open');
     setupModalEventListeners();
+
+    const tradeSizeInput = document.getElementById('modalTradeSize');
+    if (!wallet.active && tradeSizeInput) {
+      window.setTimeout(() => {
+        tradeSizeInput.focus();
+        tradeSizeInput.select();
+      }, 80);
+    }
   } catch (error) {
     await jungleModal.error(`Failed to load wallet: ${error.message}`);
   }
 }
 
+function bindModalLiveUpdate(el, handler) {
+  if (!el || el.dataset.copySetupBound === 'true') return;
+  el.dataset.copySetupBound = 'true';
+  el.addEventListener('input', handler);
+  el.addEventListener('change', handler);
+}
+
 function setupModalEventListeners() {
-  document.getElementById('modalTradeSize').onchange = updateModalPipeline;
-  document.querySelectorAll('input[name="modalTradeSizingMode"]').forEach(r => r.onchange = updateModalPipeline);
+  bindModalLiveUpdate(document.getElementById('modalTradeSize'), updateModalPipeline);
+  bindModalLiveUpdate(document.getElementById('modalWalletLabel'), updateModalPipeline);
+  bindModalLiveUpdate(document.getElementById('modalThresholdPercent'), updateModalPipeline);
+  bindModalLiveUpdate(document.getElementById('modalNoRepeatPeriod'), updateModalPipeline);
+  bindModalLiveUpdate(document.getElementById('modalValueFilterMin'), updateModalPipeline);
+  bindModalLiveUpdate(document.getElementById('modalValueFilterMax'), updateModalPipeline);
+  bindModalLiveUpdate(document.getElementById('modalRateLimitPerHour'), updateModalPipeline);
+  bindModalLiveUpdate(document.getElementById('modalRateLimitPerDay'), updateModalPipeline);
 
-  document.getElementById('modalThresholdEnabled').onchange = function () {
-    document.getElementById('modalThresholdInputs').className = this.checked ? '' : 'hidden';
-    updateModalPipeline();
-  };
+  document.querySelectorAll('input[name="modalTradeSizingMode"]').forEach((r) => {
+    bindModalLiveUpdate(r, updateModalPipeline);
+  });
+  document.querySelectorAll('input[name="modalTradeSideFilter"]').forEach((r) => {
+    bindModalLiveUpdate(r, updateModalPipeline);
+  });
 
-  document.querySelectorAll('input[name="modalTradeSideFilter"]').forEach(r => r.onchange = updateModalPipeline);
+  const thresholdToggle = document.getElementById('modalThresholdEnabled');
+  if (thresholdToggle && thresholdToggle.dataset.copySetupBound !== 'true') {
+    thresholdToggle.dataset.copySetupBound = 'true';
+    thresholdToggle.addEventListener('change', function () {
+      document.getElementById('modalThresholdInputs').className = this.checked ? 'copy-setup-subpanel' : 'copy-setup-subpanel hidden';
+      updateModalPipeline();
+    });
+  }
 
-  document.getElementById('modalNoRepeatEnabled').onchange = function () {
-    document.getElementById('modalNoRepeatInputs').className = this.checked ? '' : 'hidden';
-    updateModalPipeline();
-  };
-  document.getElementById('modalNoRepeatPeriod').onchange = updateModalPipeline;
+  const noRepeatToggle = document.getElementById('modalNoRepeatEnabled');
+  if (noRepeatToggle && noRepeatToggle.dataset.copySetupBound !== 'true') {
+    noRepeatToggle.dataset.copySetupBound = 'true';
+    noRepeatToggle.addEventListener('change', function () {
+      document.getElementById('modalNoRepeatInputs').className = this.checked ? '' : 'hidden';
+      updateModalPipeline();
+    });
+  }
 
-  document.getElementById('modalValueFilterEnabled').onchange = function () {
-    document.getElementById('modalValueFilterInputs').className = this.checked ? '' : 'hidden';
-    updateModalPipeline();
-  };
+  const valueToggle = document.getElementById('modalValueFilterEnabled');
+  if (valueToggle && valueToggle.dataset.copySetupBound !== 'true') {
+    valueToggle.dataset.copySetupBound = 'true';
+    valueToggle.addEventListener('change', function () {
+      document.getElementById('modalValueFilterInputs').className = this.checked ? '' : 'hidden';
+      updateModalPipeline();
+    });
+  }
 
-  document.getElementById('modalRateLimitEnabled').onchange = function () {
-    document.getElementById('modalRateLimitInputs').className = this.checked ? '' : 'hidden';
-    updateModalPipeline();
-  };
+  const rateToggle = document.getElementById('modalRateLimitEnabled');
+  if (rateToggle && rateToggle.dataset.copySetupBound !== 'true') {
+    rateToggle.dataset.copySetupBound = 'true';
+    rateToggle.addEventListener('change', function () {
+      document.getElementById('modalRateLimitInputs').className = this.checked ? '' : 'hidden';
+      updateModalPipeline();
+    });
+  }
 
-  document.getElementById('modalPriceLimitsMin').onchange = function () { updatePriceBadge(); updateModalPipeline(); };
-  document.getElementById('modalPriceLimitsMax').onchange = function () { updatePriceBadge(); updateModalPipeline(); };
-  document.getElementById('modalSlippagePercent').onchange = function () { updateSlippageBadge(); updateModalPipeline(); };
+  bindModalLiveUpdate(document.getElementById('modalPriceLimitsMin'), () => { updatePriceBadge(); updateModalPipeline(); });
+  bindModalLiveUpdate(document.getElementById('modalPriceLimitsMax'), () => { updatePriceBadge(); updateModalPipeline(); });
+  bindModalLiveUpdate(document.getElementById('modalSlippagePercent'), () => { updateSlippageBadge(); updateModalPipeline(); });
+}
+
+function formatCopySummaryChip(label, active) {
+  return `<span class="copy-setup-chip${active ? ' is-on' : ''}">${label}</span>`;
 }
 
 function updateModalPipeline() {
-  const tradeSize = document.getElementById('modalTradeSize').value || 2;
-  document.getElementById('modal-pipeline-size-desc').textContent = `$${tradeSize} USDC`;
+  const tradeSize = parseFloat(document.getElementById('modalTradeSize')?.value) || 2;
+  const mode = document.querySelector('input[name="modalTradeSizingMode"]:checked')?.value || 'fixed';
 
-  const side = document.querySelector('input[name="modalTradeSideFilter"]:checked').value;
+  const amountEl = document.getElementById('copySummaryAmount');
+  const sizingLabelEl = document.getElementById('copySummarySizingLabel');
+  if (amountEl && sizingLabelEl) {
+    if (mode === 'proportional') {
+      amountEl.textContent = 'Match %';
+      sizingLabelEl.textContent = 'of their portfolio per trade';
+    } else {
+      amountEl.textContent = `$${tradeSize.toFixed(2)}`;
+      sizingLabelEl.textContent = 'per trade (fixed amount)';
+    }
+  }
+
+  const side = document.querySelector('input[name="modalTradeSideFilter"]:checked')?.value || 'all';
+  const sideText = side === 'buy_only' ? 'Buys only' : side === 'sell_only' ? 'Sells only' : 'All buys & sells';
+
+  const minPrice = parseFloat(document.getElementById('modalPriceLimitsMin')?.value) || 0.01;
+  const maxPrice = parseFloat(document.getElementById('modalPriceLimitsMax')?.value) || 0.99;
+  const isDefaultPrice = minPrice === 0.01 && maxPrice === 0.99;
+  const priceText = isDefaultPrice ? 'Standard odds range' : `Odds $${minPrice.toFixed(2)}–$${maxPrice.toFixed(2)}`;
+
+  const metaEl = document.getElementById('copySummaryMeta');
+  if (metaEl) metaEl.textContent = `${sideText} · ${priceText}`;
+
+  const statusBadge = document.getElementById('modalWalletStatus');
+  const isLive = statusBadge?.textContent === 'Copying live';
+  const statusEl = document.getElementById('copySummaryStatus');
+  if (statusEl) {
+    statusEl.textContent = isLive
+      ? 'Live — copies run when the bot is on and this wallet is enabled'
+      : 'Not live yet — choose Save & enable copying when ready';
+    statusEl.classList.toggle('is-live', isLive);
+  }
+
+  const chips = [];
+  if (document.getElementById('modalThresholdEnabled')?.checked) {
+    const pct = document.getElementById('modalThresholdPercent')?.value || '10';
+    chips.push(formatCopySummaryChip(`${pct}% portfolio min`, true));
+  }
+  if (side !== 'all') {
+    chips.push(formatCopySummaryChip(sideText, true));
+  }
+  if (!isDefaultPrice) {
+    chips.push(formatCopySummaryChip('Custom odds', true));
+  }
+  if (document.getElementById('modalNoRepeatEnabled')?.checked) {
+    const period = document.getElementById('modalNoRepeatPeriod')?.value;
+    const repeatLabel = period === '0' ? 'No repeat markets' : `No repeat ${period}h`;
+    chips.push(formatCopySummaryChip(repeatLabel, true));
+  }
+  if (document.getElementById('modalValueFilterEnabled')?.checked) {
+    chips.push(formatCopySummaryChip('Trade size filter', true));
+  }
+  if (document.getElementById('modalRateLimitEnabled')?.checked) {
+    const rH = document.getElementById('modalRateLimitPerHour')?.value || 10;
+    const rD = document.getElementById('modalRateLimitPerDay')?.value || 50;
+    chips.push(formatCopySummaryChip(`Max ${rH}/hr · ${rD}/day`, true));
+  }
+  const slippage = document.getElementById('modalSlippagePercent')?.value;
+  if (slippage && parseFloat(slippage) !== 2) {
+    chips.push(formatCopySummaryChip(`${slippage}% slippage`, true));
+  }
+  const tags = getModalTags();
+  if (tags.length > 0) {
+    chips.push(formatCopySummaryChip(`${tags.length} tag${tags.length === 1 ? '' : 's'}`, true));
+  }
+
+  const chipsEl = document.getElementById('copySummaryChips');
+  if (chipsEl) {
+    chipsEl.innerHTML = chips.length > 0 ? chips.join('') : formatCopySummaryChip('No extra filters', false);
+    chipsEl.setAttribute('aria-hidden', chips.length === 0 ? 'true' : 'false');
+  }
+
+  // Legacy hidden nodes (tests / older hooks)
+  const sizeDesc = document.getElementById('modal-pipeline-size-desc');
+  if (sizeDesc) sizeDesc.textContent = mode === 'proportional' ? 'Proportional' : `$${tradeSize} USDC`;
+
   const sideDesc = document.getElementById('modal-pipeline-side-desc');
   const sideStatus = document.getElementById('modal-pipeline-side-status');
-  if (side !== 'all') {
-    sideDesc.textContent = side === 'buy_only' ? 'BUY only' : 'SELL only';
-    sideStatus.textContent = 'ON'; sideStatus.className = 'step-status on';
-  } else {
-    sideDesc.textContent = 'All trades';
-    sideStatus.textContent = 'OFF'; sideStatus.className = 'step-status off';
+  if (sideDesc && sideStatus) {
+    if (side !== 'all') {
+      sideDesc.textContent = side === 'buy_only' ? 'BUY only' : 'SELL only';
+      sideStatus.textContent = 'ON'; sideStatus.className = 'step-status on';
+    } else {
+      sideDesc.textContent = 'All trades';
+      sideStatus.textContent = 'OFF'; sideStatus.className = 'step-status off';
+    }
   }
 
-  const minPrice = document.getElementById('modalPriceLimitsMin').value || 0.01;
-  const maxPrice = document.getElementById('modalPriceLimitsMax').value || 0.99;
-  const isDefaultPrice = parseFloat(minPrice) === 0.01 && parseFloat(maxPrice) === 0.99;
-  document.getElementById('modal-pipeline-price-desc').textContent = `$${minPrice} - $${maxPrice}`;
-  document.getElementById('modal-pipeline-price-status').textContent = isDefaultPrice ? 'DEFAULT' : 'CUSTOM';
-  document.getElementById('modal-pipeline-price-status').className = `step-status ${isDefaultPrice ? 'off' : 'on'}`;
-
-  const noRepeatEnabled = document.getElementById('modalNoRepeatEnabled').checked;
-  const noRepeatPeriod = document.getElementById('modalNoRepeatPeriod').value;
-  if (noRepeatEnabled) {
-    document.getElementById('modal-pipeline-norepeat-desc').textContent = noRepeatPeriod === '0' ? 'Block forever' : `Block ${noRepeatPeriod}h`;
-    document.getElementById('modal-pipeline-norepeat-status').textContent = 'ON'; document.getElementById('modal-pipeline-norepeat-status').className = 'step-status on';
-  } else {
-    document.getElementById('modal-pipeline-norepeat-desc').textContent = 'Disabled';
-    document.getElementById('modal-pipeline-norepeat-status').textContent = 'OFF'; document.getElementById('modal-pipeline-norepeat-status').className = 'step-status off';
+  const priceDesc = document.getElementById('modal-pipeline-price-desc');
+  const priceStatus = document.getElementById('modal-pipeline-price-status');
+  if (priceDesc && priceStatus) {
+    priceDesc.textContent = `$${minPrice} - $${maxPrice}`;
+    priceStatus.textContent = isDefaultPrice ? 'DEFAULT' : 'CUSTOM';
+    priceStatus.className = `step-status ${isDefaultPrice ? 'off' : 'on'}`;
   }
 
-  const valueEnabled = document.getElementById('modalValueFilterEnabled').checked;
-  if (valueEnabled) {
-    const parts = [];
-    const vMin = document.getElementById('modalValueFilterMin').value;
-    const vMax = document.getElementById('modalValueFilterMax').value;
-    if (vMin) parts.push(`>$${vMin}`);
-    if (vMax) parts.push(`<$${vMax}`);
-    document.getElementById('modal-pipeline-value-desc').textContent = parts.length > 0 ? parts.join(', ') : 'No limits set';
-    document.getElementById('modal-pipeline-value-status').textContent = 'ON'; document.getElementById('modal-pipeline-value-status').className = 'step-status on';
-  } else {
-    document.getElementById('modal-pipeline-value-desc').textContent = 'No limits';
-    document.getElementById('modal-pipeline-value-status').textContent = 'OFF'; document.getElementById('modal-pipeline-value-status').className = 'step-status off';
+  const noRepeatEnabled = document.getElementById('modalNoRepeatEnabled')?.checked;
+  const noRepeatPeriod = document.getElementById('modalNoRepeatPeriod')?.value;
+  const noRepeatDesc = document.getElementById('modal-pipeline-norepeat-desc');
+  const noRepeatStatus = document.getElementById('modal-pipeline-norepeat-status');
+  if (noRepeatDesc && noRepeatStatus) {
+    if (noRepeatEnabled) {
+      noRepeatDesc.textContent = noRepeatPeriod === '0' ? 'Block forever' : `Block ${noRepeatPeriod}h`;
+      noRepeatStatus.textContent = 'ON'; noRepeatStatus.className = 'step-status on';
+    } else {
+      noRepeatDesc.textContent = 'Disabled';
+      noRepeatStatus.textContent = 'OFF'; noRepeatStatus.className = 'step-status off';
+    }
   }
 
-  const rateEnabled = document.getElementById('modalRateLimitEnabled').checked;
-  if (rateEnabled) {
-    const rH = document.getElementById('modalRateLimitPerHour').value || 10;
-    const rD = document.getElementById('modalRateLimitPerDay').value || 50;
-    document.getElementById('modal-pipeline-rate-desc').textContent = `${rH}/hr, ${rD}/day`;
-    document.getElementById('modal-pipeline-rate-status').textContent = 'ON'; document.getElementById('modal-pipeline-rate-status').className = 'step-status on';
-  } else {
-    document.getElementById('modal-pipeline-rate-desc').textContent = 'Unlimited';
-    document.getElementById('modal-pipeline-rate-status').textContent = 'OFF'; document.getElementById('modal-pipeline-rate-status').className = 'step-status off';
+  const valueEnabled = document.getElementById('modalValueFilterEnabled')?.checked;
+  const valueDesc = document.getElementById('modal-pipeline-value-desc');
+  const valueStatus = document.getElementById('modal-pipeline-value-status');
+  if (valueDesc && valueStatus) {
+    if (valueEnabled) {
+      const parts = [];
+      const vMin = document.getElementById('modalValueFilterMin')?.value;
+      const vMax = document.getElementById('modalValueFilterMax')?.value;
+      if (vMin) parts.push(`>$${vMin}`);
+      if (vMax) parts.push(`<$${vMax}`);
+      valueDesc.textContent = parts.length > 0 ? parts.join(', ') : 'No limits set';
+      valueStatus.textContent = 'ON'; valueStatus.className = 'step-status on';
+    } else {
+      valueDesc.textContent = 'No limits';
+      valueStatus.textContent = 'OFF'; valueStatus.className = 'step-status off';
+    }
+  }
+
+  const rateEnabled = document.getElementById('modalRateLimitEnabled')?.checked;
+  const rateDesc = document.getElementById('modal-pipeline-rate-desc');
+  const rateStatus = document.getElementById('modal-pipeline-rate-status');
+  if (rateDesc && rateStatus) {
+    if (rateEnabled) {
+      const rH = document.getElementById('modalRateLimitPerHour')?.value || 10;
+      const rD = document.getElementById('modalRateLimitPerDay')?.value || 50;
+      rateDesc.textContent = `${rH}/hr, ${rD}/day`;
+      rateStatus.textContent = 'ON'; rateStatus.className = 'step-status on';
+    } else {
+      rateDesc.textContent = 'Unlimited';
+      rateStatus.textContent = 'OFF'; rateStatus.className = 'step-status off';
+    }
   }
 }
 
@@ -1783,6 +1932,7 @@ function getModalTags() {
 function setModalTags(tags) {
   document.getElementById('modalWalletTags').value = JSON.stringify(tags);
   refreshModalTagButtons(tags);
+  updateModalPipeline();
 }
 
 function refreshModalTagButtons(tags) {
@@ -1827,7 +1977,7 @@ async function saveWalletConfig() {
       await API.updateWalletLabel(currentWalletAddress, document.getElementById('modalWalletLabel').value.trim());
       await API.updateWalletTags(currentWalletAddress, tags);
       await API.updateWalletTradeConfig(currentWalletAddress, config);
-      await jungleModal.success('Configuration saved (wallet remains inactive until enabled)');
+      await jungleModal.success('Saved as draft — enable copying when you are ready');
       closeWalletModal();
       lastWalletHash = '';
       await loadWallets(true);
@@ -1846,7 +1996,7 @@ async function saveWalletConfigAndEnable() {
       await API.updateWalletTags(currentWalletAddress, tags);
       await API.updateWalletTradeConfig(currentWalletAddress, config);
       await API.toggleWallet(currentWalletAddress, true);
-      await jungleModal.success('Configuration saved and wallet enabled!');
+      await jungleModal.success('Copy saved and enabled!');
       closeWalletModal();
       lastWalletHash = '';
       await loadWallets(true);
@@ -2191,7 +2341,7 @@ function updateAssignmentDropdowns(trackedWallets) {
   const select = document.getElementById('assignTrackedWallet');
   if (!select) return;
   const current = select.value;
-  select.innerHTML = '<option value="">Select tracked wallet...</option>';
+  select.innerHTML = '<option value="">Select copy source...</option>';
   if (trackedWallets) {
     trackedWallets.forEach(w => {
       select.innerHTML += `<option value="${w.address}">${w.label || w.address.slice(0, 12) + '...'}</option>`;
@@ -3500,7 +3650,7 @@ const toggleViewMenu = () => {
   const items = [
     { label: 'Home', action: () => switchTab('dashboard') },
     ...(isAdmin ? [{ label: 'Discovery', action: () => switchTab('discovery') }] : []),
-    { label: 'Watch List', action: () => switchTab('wallets') },
+    { label: 'Copy List', action: () => switchTab('wallets') },
     { label: 'My Wallets', action: () => switchTab('trading-wallets') },
     { label: 'Settings', action: () => switchTab('settings') },
     { label: 'Diagnostics', action: () => switchTab('diagnostics') },
@@ -4148,13 +4298,16 @@ const discoveryCategoryLabel = (category) => {
   return labels[category] || 'Real-World';
 };
 
-const buildDiscoveryTrackButton = (wallet) => {
+const buildDiscoveryCopyButton = (wallet) => {
   const safeAddress = (wallet.address || '').replace(/'/g, "\\'");
   if (wallet.isTracked) {
-    return '<button class="jw-btn jw-btn-sm" disabled>Tracked</button>';
+    return '<button class="jw-btn jw-btn-sm" disabled>Copying</button>';
   }
-  return `<button class="jw-btn jw-btn-sm jw-btn-primary" onclick="event.stopPropagation();trackDiscoveredWallet('${safeAddress}', this)" aria-label="Track and activate wallet" tabindex="0">Track &amp; Activate</button>`;
+  return `<button class="jw-btn jw-btn-sm jw-btn-primary" onclick="event.stopPropagation();copyDiscoveredWallet('${safeAddress}', this)" aria-label="Copy this wallet" tabindex="0">Copy</button>`;
 };
+
+/** @deprecated */
+const buildDiscoveryTrackButton = buildDiscoveryCopyButton;
 
 const buildDiscoveryWalletCardHtml = (wallet) => {
   const safeAddress = (wallet.address || '').replace(/'/g, "\\'");
@@ -4741,7 +4894,7 @@ const openWalletDetail = async (address) => {
         html += '<div class="signal-card severity-' + (s.severity || 'medium') + ' mb-4"><strong>' + (s.title || '') + '</strong><br><span class="text-sm">' + (s.description || '') + '</span></div>';
       });
     }
-    html += '<div class="mt-8"><button class="jw-btn jw-btn-primary" onclick="trackDiscoveredWallet(\'' + address.replace(/'/g, "\\'") + '\', this); closeWalletDetail();">Track &amp; Activate</button></div>';
+    html += '<div class="mt-8"><button class="jw-btn jw-btn-primary" onclick="copyDiscoveredWallet(\'' + address.replace(/'/g, "\\'") + '\', this); closeWalletDetail();">Copy wallet</button></div>';
     bodyEl.innerHTML = html;
   } catch (err) {
     bodyEl.innerHTML = '<p class="text-danger">Failed to load wallet details.</p>';
@@ -4753,7 +4906,7 @@ const closeWalletDetail = () => {
   if (overlay) overlay.style.display = 'none';
 };
 
-const trackDiscoveredWallet = async (address, btn) => {
+const copyDiscoveredWallet = async (address, btn) => {
   try {
     btn.disabled = true;
     btn.textContent = '...';
@@ -4764,35 +4917,38 @@ const trackDiscoveredWallet = async (address, btn) => {
       body: JSON.stringify({ address }),
     });
     const data = await resp.json();
-    const alreadyTracked = !resp.ok && typeof data.error === 'string' && data.error.includes('already being tracked');
+    const alreadyOnList = !resp.ok && typeof data.error === 'string' && data.error.includes('already being tracked');
+    const resolved = (data.resolvedAddress || address).toLowerCase();
 
-    if (data.success || resp.ok || alreadyTracked) {
-      const toggleResp = await fetch('/api/wallets/' + encodeURIComponent(address) + '/toggle', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ active: true }),
-      });
-      const toggleData = await toggleResp.json();
-      if (!toggleResp.ok || !toggleData.success) {
-        throw new Error(toggleData.error || 'Failed to activate wallet');
+    if (data.success || resp.ok || alreadyOnList) {
+      try {
+        await fetch(`/api/discovery/wallets/${address}/track`, { method: 'POST' });
+      } catch {
+        // Non-fatal discovery bookkeeping
       }
-
-      await fetch(`/api/discovery/wallets/${address}/track`, { method: 'POST' });
-      btn.textContent = 'Active';
+      btn.textContent = 'Copying';
       btn.classList.remove('jw-btn-primary');
+      lastWalletHash = '';
+      await loadWallets(true);
+      switchTab('wallets');
+      closeWalletDetail();
+      await openWalletModal(resolved);
     } else {
-      btn.textContent = 'Track & Activate';
+      btn.textContent = 'Copy';
       btn.disabled = false;
-      jungleModal.alert('Error', data.error || 'Failed to track wallet');
+      jungleModal.alert('Error', data.error || 'Failed to add wallet');
     }
   } catch (err) {
-    btn.textContent = 'Track & Activate';
+    btn.textContent = 'Copy';
     btn.disabled = false;
     if (err?.message) {
       jungleModal.alert('Error', err.message);
     }
   }
 };
+
+/** @deprecated use copyDiscoveredWallet */
+const trackDiscoveredWallet = copyDiscoveredWallet;
 
 const saveDiscoveryConfig = async () => {
   try {

@@ -36,7 +36,7 @@
       tab: 'dashboard',
       target: '.j-trade-panel',
       title: 'Trade History',
-      body: 'Recent copy attempts across tracked wallets. Click any row for full trade details.'
+      body: 'Recent copy attempts from wallets on your copy list. Click any row for full trade details.'
     },
     {
       tab: 'dashboard',
@@ -48,8 +48,8 @@
     {
       tab: 'wallets',
       target: '#tab-wallets',
-      title: 'Watch List',
-      body: 'Wallets you monitor and copy. Configure trade size and filters per wallet.'
+      title: 'Copy List',
+      body: 'Wallets you copy on Polymarket. Click Copy on a Jungle Agent or add an address — setup opens automatically.'
     },
     {
       tab: 'trading-wallets',
@@ -61,13 +61,13 @@
       tab: 'trading-wallets',
       target: '#copyAssignmentsList',
       title: 'Copy Assignments',
-      body: 'Map tracked to trading wallet (dropdowns + Assign). Per-wallet Settings (gear): auto-redeem, auto-merge.'
+      body: 'Map each copy source to the trading wallet that executes its trades. Per-wallet Settings (gear): auto-redeem, auto-merge.'
     },
     {
       tab: 'discovery',
       target: '#tab-discovery',
       title: 'Discovery',
-      body: 'Discovery helps you find promising wallets to track next. It is useful, but it should not get in the way of basic setup.',
+      body: 'Discovery helps you find promising wallets to copy next. It is useful, but it should not get in the way of basic setup.',
       adminOnly: true,
     },
     {

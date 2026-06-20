@@ -100,9 +100,9 @@ window.DITTO_ONBOARDING_STEPS = [
   {
     id: 'start-bot',
     title: 'Start copying',
-    why: 'Once a wallet is on your Watch List and enabled, Start Copying tells Ditto to monitor and mirror trades.',
+    why: 'Once a wallet is on your Copy List and enabled, Start Copying tells Ditto to monitor and mirror trades.',
     actions: [
-      'Follow a Jungle Agent or add a wallet to your Watch List',
+      'Copy a Jungle Agent or add a wallet to your Copy List',
       'Click Start Copying in the top bar',
       'Click again anytime to stop'
     ],
