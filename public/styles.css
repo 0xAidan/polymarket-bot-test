@@ -3131,6 +3131,16 @@ body.app-ready .auth-gate-screen {
   box-shadow: var(--j-shadow-1);
 }
 .wallet-config-drawer { width: min(520px, 100vw); }
+.wallet-setup-hint {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(212, 175, 55, 0.12);
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  color: var(--jungle-text);
+  font-size: 14px;
+  line-height: 1.45;
+}
 .j-drawer-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 16px; border-bottom: 1px solid var(--jungle-border);

@@ -991,6 +991,16 @@ const formatRelativeTime = (iso) => {
 
 const isRawEthAddress = (value) => /^0x[a-fA-F0-9]{40}$/.test(value.trim());
 
+const walletHasSizingConfig = (wallet) => {
+  if (!wallet) return false;
+  if (wallet.tradeSizingMode === 'proportional') return true;
+  return wallet.tradeSizingMode === 'fixed' && Number(wallet.fixedTradeSize) > 0;
+};
+
+const isMissingSizingError = (message) => (
+  typeof message === 'string' && /trade sizing/i.test(message)
+);
+
 const TAB_FIX_LABELS = {
   wallets: 'Open Watch List',
   'trading-wallets': 'Open My Wallets',
@@ -1524,12 +1534,8 @@ async function addWallet() {
       lastWalletHash = '';
       await loadWallets(true);
       await refreshSetupExperience();
-      const resolvedNote = result.resolvedAddress && result.resolvedAddress !== address.toLowerCase()
-        ? ` Verified proxy address: ${result.resolvedAddress.slice(0, 10)}...`
-        : '';
-      if (await jungleModal.confirm(`Wallet added (inactive by default).${resolvedNote} Configure it now?`)) {
-        openWalletModal((result.resolvedAddress || address).toLowerCase());
-      }
+      switchTab('wallets');
+      await openWalletModal((result.resolvedAddress || address).toLowerCase());
     } catch (error) {
       await jungleModal.error(`Failed to add wallet: ${error.message}`);
     }
@@ -1543,8 +1549,35 @@ async function removeWallet(address) {
 }
 
 async function toggleWallet(address, active) {
-  try { lastWalletHash = ''; await API.toggleWallet(address, active); await loadWallets(true); }
-  catch (error) { await jungleModal.error(`Failed to toggle wallet: ${error.message}`); await loadWallets(true); }
+  if (active) {
+    try {
+      const data = await API.getWallets();
+      const wallet = data.wallets.find((w) => w.address.toLowerCase() === address.toLowerCase());
+      if (wallet && !walletHasSizingConfig(wallet)) {
+        await loadWallets(true);
+        switchTab('wallets');
+        await openWalletModal(address);
+        return;
+      }
+    } catch {
+      // Fall through to API toggle attempt.
+    }
+  }
+
+  try {
+    lastWalletHash = '';
+    await API.toggleWallet(address, active);
+    await loadWallets(true);
+  } catch (error) {
+    if (active && isMissingSizingError(error.message)) {
+      await loadWallets(true);
+      switchTab('wallets');
+      await openWalletModal(address);
+      return;
+    }
+    await jungleModal.error(`Failed to toggle wallet: ${error.message}`);
+    await loadWallets(true);
+  }
 }
 
 // ============================================================
@@ -1559,7 +1592,14 @@ async function openWalletModal(address) {
     const wallet = data.wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
     if (!wallet) { await jungleModal.error('Wallet not found'); return; }
 
-    document.getElementById('walletModalTitle').textContent = `Configure: ${wallet.label || address.slice(0, 10) + '...'}`;
+    document.getElementById('walletModalTitle').textContent = wallet.active
+      ? `Configure: ${wallet.label || address.slice(0, 10) + '...'}`
+      : `Set up copying: ${wallet.label || address.slice(0, 10) + '...'}`;
+
+    const setupHint = document.getElementById('walletModalSetupHint');
+    if (setupHint) {
+      setupHint.classList.toggle('hidden', wallet.active);
+    }
     document.getElementById('modalWalletAddress').textContent = address;
 
     const statusEl = document.getElementById('modalWalletStatus');

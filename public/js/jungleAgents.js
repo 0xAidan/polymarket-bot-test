@@ -245,8 +245,10 @@ const handleFollowAgent = async (agent) => {
   }
   const addr = agent.polymarketAddress.toLowerCase();
   if (trackedAddressSet.has(addr)) {
-    await jungleDialog.alert('You are already following this wallet. Open Watch List to configure and enable copying.');
     switchTab('wallets');
+    if (typeof openWalletModal === 'function') {
+      await openWalletModal(addr);
+    }
     return;
   }
   try {
@@ -264,16 +266,9 @@ const handleFollowAgent = async (agent) => {
     trackedAddressSet.add(addr);
     if (typeof loadWallets === 'function') await loadWallets(true);
     syncFollowButtons(cachedAgents);
-
-    const configureNow = await jungleDialog.confirm(
-      `Added ${agent.displayName} to your Watch List (inactive until you enable copying).\n\nConfigure trade size and enable copying now?`,
-      'Follow agent'
-    );
-    if (configureNow) {
-      switchTab('wallets');
-      if (typeof openWalletModal === 'function') {
-        await openWalletModal(addr);
-      }
+    switchTab('wallets');
+    if (typeof openWalletModal === 'function') {
+      await openWalletModal(addr);
     }
   } catch (error) {
     await jungleDialog.error(error.message || 'Could not follow agent');
