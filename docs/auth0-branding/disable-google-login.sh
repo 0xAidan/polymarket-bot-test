@@ -36,7 +36,8 @@ CONN_ID=$(auth0 api get "connections" --query "strategy=google-oauth2" < /dev/nu
 echo "Google connection ID: $CONN_ID"
 echo "Removing Google login from application..."
 
-auth0 api delete "connections/$CONN_ID/clients/$CLIENT_ID" < /dev/null
+auth0 api patch "connections/$CONN_ID/clients" \
+  --data "[{\"client_id\":\"$CLIENT_ID\",\"status\":false}]" < /dev/null
 
 echo "Done. Google sign-in is disabled for $APP_NAME."
 echo "The Auth0 dashboard 'development keys' alert should clear within a few minutes."
