@@ -4,6 +4,8 @@ import { fetchPaginatedJson } from './discovery/v3/dataApiValidator.js';
 export interface JungleAgentPolymarketStats {
   address: string;
   portfolioValueUsd: number | null;
+  positionsValueUsd: number | null;
+  usdcBalanceUsd: number | null;
   positionCount: number;
   lifetimePnlUsd: number | null;
   roiPct: number | null;
@@ -16,6 +18,8 @@ export interface JungleAgentPolymarketStats {
   source: 'polymarket_data_api';
 }
 
+export type JungleAgentCashBalanceFetcher = (address: string) => Promise<number>;
+
 type ClosedPositionRow = {
   realizedPnl?: number;
   avgPrice?: number;
@@ -27,6 +31,8 @@ type OpenPositionRow = {
   initialValue?: number;
   size?: number;
   avgPrice?: number;
+  currentValue?: number;
+  curPrice?: number;
 };
 
 const DATA_API = config.polymarketDataApiUrl.replace(/\/$/, '');
@@ -54,11 +60,49 @@ const openPositionCostUsd = (row: OpenPositionRow): number => {
   return 0;
 };
 
+const openPositionMarketValueUsd = (row: OpenPositionRow): number => {
+  const currentValue = parseNumber(row.currentValue);
+  if (currentValue > 0) return currentValue;
+  const size = parseNumber(row.size);
+  const curPrice = parseNumber(row.curPrice);
+  if (size > 0 && curPrice >= 0) return size * curPrice;
+  return 0;
+};
+
+const sumOpenPositionsValueUsd = (openRows: OpenPositionRow[]): number => (
+  openRows.reduce((sum, row) => {
+    const size = parseNumber(row.size);
+    if (size <= 0) return sum;
+    return sum + openPositionMarketValueUsd(row);
+  }, 0)
+);
+
+const resolvePortfolioTotals = (
+  positionsValueUsd: number | null,
+  usdcBalanceUsd: number | null,
+): { portfolioValueUsd: number | null; positionsValueUsd: number | null; usdcBalanceUsd: number | null } => {
+  const positions = positionsValueUsd ?? 0;
+  const cash = usdcBalanceUsd ?? 0;
+  const hasPositions = positionsValueUsd != null;
+  const hasCash = usdcBalanceUsd != null;
+
+  if (!hasPositions && !hasCash) {
+    return { portfolioValueUsd: null, positionsValueUsd: null, usdcBalanceUsd: null };
+  }
+
+  return {
+    portfolioValueUsd: Math.round((positions + cash) * 100) / 100,
+    positionsValueUsd: hasPositions ? Math.round(positions * 100) / 100 : null,
+    usdcBalanceUsd: hasCash ? Math.round(cash * 100) / 100 : null,
+  };
+};
+
 export const computeJungleAgentPolymarketStats = (
   address: string,
   closedRows: ClosedPositionRow[],
   openRows: OpenPositionRow[],
-  portfolioValueUsd: number | null,
+  positionsValueUsd: number | null,
+  usdcBalanceUsd: number | null,
 ): JungleAgentPolymarketStats => {
   const normalized = address.trim().toLowerCase();
 
@@ -98,9 +142,13 @@ export const computeJungleAgentPolymarketStats = (
     ? Math.round((lifetimePnlUsd / totalDeployedUsd) * 1000) / 10
     : null;
 
+  const portfolioTotals = resolvePortfolioTotals(positionsValueUsd, usdcBalanceUsd);
+
   return {
     address: normalized,
-    portfolioValueUsd,
+    portfolioValueUsd: portfolioTotals.portfolioValueUsd,
+    positionsValueUsd: portfolioTotals.positionsValueUsd,
+    usdcBalanceUsd: portfolioTotals.usdcBalanceUsd,
     positionCount,
     lifetimePnlUsd,
     roiPct,
@@ -117,27 +165,33 @@ export const computeJungleAgentPolymarketStats = (
 export const fetchJungleAgentPolymarketStats = async (
   address: string,
   fetchImpl: typeof fetch = fetch,
+  options?: { getCashBalance?: JungleAgentCashBalanceFetcher },
 ): Promise<JungleAgentPolymarketStats | null> => {
   const normalized = address.trim().toLowerCase();
   if (!normalized) return null;
 
-  const closed = await fetchPaginatedJson<ClosedPositionRow>(
-    (offset, limit) => `${DATA_API}/closed-positions?user=${encodeURIComponent(normalized)}&limit=${limit}&offset=${offset}`,
-    50,
-    400,
-    fetchImpl,
-  );
-  if (closed.httpError) return null;
+  const cashPromise = options?.getCashBalance
+    ? options.getCashBalance(normalized).catch(() => null)
+    : Promise.resolve(null);
 
-  const open = await fetchPaginatedJson<OpenPositionRow>(
-    (offset, limit) => `${DATA_API}/positions?user=${encodeURIComponent(normalized)}&limit=${limit}&offset=${offset}`,
-    500,
-    40,
-    fetchImpl,
-  );
-  if (open.httpError) return null;
+  const [closed, open, cashBalance] = await Promise.all([
+    fetchPaginatedJson<ClosedPositionRow>(
+      (offset, limit) => `${DATA_API}/closed-positions?user=${encodeURIComponent(normalized)}&limit=${limit}&offset=${offset}`,
+      50,
+      400,
+      fetchImpl,
+    ),
+    fetchPaginatedJson<OpenPositionRow>(
+      (offset, limit) => `${DATA_API}/positions?user=${encodeURIComponent(normalized)}&limit=${limit}&offset=${offset}`,
+      500,
+      40,
+      fetchImpl,
+    ),
+    cashPromise,
+  ]);
+  if (closed.httpError || open.httpError) return null;
 
-  let portfolioValueUsd: number | null = null;
+  let positionsValueUsd: number | null = null;
   try {
     const valueRes = await fetchImpl(`${DATA_API}/value?user=${encodeURIComponent(normalized)}`);
     if (valueRes.ok) {
@@ -146,11 +200,26 @@ export const fetchJungleAgentPolymarketStats = async (
         ? rows.find((row) => row.user?.toLowerCase() === normalized) ?? rows[0]
         : null;
       const value = Number(match?.value);
-      if (Number.isFinite(value)) portfolioValueUsd = value;
+      if (Number.isFinite(value)) positionsValueUsd = value;
     }
   } catch {
-    portfolioValueUsd = null;
+    positionsValueUsd = null;
   }
 
-  return computeJungleAgentPolymarketStats(normalized, closed.rows, open.rows, portfolioValueUsd);
+  if (positionsValueUsd == null) {
+    const summed = sumOpenPositionsValueUsd(open.rows);
+    positionsValueUsd = summed > 0 ? summed : 0;
+  }
+
+  const usdcBalanceUsd = typeof cashBalance === 'number' && Number.isFinite(cashBalance)
+    ? cashBalance
+    : null;
+
+  return computeJungleAgentPolymarketStats(
+    normalized,
+    closed.rows,
+    open.rows,
+    positionsValueUsd,
+    usdcBalanceUsd,
+  );
 };

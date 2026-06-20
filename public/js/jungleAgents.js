@@ -75,7 +75,16 @@ const updateAgentStatCells = (agentId, perf) => {
   const winRateEl = document.querySelector(`[data-agent-winrate="${agentId}"]`);
   const positionsEl = document.querySelector(`[data-agent-positions="${agentId}"]`);
 
-  if (portfolioEl) portfolioEl.textContent = formatUsd(perf.portfolioValueUsd);
+  if (portfolioEl) {
+    portfolioEl.textContent = formatUsd(perf.portfolioValueUsd);
+    const cash = perf.usdcBalance;
+    const positions = perf.positionsValue;
+    if (cash != null && positions != null) {
+      portfolioEl.title = `Cash ${formatUsd(cash)} + positions ${formatUsd(positions)}`;
+    } else {
+      portfolioEl.removeAttribute('title');
+    }
+  }
   if (pnlEl) {
     pnlEl.textContent = formatSignedUsd(perf.lifetimePnlUsd);
     pnlEl.className = `j-agents-num ${pnlClass(perf.lifetimePnlUsd)}`;

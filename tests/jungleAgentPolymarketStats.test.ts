@@ -16,7 +16,8 @@ test('computeJungleAgentPolymarketStats matches Polymarket lifetime PnL and win 
     [
       { size: 10, cashPnl: 25, initialValue: 40 },
     ],
-    118,
+    40,
+    78,
   );
 
   assert.equal(stats.lifetimePnlUsd, 115);
@@ -25,18 +26,20 @@ test('computeJungleAgentPolymarketStats matches Polymarket lifetime PnL and win 
   assert.equal(stats.breakeven, 1);
   assert.equal(stats.winRatePct, 50);
   assert.equal(stats.positionCount, 1);
+  assert.equal(stats.positionsValueUsd, 40);
+  assert.equal(stats.usdcBalanceUsd, 78);
   assert.equal(stats.portfolioValueUsd, 118);
   assert.equal(stats.totalDeployedUsd, 120);
   assert.equal(stats.roiPct, 95.8);
 });
 
-test('fetchJungleAgentPolymarketStats paginates closed and open positions', async () => {
+test('fetchJungleAgentPolymarketStats paginates closed and open positions and adds cash', async () => {
   const fetchImpl = async (url: string) => {
     if (url.includes('/closed-positions?')) {
       return new Response(JSON.stringify([{ realizedPnl: 50, avgPrice: 0.5, totalBought: 100 }]));
     }
     if (url.includes('/positions?')) {
-      return new Response(JSON.stringify([{ size: 5, cashPnl: 10, initialValue: 20 }]));
+      return new Response(JSON.stringify([{ size: 5, cashPnl: 10, initialValue: 20, currentValue: 30 }]));
     }
     if (url.includes('/value?')) {
       return new Response(JSON.stringify([{ user: '0xabc', value: 30 }]));
@@ -44,10 +47,14 @@ test('fetchJungleAgentPolymarketStats paginates closed and open positions', asyn
     return new Response('[]');
   };
 
-  const stats = await fetchJungleAgentPolymarketStats('0xabc', fetchImpl as typeof fetch);
+  const stats = await fetchJungleAgentPolymarketStats('0xabc', fetchImpl as typeof fetch, {
+    getCashBalance: async () => 12.5,
+  });
   assert.ok(stats);
   assert.equal(stats?.lifetimePnlUsd, 60);
   assert.equal(stats?.wins, 1);
   assert.equal(stats?.winRatePct, 100);
-  assert.equal(stats?.portfolioValueUsd, 30);
+  assert.equal(stats?.positionsValueUsd, 30);
+  assert.equal(stats?.usdcBalanceUsd, 12.5);
+  assert.equal(stats?.portfolioValueUsd, 42.5);
 });

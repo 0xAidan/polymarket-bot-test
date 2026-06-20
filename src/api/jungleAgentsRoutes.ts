@@ -96,7 +96,10 @@ export function createJungleAgentsRouter(copyTrader: CopyTrader): Router {
         : agent.polymarketAddress;
       const resolved = await resolveMonitoringAddress(lookupInput);
       const monitoringAddress = resolved.monitoringAddress.toLowerCase();
-      const stats = await fetchJungleAgentPolymarketStats(monitoringAddress);
+      const balanceTracker = copyTrader.getBalanceTracker();
+      const stats = await fetchJungleAgentPolymarketStats(monitoringAddress, fetch, {
+        getCashBalance: (addr) => balanceTracker.getBalance(addr),
+      });
       if (!stats) {
         res.status(502).json({ success: false, error: 'Could not load Polymarket stats for this wallet' });
         return;
@@ -106,8 +109,8 @@ export function createJungleAgentsRouter(copyTrader: CopyTrader): Router {
         agentId: agent.id,
         address: monitoringAddress,
         portfolioValueUsd: stats.portfolioValueUsd,
-        usdcBalance: null,
-        positionsValue: stats.portfolioValueUsd,
+        usdcBalance: stats.usdcBalanceUsd,
+        positionsValue: stats.positionsValueUsd,
         positionCount: stats.positionCount,
         lifetimePnlUsd: stats.lifetimePnlUsd,
         roiPct: stats.roiPct,
