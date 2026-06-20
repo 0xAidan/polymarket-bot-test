@@ -446,7 +446,7 @@
 
 .j-admin-health {
   padding: var(--space-2xl) var(--space-lg);
-  max-width: 720px;
+  max-width: 960px;
 }
 
 .j-admin-health-alert {
@@ -512,4 +512,23 @@
 
 .j-admin-health-metrics dd.is-critical {
   color: var(--jungle-loss);
+}
+
+.j-admin-health-intro {
+  margin: 0 0 var(--space-md);
+  font-size: 13px;
+}
+
+.j-admin-platform-overview {
+  margin-bottom: var(--space-md);
+}
+
+.j-admin-tenant-stats-scroll {
+  max-height: 320px;
+}
+
+.j-admin-tenant-stats-table th,
+.j-admin-tenant-stats-table td {
+  font-size: 12px;
+  white-space: nowrap;
 }

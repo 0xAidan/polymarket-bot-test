@@ -314,30 +314,3 @@ window.renderHomeJungleAgentTeaser = async () => {
   }
 };
 
-const METRICS_EXPANDED_KEY = 'ditto_metrics_expanded';
-
-const initDashboardMetricsToggle = () => {
-  const btn = document.getElementById('metricsToggleBtn');
-  const panel = document.getElementById('metricsDetailPanel');
-  if (!btn || !panel) return;
-
-  const applyExpanded = (expanded) => {
-    btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-    btn.querySelector('.j-metrics-toggle-label').textContent = expanded ? 'Hide stats' : 'All stats';
-    panel.hidden = !expanded;
-    panel.classList.toggle('is-open', expanded);
-  };
-
-  const saved = localStorage.getItem(METRICS_EXPANDED_KEY) === 'true';
-  applyExpanded(saved);
-
-  btn.addEventListener('click', () => {
-    const next = btn.getAttribute('aria-expanded') !== 'true';
-    applyExpanded(next);
-    localStorage.setItem(METRICS_EXPANDED_KEY, next ? 'true' : 'false');
-  });
-};
-
-document.addEventListener('DOMContentLoaded', () => {
-  initDashboardMetricsToggle();
-});

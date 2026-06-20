@@ -1,9 +1,9 @@
 import { promises as fs, existsSync, readFileSync } from 'fs';
 import path from 'path';
 import { config } from './config.js';
-import { TradeMetrics, SystemIssue, PerformanceStats, WalletStats, PerformanceDataPoint } from './types.js';
+import { TradeMetrics, SystemIssue, PerformanceStats, WalletStats, PerformanceDataPoint, PlatformStats, PlatformTenantStats } from './types.js';
 import { createComponentLogger } from './logger.js';
-import { getTenantId, getTenantIdStrict } from './tenantContext.js';
+import { DEFAULT_TENANT_ID, getTenantId, getTenantIdStrict } from './tenantContext.js';
 import { isHostedMultiTenantMode } from './hostedMode.js';
 
 const log = createComponentLogger('PerformanceTracker');
@@ -459,6 +459,95 @@ export class PerformanceTracker {
     }
 
     return dataPoints;
+  }
+
+  private summarizeMetrics(metrics: TradeMetrics[]) {
+    const successfulTrades = metrics.filter((m) => m.success);
+    const failedTrades = metrics.filter((m) => !m.success);
+    const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const tradesLast24h = metrics.filter((m) => m.timestamp >= last24h).length;
+    const averageLatencyMs = metrics.length > 0
+      ? Math.round(metrics.reduce((sum, m) => sum + m.executionTimeMs, 0) / metrics.length)
+      : 0;
+    const successRate = metrics.length > 0
+      ? Math.round((successfulTrades.length / metrics.length) * 10000) / 100
+      : 0;
+
+    return {
+      totalTrades: metrics.length,
+      successfulTrades: successfulTrades.length,
+      failedTrades: failedTrades.length,
+      successRate,
+      averageLatencyMs,
+      tradesLast24h,
+    };
+  }
+
+  private async discoverTenantIds(): Promise<string[]> {
+    await this.ensureDataDir();
+    let tenantIds: string[] = [];
+    try {
+      const files = await fs.readdir(config.dataDir);
+      tenantIds = files
+        .filter((file) => file.startsWith('trade_metrics_') && file.endsWith('.json'))
+        .map((file) => file.slice('trade_metrics_'.length, -'.json'.length));
+    } catch {
+      tenantIds = [];
+    }
+
+    if (tenantIds.length === 0) {
+      tenantIds = [DEFAULT_TENANT_ID];
+    }
+
+    return [...new Set(tenantIds)];
+  }
+
+  async getPlatformStats(
+    walletCountByTenant: Map<string, number>,
+    tenantNames: Map<string, string>,
+  ): Promise<PlatformStats> {
+    const tenantIds = await this.discoverTenantIds();
+    const tenants: PlatformTenantStats[] = [];
+    let totalTrades = 0;
+    let successfulTrades = 0;
+    let failedTrades = 0;
+    let tradesLast24h = 0;
+    let latencyWeightedSum = 0;
+    let walletsTracked = 0;
+
+    for (const tenantId of tenantIds) {
+      await this.ensureTenantLoaded(tenantId);
+      const summary = this.summarizeMetrics(this.getMetricsStore(tenantId));
+      const tracked = walletCountByTenant.get(tenantId) ?? 0;
+      tenants.push({
+        tenantId,
+        tenantName: tenantNames.get(tenantId) ?? tenantId,
+        walletsTracked: tracked,
+        ...summary,
+      });
+      totalTrades += summary.totalTrades;
+      successfulTrades += summary.successfulTrades;
+      failedTrades += summary.failedTrades;
+      tradesLast24h += summary.tradesLast24h;
+      latencyWeightedSum += summary.averageLatencyMs * summary.totalTrades;
+      walletsTracked += tracked;
+    }
+
+    tenants.sort((a, b) => b.totalTrades - a.totalTrades);
+
+    return {
+      totalTrades,
+      successfulTrades,
+      failedTrades,
+      successRate: totalTrades > 0
+        ? Math.round((successfulTrades / totalTrades) * 10000) / 100
+        : 0,
+      averageLatencyMs: totalTrades > 0 ? Math.round(latencyWeightedSum / totalTrades) : 0,
+      walletsTracked,
+      activeAccounts: tenants.filter((tenant) => tenant.totalTrades > 0 || tenant.walletsTracked > 0).length,
+      tradesLast24h,
+      tenants,
+    };
   }
 
   /**

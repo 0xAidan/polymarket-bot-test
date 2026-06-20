@@ -64,6 +64,36 @@
             <div><dt>Last check</dt><dd id="adminHealthServiceChecked">—</dd></div>
           </dl>
         </div>
+
+        <div class="j-card j-admin-health-card glow-border">
+          <h2 class="j-admin-health-card-title">Platform performance</h2>
+          <p class="j-admin-health-intro text-muted">Aggregated copy-trade stats across all accounts. Not shown on the user dashboard.</p>
+          <dl class="j-admin-health-metrics j-admin-platform-overview" id="adminPlatformOverview">
+            <div><dt>Success rate</dt><dd id="adminPlatformSuccessRate">—</dd></div>
+            <div><dt>Total trades</dt><dd id="adminPlatformTotalTrades">—</dd></div>
+            <div><dt>Avg latency</dt><dd id="adminPlatformAvgLatency">—</dd></div>
+            <div><dt>Active accounts</dt><dd id="adminPlatformActiveAccounts">—</dd></div>
+            <div><dt>Wallets tracked</dt><dd id="adminPlatformWalletsTracked">—</dd></div>
+            <div><dt>Trades (24h)</dt><dd id="adminPlatformTrades24h">—</dd></div>
+          </dl>
+          <div class="j-admin-table-scroll j-admin-tenant-stats-scroll">
+            <table class="j-admin-table j-admin-tenant-stats-table" aria-label="Per-account performance">
+              <thead>
+                <tr>
+                  <th>Account</th>
+                  <th>Trades</th>
+                  <th>Success</th>
+                  <th>Latency</th>
+                  <th>Wallets</th>
+                  <th>24h</th>
+                </tr>
+              </thead>
+              <tbody id="adminTenantStatsBody">
+                <tr><td colspan="6" class="text-muted">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <section id="adminComingSoon" class="j-admin-coming-soon hidden">

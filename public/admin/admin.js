@@ -178,6 +178,58 @@ const refreshAdminHealth = async () => {
     if (metaEl) metaEl.textContent = 'Could not load health metrics.';
     if (alert) alert.classList.add('hidden');
   }
+
+  await refreshAdminPlatformStats();
+};
+
+const refreshAdminPlatformStats = async () => {
+  const tbody = document.getElementById('adminTenantStatsBody');
+  const setOverview = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  };
+
+  try {
+    const data = await API.getAdminSystemStats();
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to load platform stats');
+    }
+
+    setOverview('adminPlatformSuccessRate', `${(data.successRate || 0).toFixed(1)}%`);
+    setOverview('adminPlatformTotalTrades', String(data.totalTrades || 0));
+    setOverview('adminPlatformAvgLatency', `${Math.round(data.averageLatencyMs || 0)}ms`);
+    setOverview('adminPlatformActiveAccounts', String(data.activeAccounts || 0));
+    setOverview('adminPlatformWalletsTracked', String(data.walletsTracked || 0));
+    setOverview('adminPlatformTrades24h', String(data.tradesLast24h || 0));
+
+    if (!tbody) return;
+    const tenants = Array.isArray(data.tenants) ? data.tenants : [];
+    if (tenants.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-muted">No account activity recorded yet.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = tenants.map((tenant) => `
+      <tr>
+        <td>${escapeHtml(tenant.tenantName || tenant.tenantId)}</td>
+        <td>${tenant.totalTrades ?? 0}</td>
+        <td>${(tenant.successRate ?? 0).toFixed(1)}%</td>
+        <td>${Math.round(tenant.averageLatencyMs ?? 0)}ms</td>
+        <td>${tenant.walletsTracked ?? 0}</td>
+        <td>${tenant.tradesLast24h ?? 0}</td>
+      </tr>
+    `).join('');
+  } catch {
+    setOverview('adminPlatformSuccessRate', '—');
+    setOverview('adminPlatformTotalTrades', '—');
+    setOverview('adminPlatformAvgLatency', '—');
+    setOverview('adminPlatformActiveAccounts', '—');
+    setOverview('adminPlatformWalletsTracked', '—');
+    setOverview('adminPlatformTrades24h', '—');
+    if (tbody) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-muted">Could not load platform stats.</td></tr>';
+    }
+  }
 };
 
 const updateMetaLine = (agents) => {

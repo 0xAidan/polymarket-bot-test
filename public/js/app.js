@@ -629,7 +629,6 @@ async function loadAllData() {
     await Promise.all([
       loadStatus(),
       loadWalletBalance(),
-      loadPerformance(),
       loadTrades(),
       loadWallets(),
       loadSettings(),
@@ -694,7 +693,6 @@ async function loadDashboardData() {
   const loads = [
     loadStatus(),
     loadWalletBalance(),
-    loadPerformance(),
     loadTrades(),
   ];
   if (isPlatformAdminUser()) {
@@ -743,10 +741,6 @@ function updateStatusUI(data) {
   document.getElementById('statusBarMode').textContent = data.monitoringMode || 'Polling';
 
   if (data.wallets) {
-    const activeCount = String(data.wallets.active);
-    document.getElementById('walletsTracked').textContent = activeCount;
-    const quickTracked = document.getElementById('quickWalletsTracked');
-    if (quickTracked) quickTracked.textContent = activeCount;
     const intervalSec = data.polling && data.polling.interval ? Math.round(data.polling.interval / 1000) : null;
     const modeText = intervalSec ? `Data source: Polymarket API, polling every ${intervalSec}s` : `${data.monitoringMode || 'polling'} mode`;
     document.getElementById('statusBarMain').textContent = `${data.wallets.active} wallet(s) tracked | ${modeText}`;
@@ -788,34 +782,6 @@ async function loadWalletBalance() {
     changeEl.className = `balance-change ${change >= 0 ? 'positive' : 'negative'}`;
   } catch (error) {
     console.error('Error loading wallet balance:', error);
-  }
-}
-
-async function loadPerformance() {
-  try {
-    const data = await API.getPerformance();
-    const successRate = `${(data.successRate || 0).toFixed(1)}%`;
-    const totalTrades = String(data.totalTrades || 0);
-    const avgLatency = `${Math.round(data.averageLatencyMs || 0)}ms`;
-    const successful = String(data.successfulTrades || 0);
-    const failed = String(data.failedTrades || 0);
-
-    const setText = (id, value) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = value;
-    };
-
-    setText('successRate', successRate);
-    setText('totalTrades', totalTrades);
-    setText('avgLatency', avgLatency);
-    setText('successfulTrades', successful);
-    setText('failedTrades', failed);
-
-    setText('quickSuccessRate', successRate);
-    setText('quickTotalTrades', totalTrades);
-    setText('quickAvgLatency', avgLatency);
-  } catch (error) {
-    console.error('Error loading performance:', error);
   }
 }
 

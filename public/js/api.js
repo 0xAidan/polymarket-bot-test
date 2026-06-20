@@ -202,6 +202,10 @@ const API = {
     return this.get('/admin/jungle-agents');
   },
 
+  async getAdminSystemStats() {
+    return this.get('/admin/system-stats');
+  },
+
   async createAdminJungleAgent(payload) {
     return this.post('/admin/jungle-agents', payload);
   },

@@ -17,6 +17,8 @@ import {
 } from '../jungleAgentsStore.js';
 import { reconcileAgentAddressesFromPolymarket, resolveCanonicalPolymarketAddress } from '../jungleAgentsPolymarketSync.js';
 import { requirePlatformAdmin } from '../middleware/requirePlatformAdmin.js';
+import { dbListAppTenants, dbLoadTrackedWallets } from '../database.js';
+import { DEFAULT_TENANT_ID } from '../tenantContext.js';
 
 const log = createComponentLogger('JungleAgentsRoutes');
 
@@ -126,6 +128,23 @@ export function createJungleAgentsRouter(copyTrader: CopyTrader): Router {
     try {
       const agents = (await loadAgentsFile()).sort((a, b) => a.sortOrder - b.sortOrder);
       res.json({ success: true, agents });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  router.get('/admin/system-stats', requirePlatformAdmin, async (_req: Request, res: Response) => {
+    try {
+      const performanceTracker = copyTrader.getPerformanceTracker();
+      const walletCounts = new Map<string, number>();
+      for (const wallet of dbLoadTrackedWallets()) {
+        if (!wallet.active) continue;
+        const tenantId = wallet.tenantId ?? DEFAULT_TENANT_ID;
+        walletCounts.set(tenantId, (walletCounts.get(tenantId) ?? 0) + 1);
+      }
+      const tenantNames = new Map(dbListAppTenants().map((tenant) => [tenant.id, tenant.name]));
+      const stats = await performanceTracker.getPlatformStats(walletCounts, tenantNames);
+      res.json({ success: true, ...stats });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
