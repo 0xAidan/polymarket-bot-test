@@ -16,9 +16,9 @@
     },
     {
       tab: 'dashboard',
-      target: '.j-dash-header',
+      target: '.j-dash-topbar',
       title: 'Home',
-      body: 'The home screen is your command center — setup guide, quick actions, and recent trades.'
+      body: 'Setup progress, your trading wallet balance, and quick actions — all in one compact bar.'
     },
     {
       tab: 'dashboard',
@@ -28,9 +28,9 @@
     },
     {
       tab: 'dashboard',
-      target: '.j-dash-hero',
-      title: 'Live Status',
-      body: 'Your wallet balance and compact performance stats live here. Tap All stats to expand the full breakdown.'
+      target: '.j-dash-wallet-card',
+      title: 'Trading wallet',
+      body: 'Your live balance and wallet address appear here once you connect a trading wallet.'
     },
     {
       tab: 'dashboard',

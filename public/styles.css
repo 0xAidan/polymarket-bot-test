@@ -3214,13 +3214,33 @@ body.j-drawer-open { overflow: hidden; }
    ============================================================ */
 .j-dashboard {
   min-height: 0;
+  gap: 12px;
+}
+
+/* Compact top bar: setup + wallet + actions in one row */
+.j-dash-topbar {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.j-dash-topbar-actions {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .j-setup-strip {
   border: 1px solid var(--jungle-border);
   border-radius: var(--j-radius-md);
   background: rgba(229, 184, 11, 0.04);
-  padding: 10px 14px;
+  padding: 8px 12px;
+  flex: 1 1 280px;
+  min-width: 0;
   max-width: 100%;
 }
 
@@ -3233,8 +3253,8 @@ body.j-drawer-open { overflow: hidden; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+  gap: 10px;
+  flex-wrap: nowrap;
 }
 
 .j-setup-stepper {
@@ -3269,8 +3289,8 @@ body.j-drawer-open { overflow: hidden; }
 }
 
 .j-setup-step-label {
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  font-size: 10px;
+  letter-spacing: 0.03em;
   color: var(--jungle-text-dim);
   white-space: nowrap;
 }
@@ -3354,32 +3374,19 @@ body.j-drawer-open { overflow: hidden; }
 }
 
 .j-dash-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: var(--space-md);
-  flex-wrap: wrap;
-  margin-bottom: 2px;
+  display: none;
 }
 
 .j-dash-eyebrow {
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--jungle-gold);
-  margin-bottom: 4px;
+  display: none;
 }
 
 .j-dash-title {
-  font-size: clamp(26px, 4vw, 34px);
-  line-height: 1.05;
-  font-weight: 400;
+  display: none;
 }
 
 .j-dash-header-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  display: none;
 }
 
 .j-panel {
@@ -3388,6 +3395,12 @@ body.j-drawer-open { overflow: hidden; }
   border-radius: var(--j-radius-lg);
   overflow: hidden;
   box-shadow: var(--j-shadow-1);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.j-panel:focus-within {
+  border-color: rgba(229, 184, 11, 0.28);
+  box-shadow: var(--j-shadow-1), 0 0 0 1px rgba(229, 184, 11, 0.08);
 }
 
 .j-panel-head {
@@ -3435,17 +3448,17 @@ body.j-drawer-open { overflow: hidden; }
   background: rgba(0, 0, 0, 0.12);
 }
 
-/* Hero: wallet + inline quick stats */
+/* Hero wallet card — compact tile in top bar */
 .j-dash-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr);
-  gap: 12px;
-  align-items: stretch;
+  display: contents;
 }
 
 .j-dash-wallet-card {
-  padding: 14px 16px;
+  flex: 0 0 auto;
+  width: min(100%, 268px);
+  padding: 10px 12px;
   border-radius: var(--j-radius-md);
+  border: 1px solid var(--jungle-border);
   background: linear-gradient(135deg, rgba(229, 184, 11, 0.07), rgba(28, 29, 46, 0.95));
 }
 
@@ -3453,7 +3466,7 @@ body.j-drawer-open { overflow: hidden; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .j-dash-wallet-label {
@@ -3473,10 +3486,9 @@ body.j-drawer-open { overflow: hidden; }
 
 .j-dash-wallet-row {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 12px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
 }
 
 .j-dash-wallet-addr-wrap {
@@ -3484,13 +3496,18 @@ body.j-drawer-open { overflow: hidden; }
   align-items: center;
   gap: 6px;
   min-width: 0;
+  max-width: 100%;
 }
 
 .j-dash-wallet-addr {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 11px;
   color: var(--jungle-gold-light);
   letter-spacing: 0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
 }
 
 .j-addr-copy {
@@ -3518,21 +3535,21 @@ body.j-drawer-open { overflow: hidden; }
 .j-addr-copy.hidden { display: none; }
 
 .j-dash-wallet-balance {
-  text-align: right;
+  text-align: left;
 }
 
 .j-dash-balance {
   display: block;
   font-family: var(--font-serif);
-  font-size: clamp(22px, 3vw, 28px);
+  font-size: 22px;
   line-height: 1.1;
   color: var(--jungle-text);
 }
 
 .j-dash-balance-delta {
   display: block;
-  font-size: 12px;
-  margin-top: 2px;
+  font-size: 11px;
+  margin-top: 1px;
 }
 
 .j-dash-balance-delta.positive { color: var(--jungle-win); }
@@ -3662,12 +3679,12 @@ body.j-drawer-open { overflow: hidden; }
 .j-metric-chip.is-win .j-metric-chip-val { color: var(--jungle-win); }
 .j-metric-chip.is-loss .j-metric-chip-val { color: var(--jungle-loss); }
 
-/* Main grid: trade history dominates */
+/* Main grid: trade history + jungle agents share the stage */
 .j-dash-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
-  gap: var(--space-md);
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
   flex: 1;
   min-height: 0;
 }
@@ -3675,18 +3692,21 @@ body.j-drawer-open { overflow: hidden; }
 .j-dash-primary {
   min-width: 0;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .j-trade-panel {
   display: flex;
   flex-direction: column;
-  min-height: min(62vh, 640px);
+  flex: 1;
+  min-height: min(72vh, 760px);
 }
 
 .j-trade-scroll {
   flex: 1;
-  min-height: 360px;
-  max-height: min(62vh, 640px);
+  min-height: 320px;
+  max-height: none;
   overflow: auto;
   overscroll-behavior: contain;
 }
@@ -3757,39 +3777,58 @@ body.j-drawer-open { overflow: hidden; }
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
+  min-height: 0;
+  min-width: 0;
 }
 
 /* Home Jungle Agents roster */
 .j-agents-roster {
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: min(72vh, 760px);
 }
 
 .j-roster-head {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  padding: 14px 16px 10px;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px 12px;
   border-bottom: 1px solid var(--jungle-border);
+  background: linear-gradient(180deg, rgba(229, 184, 11, 0.04), transparent);
 }
 
 .j-roster-title {
-  font-size: 18px;
+  font-size: 20px;
   color: var(--jungle-gold);
-  line-height: 1.1;
+  line-height: 1.15;
+  font-weight: 400;
+}
+
+.j-roster-sub {
+  font-size: 12px;
+  color: var(--jungle-text-muted);
+  margin-top: 4px;
+  line-height: 1.4;
 }
 
 .j-roster-list {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .j-roster-item {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 12px;
   align-items: center;
   width: 100%;
-  padding: 12px 14px;
+  padding: 14px 16px;
   border: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   background: transparent;
@@ -3808,8 +3847,8 @@ body.j-drawer-open { overflow: hidden; }
 }
 
 .j-roster-avatar {
-  width: 40px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
   border-radius: var(--j-radius-sm);
   border: 1px solid var(--jungle-border-strong);
   display: grid;
@@ -3850,15 +3889,15 @@ body.j-drawer-open { overflow: hidden; }
 
 .j-roster-name {
   font-family: var(--font-serif);
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.2;
   color: var(--jungle-text);
 }
 
 .j-roster-tagline {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--jungle-text-muted);
-  margin-top: 2px;
+  margin-top: 3px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4212,10 +4251,40 @@ body.j-drawer-open { overflow: hidden; }
 }
 
 /* DASHBOARD responsive — must stay AFTER the base .j-dash-* definitions above. */
+@media (max-width: 1100px) {
+  .j-dash-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .j-trade-panel,
+  .j-agents-roster {
+    min-height: min(56vh, 560px);
+  }
+}
+
 @media (max-width: 900px) {
-  .j-dash-grid { grid-template-columns: 1fr; }
-  .j-dash-aside { order: -1; }
-  .j-trade-scroll { min-height: 320px; max-height: min(52vh, 520px); }
+  .j-dash-topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .j-dash-topbar-actions {
+    flex-direction: row;
+    margin-left: 0;
+    justify-content: flex-end;
+  }
+
+  .j-dash-wallet-card {
+    width: 100%;
+  }
+
+  .j-dash-aside {
+    order: -1;
+  }
+
+  .j-trade-scroll {
+    min-height: 280px;
+  }
 }
 
 @media (max-width: 640px) {

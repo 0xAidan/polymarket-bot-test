@@ -323,7 +323,7 @@ window.renderHomeJungleAgentTeaser = async () => {
   if (!row) return;
   try {
     const data = await API.getJungleAgents();
-    const agents = (data.agents || []).slice(0, 4);
+    const agents = (data.agents || []).slice(0, 6);
     if (!agents.length) {
       row.classList.add('hidden');
       return;
@@ -331,7 +331,10 @@ window.renderHomeJungleAgentTeaser = async () => {
     row.classList.remove('hidden');
     row.innerHTML = `
       <header class="j-roster-head">
-        <h3 class="j-roster-title font-serif">Jungle Agents</h3>
+        <div>
+          <h2 class="j-roster-title font-serif">Jungle Agents</h2>
+          <p class="j-roster-sub">Curated wallets to copy</p>
+        </div>
         <button type="button" class="j-btn j-btn-ghost j-btn-sm" onclick="switchTab('jungle-agents')">View all</button>
       </header>
       <div class="j-roster-list">

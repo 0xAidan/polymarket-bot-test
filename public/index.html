@@ -81,27 +81,16 @@
              DASHBOARD TAB
              ============================================================ -->
         <div id="tab-dashboard" class="jw-tab-panel active j-dashboard">
-          <header class="j-dash-header">
-            <div>
-              <p class="j-dash-eyebrow">At a glance</p>
-              <h1 class="font-serif j-dash-title">Command center</h1>
+          <div class="j-dash-topbar">
+            <div id="setupProgressCard" class="j-setup-strip hidden" role="status" aria-live="polite">
+              <div class="j-setup-strip-inner">
+                <div id="setupProgressChecklist" class="j-setup-stepper" aria-label="Setup progress"></div>
+                <button type="button" class="j-btn j-btn-primary j-btn-sm" id="setupStripAction">Continue</button>
+              </div>
+              <p id="setupProgressSummary" class="j-setup-strip-hint hidden"></p>
             </div>
-            <div class="j-dash-header-actions">
-              <button class="j-btn j-btn-primary j-btn-sm" type="button" onclick="startSetupWizard(true)">Setup guide</button>
-              <button class="j-btn j-btn-sm" type="button" onclick="switchTab('wallets')">Add wallet</button>
-            </div>
-          </header>
 
-          <div id="setupProgressCard" class="j-setup-strip hidden" role="status" aria-live="polite">
-            <div class="j-setup-strip-inner">
-              <div id="setupProgressChecklist" class="j-setup-stepper" aria-label="Setup progress"></div>
-              <button type="button" class="j-btn j-btn-primary j-btn-sm" id="setupStripAction">Continue setup</button>
-            </div>
-            <p id="setupProgressSummary" class="j-setup-strip-hint hidden"></p>
-          </div>
-
-          <section class="j-dash-hero" aria-label="Wallet and performance summary">
-            <div class="j-dash-wallet-card glow-border">
+            <div class="j-dash-wallet-card glow-border" aria-label="Trading wallet balance">
               <div class="j-dash-wallet-top">
                 <span class="j-dash-wallet-label">Trading wallet</span>
                 <span class="j-dash-live-dot pulse-dot" aria-hidden="true" title="Live balance"></span>
@@ -117,7 +106,12 @@
                 </div>
               </div>
             </div>
-          </section>
+
+            <div class="j-dash-topbar-actions">
+              <button class="j-btn j-btn-primary j-btn-sm" type="button" onclick="startSetupWizard(true)">Setup guide</button>
+              <button class="j-btn j-btn-sm" type="button" onclick="switchTab('wallets')">Add wallet</button>
+            </div>
+          </div>
 
           <div class="j-dash-grid">
             <section class="j-dash-primary">
@@ -125,7 +119,7 @@
                 <header class="j-panel-head">
                   <div>
                     <h2 class="font-serif j-panel-title">Trade history</h2>
-                    <p class="j-panel-sub">Recent copy attempts across tracked wallets</p>
+                    <p class="j-panel-sub">Recent copy activity</p>
                   </div>
                   <span class="j-panel-meta" id="tradesCountLabel">0 trades</span>
                 </header>
