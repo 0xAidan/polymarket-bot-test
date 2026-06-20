@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/tour.css">
 </head>
 <body class="grid-pattern app-loading">
+  <a href="#main-content" class="skip-nav-link">Skip to main content</a>
   <div id="authGateScreen" class="auth-gate-screen" aria-live="polite">
     <div class="auth-gate-backdrop"></div>
     <div class="auth-gate-panel noise-overlay">
@@ -54,19 +55,18 @@
         <button type="button" class="j-nav-btn active" data-tab="dashboard">Home</button>
         <button type="button" class="j-nav-btn" data-tab="jungle-agents">Jungle Agents</button>
         <button type="button" class="j-nav-btn" data-tab="discovery" data-admin-only>Discovery</button>
-        <button type="button" class="j-nav-btn" data-tab="wallets">Tracked Wallets</button>
-        <button type="button" class="j-nav-btn" data-tab="trading-wallets">Trading Wallets</button>
-        <button type="button" class="j-nav-btn" data-tab="platforms" data-admin-only>Platforms</button>
-        <button type="button" class="j-nav-btn" data-tab="cross-platform" data-admin-only>Cross-Platform</button>
+        <button type="button" class="j-nav-btn" data-tab="wallets">Watch List</button>
+        <button type="button" class="j-nav-btn" data-tab="trading-wallets">My Wallets</button>
         <button type="button" class="j-nav-btn" data-tab="settings">Settings</button>
         <button type="button" class="j-nav-btn" data-tab="diagnostics">Diagnostics</button>
       </nav>
       <div class="j-topbar-actions">
-        <span class="app-status-pill stopped" id="appHeaderStatus">Bot offline</span>
-        <button type="button" class="j-btn j-btn-primary j-btn-sm" id="startStopBtn" onclick="toggleBot()"><span id="startStopLabel">Start</span></button>
+        <span class="app-status-pill stopped hidden" id="appHeaderStatus" aria-hidden="true">Offline</span>
+        <button type="button" class="j-btn j-btn-primary j-btn-hero is-ready" id="startStopBtn" onclick="toggleBot()" aria-label="Start copying trades"><span id="startStopLabel">Start Copying</span></button>
         <span class="j-status-mini hidden" aria-hidden="true"><span class="status-indicator stopped" id="taskbarIndicator"></span><span id="taskbarStatus">Stopped</span></span>
         <select id="tenantSwitcher" class="j-input j-input-sm hidden" aria-label="Switch account" onchange="handleTenantWorkspaceChange(this.value)"></select>
-        <button type="button" class="j-btn j-btn-ghost j-btn-sm" id="topbarTutorial" onclick="startOnboarding(true)" title="Replay the setup tutorial">Tutorial</button>
+        <button type="button" class="j-btn j-btn-ghost j-btn-sm" id="topbarTutorial" onclick="startOnboarding(true)" title="Replay the setup guide">Setup Guide</button>
+        <button type="button" class="j-btn j-btn-ghost j-btn-sm" id="topbarTour" onclick="if(typeof startTour==='function')startTour()" title="Tour the dashboard">Tour</button>
         <a href="/discovery-v3/" class="j-btn j-btn-ghost j-btn-sm" data-admin-only>Discovery v3</a>
         <a href="/admin" id="topbarAdminLink" class="j-btn j-btn-ghost j-btn-sm hidden">Admin</a>
         <span class="j-topbar-clock" id="taskbarClock">--:--</span>
@@ -74,7 +74,8 @@
       </div>
     </header>
     <div id="diskSpaceBanner" class="j-disk-banner hidden" role="alert" aria-live="polite"></div>
-    <main class="j-main">
+    <div id="connectivityBanner" class="j-connectivity-banner hidden" role="alert" aria-live="polite">Connection lost — retrying…</div>
+    <main class="j-main" id="main-content">
       <!-- Tab Content -->
       <div class="jw-body">
         <!-- ============================================================
@@ -292,17 +293,21 @@
           <header class="j-page-header">
             <div>
               <p class="j-dash-eyebrow">Roster</p>
-              <h1 class="font-serif j-page-title">Tracked wallets</h1>
-              <p class="j-page-sub">Choose the wallets Ditto should watch and copy. Keep this list tight and high conviction.</p>
+              <h1 class="font-serif j-page-title">Watch List</h1>
+              <p class="j-page-sub">Wallets Ditto monitors and copies. Keep this list tight and high conviction.</p>
             </div>
           </header>
           <!-- Add Wallet -->
           <div class="jw-group">
-            <div class="jw-group-title">Add Tracked Wallet</div>
-            <div class="flex-row gap-8">
-              <input type="text" id="newWalletAddress" placeholder="0x address, @username, or Polymarket profile URL" class="jw-input" style="flex:1;">
-              <button class="jw-btn jw-btn-primary" onclick="addWallet()">Add Wallet</button>
+            <div class="jw-group-title">Add to Watch List</div>
+            <div class="form-row">
+              <label for="newWalletAddress">Wallet address or profile</label>
+              <div class="flex-row gap-8" style="flex:1;">
+                <input type="text" id="newWalletAddress" placeholder="0x address, @username, or Polymarket profile URL" class="jw-input" style="flex:1;" aria-describedby="newWalletAddressError">
+                <button type="button" class="jw-btn jw-btn-primary" id="addWalletBtn" onclick="addWallet()">Add Wallet</button>
+              </div>
             </div>
+            <p id="newWalletAddressError" class="form-error hidden" role="alert"></p>
           </div>
 
           <div class="jw-group">
@@ -321,7 +326,7 @@
 
           <!-- Tracked Wallets List -->
           <div class="jw-group">
-            <div class="jw-group-title">Tracked Wallets</div>
+            <div class="jw-group-title">Watch List</div>
             <div id="walletsList">
               <div class="text-center text-muted" style="padding:20px;">No wallets tracked yet</div>
             </div>
@@ -335,8 +340,8 @@
           <header class="j-page-header">
             <div>
               <p class="j-dash-eyebrow">Execution team</p>
-              <h1 class="font-serif j-page-title">Trading wallets</h1>
-              <p class="j-page-sub">These are the wallets Ditto uses to place your copied trades.</p>
+              <h1 class="font-serif j-page-title">My Wallets</h1>
+              <p class="j-page-sub">Your wallets that execute copied trades on Polymarket.</p>
             </div>
           </header>
           <!-- Unlock Prompt -->
@@ -468,18 +473,19 @@
             <!-- Copy Assignments -->
             <div class="jw-group">
               <div class="jw-group-title">Copy Assignments</div>
-              <div class="text-sm text-muted mb-8">Map which tracked wallets copy to which of your trading wallets</div>
+              <p class="text-sm text-muted mb-8">Copy assignments tell Ditto which of <strong>your</strong> wallets should execute trades when copying each watched wallet.</p>
+              <p id="copyAssignmentAutoNote" class="text-sm text-muted mb-8 hidden"></p>
               <div id="copyAssignmentsList">
                 <div class="text-center text-muted" style="padding:12px;">No copy assignments yet</div>
               </div>
-              <div class="flex-row gap-8 mt-8">
-                <select id="assignTrackedWallet" class="jw-select" style="flex:1;">
-                  <option value="">Select tracked wallet...</option>
+              <div id="copyAssignmentUi" class="flex-row gap-8 mt-8">
+                <select id="assignTrackedWallet" class="jw-select" style="flex:1;" aria-label="Select watched wallet">
+                  <option value="">Select watched wallet...</option>
                 </select>
-                <select id="assignTradingWallet" class="jw-select" style="flex:1;">
+                <select id="assignTradingWallet" class="jw-select" style="flex:1;" aria-label="Select trading wallet">
                   <option value="">Select trading wallet...</option>
                 </select>
-                <button class="jw-btn jw-btn-sm" onclick="addAssignment()">Assign</button>
+                <button type="button" class="jw-btn jw-btn-sm" onclick="addAssignment()">Assign</button>
               </div>
             </div>
           </div>
@@ -1153,9 +1159,86 @@
           </div>
         </div>
 
-        <!-- Trade Size -->
+        <!-- Pipeline Preview (live summary) -->
+        <div class="jw-group wallet-pipeline-summary">
+          <div class="jw-group-title">Pipeline Preview</div>
+          <div class="text-sm text-muted mb-8">Trades from this wallet pass through these filters in order:</div>
+          <div class="pipeline-preview" id="modalPipelinePreview">
+            <div class="pipeline-step">
+              <div class="step-icon">1</div>
+              <div class="step-content">
+                <div class="step-title">Wallet Active</div>
+                <div class="step-desc">Check wallet is enabled</div>
+              </div>
+              <div class="step-status always-on">Always</div>
+            </div>
+            <div class="pipeline-arrow">|</div>
+            <div class="pipeline-step" id="modal-pipeline-side">
+              <div class="step-icon">2</div>
+              <div class="step-content">
+                <div class="step-title">Side Filter</div>
+                <div class="step-desc" id="modal-pipeline-side-desc">All trades</div>
+              </div>
+              <div class="step-status off" id="modal-pipeline-side-status">OFF</div>
+            </div>
+            <div class="pipeline-arrow">|</div>
+            <div class="pipeline-step" id="modal-pipeline-price">
+              <div class="step-icon">3</div>
+              <div class="step-content">
+                <div class="step-title">Price Limits</div>
+                <div class="step-desc" id="modal-pipeline-price-desc">$0.01 - $0.99</div>
+              </div>
+              <div class="step-status off" id="modal-pipeline-price-status">DEFAULT</div>
+            </div>
+            <div class="pipeline-arrow">|</div>
+            <div class="pipeline-step" id="modal-pipeline-norepeat">
+              <div class="step-icon">4</div>
+              <div class="step-content">
+                <div class="step-title">No Repeat</div>
+                <div class="step-desc" id="modal-pipeline-norepeat-desc">Disabled</div>
+              </div>
+              <div class="step-status off" id="modal-pipeline-norepeat-status">OFF</div>
+            </div>
+            <div class="pipeline-arrow">|</div>
+            <div class="pipeline-step" id="modal-pipeline-value">
+              <div class="step-icon">5</div>
+              <div class="step-content">
+                <div class="step-title">Value Filter</div>
+                <div class="step-desc" id="modal-pipeline-value-desc">No limits</div>
+              </div>
+              <div class="step-status off" id="modal-pipeline-value-status">OFF</div>
+            </div>
+            <div class="pipeline-arrow">|</div>
+            <div class="pipeline-step" id="modal-pipeline-rate">
+              <div class="step-icon">6</div>
+              <div class="step-content">
+                <div class="step-title">Rate Limit</div>
+                <div class="step-desc" id="modal-pipeline-rate-desc">Unlimited</div>
+              </div>
+              <div class="step-status off" id="modal-pipeline-rate-status">OFF</div>
+            </div>
+            <div class="pipeline-arrow">|</div>
+            <div class="pipeline-step">
+              <div class="step-icon">7</div>
+              <div class="step-content">
+                <div class="step-title">Apply Size</div>
+                <div class="step-desc" id="modal-pipeline-size-desc">$2 USDC</div>
+              </div>
+              <div class="step-status always-on">Always</div>
+            </div>
+            <div class="pipeline-arrow">|</div>
+            <div class="pipeline-step final">
+              <div class="step-icon">&#10003;</div>
+              <div class="step-content">
+                <div class="step-title">Execute Trade</div>
+                <div class="step-desc">Place order on CLOB</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="jw-group">
-          <div class="jw-group-title">Trade Size [Required]</div>
+          <div class="jw-group-title">Essentials</div>
           <div class="text-sm text-muted mb-8">How much USDC to use when copying trades from this wallet</div>
           <div class="flex-row gap-8">
             <span>$</span>
@@ -1208,9 +1291,9 @@
           </div>
         </div>
 
-        <!-- Advanced Filters -->
-        <div class="jw-group">
-          <div class="jw-group-title">Advanced Filters</div>
+        <!-- Advanced Filters (collapsed by default) -->
+        <details class="wallet-advanced-filters jw-group">
+          <summary class="jw-group-title">Advanced Filters</summary>
 
           <!-- No Repeat -->
           <div class="filter-block">
@@ -1296,90 +1379,14 @@
               <input type="number" id="modalSlippagePercent" class="jw-input" placeholder="2" min="0.5" max="10" step="0.5" style="width:80px;">
             </div>
           </div>
-        </div>
-
-        <!-- Pipeline Preview -->
-        <div class="jw-group">
-          <div class="jw-group-title">Trade Filter Pipeline</div>
-          <div class="text-sm text-muted mb-8">Trades from this wallet pass through these filters in order:</div>
-          <div class="pipeline-preview" id="modalPipelinePreview">
-            <div class="pipeline-step">
-              <div class="step-icon">1</div>
-              <div class="step-content">
-                <div class="step-title">Wallet Active</div>
-                <div class="step-desc">Check wallet is enabled</div>
-              </div>
-              <div class="step-status always-on">Always</div>
-            </div>
-            <div class="pipeline-arrow">|</div>
-            <div class="pipeline-step" id="modal-pipeline-side">
-              <div class="step-icon">2</div>
-              <div class="step-content">
-                <div class="step-title">Side Filter</div>
-                <div class="step-desc" id="modal-pipeline-side-desc">All trades</div>
-              </div>
-              <div class="step-status off" id="modal-pipeline-side-status">OFF</div>
-            </div>
-            <div class="pipeline-arrow">|</div>
-            <div class="pipeline-step" id="modal-pipeline-price">
-              <div class="step-icon">3</div>
-              <div class="step-content">
-                <div class="step-title">Price Limits</div>
-                <div class="step-desc" id="modal-pipeline-price-desc">$0.01 - $0.99</div>
-              </div>
-              <div class="step-status off" id="modal-pipeline-price-status">DEFAULT</div>
-            </div>
-            <div class="pipeline-arrow">|</div>
-            <div class="pipeline-step" id="modal-pipeline-norepeat">
-              <div class="step-icon">4</div>
-              <div class="step-content">
-                <div class="step-title">No Repeat</div>
-                <div class="step-desc" id="modal-pipeline-norepeat-desc">Disabled</div>
-              </div>
-              <div class="step-status off" id="modal-pipeline-norepeat-status">OFF</div>
-            </div>
-            <div class="pipeline-arrow">|</div>
-            <div class="pipeline-step" id="modal-pipeline-value">
-              <div class="step-icon">5</div>
-              <div class="step-content">
-                <div class="step-title">Value Filter</div>
-                <div class="step-desc" id="modal-pipeline-value-desc">No limits</div>
-              </div>
-              <div class="step-status off" id="modal-pipeline-value-status">OFF</div>
-            </div>
-            <div class="pipeline-arrow">|</div>
-            <div class="pipeline-step" id="modal-pipeline-rate">
-              <div class="step-icon">6</div>
-              <div class="step-content">
-                <div class="step-title">Rate Limit</div>
-                <div class="step-desc" id="modal-pipeline-rate-desc">Unlimited</div>
-              </div>
-              <div class="step-status off" id="modal-pipeline-rate-status">OFF</div>
-            </div>
-            <div class="pipeline-arrow">|</div>
-            <div class="pipeline-step">
-              <div class="step-icon">7</div>
-              <div class="step-content">
-                <div class="step-title">Apply Size</div>
-                <div class="step-desc" id="modal-pipeline-size-desc">$2 USDC</div>
-              </div>
-              <div class="step-status always-on">Always</div>
-            </div>
-            <div class="pipeline-arrow">|</div>
-            <div class="pipeline-step final">
-              <div class="step-icon">&#10003;</div>
-              <div class="step-content">
-                <div class="step-title">Execute Trade</div>
-                <div class="step-desc">Place order on CLOB</div>
-              </div>
-            </div>
-          </div>
-        </div>
+        </details>
       </div>
-      <footer class="j-drawer-footer">
-        <button class="j-btn" onclick="closeWalletModal()">Discard</button>
-        <button class="j-btn" id="modalSaveBtn" onclick="saveWalletConfig()">Save Draft</button>
-        <button class="j-btn j-btn-primary" id="modalSaveEnableBtn" onclick="saveWalletConfigAndEnable()">Save &amp; Enable</button>
+      <footer class="j-drawer-footer wallet-config-footer">
+        <button type="button" class="j-btn" onclick="closeWalletModal()">Cancel</button>
+        <div class="wallet-config-footer-actions">
+          <button type="button" class="j-btn j-btn-primary" id="modalSaveEnableBtn" onclick="saveWalletConfigAndEnable()">Save &amp; Enable</button>
+          <button type="button" class="j-link-btn" id="modalSaveDraftLink" onclick="saveWalletConfig()">Save as draft (don't enable yet)</button>
+        </div>
       </footer>
     </aside>
   </div>

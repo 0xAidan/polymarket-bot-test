@@ -48,14 +48,14 @@
     {
       tab: 'wallets',
       target: '#tab-wallets',
-      title: 'Tracked Wallets',
-      body: 'Add addresses to copy from. Configure per wallet (size, filters). Mirror to copy positions.'
+      title: 'Watch List',
+      body: 'Wallets you monitor and copy. Configure trade size and filters per wallet.'
     },
     {
       tab: 'trading-wallets',
       target: '#tab-trading-wallets',
-      title: 'Trading Wallets',
-      body: 'Your trading wallets are the wallets Ditto uses to place copied trades. For first-time users, this is the most important setup page.'
+      title: 'My Wallets',
+      body: 'Your wallets execute copied trades. Add builder credentials here first.'
     },
     {
       tab: 'trading-wallets',
@@ -86,7 +86,7 @@
       tab: 'dashboard',
       target: '.jw-statusbar',
       title: "You're all set",
-      body: "Use the Start button when your setup is complete. Re-open the setup guide or this walkthrough any time from the Guide menu."
+      body: "Use Start Copying when your setup is complete. Re-open the setup guide or tour any time from the top bar."
     }
   ];
 

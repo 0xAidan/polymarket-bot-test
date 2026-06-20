@@ -57,7 +57,7 @@
       return {
         ...step,
         actions: [
-          'Open the Trading Wallets tab, paste your private key, and name the wallet',
+          'Open the My Wallets tab, paste your private key, and name the wallet',
           'In hosted Ditto your key is encrypted when you sign in — no vault password',
           'When the wallet appears in your list, you\'ll see a green Detected badge',
         ],
@@ -121,6 +121,14 @@
   const runCompletionCheck = async (step) => {
     const badge = cardEl && cardEl.querySelector('.onb-detected');
     if (!badge) return;
+
+    const progress = loadProgress();
+    if (step.manualComplete && progress?.manualSteps?.[step.id]) {
+      badge.className = 'onb-detected onb-detected-yes';
+      badge.textContent = '✓ Marked complete';
+      return;
+    }
+
     const checker = step.completionCheck && CHECKS[step.completionCheck];
     if (!checker) {
       badge.className = 'onb-detected hidden';
@@ -151,11 +159,24 @@
     }
 
     const pct = Math.round(((currentIndex + 1) / steps.length) * 100);
+    const introHtml = currentIndex === 0
+      ? '<p class="onb-intro">' + (window.DITTO_ONBOARDING_INTRO || 'This setup takes about 15 minutes.') + '</p>'
+      : '';
+    const whyHtml = step.why ? '<p class="onb-why">' + step.why + '</p>' : '';
+    const manualHtml = step.manualComplete
+      ? '<label class="onb-manual-check jw-checkbox"><input type="checkbox" class="onb-manual-input"' +
+        (loadProgress()?.manualSteps?.[step.id] ? ' checked' : '') +
+        ' aria-label="I have completed this step"><span>I\'ve done this</span></label>'
+      : '';
+
     cardEl.innerHTML =
       '<div class="onb-progress"><div class="onb-progress-fill" style="width:' + pct + '%"></div></div>' +
       '<div class="onb-step-count">Step ' + (currentIndex + 1) + ' of ' + steps.length + '</div>' +
+      introHtml +
       '<h2 class="onb-title">' + step.title + '</h2>' +
+      whyHtml +
       renderActionList(step.actions) +
+      manualHtml +
       '<div class="onb-detected hidden" role="status"></div>' +
       '<div class="onb-actions">' +
       '<button type="button" class="onb-btn onb-btn-skip">Skip tutorial</button>' +
@@ -175,6 +196,21 @@
       }
     });
     cardEl.querySelector('.onb-btn-skip').addEventListener('click', () => finish(false));
+
+    const manualInput = cardEl.querySelector('.onb-manual-input');
+    if (manualInput) {
+      manualInput.addEventListener('change', () => {
+        const progress = loadProgress() || {};
+        const manualSteps = { ...(progress.manualSteps || {}) };
+        if (manualInput.checked) {
+          manualSteps[step.id] = true;
+        } else {
+          delete manualSteps[step.id];
+        }
+        saveProgress({ manualSteps });
+        runCompletionCheck(step);
+      });
+    }
 
     // Give the tab switch a beat to paint before measuring the spotlight target.
     setTimeout(() => positionSpotlight(step.target), 120);

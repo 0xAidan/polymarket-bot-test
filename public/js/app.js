@@ -195,6 +195,7 @@ function initApp() {
   void loadAllData();
   startAutoRefresh();
   applyHostedUiGates();
+  consolidatePowerUserTabsIntoSettings();
   void refreshDiskSpaceBanner();
   setInterval(refreshDiskSpaceBanner, 60_000);
 }
@@ -329,9 +330,10 @@ function refreshCurrentTab() {
 const updateHeaderStatusChip = () => {
   const chip = document.getElementById('appHeaderStatus');
   if (!chip) return;
-  chip.textContent = botRunning ? 'Bot running' : 'Bot offline';
+  chip.textContent = botRunning ? 'Running' : 'Offline';
   chip.classList.toggle('running', botRunning);
   chip.classList.toggle('stopped', !botRunning);
+  chip.setAttribute('aria-label', botRunning ? 'Bot is running' : 'Bot is offline');
 };
 
 const buildSetupGuideState = ({ status, walletsData, tradingData, lockData, copyAssignments = [] }) => {
@@ -742,16 +744,23 @@ function updateStatusUI(data) {
   // Taskbar
   const indicator = document.getElementById('taskbarIndicator');
   const statusText = document.getElementById('taskbarStatus');
+  const startStopBtn = document.getElementById('startStopBtn');
   const startStopLabel = document.getElementById('startStopLabel');
 
   if (data.running) {
     indicator.className = 'status-indicator running';
     statusText.textContent = 'Running';
-    startStopLabel.textContent = 'Stop';
+    if (startStopLabel) startStopLabel.textContent = 'Stop Copying';
+    startStopBtn?.classList.add('is-running');
+    startStopBtn?.classList.remove('is-ready');
+    startStopBtn?.setAttribute('aria-label', 'Stop copying trades');
   } else {
     indicator.className = 'status-indicator stopped';
     statusText.textContent = 'Stopped';
-    startStopLabel.textContent = 'Start';
+    if (startStopLabel) startStopLabel.textContent = 'Start Copying';
+    startStopBtn?.classList.remove('is-running');
+    startStopBtn?.classList.add('is-ready');
+    startStopBtn?.setAttribute('aria-label', 'Start copying trades');
   }
 
   // Status bar
@@ -862,13 +871,36 @@ async function loadTrades() {
     const loadMoreBtn = document.getElementById('loadMoreTradesBtn');
 
     if (!data.trades || data.trades.length === 0) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No trades yet — add a tracked wallet (or follow a Jungle Agent) and press Start to see live activity here.</td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No trades yet — follow a Jungle Agent or add a wallet, then press Start Copying to see activity here.</td></tr>';
       if (countLabel) countLabel.textContent = '0 trades';
       if (loadMoreBtn) loadMoreBtn.style.display = 'none';
+      previousTradeIds = new Set();
       return;
     }
 
-    allLoadedTrades = [...data.trades].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    const sorted = [...data.trades].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    const tradeKey = (trade) => `${trade.timestamp}:${trade.walletAddress}:${trade.marketId}:${trade.side}`;
+    const newlySeen = new Set();
+    sorted.forEach((trade) => {
+      const id = tradeKey(trade);
+      if (previousTradeIds.size > 0 && !previousTradeIds.has(id)) {
+        newlySeen.add(id);
+        const side = (trade.side || 'BUY').toUpperCase();
+        const market = trade.marketName || trade.marketId || 'market';
+        const label = trade.walletLabel || 'wallet';
+        if (trade.success) {
+          if (typeof jungleDialog !== 'undefined' && jungleDialog.success) {
+            jungleDialog.success(`Copied ${side} on ${market} from ${label}`, 'New trade');
+          }
+        } else if (trade.status !== 'pending' && typeof jungleDialog !== 'undefined' && jungleDialog.error) {
+          const reason = getShortRejectReason(trade) || 'failed';
+          jungleDialog.error(`Copy ${side} on ${market} ${reason}`, 'Trade failed');
+        }
+      }
+    });
+    previousTradeIds = new Set(sorted.map(tradeKey));
+
+    allLoadedTrades = sorted;
 
     tbody.innerHTML = allLoadedTrades.map((trade, idx) => {
       const detectedShares = parseFloat(trade.amount || 0);
@@ -885,7 +917,7 @@ async function loadTrades() {
       const sideClass = side === 'SELL' ? 'is-sell' : 'is-buy';
       const sideBadge = `<span class="j-trade-side ${sideClass}">${side}</span>`;
 
-      return `<tr class="clickable-row" onclick="openTradeDetailModal(${idx})" tabindex="0" role="button" aria-label="View trade details">
+      return `<tr class="clickable-row ${newlySeen.has(tradeKey(trade)) ? 'trade-row-new' : ''}" onclick="openTradeDetailModal(${idx})" tabindex="0" role="button" aria-label="View trade details" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openTradeDetailModal(${idx});}">
         <td class="j-trade-time">${new Date(trade.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
         <td class="j-trade-wallet">${trade.walletLabel || trade.walletAddress.slice(0, 8)}...${(trade.walletTags && trade.walletTags.length > 0) ? ' ' + trade.walletTags.map(t => `<span class="tag-badge ${TAG_COLOR_MAP[t] || ''}">${t}</span>`).join('') : ''}</td>
         <td class="j-trade-market" title="${trade.marketId || ''}">${trade.marketName || trade.marketId?.slice(0, 12) + '...'}</td>
@@ -990,18 +1022,181 @@ const closeTradeDetailModal = () => {
 // BOT CONTROL
 // ============================================================
 
-async function toggleBot() {
+const withLoading = async (btn, fn) => {
+  if (!btn) return fn();
+  btn.disabled = true;
+  btn.classList.add('loading');
   try {
-    if (botRunning) {
-      await API.stopBot();
-    } else {
-      await API.startBot();
-    }
-    await loadStatus();
-    await refreshSetupExperience();
-  } catch (error) {
-    await jungleModal.error(`Failed: ${error.message}`);
+    return await fn();
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('loading');
   }
+};
+
+const formatRelativeTime = (iso) => {
+  if (!iso) return 'No trades yet';
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return 'No trades yet';
+  const diffMs = Date.now() - then;
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+};
+
+const isRawEthAddress = (value) => /^0x[a-fA-F0-9]{40}$/.test(value.trim());
+
+const TAB_FIX_LABELS = {
+  wallets: 'Open Watch List',
+  'trading-wallets': 'Open My Wallets',
+  diagnostics: 'Open Diagnostics',
+  settings: 'Open Settings',
+  dashboard: 'Open Home',
+};
+
+const showPreflightModal = async (clientIssues, serverIssues = []) => {
+  const issues = [...clientIssues, ...serverIssues];
+  const listHtml = issues.map((issue) => {
+    const tab = issue.fixTab || 'dashboard';
+    const label = TAB_FIX_LABELS[tab] || 'Fix now';
+    return `<li class="preflight-issue">
+      <span>${issue.message}</span>
+      <button type="button" class="j-link-btn" data-preflight-tab="${tab}">${label}</button>
+    </li>`;
+  }).join('');
+
+  const body = `<p>Complete these steps before Ditto can start copying:</p><ul class="preflight-list">${listHtml}</ul>`;
+  await jungleModal.alert(body, 'Not ready to start');
+  document.querySelectorAll('[data-preflight-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tab = btn.getAttribute('data-preflight-tab');
+      if (tab && typeof switchTab === 'function') switchTab(tab);
+    });
+  });
+};
+
+const runClientPreflightChecks = async () => {
+  const issues = [];
+  try {
+    const [walletsData, tradingData, assignmentsData] = await Promise.all([
+      API.getWallets(),
+      API.getTradingWallets(),
+      API.getCopyAssignments(),
+    ]);
+    const tracked = walletsData.wallets || [];
+    const trading = tradingData.wallets || [];
+    const assignments = assignmentsData.assignments || [];
+    const activeTracked = tracked.filter((w) => w.active);
+    const credentialedActive = trading.filter((w) => w.active !== false && w.hasCredentials);
+    const credentialedCount = trading.filter((w) => w.hasCredentials).length;
+
+    if (activeTracked.length === 0) {
+      issues.push({
+        code: 'no_active_tracked',
+        message: 'Enable at least one wallet on your Watch List.',
+        fixTab: 'wallets',
+      });
+    }
+    if (credentialedActive.length === 0) {
+      issues.push({
+        code: 'no_trading_wallet',
+        message: 'Add a trading wallet with builder credentials.',
+        fixTab: 'trading-wallets',
+      });
+    }
+    if ((usesHostedWalletAccess() || credentialedCount >= 2) && assignments.length === 0 && activeTracked.length > 0) {
+      issues.push({
+        code: 'no_copy_assignments',
+        message: 'Set up copy assignments under My Wallets.',
+        fixTab: 'trading-wallets',
+      });
+    }
+  } catch (error) {
+    issues.push({
+      code: 'preflight_error',
+      message: error.message || 'Could not verify setup.',
+      fixTab: 'dashboard',
+    });
+  }
+  return issues;
+};
+
+const consolidatePowerUserTabsIntoSettings = () => {
+  const settingsTab = document.getElementById('tab-settings');
+  const platformsTab = document.getElementById('tab-platforms');
+  const crossTab = document.getElementById('tab-cross-platform');
+  if (!settingsTab || !platformsTab || !crossTab) return;
+  if (document.getElementById('settingsPlatformsSection')) return;
+
+  const wrap = (title, sourceEl) => {
+    const details = document.createElement('details');
+    details.className = 'j-settings-collapsible';
+    details.setAttribute('data-admin-only', '');
+    const summary = document.createElement('summary');
+    summary.className = 'j-settings-collapsible-title';
+    summary.textContent = title;
+    details.appendChild(summary);
+    const inner = document.createElement('div');
+    inner.className = 'j-settings-collapsible-body';
+    while (sourceEl.firstChild) {
+      inner.appendChild(sourceEl.firstChild);
+    }
+    details.appendChild(inner);
+    details.addEventListener('toggle', () => {
+      if (!details.open) return;
+      if (title.includes('Platforms')) loadPlatformStatus();
+      if (title.includes('Cross')) refreshExecutorStatus();
+    });
+    return details;
+  };
+
+  const platformsSection = wrap('Platforms (admin)', platformsTab);
+  platformsSection.id = 'settingsPlatformsSection';
+  const crossSection = wrap('Cross-Platform (admin)', crossTab);
+  crossSection.id = 'settingsCrossPlatformSection';
+  settingsTab.appendChild(platformsSection);
+  settingsTab.appendChild(crossSection);
+  platformsTab.remove();
+  crossTab.remove();
+};
+
+async function toggleBot() {
+  const btn = document.getElementById('startStopBtn');
+  await withLoading(btn, async () => {
+    try {
+      if (botRunning) {
+        await API.stopBot();
+      } else {
+        const clientIssues = await runClientPreflightChecks();
+        let serverIssues = [];
+        try {
+          const preflight = await API.get('/preflight');
+          if (!preflight.ready && Array.isArray(preflight.issues)) {
+            serverIssues = preflight.issues;
+          }
+        } catch {
+          // Server preflight is best-effort
+        }
+        const merged = [...clientIssues];
+        serverIssues.forEach((issue) => {
+          if (!merged.some((m) => m.code === issue.code)) merged.push(issue);
+        });
+        if (merged.length > 0) {
+          await showPreflightModal(clientIssues, serverIssues);
+          return;
+        }
+        await API.startBot();
+      }
+      await loadStatus();
+      await refreshSetupExperience();
+    } catch (error) {
+      await jungleModal.error(`Failed: ${error.message}`);
+    }
+  });
 }
 
 async function startBot() {
@@ -1023,6 +1218,8 @@ let currentWalletAddress = null;
 // Wallet list cache to prevent full DOM rebuilds (fixes balance blinking)
 let lastWalletHash = '';
 let cachedWalletAddresses = [];
+let walletSummaryByAddress = new Map();
+let previousTradeIds = new Set();
 
 // Active tag filter (empty string = show all)
 let activeTagFilter = '';
@@ -1187,10 +1384,24 @@ async function loadWallets(forceRebuild = false) {
     const list = document.getElementById('walletsList');
     await loadJungleAgentPresets();
 
+    try {
+      const summaryData = await API.get('/wallets/summary');
+      walletSummaryByAddress = new Map(
+        (summaryData.wallets || []).map((w) => [w.address.toLowerCase(), w])
+      );
+    } catch {
+      walletSummaryByAddress = new Map();
+    }
+
     if (!data.wallets || data.wallets.length === 0) {
       lastWalletHash = '';
       cachedWalletAddresses = [];
-      list.innerHTML = '<div class="text-center text-muted" style="padding:20px;">No wallets tracked yet. Add an address above.</div>';
+      list.innerHTML = `
+        <div class="j-empty-state-card">
+          <p class="j-empty-state-title">No wallets on your Watch List yet</p>
+          <p class="text-sm text-muted">Follow Jungle Agents or paste a wallet address to start monitoring.</p>
+          <button type="button" class="j-btn j-btn-primary" onclick="switchTab('jungle-agents')">Browse Jungle Agents</button>
+        </div>`;
       return;
     }
 
@@ -1230,7 +1441,12 @@ async function loadWallets(forceRebuild = false) {
       const configBadges = getWalletConfigBadges(wallet);
       const tagBadges = renderTagBadges(wallet.tags);
       const tagsDataAttr = (wallet.tags || []).join(',');
-      const pausedBadge = isActive ? '' : '<span class="paused-badge">Paused</span>';
+      const pausedBadge = isActive ? '' : '<span class="paused-badge" aria-label="Paused">Paused</span>';
+      const summary = walletSummaryByAddress.get(wallet.address.toLowerCase());
+      const lastTradeLabel = formatRelativeTime(summary?.lastTradeTime);
+      const enableBtn = isActive
+        ? ''
+        : `<button type="button" class="jw-btn jw-btn-sm jw-btn-primary" onclick="toggleWallet('${wallet.address}', true)" aria-label="Enable wallet">Enable</button>`;
 
       return `
         <div class="wallet-entry ${isActive ? 'active-wallet' : 'inactive-wallet'}" id="wallet-${wallet.address}" data-tags="${tagsDataAttr}">
@@ -1242,17 +1458,19 @@ async function loadWallets(forceRebuild = false) {
               ${tagBadges}
             </div>
             <div class="wallet-entry-config">${configBadges}</div>
+            <div class="wallet-entry-last-trade text-sm text-muted">Last trade: ${lastTradeLabel}</div>
           </div>
           <div class="wallet-entry-balance" id="balance-${wallet.address}">
-            <span class="text-muted text-sm">Loading...</span>
+            <span class="balance-skeleton" aria-hidden="true"></span>
           </div>
           <div class="wallet-entry-actions">
-            <label class="jw-toggle">
-              <input type="checkbox" ${isActive ? 'checked' : ''} onchange="toggleWallet('${wallet.address}', this.checked)">
+            <label class="jw-toggle" title="${isActive ? 'Active' : 'Paused'}">
+              <input type="checkbox" ${isActive ? 'checked' : ''} onchange="toggleWallet('${wallet.address}', this.checked)" aria-checked="${isActive}">
             </label>
-            <button class="jw-btn jw-btn-sm" onclick="openMirrorModal('${wallet.address}')">Mirror</button>
-            <button class="jw-btn jw-btn-sm" onclick="openWalletModal('${wallet.address}')">Config</button>
-            <button class="jw-btn jw-btn-sm jw-btn-danger" onclick="removeWallet('${wallet.address}')">X</button>
+            ${enableBtn}
+            <button type="button" class="jw-btn jw-btn-sm" onclick="openMirrorModal('${wallet.address}')" aria-label="Mirror positions">Mirror</button>
+            <button type="button" class="jw-btn jw-btn-sm" onclick="openWalletModal('${wallet.address}')" aria-label="Configure wallet">Configure</button>
+            <button type="button" class="jw-btn jw-btn-sm jw-btn-danger" onclick="removeWallet('${wallet.address}')" aria-label="Remove wallet">Remove</button>
           </div>
         </div>
       `;
@@ -1336,24 +1554,45 @@ function getWalletConfigBadges(wallet) {
 
 async function addWallet() {
   const input = document.getElementById('newWalletAddress');
+  const addBtn = document.getElementById('addWalletBtn');
+  const errorEl = document.getElementById('newWalletAddressError');
   const address = input.value.trim();
-  if (!address) { await jungleModal.alert('Please enter a wallet address, @username, or Polymarket profile URL'); return; }
-
-  try {
-    const result = await API.addWallet(address);
-    input.value = '';
-    lastWalletHash = '';
-    await loadWallets(true);
-    await refreshSetupExperience();
-    const resolvedNote = result.resolvedAddress && result.resolvedAddress !== address.toLowerCase()
-      ? ` Verified proxy address: ${result.resolvedAddress.slice(0, 10)}...`
-      : '';
-    if (await jungleModal.confirm(`Wallet added (inactive by default).${resolvedNote} Configure it now?`)) {
-      openWalletModal((result.resolvedAddress || address).toLowerCase());
-    }
-  } catch (error) {
-    await jungleModal.error(`Failed to add wallet: ${error.message}`);
+  if (!address) {
+    await jungleModal.alert('Please enter a wallet address, @username, or Polymarket profile URL');
+    return;
   }
+
+  const looksLikeRawAddress = address.startsWith('0x');
+  if (looksLikeRawAddress && !isRawEthAddress(address)) {
+    input.classList.add('input-invalid');
+    if (errorEl) {
+      errorEl.textContent = 'Enter a valid 0x address (42 characters).';
+      errorEl.classList.remove('hidden');
+    }
+    return;
+  }
+  input.classList.remove('input-invalid');
+  if (errorEl) errorEl.classList.add('hidden');
+
+  await withLoading(addBtn, async () => {
+    try {
+      const result = await API.addWallet(address);
+      input.value = '';
+      input.classList.add('input-success');
+      window.setTimeout(() => input.classList.remove('input-success'), 1200);
+      lastWalletHash = '';
+      await loadWallets(true);
+      await refreshSetupExperience();
+      const resolvedNote = result.resolvedAddress && result.resolvedAddress !== address.toLowerCase()
+        ? ` Verified proxy address: ${result.resolvedAddress.slice(0, 10)}...`
+        : '';
+      if (await jungleModal.confirm(`Wallet added (inactive by default).${resolvedNote} Configure it now?`)) {
+        openWalletModal((result.resolvedAddress || address).toLowerCase());
+      }
+    } catch (error) {
+      await jungleModal.error(`Failed to add wallet: ${error.message}`);
+    }
+  });
 }
 
 async function removeWallet(address) {
@@ -1599,33 +1838,39 @@ function addCustomModalTag() {
 
 async function saveWalletConfig() {
   if (!currentWalletAddress) return;
-  try {
-    const config = collectModalConfig();
-    const tags = getModalTags();
-    await API.updateWalletLabel(currentWalletAddress, document.getElementById('modalWalletLabel').value.trim());
-    await API.updateWalletTags(currentWalletAddress, tags);
-    await API.updateWalletTradeConfig(currentWalletAddress, config);
-    await jungleModal.success('Configuration saved (wallet remains inactive until enabled)');
-    closeWalletModal();
-    lastWalletHash = '';
-    await loadWallets(true);
-  } catch (error) { await jungleModal.error(`Failed to save: ${error.message}`); }
+  const btn = document.getElementById('modalSaveDraftLink');
+  await withLoading(btn, async () => {
+    try {
+      const config = collectModalConfig();
+      const tags = getModalTags();
+      await API.updateWalletLabel(currentWalletAddress, document.getElementById('modalWalletLabel').value.trim());
+      await API.updateWalletTags(currentWalletAddress, tags);
+      await API.updateWalletTradeConfig(currentWalletAddress, config);
+      await jungleModal.success('Configuration saved (wallet remains inactive until enabled)');
+      closeWalletModal();
+      lastWalletHash = '';
+      await loadWallets(true);
+    } catch (error) { await jungleModal.error(`Failed to save: ${error.message}`); }
+  });
 }
 
 async function saveWalletConfigAndEnable() {
   if (!currentWalletAddress) return;
-  try {
-    const config = collectModalConfig();
-    const tags = getModalTags();
-    await API.updateWalletLabel(currentWalletAddress, document.getElementById('modalWalletLabel').value.trim());
-    await API.updateWalletTags(currentWalletAddress, tags);
-    await API.updateWalletTradeConfig(currentWalletAddress, config);
-    await API.toggleWallet(currentWalletAddress, true);
-    await jungleModal.success('Configuration saved and wallet enabled!');
-    closeWalletModal();
-    lastWalletHash = '';
-    await loadWallets(true);
-  } catch (error) { await jungleModal.error(`Failed to save: ${error.message}`); }
+  const btn = document.getElementById('modalSaveEnableBtn');
+  await withLoading(btn, async () => {
+    try {
+      const config = collectModalConfig();
+      const tags = getModalTags();
+      await API.updateWalletLabel(currentWalletAddress, document.getElementById('modalWalletLabel').value.trim());
+      await API.updateWalletTags(currentWalletAddress, tags);
+      await API.updateWalletTradeConfig(currentWalletAddress, config);
+      await API.toggleWallet(currentWalletAddress, true);
+      await jungleModal.success('Configuration saved and wallet enabled!');
+      closeWalletModal();
+      lastWalletHash = '';
+      await loadWallets(true);
+    } catch (error) { await jungleModal.error(`Failed to save: ${error.message}`); }
+  });
 }
 
 function collectModalConfig() {
@@ -1915,7 +2160,12 @@ async function loadTradingWallets() {
     const list = document.getElementById('tradingWalletsList');
 
     if (!data.wallets || data.wallets.length === 0) {
-      list.innerHTML = '<div class="text-center text-muted" style="padding:20px;">No trading wallets configured. Add one above.</div>';
+      list.innerHTML = `
+        <div class="j-empty-state-card">
+          <p class="j-empty-state-title">Set up your first trading wallet</p>
+          <p class="text-sm text-muted">Add a wallet with builder credentials so Ditto can place copied trades.</p>
+          <button type="button" class="j-btn j-btn-primary" onclick="document.getElementById('newTradingWalletId')?.focus()">Add wallet below</button>
+        </div>`;
       updateTradingWalletDropdown([]);
       return;
     }
@@ -2152,6 +2402,24 @@ async function loadCopyAssignments() {
   try {
     const data = await API.getCopyAssignments();
     const list = document.getElementById('copyAssignmentsList');
+    const assignUi = document.getElementById('copyAssignmentUi');
+    const autoNote = document.getElementById('copyAssignmentAutoNote');
+    const tradingData = await API.getTradingWallets();
+    const credentialed = (tradingData.wallets || []).filter((w) => w.hasCredentials && w.active !== false);
+
+    if (credentialed.length <= 1) {
+      if (assignUi) assignUi.classList.add('hidden');
+      if (autoNote) {
+        autoNote.classList.remove('hidden');
+        const label = credentialed[0]?.label || credentialed[0]?.id || 'your trading wallet';
+        autoNote.textContent = credentialed.length === 1
+          ? `New tracked wallets auto-copy to ${label}.`
+          : 'Add a trading wallet with credentials to enable copy assignments.';
+      }
+    } else {
+      assignUi?.classList.remove('hidden');
+      autoNote?.classList.add('hidden');
+    }
 
     if (!data.assignments || data.assignments.length === 0) {
       list.innerHTML = '<div class="text-center text-muted" style="padding:12px;">No copy assignments yet</div>';
@@ -2164,7 +2432,7 @@ async function loadCopyAssignments() {
         <span>-></span>
         <span class="text-bold">${a.tradingWalletId}</span>
         <span class="jw-badge">${a.useOwnConfig ? 'Own config' : 'Inherited'}</span>
-        <button class="jw-btn jw-btn-sm jw-btn-danger" onclick="removeAssignment('${a.trackedWalletAddress}', '${a.tradingWalletId}')">X</button>
+        <button type="button" class="jw-btn jw-btn-sm jw-btn-danger" onclick="removeAssignment('${a.trackedWalletAddress}', '${a.tradingWalletId}')" aria-label="Remove assignment">Remove</button>
       </div>
     `).join('');
   } catch (error) { console.error('Error loading assignments:', error); }
@@ -3247,16 +3515,18 @@ const toggleBotMenu = () => {
 };
 
 const toggleViewMenu = () => {
-  showMenu('menuView', [
+  const isAdmin = document.body.classList.contains('platform-admin');
+  const items = [
     { label: 'Home', action: () => switchTab('dashboard') },
-    { label: 'Discovery', action: () => switchTab('discovery') },
-    { label: 'Tracked Wallets', action: () => switchTab('wallets') },
-    { label: 'Trading Wallets', action: () => switchTab('trading-wallets') },
+    ...(isAdmin ? [{ label: 'Discovery', action: () => switchTab('discovery') }] : []),
+    { label: 'Watch List', action: () => switchTab('wallets') },
+    { label: 'My Wallets', action: () => switchTab('trading-wallets') },
     { label: 'Settings', action: () => switchTab('settings') },
     { label: 'Diagnostics', action: () => switchTab('diagnostics') },
     { separator: true },
     { label: 'Refresh Now', action: () => refreshCurrentTab() },
-  ]);
+  ];
+  showMenu('menuView', items);
 };
 
 const toggleHelpMenu = () => {

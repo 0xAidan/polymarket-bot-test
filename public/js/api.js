@@ -51,6 +51,14 @@ const API = {
 
   // Base fetch with error handling + auth
   async fetch(endpoint, options = {}) {
+    const connectivityBanner = document.getElementById('connectivityBanner');
+    const showConnectivityIssue = () => {
+      if (connectivityBanner) connectivityBanner.classList.remove('hidden');
+    };
+    const clearConnectivityIssue = () => {
+      if (connectivityBanner) connectivityBanner.classList.add('hidden');
+    };
+
     try {
       const token = this.getToken();
       const usingLegacyToken = Boolean(token);
@@ -67,6 +75,8 @@ const API = {
         credentials: 'same-origin',
         ...options
       });
+
+      clearConnectivityIssue();
 
       // If 401, show login modal and bail
       if (response.status === 401) {
@@ -98,6 +108,9 @@ const API = {
       }
       return parsed.data;
     } catch (error) {
+      if (error instanceof TypeError || /fetch|network/i.test(String(error.message || ''))) {
+        showConnectivityIssue();
+      }
       console.error(`API Error [${endpoint}]:`, error);
       throw error;
     }
