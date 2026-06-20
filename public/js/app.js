@@ -859,10 +859,10 @@ async function loadTrades() {
       const sideBadge = `<span class="j-trade-side ${sideClass}">${side}</span>`;
 
       return `<tr class="clickable-row ${newlySeen.has(tradeKey(trade)) ? 'trade-row-new' : ''}" onclick="openTradeDetailModal(${idx})" tabindex="0" role="button" aria-label="View trade details" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openTradeDetailModal(${idx});}">
-        <td class="j-trade-time">${new Date(trade.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
-        <td class="j-trade-wallet">${trade.walletLabel || trade.walletAddress.slice(0, 8)}...${(trade.walletTags && trade.walletTags.length > 0) ? ' ' + trade.walletTags.map(t => `<span class="tag-badge ${TAG_COLOR_MAP[t] || ''}">${t}</span>`).join('') : ''}</td>
-        <td class="j-trade-market" title="${trade.marketId || ''}">${trade.marketName || trade.marketId?.slice(0, 12) + '...'}</td>
-        <td>${sideBadge} <span class="text-muted">${trade.outcome || ''}</span></td>
+        <td class="j-trade-time">${new Date(trade.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+        <td class="j-trade-wallet" title="${trade.walletLabel || trade.walletAddress}">${trade.walletLabel || trade.walletAddress.slice(0, 6) + '…'}</td>
+        <td class="j-trade-market" title="${trade.marketName || trade.marketId || ''}">${trade.marketName || trade.marketId?.slice(0, 12) + '…'}</td>
+        <td><span class="j-trade-side ${sideClass}">${side}</span></td>
         <td class="j-trade-amount">${amountDisplay}</td>
         <td>${statusLabel}</td>
       </tr>`;
