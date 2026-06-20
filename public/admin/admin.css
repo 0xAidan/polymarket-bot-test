@@ -443,3 +443,73 @@
     min-height: auto;
   }
 }
+
+.j-admin-health {
+  padding: var(--space-2xl) var(--space-lg);
+  max-width: 720px;
+}
+
+.j-admin-health-alert {
+  margin-bottom: var(--space-md);
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 107, 107, 0.45);
+  background: rgba(255, 107, 107, 0.12);
+  color: var(--jungle-loss);
+  font-size: 13px;
+}
+
+.j-admin-health-alert.is-degraded {
+  border-color: rgba(229, 184, 11, 0.45);
+  background: rgba(229, 184, 11, 0.1);
+  color: var(--jungle-gold);
+}
+
+.j-admin-health-card {
+  margin-bottom: var(--space-md);
+  padding: var(--space-md);
+}
+
+.j-admin-health-card-title {
+  margin: 0 0 var(--space-sm);
+  font-size: 14px;
+  color: var(--jungle-gold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.j-admin-health-metrics {
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.j-admin-health-metrics > div {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.j-admin-health-metrics dt {
+  margin: 0;
+  color: var(--jungle-text-muted);
+  font-size: 13px;
+}
+
+.j-admin-health-metrics dd {
+  margin: 0;
+  font-size: 14px;
+}
+
+.j-admin-health-metrics dd.is-ok {
+  color: var(--jungle-profit);
+}
+
+.j-admin-health-metrics dd.is-degraded {
+  color: var(--jungle-gold);
+}
+
+.j-admin-health-metrics dd.is-critical {
+  color: var(--jungle-loss);
+}

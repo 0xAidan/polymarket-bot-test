@@ -196,8 +196,6 @@ function initApp() {
   startAutoRefresh();
   applyHostedUiGates();
   consolidatePowerUserTabsIntoSettings();
-  void refreshDiskSpaceBanner();
-  setInterval(refreshDiskSpaceBanner, 60_000);
 }
 
 const applyHostedUiGates = () => {
@@ -209,29 +207,6 @@ const applyHostedUiGates = () => {
   document.querySelectorAll('[data-hosted-hide]').forEach((el) => {
     el.classList.toggle('hidden', hosted);
   });
-};
-
-const refreshDiskSpaceBanner = async () => {
-  const banner = document.getElementById('diskSpaceBanner');
-  if (!banner) return;
-  try {
-    const resp = await fetch('/health');
-    const data = await resp.json();
-    const disk = data?.disk;
-    if (!disk || disk.status === 'ok') {
-      banner.classList.add('hidden');
-      banner.textContent = '';
-      return;
-    }
-    const availMb = Math.floor((disk.availableBytes || 0) / 1024 / 1024);
-    banner.textContent = disk.status === 'critical'
-      ? `Server disk is critically full (${disk.usedPercent}% used, ${availMb} MiB free). Saves may fail until space is freed.`
-      : `Server disk is running low (${disk.usedPercent}% used). Consider freeing space soon.`;
-    banner.classList.toggle('is-degraded', disk.status === 'degraded');
-    banner.classList.remove('hidden');
-  } catch {
-    banner.classList.add('hidden');
-  }
 };
 
 document.addEventListener('DOMContentLoaded', () => {

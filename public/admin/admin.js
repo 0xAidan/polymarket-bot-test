@@ -58,6 +58,7 @@ const showUnauthorized = () => {
   document.getElementById('adminLoading')?.classList.add('hidden');
   document.getElementById('adminUnauthorized')?.classList.remove('hidden');
   document.getElementById('adminApp')?.classList.add('hidden');
+  document.getElementById('adminHealth')?.classList.add('hidden');
   document.getElementById('adminComingSoon')?.classList.add('hidden');
 };
 
@@ -65,14 +66,26 @@ const showAdminApp = () => {
   document.getElementById('adminLoading')?.classList.add('hidden');
   document.getElementById('adminUnauthorized')?.classList.add('hidden');
   document.getElementById('adminComingSoon')?.classList.add('hidden');
+  document.getElementById('adminHealth')?.classList.add('hidden');
   document.getElementById('adminApp')?.classList.remove('hidden');
   setActiveNav('agents');
+};
+
+const showAdminHealth = () => {
+  document.getElementById('adminLoading')?.classList.add('hidden');
+  document.getElementById('adminUnauthorized')?.classList.add('hidden');
+  document.getElementById('adminComingSoon')?.classList.add('hidden');
+  document.getElementById('adminApp')?.classList.add('hidden');
+  document.getElementById('adminHealth')?.classList.remove('hidden');
+  setActiveNav('health');
+  void refreshAdminHealth();
 };
 
 const showComingSoon = (title, text) => {
   document.getElementById('adminLoading')?.classList.add('hidden');
   document.getElementById('adminUnauthorized')?.classList.add('hidden');
   document.getElementById('adminApp')?.classList.add('hidden');
+  document.getElementById('adminHealth')?.classList.add('hidden');
   const panel = document.getElementById('adminComingSoon');
   if (panel) {
     panel.classList.remove('hidden');
@@ -92,6 +105,79 @@ const setActiveNav = (section) => {
       else el.removeAttribute('aria-current');
     }
   });
+};
+
+const formatStorageSize = (bytes) => {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—';
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
+  return `${Math.floor(bytes / 1024 / 1024)} MiB`;
+};
+
+const refreshAdminHealth = async () => {
+  const alert = document.getElementById('adminDiskAlert');
+  const statusEl = document.getElementById('adminHealthDiskStatus');
+  const usedEl = document.getElementById('adminHealthDiskUsed');
+  const freeEl = document.getElementById('adminHealthDiskFree');
+  const pathEl = document.getElementById('adminHealthDiskPath');
+  const serviceStatusEl = document.getElementById('adminHealthServiceStatus');
+  const serviceCheckedEl = document.getElementById('adminHealthServiceChecked');
+  const metaEl = document.getElementById('adminHealthMetaLine');
+
+  try {
+    const resp = await fetch('/health');
+    const data = await resp.json();
+    const disk = data?.disk;
+
+    if (serviceStatusEl) {
+      serviceStatusEl.textContent = data?.status || 'unknown';
+      serviceStatusEl.classList.toggle('is-ok', data?.status === 'ok');
+      serviceStatusEl.classList.toggle('is-degraded', data?.status === 'degraded');
+    }
+    if (serviceCheckedEl && data?.timestamp) {
+      serviceCheckedEl.textContent = new Date(data.timestamp).toLocaleString();
+    }
+
+    if (!disk) {
+      if (statusEl) statusEl.textContent = 'unavailable';
+      if (alert) alert.classList.add('hidden');
+      if (metaEl) metaEl.textContent = 'Disk metrics unavailable.';
+      return;
+    }
+
+    if (statusEl) {
+      statusEl.textContent = disk.status || 'unknown';
+      statusEl.classList.toggle('is-ok', disk.status === 'ok');
+      statusEl.classList.toggle('is-degraded', disk.status === 'degraded');
+      statusEl.classList.toggle('is-critical', disk.status === 'critical');
+    }
+    if (usedEl) usedEl.textContent = `${disk.usedPercent ?? '—'}%`;
+    if (freeEl) freeEl.textContent = formatStorageSize(disk.availableBytes || 0);
+    if (pathEl) pathEl.textContent = disk.path || '—';
+
+    if (alert) {
+      if (disk.status === 'ok') {
+        alert.classList.add('hidden');
+        alert.textContent = '';
+      } else {
+        const availMb = Math.floor((disk.availableBytes || 0) / 1024 / 1024);
+        alert.textContent = disk.status === 'critical'
+          ? `Server disk is critically full (${disk.usedPercent}% used, ${availMb} MiB free). Saves may fail until space is freed.`
+          : `Server disk is running low (${disk.usedPercent}% used). Consider freeing space soon.`;
+        alert.classList.toggle('is-degraded', disk.status === 'degraded');
+        alert.classList.toggle('is-critical', disk.status === 'critical');
+        alert.classList.remove('hidden');
+      }
+    }
+
+    if (metaEl) {
+      metaEl.textContent = disk.status === 'ok'
+        ? 'All infrastructure checks are within normal limits.'
+        : 'One or more infrastructure checks need attention.';
+    }
+  } catch {
+    if (metaEl) metaEl.textContent = 'Could not load health metrics.';
+    if (alert) alert.classList.add('hidden');
+  }
 };
 
 const updateMetaLine = (agents) => {
@@ -409,8 +495,7 @@ document.querySelectorAll('[data-admin-nav]').forEach((el) => {
     }
     e.preventDefault();
     if (section === 'health') {
-      showComingSoon('System Health', 'Server health checks and uptime will live here in a future release.');
-      setActiveNav('health');
+      showAdminHealth();
       return;
     }
     if (section === 'tenants') {
@@ -418,6 +503,10 @@ document.querySelectorAll('[data-admin-nav]').forEach((el) => {
       setActiveNav('tenants');
     }
   });
+});
+
+document.getElementById('adminHealthRefreshBtn')?.addEventListener('click', () => {
+  refreshAdminHealth().catch((e) => jungleDialog.error(e.message));
 });
 
 document.getElementById('adminBackToAgentsBtn')?.addEventListener('click', () => showAdminApp());
