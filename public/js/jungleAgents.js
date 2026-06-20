@@ -11,6 +11,37 @@ const formatUsd = (value) => {
   return `$${Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 };
 
+const formatSignedUsd = (value) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
+  const n = Number(value);
+  const abs = Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  if (n > 0) return `+$${abs}`;
+  if (n < 0) return `-$${abs}`;
+  return '$0';
+};
+
+const formatSignedPercent = (value) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
+  const n = Number(value);
+  const fixed = n.toFixed(1);
+  if (n > 0) return `+${fixed}%`;
+  if (n < 0) return `${fixed}%`;
+  return '0.0%';
+};
+
+const pnlClass = (value) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '';
+  const n = Number(value);
+  if (n > 0) return 'is-win';
+  if (n < 0) return 'is-loss';
+  return '';
+};
+
+const formatWinLoss = (wins, losses) => {
+  if (wins == null && losses == null) return '—';
+  return `${wins ?? 0}W-${losses ?? 0}L`;
+};
+
 const agentShortAddress = (address) => {
   if (!address) return '—';
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
@@ -36,23 +67,36 @@ const refreshTrackedSet = async () => {
   }
 };
 
-const updateAgentStatCells = (agentId, portfolio, positions) => {
+const updateAgentStatCells = (agentId, perf) => {
   const portfolioEl = document.querySelector(`[data-agent-portfolio="${agentId}"]`);
+  const pnlEl = document.querySelector(`[data-agent-pnl="${agentId}"]`);
+  const roiEl = document.querySelector(`[data-agent-roi="${agentId}"]`);
+  const wlEl = document.querySelector(`[data-agent-wl="${agentId}"]`);
+  const winRateEl = document.querySelector(`[data-agent-winrate="${agentId}"]`);
   const positionsEl = document.querySelector(`[data-agent-positions="${agentId}"]`);
-  if (portfolioEl) portfolioEl.textContent = portfolio;
-  if (positionsEl) positionsEl.textContent = positions;
+
+  if (portfolioEl) portfolioEl.textContent = formatUsd(perf.portfolioValueUsd);
+  if (pnlEl) {
+    pnlEl.textContent = formatSignedUsd(perf.lifetimePnlUsd);
+    pnlEl.className = `j-agents-num ${pnlClass(perf.lifetimePnlUsd)}`;
+  }
+  if (roiEl) {
+    roiEl.textContent = formatSignedPercent(perf.roiPct);
+    roiEl.className = `j-agents-num ${pnlClass(perf.roiPct)}`;
+  }
+  if (wlEl) wlEl.textContent = formatWinLoss(perf.wins, perf.losses);
+  if (winRateEl) {
+    winRateEl.textContent = perf.winRatePct == null ? '—' : `${Number(perf.winRatePct).toFixed(1)}%`;
+  }
+  if (positionsEl) positionsEl.textContent = String(perf.positionCount ?? '—');
 };
 
 const loadAgentPerformance = async (agentId) => {
   try {
     const perf = await API.getJungleAgentPerformance(agentId);
-    updateAgentStatCells(
-      agentId,
-      formatUsd(perf.portfolioValueUsd),
-      String(perf.positionCount ?? '—'),
-    );
+    updateAgentStatCells(agentId, perf);
   } catch {
-    updateAgentStatCells(agentId, '—', '—');
+    updateAgentStatCells(agentId, {});
   }
 };
 
@@ -119,6 +163,10 @@ const renderAgentTableRow = (agent) => {
         </span>
       </td>
       <td class="j-agents-num" data-agent-portfolio="${agent.id}">—</td>
+      <td class="j-agents-num" data-agent-pnl="${agent.id}">—</td>
+      <td class="j-agents-num" data-agent-roi="${agent.id}">—</td>
+      <td class="j-agents-num" data-agent-wl="${agent.id}">—</td>
+      <td class="j-agents-num" data-agent-winrate="${agent.id}">—</td>
       <td class="j-agents-num" data-agent-positions="${agent.id}">—</td>
       <td class="j-agents-wallet">
         ${agent.addressPending
@@ -159,7 +207,7 @@ const renderAgentTable = (agents) => {
 
   const body = groups.map((group) => {
     const header = hasCollections
-      ? `<tr class="j-agents-collection-row"><td colspan="5">${group.name || 'More agents'}</td></tr>`
+      ? `<tr class="j-agents-collection-row"><td colspan="9">${group.name || 'More agents'}</td></tr>`
       : '';
     return header + group.agents.map(renderAgentTableRow).join('');
   }).join('');
@@ -172,6 +220,10 @@ const renderAgentTable = (agents) => {
           <tr>
             <th>Agent</th>
             <th>Portfolio</th>
+            <th>PnL</th>
+            <th>ROI</th>
+            <th>W/L</th>
+            <th>Win%</th>
             <th>Pos</th>
             <th>Wallet</th>
             <th></th>

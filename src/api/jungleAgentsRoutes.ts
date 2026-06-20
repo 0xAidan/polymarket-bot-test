@@ -17,6 +17,7 @@ import {
 } from '../jungleAgentsStore.js';
 import { reconcileAgentAddressesFromPolymarket, resolveCanonicalPolymarketAddress } from '../jungleAgentsPolymarketSync.js';
 import { requirePlatformAdmin } from '../middleware/requirePlatformAdmin.js';
+import { fetchJungleAgentPolymarketStats } from '../jungleAgentPolymarketStats.js';
 import { dbListAppTenants, dbLoadTrackedWallets } from '../database.js';
 import { DEFAULT_TENANT_ID } from '../tenantContext.js';
 
@@ -89,26 +90,36 @@ export function createJungleAgentsRouter(copyTrader: CopyTrader): Router {
         res.json({ ...cached.payload, stale: true });
         return;
       }
-      const api = copyTrader.getPolymarketApi();
-      const balanceTracker = copyTrader.getBalanceTracker();
       const { resolveMonitoringAddress } = await import('../trackedWalletAddress.js');
       const lookupInput = agent.polymarketUsername?.trim()
         ? `@${agent.polymarketUsername.replace(/^@/, '')}`
         : agent.polymarketAddress;
       const resolved = await resolveMonitoringAddress(lookupInput);
       const monitoringAddress = resolved.monitoringAddress.toLowerCase();
-      const portfolio = await api.getPortfolioValue(monitoringAddress, balanceTracker);
+      const stats = await fetchJungleAgentPolymarketStats(monitoringAddress);
+      if (!stats) {
+        res.status(502).json({ success: false, error: 'Could not load Polymarket stats for this wallet' });
+        return;
+      }
       const payload = {
         success: true,
         agentId: agent.id,
         address: monitoringAddress,
-        portfolioValueUsd: portfolio.totalValue,
-        usdcBalance: portfolio.usdcBalance,
-        positionsValue: portfolio.positionsValue,
-        positionCount: portfolio.positionCount,
+        portfolioValueUsd: stats.portfolioValueUsd,
+        usdcBalance: null,
+        positionsValue: stats.portfolioValueUsd,
+        positionCount: stats.positionCount,
+        lifetimePnlUsd: stats.lifetimePnlUsd,
+        roiPct: stats.roiPct,
+        winRatePct: stats.winRatePct,
+        wins: stats.wins,
+        losses: stats.losses,
+        breakeven: stats.breakeven,
+        closedPositionsCount: stats.closedPositionsCount,
+        totalDeployedUsd: stats.totalDeployedUsd,
         tradeCount30d: null as null,
         lastActiveAt: null as null,
-        source: 'full_portfolio',
+        source: stats.source,
         stale: false,
       };
       perfCache.set(cacheKey, { at: now, payload });

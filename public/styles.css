@@ -4131,7 +4131,29 @@ body.j-drawer-open { overflow: hidden; }
   font-size: 12px;
   color: var(--jungle-gold-light);
   white-space: nowrap;
-  width: 64px;
+  min-width: 52px;
+  padding-right: 8px;
+}
+
+.j-agents-num.is-win {
+  color: var(--jungle-win);
+}
+
+.j-agents-num.is-loss {
+  color: var(--jungle-loss);
+}
+
+.j-agents-table th:nth-child(n+2):nth-child(-n+7),
+.j-agents-table .j-agents-num {
+  text-align: right;
+}
+
+.j-agents-table-scroll {
+  overflow-x: auto;
+}
+
+.j-agents-table {
+  min-width: 920px;
 }
 
 .j-agents-wallet {
