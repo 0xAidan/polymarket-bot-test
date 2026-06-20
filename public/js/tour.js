@@ -11,20 +11,20 @@
     {
       tab: 'dashboard',
       target: '.jw-tabs',
-      title: 'Welcome to Ditto',
-      body: "This walkthrough shows the core areas that matter for day-to-day use: setup, wallet management, discovery, and system controls."
+      title: 'Ditto at a glance',
+      body: 'This tour covers setup, wallets, discovery, and controls — the parts you’ll use every day.'
     },
     {
       tab: 'dashboard',
       target: '.j-dash-header',
       title: 'Home',
-      body: 'The home screen is your command center. Use the setup guide, quick actions, and recent activity here first.'
+      body: 'The home screen is your command center — setup guide, quick actions, and recent trades.'
     },
     {
       tab: 'dashboard',
       target: '#setupProgressChecklist',
       title: 'Setup Progress',
-      body: 'This checklist tells new users exactly what is still missing before Ditto is fully ready.'
+      body: 'This checklist shows what’s still missing before Ditto is ready to run.'
     },
     {
       tab: 'dashboard',

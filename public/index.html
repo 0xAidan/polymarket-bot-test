@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ditto - Jungle Copy Trading</title>
+  <title>Ditto — Polymarket copy bot</title>
   <link rel="icon" type="image/png" href="/shared/favicon-gold.png">
   <!-- Paint the page dark before any stylesheet loads, so there is never a white flash. -->
   <style>html { background: #161721; }</style>
@@ -15,24 +15,24 @@
   <div id="authGateScreen" class="auth-gate-screen" aria-live="polite">
     <div class="auth-gate-backdrop"></div>
     <div class="auth-gate-panel noise-overlay">
-      <div class="auth-gate-eyebrow">JUNGLE AGENTS</div>
+      <div class="auth-gate-eyebrow">DITTO</div>
       <div class="auth-gate-brand-row">
         <div class="auth-gate-mark">D</div>
         <div>
           <div class="auth-gate-product">Ditto</div>
-          <div class="auth-gate-tagline">Autonomous copy trading for prediction markets</div>
+          <div class="auth-gate-tagline">Follow wallets. Copy their moves.</div>
         </div>
       </div>
       <div class="auth-gate-copy">
-        <h1 id="authGateTitle">Preparing your Ditto workspace</h1>
-        <p id="authGateMessage">Checking your session and loading the product shell.</p>
+        <h1 id="authGateTitle">Loading Ditto</h1>
+        <p id="authGateMessage">Checking your session…</p>
       </div>
       <div class="auth-gate-trust">
-        <div class="auth-gate-chip">Jungle functional product</div>
-        <div class="auth-gate-chip">Guided first-run setup</div>
-        <div class="auth-gate-chip">Encrypted wallet storage</div>
+        <div class="auth-gate-chip">Curated Jungle Agents</div>
+        <div class="auth-gate-chip">Encrypted wallet keys</div>
+        <div class="auth-gate-chip">Live trade execution</div>
       </div>
-      <div class="auth-gate-footer" id="authGateHint">If sign-in is required, Ditto will send you to the secure hosted login automatically.</div>
+      <div class="auth-gate-footer" id="authGateHint">Sign-in happens on our secure hosted login — you’ll be redirected automatically.</div>
       <div class="auth-gate-actions hidden" id="authGateActions">
         <button class="jw-btn" id="authGateRetryBtn" type="button" onclick="window.location.reload()">Retry check</button>
         <button class="jw-btn jw-btn-primary" id="authGateLoginBtn" type="button" onclick="redirectToMagicLinkLogin()">Open sign in</button>
@@ -46,7 +46,7 @@
       <div class="j-topbar-brand">
         <div class="j-topbar-mark" aria-hidden="true"><img src="/shared/logo-gold.png" alt="" class="j-topbar-logo"></div>
         <div>
-          <div class="j-topbar-eyebrow">JUNGLE AGENTS</div>
+          <div class="j-topbar-eyebrow">DITTO</div>
           <div class="j-topbar-title font-serif">Ditto</div>
         </div>
       </div>
@@ -65,7 +65,7 @@
         <span class="app-status-pill stopped" id="appHeaderStatus">Bot offline</span>
         <button type="button" class="j-btn j-btn-primary j-btn-sm" id="startStopBtn" onclick="toggleBot()"><span id="startStopLabel">Start</span></button>
         <span class="j-status-mini hidden" aria-hidden="true"><span class="status-indicator stopped" id="taskbarIndicator"></span><span id="taskbarStatus">Stopped</span></span>
-        <select id="tenantSwitcher" class="j-input j-input-sm hidden" aria-label="Active workspace" onchange="handleTenantWorkspaceChange(this.value)"></select>
+        <select id="tenantSwitcher" class="j-input j-input-sm hidden" aria-label="Switch account" onchange="handleTenantWorkspaceChange(this.value)"></select>
         <button type="button" class="j-btn j-btn-ghost j-btn-sm" id="topbarTutorial" onclick="startOnboarding(true)" title="Replay the setup tutorial">Tutorial</button>
         <a href="/discovery-v3/" class="j-btn j-btn-ghost j-btn-sm" data-admin-only>Discovery v3</a>
         <a href="/admin" id="topbarAdminLink" class="j-btn j-btn-ghost j-btn-sm hidden">Admin</a>
@@ -83,7 +83,7 @@
         <div id="tab-dashboard" class="jw-tab-panel active j-dashboard">
           <header class="j-dash-header">
             <div>
-              <p class="j-dash-eyebrow">Live workspace</p>
+              <p class="j-dash-eyebrow">At a glance</p>
               <h1 class="font-serif j-dash-title">Command center</h1>
             </div>
             <div class="j-dash-header-actions">
@@ -1518,10 +1518,10 @@
       <div class="jw-modal-body" style="padding:20px;text-align:center;">
         <div style="font-size:36px;margin-bottom:4px;">&#128200;</div>
         <div style="font-size:22px;font-weight:bold;">Ditto</div>
-        <div class="text-sm text-muted" style="margin-bottom:12px;">Pure silicon competition for prediction markets</div>
+        <div class="text-sm text-muted" style="margin-bottom:12px;">Copy trades from wallets you trust</div>
         <div style="border:2px inset var(--jw-surface);background:var(--jw-field-bg);padding:12px;text-align:left;font-size:13px;line-height:1.5;">
-          <div>Polymarket Copy Trading Bot</div>
-          <div class="text-muted">Monitors tracked wallets and automatically copies their trades to your wallets with configurable filters and risk controls.</div>
+          <div>Polymarket copy bot</div>
+          <div class="text-muted">Watches tracked wallets and mirrors their trades into yours — with filters, sizing, and risk controls.</div>
           <hr style="margin:8px 0;border-color:var(--jw-dark);">
           <div>Features: Multi-wallet, Ladder Exits, Cross-Platform Arb, Stop-Loss, Auto-Redemption</div>
         </div>
@@ -1641,14 +1641,14 @@
     <div class="setup-wizard-card">
       <div class="setup-wizard-sidebar">
         <div class="app-section-kicker">First Run Guide</div>
-        <h2 class="setup-wizard-heading">Get Ditto ready without guessing.</h2>
+        <h2 class="setup-wizard-heading">Get Ditto running.</h2>
         <p class="setup-wizard-copy" id="setupWizardSummary">We’ll point you to the next thing you need, one step at a time.</p>
         <div id="setupWizardSteps" class="setup-wizard-steps"></div>
       </div>
       <div class="setup-wizard-main">
         <div class="app-section-kicker" id="setupWizardKicker">Next Step</div>
         <h3 class="setup-wizard-step-title" id="setupWizardTitle">Checking your setup status...</h3>
-        <p class="setup-wizard-step-body" id="setupWizardBody">One moment while Ditto checks which parts of your workspace are already configured.</p>
+        <p class="setup-wizard-step-body" id="setupWizardBody">One moment while Ditto checks what’s already set up.</p>
         <div id="setupWizardFacts" class="setup-wizard-facts"></div>
         <div class="setup-wizard-actions">
           <button class="jw-btn" type="button" onclick="dismissSetupWizard()">Maybe later</button>
