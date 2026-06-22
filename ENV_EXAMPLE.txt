@@ -73,6 +73,10 @@ POLYMARKET_GAMMA_API_URL=https://gamma-api.polymarket.com
 # Polygon RPC endpoint (use a reliable provider like Alchemy, Infura, or QuickNode)
 # Free public option that works for discovery RPC polling: https://polygon-bor-rpc.publicnode.com
 POLYGON_RPC_URL=https://polygon-rpc.com
+# Optional authenticated RPC headers (example for providers that require API keys in headers).
+# Leave blank for public RPC endpoints.
+POLYGON_RPC_HEADER_NAME=
+POLYGON_RPC_HEADER_VALUE=
 
 # ============================================================
 # Signature Type - IMPORTANT! Must match how you created your Polymarket account

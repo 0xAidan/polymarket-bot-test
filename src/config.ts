@@ -44,6 +44,8 @@ export const config = {
   // Blockchain configuration
   // Using Alchemy RPC for reliable balance fetching (needed for position threshold filter)
   polygonRpcUrl: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+  polygonRpcHeaderName: process.env.POLYGON_RPC_HEADER_NAME || '',
+  polygonRpcHeaderValue: process.env.POLYGON_RPC_HEADER_VALUE || '',
 
   // API authentication (static bearer token)
   authMode: (process.env.AUTH_MODE || (process.env.AUTH0_ISSUER_BASE_URL ? 'oidc' : 'legacy')).toLowerCase() as 'legacy' | 'oidc',
