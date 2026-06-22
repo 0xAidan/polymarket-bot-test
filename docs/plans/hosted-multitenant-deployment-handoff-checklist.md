@@ -1,245 +1,151 @@
 # Hosted Multi-Tenant Deployment Handoff Checklist
 
-Use this as the single execution sheet for launching the hosted multi-tenant system.
+Use this checklist to deploy hosted multi-tenant mode with evidence-first verification.
 
-- Primary architecture source: `docs/plans/hosted-multitenant-enterprise-implementation-plan.md`
-- Primary execution source: `docs/plans/hosted-multitenant-execution-plan.md`
-- This file: owner-assigned rollout checklist with required proof.
+## 1) Preconditions (Must Be True)
 
----
+- Target commit is selected and recorded.
+- Deployment environment has approved DNS/domain and TLS plan.
+- Operators have SSH and sudo access to deployment host.
+- Rollback path is documented (previous commit + data/env backup strategy).
 
-## Owners
+## 2) Repository Truth Gates
 
-- **Aidan (Hetzner Owner)**: server provisioning, access, firewall, infra approvals
-- **Tech Team (Domain/DNS Owner)**: DNS/domain setup and routing
-- **Engineering (Repo/Implementation Owner)**: code implementation, tests, release artifacts
-- **Deploy Operator (Aidan or delegated engineer)**: server setup, service install, go-live commands
+Validate from source before touching infrastructure:
 
----
+```bash
+git log --oneline -n 20
+npm run build
+npm run lint
+npm test
+```
 
-## Current Snapshot
+Hosted-mode code invariants to verify:
 
-- Hetzner target selected: **Helsinki / CCX13 / 8GB RAM / 80GB disk**
-- Current server IPv4: **46.62.231.173**
-- In-repo status:
-  - Dome removal: complete
-  - Core multi-tenant isolation: in progress
-  - OIDC/admin/monitoring phases: pending
+- `src/hostedMode.ts` defines hosted mode as OIDC + SQLite.
+- `src/config.ts` enforces:
+  - `STORAGE_BACKEND=sqlite`
+  - server `PRIVATE_KEY` forbidden in hosted mode
+  - production `DATA_DIR` absolute path requirement
 
----
+## 3) Server Runtime Setup
 
-## Phase 1 - Infrastructure and Access
+Minimum server requirements:
 
-### 1.1 Server Confirmed
-- **Owner:** Aidan
-- **Action:** Confirm server exists with target spec and static public IP.
-- **Acceptance Criteria:** Server visible in Hetzner with expected plan and IP.
-- **Evidence Required:** Screenshot of Hetzner server overview showing region/spec/IP.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+- Node/npm installed
+- git installed
+- service manager available (`systemd` expected by repo deploy scripts)
+- reverse proxy and TLS configured for target domain
 
-### 1.2 SSH Access Established
-- **Owner:** Aidan
-- **Action:** Ensure key-based SSH works for root or deploy user.
-- **Acceptance Criteria:** Successful shell login from approved workstation.
-- **Evidence Required:** Terminal output showing successful `ssh <user>@46.62.231.173`.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+Evidence:
 
-### 1.3 Network Security Baseline
-- **Owner:** Aidan
-- **Action:** Attach Hetzner firewall with inbound ports **22, 80, 443** only.
-- **Acceptance Criteria:** Public app port (for Node internals) is not exposed.
-- **Evidence Required:** Screenshot/export of firewall rules and attachment to server.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+- command outputs for runtime versions and service availability
 
----
+## 4) Environment Configuration Checklist
 
-## Phase 2 - Domain and TLS Routing
+Required hosted-mode env posture:
 
-### 2.1 DNS Record Created
-- **Owner:** Tech Team
-- **Action:** Point production host (`@` or subdomain) A record to `46.62.231.173`.
-- **Acceptance Criteria:** Public resolution returns server IP.
-- **Evidence Required:** DNS panel screenshot + `dig`/`nslookup` output.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+- `AUTH_MODE=oidc`
+- `STORAGE_BACKEND=sqlite`
+- `AUTH_SESSION_SECRET` set
+- Auth0 OIDC vars set:
+  - `AUTH0_ISSUER_BASE_URL`
+  - `AUTH0_BASE_URL`
+  - `AUTH0_CLIENT_ID`
+  - `AUTH0_CLIENT_SECRET`
+- `DATA_DIR` set to server-owned absolute path
+- `PRIVATE_KEY` absent from server env
 
-### 2.2 TLS Reachability Prepared
-- **Owner:** Tech Team + Deploy Operator
-- **Action:** Ensure ports 80/443 are reachable for certificate issuance.
-- **Acceptance Criteria:** ACME challenge can complete once Caddy/nginx is up.
-- **Evidence Required:** Reachability check output or successful cert issuance logs.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+Optional hardening:
 
----
+- `REQUIRE_API_SECRET=true` when operating in legacy mode paths
+- explicit `CORS_ALLOWED_ORIGINS` where required
 
-## Phase 3 - Server Runtime Installation
+Evidence:
 
-### 3.1 Runtime Dependencies Installed
-- **Owner:** Deploy Operator
-- **Action:** Install Node, npm, git, Caddy (or nginx), sqlite tools, systemd units support.
-- **Acceptance Criteria:** Commands available and versions validated.
-- **Evidence Required:** Command output for `node -v`, `npm -v`, `git --version`, `caddy version`.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+- redacted env excerpt showing required keys and hosted-safe posture
 
-### 3.2 Directory Layout Created
-- **Owner:** Deploy Operator
-- **Action:** Create app and data directories.
-  - App: `/opt/polymarket/app`
-  - Data: `/var/lib/polymarket/data`
-- **Acceptance Criteria:** Directories exist with correct ownership and write permissions.
-- **Evidence Required:** `ls -ld /opt/polymarket/app /var/lib/polymarket/data`.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+## 5) Deploy Procedure (Template)
 
-### 3.3 Repo Deployed to Server
-- **Owner:** Deploy Operator
-- **Action:** Clone/update repo in app directory, install deps, build.
-- **Acceptance Criteria:** Build succeeds without errors.
-- **Evidence Required:** Output of dependency install and `npm run build`.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+Use repo deployment scripts as baseline and adapt to environment-specific paths/services:
 
----
+- `scripts/deploy-staging.sh`
+- `scripts/deploy-production.sh`
+- `scripts/deploy-staging-v2.sh`
+- `scripts/deploy-production-v2.sh`
 
-## Phase 4 - Environment and Secrets
+Before restarting services, capture:
 
-### 4.1 Server Environment Configured
-- **Owner:** Deploy Operator + Engineering
-- **Action:** Create production `.env` with server-level vars (PORT, `DATA_DIR`, OIDC vars, CORS allowlist, API URLs, and required runtime config).
-- **Acceptance Criteria:** App starts with env loaded and no missing required vars.
-- **Evidence Required:** Startup logs showing successful config validation (without exposing secrets) plus a redacted `.env` excerpt proving `DATA_DIR` points to the hosted path instead of repo-relative storage.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+```bash
+git rev-parse HEAD
+```
 
-### 4.2 Secret Ownership and Rotation Defined
-- **Owner:** Aidan
-- **Action:** Document who can set/rotate sensitive values (wallet credentials, API credentials, OIDC secret).
-- **Acceptance Criteria:** Named owners and rotation procedure recorded.
-- **Evidence Required:** Short written SOP in team docs.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+After restart, capture:
 
----
+- service status output
+- health endpoint output (`/health`)
 
-## Phase 5 - Services, Backups, and Health
+## 6) Mandatory Post-Deploy Verification
 
-### 5.1 Systemd Services Installed and Enabled
-- **Owner:** Deploy Operator
-- **Action:** Install and enable app + discovery worker services.
-- **Acceptance Criteria:** Services auto-start on boot and remain healthy.
-- **Evidence Required:** `systemctl status` and `systemctl is-enabled` outputs.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+### 6.1 Connectivity gate
 
-### 5.2 Reverse Proxy and HTTPS Live
-- **Owner:** Deploy Operator
-- **Action:** Configure Caddy/nginx reverse proxy from HTTPS to app service.
-- **Acceptance Criteria:** Domain serves app over valid HTTPS certificate.
-- **Evidence Required:** Browser proof + TLS check output/certificate details.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+Run from target host:
 
-### 5.3 Backup Policy Active
-- **Owner:** Deploy Operator
-- **Action:** Configure scheduled backups for data directory and verify retention.
-- **Acceptance Criteria:** Backup job runs successfully and creates recoverable artifacts.
-- **Evidence Required:** Timer/service logs + sample backup archive listing.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+```bash
+npm run validate:egress
+```
 
-### 5.4 Restore Drill Completed
-- **Owner:** Deploy Operator + Engineering
-- **Action:** Perform one test restore to a non-production location.
-- **Acceptance Criteria:** Restored data can be read and app starts against restored snapshot.
-- **Evidence Required:** Restore command log + validation output.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+### 6.2 Auth and tenant gate
 
----
+Verify:
 
-## Phase 6 - Mandatory Technical Gates
+- OIDC login succeeds
+- user session resolves tenant context
+- tenant switch behavior works only for authorized memberships
 
-### 6.1 Egress Validation Gate
-- **Owner:** Deploy Operator
-- **Action:** Run `npm run validate:egress` from the VPS.
-- **Acceptance Criteria:** Validation passes for required Polymarket connectivity checks.
-- **Evidence Required:** Full command output saved to deployment notes.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+### 6.3 Hosted-mode safety gate
 
-### 6.2 Provider Fallback if Egress Fails
-- **Owner:** Aidan + Deploy Operator
-- **Action:** If gate fails, reprovision in alternate approved provider/region and rerun gate.
-- **Acceptance Criteria:** Final production target has a passing egress result.
-- **Evidence Required:** Failure output + new environment pass output.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+Verify startup does not fail hosted-mode validation and no server-level private key is used.
 
-### 6.3 Tenant Isolation Verification Gate
-- **Owner:** Engineering + Deploy Operator
-- **Action:** Run the full checklist in `docs/plans/tenant-isolation-verification-checklist.md` against the exact release candidate build and hosted environment.
-- **Acceptance Criteria:** Every API, UI, and runtime guardrail check passes for two different tenants with different wallet data.
-- **Evidence Required:** Saved request/response proof, screenshots for both tenants, and log excerpts showing blocked fallback attempts only.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+### 6.4 Discovery/worker gate
 
-### 6.4 Staging Preview Gate
-- **Owner:** Engineering + Deploy Operator
-- **Action:** Update `staging.ditto.jungle.win` using `docs/plans/staging-update-handoff.md`, then run a browser review on the staged release candidate before promoting anything to production.
-- **Acceptance Criteria:** Staging serves the release candidate branch, `/health` and `/health/ready` return successfully, Auth0 login works, and production services remain untouched.
-- **Evidence Required:** `git rev-parse HEAD`, service status output for `polymarket-app-staging.service`, `curl https://staging.ditto.jungle.win/health`, `curl https://staging.ditto.jungle.win/health/ready`, and review screenshots.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+If discovery worker is part of release:
 
----
+- verify worker service is running
+- verify discovery status endpoints respond
 
-## Phase 7 - Application Completion (Repo Side)
+## 7) Staging-to-Production Promotion Gate
 
-### 7.1 Finish Remaining Multi-Tenant Implementation
-- **Owner:** Engineering
-- **Action:** Complete pending repo tasks from execution plan phases still open.
-- **Acceptance Criteria:** Plan task scope implemented with tests/build passing.
-- **Evidence Required:** PR(s), test output, and build output.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+Promote only if all are true:
 
-### 7.2 OIDC/Auth0 Integration
-- **Owner:** Engineering + Aidan (credentials) + Tech Team (callback domains)
-- **Action:** Wire Auth0/OIDC backend and frontend login flow with tenant scoping.
-- **Acceptance Criteria:** Login works end-to-end on production domain.
-- **Evidence Required:** Successful login test + config verification checklist.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+- staging ran the exact candidate commit
+- staging smoke checks passed
+- no critical log errors observed
+- release commit verified with:
 
-### 7.3 Admin Controls and Monitoring UI
-- **Owner:** Engineering
-- **Action:** Deliver admin functions (tenant controls) and monitoring views (trade/system health) from plan.
-- **Acceptance Criteria:** Admin can manage tenant state and observe operational health in dashboard.
-- **Evidence Required:** UI screenshots + API verification output.
-- **Status:** [ ] Not started [ ] In progress [ ] Done
+```bash
+./scripts/verify-release-commit.sh <expected-commit-sha>
+```
 
----
+## 8) Evidence Pack (Required for Signoff)
 
-## Phase 8 - Go/No-Go Checklist
+Attach:
 
-- **Owner:** All
-- **Rule:** Do not declare production ready unless all boxes below are true.
+- deployed commit SHA
+- build/lint/test outputs
+- egress validation output
+- service status output
+- `/health` output from deployed host/domain
+- tenant/auth verification evidence
+- rollback reference (previous commit + backup location)
 
-- [ ] DNS resolves correctly to production IP
-- [ ] HTTPS valid on production domain
-- [ ] App service healthy and persistent across reboot
-- [ ] Discovery worker healthy and persistent across reboot
-- [ ] Egress validation passes on production VPS
-- [ ] Multi-tenant isolation tests pass in current release
-- [ ] `docs/plans/tenant-isolation-verification-checklist.md` passed on the release candidate build
-- [ ] Staging preview gate passed on the exact release candidate before production promotion
-- [ ] Hosted `DATA_DIR` points at a server-owned path, not a repo-relative folder
-- [ ] Auth login works and maps to tenant context correctly
-- [ ] Admin panel can view/manage required controls
-- [ ] Trade detection/execution visibility is available in monitoring UI
-- [ ] Backups run automatically and restore drill has passed
-- [ ] Rollback steps documented and tested
+## 9) Unverified-by-Repository Items (Operator Must Confirm Per Environment)
 
-**Evidence Pack Required for Go-Live Approval**
-- Link to deployed commit/PR
-- Test/build outputs
-- Egress validation output
-- Tenant isolation checklist evidence pack
-- Service status outputs
-- TLS proof
-- Backup + restore proof
+These are environment-specific and not guaranteed by app code alone:
 
----
+- availability/behavior of `/health/ready` behind proxy/infrastructure
+- exact systemd service names on target host
+- exact deployment path layout on target host
+- DNS/TLS propagation timing
 
-## Immediate Next Actions (From Today)
-
-1. **Aidan:** confirm server OS and SSH method works.
-2. **Tech Team:** create DNS A record to `46.62.231.173`.
-3. **Deploy Operator:** complete runtime install and service bring-up once DNS is in place.
-4. **Engineering:** continue repo implementation (OIDC/admin/monitoring phases) and ship PRs.
-
+Record these explicitly during each rollout.
