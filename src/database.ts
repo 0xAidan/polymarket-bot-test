@@ -133,14 +133,28 @@ export function getDatabase(): Database.Database {
 }
 
 /** Truncate WAL when disk is under pressure to reclaim space. */
-export function checkpointWalIfDiskPressure(): void {
-  if (!db) return;
+export function checkpointWalIfDiskPressure(): boolean {
+  if (!db) return false;
   try {
     const metrics = getDiskMetrics();
-    if (metrics.status === 'ok') return;
+    if (metrics.status === 'ok') return false;
     db.pragma('wal_checkpoint(TRUNCATE)');
+    return true;
   } catch {
-    // non-fatal
+    return false;
+  }
+}
+
+/** Reclaim SQLite file space after retention deletes when disk is critical. */
+export function vacuumDatabaseIfDiskPressure(): boolean {
+  if (!db) return false;
+  try {
+    const metrics = getDiskMetrics();
+    if (metrics.status !== 'critical') return false;
+    db.exec('VACUUM');
+    return true;
+  } catch {
+    return false;
   }
 }
 
