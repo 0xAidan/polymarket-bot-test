@@ -27,6 +27,7 @@
     "verify:promotion-gate": "DUCKDB_MEMORY_LIMIT_GB=${DUCKDB_MEMORY_LIMIT_GB:-5} DUCKDB_TEMP_DIR=${DUCKDB_TEMP_DIR:-/mnt/HC_Volume_105468668/duckdb_tmp} npx tsx scripts/backfill/06_promotion_gate.ts",
     "verify:staging-display": "npx tsx scripts/verify-staging-discovery-display.ts",
     "verify:soak": "DUCKDB_MEMORY_LIMIT_GB=${DUCKDB_MEMORY_LIMIT_GB:-5} DUCKDB_TEMP_DIR=${DUCKDB_TEMP_DIR:-/mnt/HC_Volume_105468668/duckdb_tmp} npx tsx scripts/backfill/07_soak_report.ts",
+    "purge:accounts": "tsx scripts/purge-hosted-accounts.ts",
     "discovery:preflight": "npx tsx scripts/backfill/00_preflight_capacity.ts --mode full-backfill",
     "discovery:preflight:forward": "npx tsx scripts/backfill/00_preflight_capacity.ts --mode forward-only",
     "discovery:run:full": "bash scripts/backfill/08_run_full_backfill_and_forward.sh"
