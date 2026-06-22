@@ -3580,7 +3580,7 @@ body.j-drawer-open { overflow: hidden; }
   overflow: hidden;
 }
 
-/* Shared 2-column grid: left = main content, right = sidebar (wallet + agents align) */
+/* Shared 2-column grid: trade history full-height left, sidebar right */
 .j-dash-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--j-dash-sidebar);
@@ -3592,38 +3592,6 @@ body.j-drawer-open { overflow: hidden; }
   overflow: hidden;
 }
 
-.j-dash-top-primary {
-  grid-column: 1;
-  grid-row: 1;
-  min-width: 0;
-  display: flex;
-  align-items: stretch;
-}
-
-.j-dash-top-primary:has(#setupProgressCard.hidden) {
-  display: none;
-}
-
-.j-dash-layout:has(#setupProgressCard.hidden) .j-dash-top-aside {
-  grid-column: 1 / -1;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: stretch;
-  justify-content: space-between;
-  gap: var(--j-dash-gap);
-}
-
-.j-dash-layout:has(#setupProgressCard.hidden) .j-dash-wallet-card {
-  flex: 1 1 220px;
-  max-width: min(100%, 360px);
-}
-
-.j-dash-layout:has(#setupProgressCard.hidden) .j-dash-topbar-actions {
-  flex: 0 0 auto;
-  flex-direction: row;
-  align-self: center;
-}
-
 .j-dash-top-aside {
   grid-column: 2;
   grid-row: 1;
@@ -3631,6 +3599,31 @@ body.j-drawer-open { overflow: hidden; }
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+}
+
+.j-dash-top-aside .j-setup-strip-inner {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.j-dash-top-aside .j-setup-stepper {
+  flex-wrap: wrap;
+  row-gap: 6px;
+  column-gap: 0;
+}
+
+.j-dash-top-aside #setupStripAction {
+  width: 100%;
+}
+
+.j-dash-top-aside .j-setup-step-line {
+  width: 10px;
+  margin: 0 4px;
+}
+
+.j-dash-top-aside .j-setup-step-label {
+  font-size: 9px;
 }
 
 .j-dash-topbar-actions {
@@ -3648,7 +3641,7 @@ body.j-drawer-open { overflow: hidden; }
   border: 1px solid var(--jungle-border);
   border-radius: var(--j-radius-md);
   background: rgba(229, 184, 11, 0.04);
-  padding: 8px 12px;
+  padding: 8px 10px;
   width: 100%;
   min-width: 0;
 }
@@ -4089,10 +4082,10 @@ body.j-drawer-open { overflow: hidden; }
 .j-metric-chip.is-win .j-metric-chip-val { color: var(--jungle-win); }
 .j-metric-chip.is-loss .j-metric-chip-val { color: var(--jungle-loss); }
 
-/* Main stage: trade history (left) + jungle agents (right) share sidebar column width */
+/* Main stage: trade history spans full left column height */
 .j-dash-primary {
   grid-column: 1;
-  grid-row: 2;
+  grid-row: 1 / -1;
   min-width: 0;
   min-height: 0;
   max-height: 100%;
@@ -4754,33 +4747,38 @@ body.j-drawer-open { overflow: hidden; }
     grid-template-rows: auto auto minmax(0, 1fr) minmax(0, 1.35fr);
   }
 
-  .j-dash-top-primary {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
   .j-dash-top-aside {
     grid-column: 1;
-    grid-row: 2;
+    grid-row: 1;
     flex-direction: row;
     flex-wrap: wrap;
     align-items: stretch;
+    gap: var(--j-dash-gap);
   }
 
-  .j-dash-layout:has(#setupProgressCard.hidden) .j-dash-top-aside {
-    grid-column: 1;
-    grid-row: 1;
+  .j-dash-top-aside .j-setup-strip {
+    flex: 1 1 100%;
+  }
+
+  .j-dash-top-aside .j-setup-strip-inner {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .j-dash-top-aside #setupStripAction {
+    width: auto;
+    flex-shrink: 0;
   }
 
   .j-dash-aside {
     grid-column: 1;
-    grid-row: 3;
+    grid-row: 2;
     max-height: 100%;
   }
 
   .j-dash-primary {
     grid-column: 1;
-    grid-row: 4;
+    grid-row: 3 / -1;
   }
 
   .j-dash-wallet-card {
