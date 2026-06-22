@@ -84,13 +84,13 @@ window.handleTenantWorkspaceChange = async (tenantId) => {
       body: JSON.stringify({ tenantId }),
     });
     const d = await r.json();
-    if (!r.ok) throw new Error(d.error || 'Could not switch workspace');
+    if (!r.ok) throw new Error(d.error || 'Could not switch account');
     sessionStorage.setItem('active_tenant_id', tenantId);
     window.location.reload();
   } catch (err) {
     console.error(err);
-    if (typeof win95Dialog !== 'undefined' && win95Dialog.error) {
-      await win95Dialog.error(String(err.message || err));
+    if (typeof jungleDialog !== 'undefined' && jungleDialog.error) {
+      await jungleDialog.error(String(err.message || err));
     }
   }
 };
@@ -195,9 +195,9 @@ document.getElementById('authTokenInput')?.addEventListener('keydown', (e) => {
 
     if (data.mode === 'oidc') {
       setAuthGateState(
-        'Checking your secure Ditto session',
-        'Ditto uses the hosted Jungle sign-in flow. If you are not already signed in, you will be redirected automatically.',
-        'This is the normal production login path for the product.',
+        'Checking your Ditto session',
+        'If you’re not signed in yet, we’ll send you to the secure login screen.',
+        'This is the normal sign-in path for hosted Ditto.',
       );
       const meResponse = await fetch('/api/auth/me', { credentials: 'same-origin' });
       if (meResponse.ok) {

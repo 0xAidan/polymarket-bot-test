@@ -95,6 +95,9 @@ npm test
 Discovery validation helpers:
 
 ```bash
+npm run discovery:preflight
+npm run discovery:preflight:forward
+npm run discovery:run:full
 npm run verify:staging-display
 npm run verify:promotion-gate
 npm run verify:soak

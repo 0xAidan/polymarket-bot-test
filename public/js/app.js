@@ -15,23 +15,23 @@ const SETUP_GUIDE_COMPLETED_KEY = 'ditto_setup_completed_v1';
 const SETUP_GUIDE_SESSION_DISMISS_KEY = 'ditto_setup_dismissed_session_v1';
 
 // ============================================================
-// WIN95 DIALOG SYSTEM (replaces native alert/confirm/prompt)
+// JUNGLE MODAL DIALOG SYSTEM (replaces native alert/confirm/prompt)
 // ============================================================
 
-const win95Dialog = (() => {
+const jungleModal = (() => {
   let container = null;
 
   const ensureContainer = () => {
     if (container) return container;
     container = document.createElement('div');
-    container.id = 'win95DialogContainer';
+    container.id = 'jungleModalContainer';
     document.body.appendChild(container);
     return container;
   };
 
   const createOverlay = () => {
     const overlay = document.createElement('div');
-    overlay.className = 'win-modal-overlay';
+    overlay.className = 'jw-modal-overlay';
     overlay.style.zIndex = '9999';
     return overlay;
   };
@@ -40,26 +40,26 @@ const win95Dialog = (() => {
     return new Promise((resolve) => {
       const overlay = createOverlay();
       const modal = document.createElement('div');
-      modal.className = 'win-modal';
+      modal.className = 'jw-modal';
       modal.style.maxWidth = '440px';
       modal.setAttribute('role', 'dialog');
       modal.setAttribute('aria-label', title);
 
       const titleBar = document.createElement('div');
-      titleBar.className = 'win-title-bar';
+      titleBar.className = 'jw-title-bar';
       titleBar.innerHTML = `
-        <span class="win-title-bar-text">${title}</span>
-        <div class="win-title-bar-controls">
-          <button class="win-title-bar-btn" aria-label="Close" data-action="close">&times;</button>
+        <span class="jw-title-bar-text">${title}</span>
+        <div class="jw-title-bar-controls">
+          <button class="jw-title-bar-btn" aria-label="Close" data-action="close">&times;</button>
         </div>`;
 
       const body = document.createElement('div');
-      body.className = 'win-modal-body';
+      body.className = 'jw-modal-body';
       body.style.padding = '16px';
       body.innerHTML = bodyHtml;
 
       const footer = document.createElement('div');
-      footer.className = 'win-modal-footer';
+      footer.className = 'jw-modal-footer';
 
       let resolved = false;
       const close = (value) => {
@@ -74,7 +74,7 @@ const win95Dialog = (() => {
 
       buttons.forEach((btn, i) => {
         const button = document.createElement('button');
-        button.className = 'win-btn';
+        button.className = 'jw-btn';
         button.textContent = btn.label;
         button.style.minWidth = '80px';
         if (btn.primary) button.style.fontWeight = 'bold';
@@ -133,10 +133,10 @@ const win95Dialog = (() => {
 
     prompt: (message, defaultValue = '', title = 'Input') => {
       const escaped = String(message).replace(/</g, '&lt;').replace(/\n/g, '<br>');
-      const inputId = 'win95PromptInput_' + Date.now();
+      const inputId = 'jungleModalPromptInput_' + Date.now();
       return createDialog(title, `
         <p style="margin:0 0 8px;line-height:1.5">${escaped}</p>
-        <input id="${inputId}" class="win-input" style="width:100%;box-sizing:border-box" value="${String(defaultValue).replace(/"/g, '&quot;')}" />
+        <input id="${inputId}" class="jw-input" style="width:100%;box-sizing:border-box" value="${String(defaultValue).replace(/"/g, '&quot;')}" />
       `, [
         { label: 'OK', value: '__OK__', primary: true },
         { label: 'Cancel', value: null },
@@ -160,7 +160,7 @@ window.handleLogout = async function handleLogout() {
     return;
   }
 
-  const ok = await win95Dialog.confirm('Log out and end your session?', 'Sign out');
+  const ok = await jungleModal.confirm('Log out and end your session?', 'Sign out');
   if (!ok) {
     return;
   }
@@ -194,7 +194,20 @@ function initApp() {
   setInterval(updateClock, 1000);
   void loadAllData();
   startAutoRefresh();
+  applyHostedUiGates();
+  consolidatePowerUserTabsIntoSettings();
 }
+
+const applyHostedUiGates = () => {
+  const hosted = usesHostedWalletAccess();
+  document.getElementById('settingsProxyWalletSection')?.classList.toggle('hidden', hosted);
+  document.getElementById('settingsProxyWalletHostedNote')?.classList.toggle('hidden', !hosted);
+  document.getElementById('diagnosticsClobBtn')?.classList.toggle('hidden', hosted);
+  document.getElementById('diagnosticsClobHostedNote')?.classList.toggle('hidden', !hosted);
+  document.querySelectorAll('[data-hosted-hide]').forEach((el) => {
+    el.classList.toggle('hidden', hosted);
+  });
+};
 
 document.addEventListener('DOMContentLoaded', () => {
   // If auth is required and we don't have a valid token yet, don't init.
@@ -292,49 +305,70 @@ function refreshCurrentTab() {
 const updateHeaderStatusChip = () => {
   const chip = document.getElementById('appHeaderStatus');
   if (!chip) return;
-  chip.textContent = botRunning ? 'Bot running' : 'Bot offline';
+  chip.textContent = botRunning ? 'Running' : 'Offline';
   chip.classList.toggle('running', botRunning);
   chip.classList.toggle('stopped', !botRunning);
+  chip.setAttribute('aria-label', botRunning ? 'Bot is running' : 'Bot is offline');
 };
 
-const buildSetupGuideState = ({ status, walletsData, tradingData, lockData }) => {
-  const trackedCount = walletsData?.wallets?.length || 0;
-  const tradingCount = tradingData?.wallets?.length || 0;
+const buildSetupGuideState = ({ status, walletsData, tradingData, lockData, copyAssignments = [] }) => {
+  const trackedWallets = walletsData?.wallets || [];
+  const tradingWallets = tradingData?.wallets || [];
+  const trackedCount = trackedWallets.length;
+  const tradingCount = tradingWallets.length;
   const vaultUnlocked = usesHostedWalletAccess() ? true : !!lockData?.unlocked;
   const hasTradingWallet = tradingCount > 0;
-  const isReadyToStart = hasTradingWallet && trackedCount > 0;
+  const hasBuilderCreds = tradingWallets.some((w) => w.hasCredentials);
+  const hasActiveTracked = trackedWallets.some((w) => w.active);
+  const credentialedCount = tradingWallets.filter((w) => w.hasCredentials).length;
+  const needsCopyAssignment = credentialedCount >= 2;
+  const copyAssignmentReady = !needsCopyAssignment || copyAssignments.length > 0;
+  const isReadyToStart = hasTradingWallet && hasBuilderCreds && hasActiveTracked && copyAssignmentReady && trackedCount > 0;
   const isComplete = isReadyToStart && !!status?.running;
 
   const steps = [
     {
       key: 'session',
-      title: 'Connected to your workspace',
+      title: 'Signed in',
       detail: usesHostedWalletAccess()
-        ? 'Your hosted account session is active.'
-        : 'Your dashboard session is active.',
+        ? 'Your Ditto account is active.'
+        : 'Your session is active.',
       complete: true,
       action: 'dashboard'
     },
     {
       key: 'trading-wallet',
       title: usesHostedWalletAccess() ? 'Add a trading wallet' : 'Unlock or create your vault',
-      detail: hasTradingWallet
-        ? `${tradingCount} trading wallet${tradingCount === 1 ? '' : 's'} ready`
-        : (vaultUnlocked
+      detail: !hasTradingWallet
+        ? (vaultUnlocked
           ? 'Add the wallet Ditto should use to place copied trades.'
-          : 'Open your vault first, then add the wallet Ditto should trade with.'),
-      complete: hasTradingWallet,
+          : 'Open your vault first, then add the wallet Ditto should trade with.')
+        : (!hasBuilderCreds
+          ? 'Add Builder API credentials to your trading wallet so Ditto can place orders.'
+          : `${tradingCount} trading wallet${tradingCount === 1 ? '' : 's'} ready`),
+      complete: hasTradingWallet && hasBuilderCreds,
       action: 'trading-wallets'
     },
     {
       key: 'tracked-wallet',
-      title: 'Add a tracked wallet',
-      detail: trackedCount > 0
-        ? `${trackedCount} tracked wallet${trackedCount === 1 ? '' : 's'} added`
-        : 'Choose the wallet addresses Ditto should follow and copy.',
-      complete: trackedCount > 0,
+      title: 'Copy and enable a wallet',
+      detail: trackedCount === 0
+        ? 'Copy a Jungle Agent or add a wallet address.'
+        : (!hasActiveTracked
+          ? `${trackedCount} on your copy list — enable at least one to go live.`
+          : `${trackedCount} wallet${trackedCount === 1 ? '' : 's'} copying`),
+      complete: hasActiveTracked,
       action: 'wallets'
     },
+    ...(needsCopyAssignment ? [{
+      key: 'copy-assignment',
+      title: 'Assign copy wallets',
+      detail: copyAssignmentReady
+        ? 'Each tracked wallet is mapped to a trading wallet.'
+        : 'With multiple trading wallets, map each tracked wallet to the wallet that should execute copies.',
+      complete: copyAssignmentReady,
+      action: 'trading-wallets'
+    }] : []),
     {
       key: 'start-bot',
       title: 'Review and start the bot',
@@ -342,7 +376,7 @@ const buildSetupGuideState = ({ status, walletsData, tradingData, lockData }) =>
         ? 'Ditto is currently live.'
         : (isReadyToStart
           ? 'Your basics are ready. Start the bot when you are comfortable.'
-          : 'This unlocks once your trading wallet and tracked wallet are both ready.'),
+          : 'Complete the steps above before starting the bot.'),
       complete: !!status?.running,
       action: 'dashboard'
     }
@@ -364,7 +398,8 @@ const buildSetupGuideState = ({ status, walletsData, tradingData, lockData }) =>
 const SETUP_STEP_SHORT = {
   session: 'Session',
   'trading-wallet': 'Trading wallet',
-  'tracked-wallet': 'Tracked wallet',
+  'tracked-wallet': 'Copy wallet',
+  'copy-assignment': 'Copy map',
   'start-bot': 'Start bot',
 };
 
@@ -455,24 +490,24 @@ const renderSetupWizard = (state) => {
 
   if (summaryEl) {
     summaryEl.textContent = state.isComplete
-      ? 'Everything essential is configured. You can close this guide and use Ditto normally.'
-      : 'Ditto checks the real app state and sends you to the next thing that matters.';
+      ? 'You’re set. Close this guide and run Ditto.'
+      : 'Ditto reads your real setup and sends you to what’s missing.';
   }
 
   if (titleEl) {
-    titleEl.textContent = state.isComplete ? 'You are ready to review the dashboard.' : state.nextStep.title;
+    titleEl.textContent = state.isComplete ? 'You’re live.' : state.nextStep.title;
   }
 
   if (bodyEl) {
     bodyEl.textContent = state.isComplete
-      ? 'Your workspace has a trading wallet, at least one tracked wallet, and the bot is running.'
+      ? 'Trading wallet connected, wallets copying, bot running.'
       : state.nextStep.detail;
   }
 
   if (factsEl) {
     factsEl.innerHTML = `
       <div class="setup-wizard-fact">Trading wallets configured: <strong>${state.tradingCount}</strong></div>
-      <div class="setup-wizard-fact">Tracked wallets configured: <strong>${state.trackedCount}</strong></div>
+      <div class="setup-wizard-fact">Wallets on copy list: <strong>${state.trackedCount}</strong></div>
       <div class="setup-wizard-fact">Bot status: <strong>${botRunning ? 'Running' : 'Stopped'}</strong></div>
     `;
   }
@@ -483,7 +518,7 @@ const renderSetupWizard = (state) => {
       : (setupGuideAction === 'trading-wallets'
         ? 'Open Trading Wallets'
         : setupGuideAction === 'wallets'
-          ? 'Open Tracked Wallets'
+          ? 'Open Copy List'
           : 'Go to Home');
   }
 
@@ -503,7 +538,19 @@ async function refreshSetupExperience(autoOpen = false) {
       lockPromise
     ]);
 
-    setupGuideState = buildSetupGuideState({ status, walletsData, tradingData, lockData });
+    const tradingCount = (tradingData?.wallets || []).length;
+    const credentialedCount = (tradingData?.wallets || []).filter((w) => w.hasCredentials).length;
+    const assignmentsData = credentialedCount >= 2
+      ? await API.getCopyAssignments().catch(() => ({ assignments: [] }))
+      : { assignments: [] };
+
+    setupGuideState = buildSetupGuideState({
+      status,
+      walletsData,
+      tradingData,
+      lockData,
+      copyAssignments: assignmentsData.assignments || [],
+    });
     renderSetupWizard(setupGuideState);
 
     if (setupGuideState.isComplete) {
@@ -582,7 +629,6 @@ async function loadAllData() {
     await Promise.all([
       loadStatus(),
       loadWalletBalance(),
-      loadPerformance(),
       loadTrades(),
       loadWallets(),
       loadSettings(),
@@ -602,7 +648,7 @@ async function loadAllData() {
 }
 
 // Tabs/features still in development — platform admins only.
-const ADMIN_ONLY_TABS = new Set(['platforms', 'cross-platform']);
+const ADMIN_ONLY_TABS = new Set(['platforms', 'cross-platform', 'discovery']);
 
 function isPlatformAdminUser() {
   return !!window.__isPlatformAdmin;
@@ -619,11 +665,11 @@ function switchTab(tabName) {
   if (currentTab === 'discovery' && tabName !== 'discovery') {
     stopDiscoveryRefresh();
   }
-  document.querySelectorAll('.win-tab, .j-nav-btn').forEach(btn => {
+  document.querySelectorAll('.jw-tab, .j-nav-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tab === tabName);
   });
 
-  document.querySelectorAll('.win-tab-panel').forEach(panel => {
+  document.querySelectorAll('.jw-tab-panel').forEach(panel => {
     panel.classList.toggle('active', panel.id === `tab-${tabName}`);
   });
 
@@ -647,7 +693,6 @@ async function loadDashboardData() {
   const loads = [
     loadStatus(),
     loadWalletBalance(),
-    loadPerformance(),
     loadTrades(),
   ];
   if (isPlatformAdminUser()) {
@@ -672,16 +717,23 @@ function updateStatusUI(data) {
   // Taskbar
   const indicator = document.getElementById('taskbarIndicator');
   const statusText = document.getElementById('taskbarStatus');
+  const startStopBtn = document.getElementById('startStopBtn');
   const startStopLabel = document.getElementById('startStopLabel');
 
   if (data.running) {
     indicator.className = 'status-indicator running';
     statusText.textContent = 'Running';
-    startStopLabel.textContent = 'Stop';
+    if (startStopLabel) startStopLabel.textContent = 'Stop Copying';
+    startStopBtn?.classList.add('is-running');
+    startStopBtn?.classList.remove('is-ready');
+    startStopBtn?.setAttribute('aria-label', 'Stop copying trades');
   } else {
     indicator.className = 'status-indicator stopped';
     statusText.textContent = 'Stopped';
-    startStopLabel.textContent = 'Start';
+    if (startStopLabel) startStopLabel.textContent = 'Start Copying';
+    startStopBtn?.classList.remove('is-running');
+    startStopBtn?.classList.add('is-ready');
+    startStopBtn?.setAttribute('aria-label', 'Start copying trades');
   }
 
   // Status bar
@@ -689,15 +741,23 @@ function updateStatusUI(data) {
   document.getElementById('statusBarMode').textContent = data.monitoringMode || 'Polling';
 
   if (data.wallets) {
-    const activeCount = String(data.wallets.active);
-    document.getElementById('walletsTracked').textContent = activeCount;
-    const quickTracked = document.getElementById('quickWalletsTracked');
-    if (quickTracked) quickTracked.textContent = activeCount;
     const intervalSec = data.polling && data.polling.interval ? Math.round(data.polling.interval / 1000) : null;
     const modeText = intervalSec ? `Data source: Polymarket API, polling every ${intervalSec}s` : `${data.monitoringMode || 'polling'} mode`;
-    document.getElementById('statusBarMain').textContent = `${data.wallets.active} wallet(s) tracked | ${modeText}`;
+    document.getElementById('statusBarMain').textContent = `${data.wallets.active} wallet(s) copying | ${modeText}`;
   }
 }
+
+const copyWalletAddress = async () => {
+  const addrEl = document.getElementById('walletAddress');
+  const full = addrEl?.dataset.fullAddress;
+  if (!full) return;
+  try {
+    await navigator.clipboard.writeText(full);
+    jungleModal.success('Wallet address copied to clipboard.', 'Copied');
+  } catch {
+    await jungleModal.alert(full, 'Wallet address');
+  }
+};
 
 async function loadWalletBalance() {
   try {
@@ -705,8 +765,13 @@ async function loadWalletBalance() {
     const balance = await API.getWalletBalance();
 
     const displayAddress = wallet.proxyWalletAddress || wallet.walletAddress;
-    document.getElementById('walletAddress').textContent =
+    const addrEl = document.getElementById('walletAddress');
+    addrEl.textContent =
       displayAddress ? `${displayAddress.slice(0, 6)}...${displayAddress.slice(-4)}` : 'Not configured';
+    addrEl.dataset.fullAddress = displayAddress || '';
+    addrEl.title = displayAddress || '';
+    const copyBtn = document.getElementById('walletAddressCopy');
+    if (copyBtn) copyBtn.classList.toggle('hidden', !displayAddress);
 
     document.getElementById('walletBalance').textContent =
       `$${(balance.currentBalance || 0).toFixed(2)}`;
@@ -717,34 +782,6 @@ async function loadWalletBalance() {
     changeEl.className = `balance-change ${change >= 0 ? 'positive' : 'negative'}`;
   } catch (error) {
     console.error('Error loading wallet balance:', error);
-  }
-}
-
-async function loadPerformance() {
-  try {
-    const data = await API.getPerformance();
-    const successRate = `${(data.successRate || 0).toFixed(1)}%`;
-    const totalTrades = String(data.totalTrades || 0);
-    const avgLatency = `${Math.round(data.averageLatencyMs || 0)}ms`;
-    const successful = String(data.successfulTrades || 0);
-    const failed = String(data.failedTrades || 0);
-
-    const setText = (id, value) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = value;
-    };
-
-    setText('successRate', successRate);
-    setText('totalTrades', totalTrades);
-    setText('avgLatency', avgLatency);
-    setText('successfulTrades', successful);
-    setText('failedTrades', failed);
-
-    setText('quickSuccessRate', successRate);
-    setText('quickTotalTrades', totalTrades);
-    setText('quickAvgLatency', avgLatency);
-  } catch (error) {
-    console.error('Error loading performance:', error);
   }
 }
 
@@ -775,13 +812,36 @@ async function loadTrades() {
     const loadMoreBtn = document.getElementById('loadMoreTradesBtn');
 
     if (!data.trades || data.trades.length === 0) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No trades yet</td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No trades yet — copy a Jungle Agent or add a wallet, then press Start Copying to see activity here.</td></tr>';
       if (countLabel) countLabel.textContent = '0 trades';
       if (loadMoreBtn) loadMoreBtn.style.display = 'none';
+      previousTradeIds = new Set();
       return;
     }
 
-    allLoadedTrades = [...data.trades].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    const sorted = [...data.trades].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    const tradeKey = (trade) => `${trade.timestamp}:${trade.walletAddress}:${trade.marketId}:${trade.side}`;
+    const newlySeen = new Set();
+    sorted.forEach((trade) => {
+      const id = tradeKey(trade);
+      if (previousTradeIds.size > 0 && !previousTradeIds.has(id)) {
+        newlySeen.add(id);
+        const side = (trade.side || 'BUY').toUpperCase();
+        const market = trade.marketName || trade.marketId || 'market';
+        const label = trade.walletLabel || 'wallet';
+        if (trade.success) {
+          if (typeof jungleDialog !== 'undefined' && jungleDialog.success) {
+            jungleDialog.success(`Copied ${side} on ${market} from ${label}`, 'New trade');
+          }
+        } else if (trade.status !== 'pending' && typeof jungleDialog !== 'undefined' && jungleDialog.error) {
+          const reason = getShortRejectReason(trade) || 'failed';
+          jungleDialog.error(`Copy ${side} on ${market} ${reason}`, 'Trade failed');
+        }
+      }
+    });
+    previousTradeIds = new Set(sorted.map(tradeKey));
+
+    allLoadedTrades = sorted;
 
     tbody.innerHTML = allLoadedTrades.map((trade, idx) => {
       const detectedShares = parseFloat(trade.amount || 0);
@@ -798,11 +858,11 @@ async function loadTrades() {
       const sideClass = side === 'SELL' ? 'is-sell' : 'is-buy';
       const sideBadge = `<span class="j-trade-side ${sideClass}">${side}</span>`;
 
-      return `<tr class="clickable-row" onclick="openTradeDetailModal(${idx})" tabindex="0" role="button" aria-label="View trade details">
-        <td class="j-trade-time">${new Date(trade.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
-        <td class="j-trade-wallet">${trade.walletLabel || trade.walletAddress.slice(0, 8)}...${(trade.walletTags && trade.walletTags.length > 0) ? ' ' + trade.walletTags.map(t => `<span class="tag-badge ${TAG_COLOR_MAP[t] || ''}">${t}</span>`).join('') : ''}</td>
-        <td class="j-trade-market" title="${trade.marketId || ''}">${trade.marketName || trade.marketId?.slice(0, 12) + '...'}</td>
-        <td>${sideBadge} <span class="text-muted">${trade.outcome || ''}</span></td>
+      return `<tr class="clickable-row ${newlySeen.has(tradeKey(trade)) ? 'trade-row-new' : ''}" onclick="openTradeDetailModal(${idx})" tabindex="0" role="button" aria-label="View trade details" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openTradeDetailModal(${idx});}">
+        <td class="j-trade-time">${new Date(trade.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+        <td class="j-trade-wallet" title="${trade.walletLabel || trade.walletAddress}">${trade.walletLabel || trade.walletAddress.slice(0, 6) + '…'}</td>
+        <td class="j-trade-market" title="${trade.marketName || trade.marketId || ''}">${trade.marketName || trade.marketId?.slice(0, 12) + '…'}</td>
+        <td><span class="j-trade-side ${sideClass}">${side}</span></td>
         <td class="j-trade-amount">${amountDisplay}</td>
         <td>${statusLabel}</td>
       </tr>`;
@@ -903,28 +963,201 @@ const closeTradeDetailModal = () => {
 // BOT CONTROL
 // ============================================================
 
-async function toggleBot() {
+const withLoading = async (btn, fn) => {
+  if (!btn) return fn();
+  btn.disabled = true;
+  btn.classList.add('loading');
   try {
-    if (botRunning) {
-      await API.stopBot();
-    } else {
-      await API.startBot();
-    }
-    await loadStatus();
-    await refreshSetupExperience();
-  } catch (error) {
-    await win95Dialog.error(`Failed: ${error.message}`);
+    return await fn();
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('loading');
   }
+};
+
+const formatRelativeTime = (iso) => {
+  if (!iso) return 'No trades yet';
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return 'No trades yet';
+  const diffMs = Date.now() - then;
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+};
+
+const isRawEthAddress = (value) => /^0x[a-fA-F0-9]{40}$/.test(value.trim());
+
+const walletHasSizingConfig = (wallet) => {
+  if (!wallet) return false;
+  if (wallet.tradeSizingMode === 'proportional') return true;
+  return wallet.tradeSizingMode === 'fixed' && Number(wallet.fixedTradeSize) > 0;
+};
+
+const isMissingSizingError = (message) => (
+  typeof message === 'string' && /trade sizing/i.test(message)
+);
+
+const TAB_FIX_LABELS = {
+  wallets: 'Open Copy List',
+  'trading-wallets': 'Open My Wallets',
+  diagnostics: 'Open Diagnostics',
+  settings: 'Open Settings',
+  dashboard: 'Open Home',
+};
+
+const showPreflightModal = async (clientIssues, serverIssues = []) => {
+  const issues = [...clientIssues, ...serverIssues];
+  const listHtml = issues.map((issue) => {
+    const tab = issue.fixTab || 'dashboard';
+    const label = TAB_FIX_LABELS[tab] || 'Fix now';
+    return `<li class="preflight-issue">
+      <span>${issue.message}</span>
+      <button type="button" class="j-link-btn" data-preflight-tab="${tab}">${label}</button>
+    </li>`;
+  }).join('');
+
+  const body = `<p>Complete these steps before Ditto can start copying:</p><ul class="preflight-list">${listHtml}</ul>`;
+  await jungleModal.alert(body, 'Not ready to start');
+  document.querySelectorAll('[data-preflight-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tab = btn.getAttribute('data-preflight-tab');
+      if (tab && typeof switchTab === 'function') switchTab(tab);
+    });
+  });
+};
+
+const runClientPreflightChecks = async () => {
+  const issues = [];
+  try {
+    const [walletsData, tradingData, assignmentsData] = await Promise.all([
+      API.getWallets(),
+      API.getTradingWallets(),
+      API.getCopyAssignments(),
+    ]);
+    const tracked = walletsData.wallets || [];
+    const trading = tradingData.wallets || [];
+    const assignments = assignmentsData.assignments || [];
+    const activeTracked = tracked.filter((w) => w.active);
+    const credentialedActive = trading.filter((w) => w.active !== false && w.hasCredentials);
+    const credentialedCount = trading.filter((w) => w.hasCredentials).length;
+
+    if (activeTracked.length === 0) {
+      issues.push({
+        code: 'no_active_tracked',
+        message: 'Enable at least one wallet on your Copy List.',
+        fixTab: 'wallets',
+      });
+    }
+    if (credentialedActive.length === 0) {
+      issues.push({
+        code: 'no_trading_wallet',
+        message: 'Add a trading wallet with builder credentials.',
+        fixTab: 'trading-wallets',
+      });
+    }
+    if ((usesHostedWalletAccess() || credentialedCount >= 2) && assignments.length === 0 && activeTracked.length > 0) {
+      issues.push({
+        code: 'no_copy_assignments',
+        message: 'Set up copy assignments under My Wallets.',
+        fixTab: 'trading-wallets',
+      });
+    }
+  } catch (error) {
+    issues.push({
+      code: 'preflight_error',
+      message: error.message || 'Could not verify setup.',
+      fixTab: 'dashboard',
+    });
+  }
+  return issues;
+};
+
+const consolidatePowerUserTabsIntoSettings = () => {
+  const settingsTab = document.getElementById('tab-settings');
+  const platformsTab = document.getElementById('tab-platforms');
+  const crossTab = document.getElementById('tab-cross-platform');
+  if (!settingsTab || !platformsTab || !crossTab) return;
+  if (document.getElementById('settingsPlatformsSection')) return;
+
+  const wrap = (title, sourceEl) => {
+    const details = document.createElement('details');
+    details.className = 'j-settings-collapsible';
+    details.setAttribute('data-admin-only', '');
+    const summary = document.createElement('summary');
+    summary.className = 'j-settings-collapsible-title';
+    summary.textContent = title;
+    details.appendChild(summary);
+    const inner = document.createElement('div');
+    inner.className = 'j-settings-collapsible-body';
+    while (sourceEl.firstChild) {
+      inner.appendChild(sourceEl.firstChild);
+    }
+    details.appendChild(inner);
+    details.addEventListener('toggle', () => {
+      if (!details.open) return;
+      if (title.includes('Platforms')) loadPlatformStatus();
+      if (title.includes('Cross')) refreshExecutorStatus();
+    });
+    return details;
+  };
+
+  const platformsSection = wrap('Platforms (admin)', platformsTab);
+  platformsSection.id = 'settingsPlatformsSection';
+  const crossSection = wrap('Cross-Platform (admin)', crossTab);
+  crossSection.id = 'settingsCrossPlatformSection';
+  settingsTab.appendChild(platformsSection);
+  settingsTab.appendChild(crossSection);
+  platformsTab.remove();
+  crossTab.remove();
+};
+
+async function toggleBot() {
+  const btn = document.getElementById('startStopBtn');
+  await withLoading(btn, async () => {
+    try {
+      if (botRunning) {
+        await API.stopBot();
+      } else {
+        const clientIssues = await runClientPreflightChecks();
+        let serverIssues = [];
+        try {
+          const preflight = await API.get('/preflight');
+          if (!preflight.ready && Array.isArray(preflight.issues)) {
+            serverIssues = preflight.issues;
+          }
+        } catch {
+          // Server preflight is best-effort
+        }
+        const merged = [...clientIssues];
+        serverIssues.forEach((issue) => {
+          if (!merged.some((m) => m.code === issue.code)) merged.push(issue);
+        });
+        if (merged.length > 0) {
+          await showPreflightModal(clientIssues, serverIssues);
+          return;
+        }
+        await API.startBot();
+      }
+      await loadStatus();
+      await refreshSetupExperience();
+    } catch (error) {
+      await jungleModal.error(`Failed: ${error.message}`);
+    }
+  });
 }
 
 async function startBot() {
   try { await API.startBot(); await loadStatus(); }
-  catch (error) { await win95Dialog.error(`Failed to start bot: ${error.message}`); }
+  catch (error) { await jungleModal.error(`Failed to start bot: ${error.message}`); }
 }
 
 async function stopBot() {
   try { await API.stopBot(); await loadStatus(); }
-  catch (error) { await win95Dialog.error(`Failed to stop bot: ${error.message}`); }
+  catch (error) { await jungleModal.error(`Failed to stop bot: ${error.message}`); }
 }
 
 // ============================================================
@@ -936,6 +1169,8 @@ let currentWalletAddress = null;
 // Wallet list cache to prevent full DOM rebuilds (fixes balance blinking)
 let lastWalletHash = '';
 let cachedWalletAddresses = [];
+let walletSummaryByAddress = new Map();
+let previousTradeIds = new Set();
 
 // Active tag filter (empty string = show all)
 let activeTagFilter = '';
@@ -1014,9 +1249,12 @@ function renderJungleAgentPresets() {
   }
 
   container.innerHTML = filtered.map((agent) => {
-    const avatar = agent.avatarUrl
-      ? `<img src="${agent.avatarUrl}" alt="${agent.displayName}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;border:1px solid var(--win-dark);">`
-      : '<div style="width:28px;height:28px;border-radius:50%;border:1px solid var(--win-dark);display:flex;align-items:center;justify-content:center;font-size:12px;">?</div>';
+    const avatarInner = renderJungleAgentAvatar(agent, {
+      imgClass: 'j-preset-avatar-img',
+      iconClass: 'j-preset-avatar-icon',
+      fallbackClass: 'j-preset-avatar-fallback',
+    });
+    const avatar = `<div class="j-preset-avatar">${avatarInner}</div>`;
 
     const address = agent.polymarketAddress || '';
     const shortAddress = address
@@ -1030,13 +1268,13 @@ function renderJungleAgentPresets() {
           <div class="wallet-entry-address" style="display:flex;align-items:center;gap:8px;">
             ${avatar}
             <div>
-              <div><strong>${agent.displayName}</strong> <span class="win-badge">${agent.category || 'Uncategorized'}</span></div>
+              <div><strong>${agent.displayName}</strong> <span class="jw-badge">${agent.category || 'Uncategorized'}</span></div>
               <div class="text-sm text-muted">${agent.modelLabel || 'No model label'} - ${shortAddress}</div>
             </div>
           </div>
         </div>
         <div class="wallet-entry-actions">
-          <button class="win-btn win-btn-sm" onclick="oneClickTrackJungleAgent('${agent.id}')" ${disabled}>Track</button>
+          <button class="jw-btn jw-btn-sm jw-btn-primary" onclick="oneClickCopyJungleAgent('${agent.id}')" ${disabled}>Copy</button>
         </div>
       </div>
     `;
@@ -1066,29 +1304,37 @@ async function loadJungleAgentPresets(forceRefresh = false) {
   }
 }
 
-async function oneClickTrackJungleAgent(agentId) {
+async function oneClickCopyJungleAgent(agentId) {
   const agent = jungleAgentPresetCache.find((entry) => entry.id === agentId);
   if (!agent) {
-    await win95Dialog.error('Agent preset not found.');
+    await jungleModal.error('Agent preset not found.');
     return;
   }
   if (!agent.polymarketAddress) {
-    await win95Dialog.alert('This preset does not have a wallet address yet.');
+    await jungleModal.alert('This preset does not have a wallet address yet.');
     return;
   }
 
+  const addr = agent.polymarketAddress.toLowerCase();
   try {
     await API.post('/wallets', {
-      address: agent.polymarketAddress,
+      address: addr,
       label: agent.displayName,
       tags: [agent.category || 'Uncategorized']
     });
-    await win95Dialog.success(`${agent.displayName} added to tracked wallets.`);
     lastWalletHash = '';
     await loadWallets(true);
+    await refreshSetupExperience();
+    switchTab('wallets');
+    await openWalletModal(addr);
   } catch (error) {
-    await win95Dialog.error(`Failed to add preset wallet: ${error.message}`);
+    await jungleModal.error(`Failed to add wallet: ${error.message}`);
   }
+}
+
+/** @deprecated use oneClickCopyJungleAgent */
+async function oneClickTrackJungleAgent(agentId) {
+  return oneClickCopyJungleAgent(agentId);
 }
 
 async function loadWallets(forceRebuild = false) {
@@ -1097,10 +1343,24 @@ async function loadWallets(forceRebuild = false) {
     const list = document.getElementById('walletsList');
     await loadJungleAgentPresets();
 
+    try {
+      const summaryData = await API.get('/wallets/summary');
+      walletSummaryByAddress = new Map(
+        (summaryData.wallets || []).map((w) => [w.address.toLowerCase(), w])
+      );
+    } catch {
+      walletSummaryByAddress = new Map();
+    }
+
     if (!data.wallets || data.wallets.length === 0) {
       lastWalletHash = '';
       cachedWalletAddresses = [];
-      list.innerHTML = '<div class="text-center text-muted" style="padding:20px;">No wallets tracked yet. Add a wallet address above to start copy trading.</div>';
+      list.innerHTML = `
+        <div class="j-empty-state-card">
+          <p class="j-empty-state-title">No wallets on your copy list yet</p>
+          <p class="text-sm text-muted">Copy a Jungle Agent or paste a wallet address to get started.</p>
+          <button type="button" class="j-btn j-btn-primary" onclick="switchTab('jungle-agents')">Browse Jungle Agents</button>
+        </div>`;
       return;
     }
 
@@ -1140,7 +1400,12 @@ async function loadWallets(forceRebuild = false) {
       const configBadges = getWalletConfigBadges(wallet);
       const tagBadges = renderTagBadges(wallet.tags);
       const tagsDataAttr = (wallet.tags || []).join(',');
-      const pausedBadge = isActive ? '' : '<span class="paused-badge">Paused</span>';
+      const pausedBadge = isActive ? '' : '<span class="paused-badge" aria-label="Draft">Draft</span>';
+      const summary = walletSummaryByAddress.get(wallet.address.toLowerCase());
+      const lastTradeLabel = formatRelativeTime(summary?.lastTradeTime);
+      const enableBtn = isActive
+        ? ''
+        : `<button type="button" class="jw-btn jw-btn-sm jw-btn-primary" onclick="toggleWallet('${wallet.address}', true)" aria-label="Enable copying">Enable copying</button>`;
 
       return `
         <div class="wallet-entry ${isActive ? 'active-wallet' : 'inactive-wallet'}" id="wallet-${wallet.address}" data-tags="${tagsDataAttr}">
@@ -1152,17 +1417,19 @@ async function loadWallets(forceRebuild = false) {
               ${tagBadges}
             </div>
             <div class="wallet-entry-config">${configBadges}</div>
+            <div class="wallet-entry-last-trade text-sm text-muted">Last trade: ${lastTradeLabel}</div>
           </div>
           <div class="wallet-entry-balance" id="balance-${wallet.address}">
-            <span class="text-muted text-sm">Loading...</span>
+            <span class="balance-skeleton" aria-hidden="true"></span>
           </div>
           <div class="wallet-entry-actions">
-            <label class="win-toggle">
-              <input type="checkbox" ${isActive ? 'checked' : ''} onchange="toggleWallet('${wallet.address}', this.checked)">
+            <label class="jw-toggle" title="${isActive ? 'Copying live' : 'Draft (not copying)'}">
+              <input type="checkbox" ${isActive ? 'checked' : ''} onchange="toggleWallet('${wallet.address}', this.checked)" aria-checked="${isActive}">
             </label>
-            <button class="win-btn win-btn-sm" onclick="openMirrorModal('${wallet.address}')">Mirror</button>
-            <button class="win-btn win-btn-sm" onclick="openWalletModal('${wallet.address}')">Config</button>
-            <button class="win-btn win-btn-sm win-btn-danger" onclick="removeWallet('${wallet.address}')">X</button>
+            ${enableBtn}
+            <button type="button" class="jw-btn jw-btn-sm" onclick="openMirrorModal('${wallet.address}')" aria-label="Mirror positions">Mirror</button>
+            <button type="button" class="jw-btn jw-btn-sm" onclick="openWalletModal('${wallet.address}')" aria-label="Edit copy settings">Edit copy</button>
+            <button type="button" class="jw-btn jw-btn-sm jw-btn-danger" onclick="removeWallet('${wallet.address}')" aria-label="Remove wallet">Remove</button>
           </div>
         </div>
       `;
@@ -1196,6 +1463,11 @@ async function loadTrackedWalletBalance(address) {
 
     if (data.success && data.currentBalance !== undefined) {
       const totalValue = data.currentBalance;
+      const unhealthy = data.addressHealthy === false;
+      if (unhealthy) {
+        balanceEl.innerHTML = `<span class="text-danger" title="No Polymarket activity detected — Ditto can’t copy from this wallet">$0 ⚠</span>`;
+        return;
+      }
       if (totalValue > 0) {
         balanceEl.innerHTML = `<span class="balance-val">$${formatNumber(totalValue)}</span>`;
       } else {
@@ -1219,54 +1491,101 @@ function getWalletConfigBadges(wallet) {
   const badges = [];
 
   if (wallet.tradeSizingMode === 'fixed') {
-    badges.push(`<span class="win-badge badge-success">Fixed $${wallet.fixedTradeSize || '?'}</span>`);
-    if (wallet.thresholdEnabled) badges.push(`<span class="win-badge badge-success">${wallet.thresholdPercent}% threshold</span>`);
+    badges.push(`<span class="jw-badge badge-success">Fixed $${wallet.fixedTradeSize || '?'}</span>`);
+    if (wallet.thresholdEnabled) badges.push(`<span class="jw-badge badge-success">${wallet.thresholdPercent}% threshold</span>`);
   } else if (wallet.tradeSizingMode === 'proportional') {
-    badges.push(`<span class="win-badge badge-success">Proportional</span>`);
+    badges.push(`<span class="jw-badge badge-success">Proportional</span>`);
   } else {
-    badges.push(`<span class="win-badge">Global size</span>`);
+    badges.push(`<span class="jw-badge">Global size</span>`);
   }
 
   if (wallet.tradeSideFilter && wallet.tradeSideFilter !== 'all') {
     const label = wallet.tradeSideFilter === 'buy_only' ? 'BUY only' : 'SELL only';
-    badges.push(`<span class="win-badge badge-warning">${label}</span>`);
+    badges.push(`<span class="jw-badge badge-warning">${label}</span>`);
   }
 
-  if (wallet.noRepeatEnabled) badges.push(`<span class="win-badge badge-success">No repeat</span>`);
-  if (wallet.rateLimitEnabled) badges.push(`<span class="win-badge badge-success">Rate limited</span>`);
-  if (wallet.valueFilterEnabled) badges.push(`<span class="win-badge badge-success">Value filter</span>`);
+  if (wallet.noRepeatEnabled) badges.push(`<span class="jw-badge badge-success">No repeat</span>`);
+  if (wallet.rateLimitEnabled) badges.push(`<span class="jw-badge badge-success">Rate limited</span>`);
+  if (wallet.valueFilterEnabled) badges.push(`<span class="jw-badge badge-success">Value filter</span>`);
 
-  return badges.join(' ') || '<span class="win-badge">Using defaults</span>';
+  return badges.join(' ') || '<span class="jw-badge">Using defaults</span>';
 }
 
 async function addWallet() {
   const input = document.getElementById('newWalletAddress');
+  const addBtn = document.getElementById('addWalletBtn');
+  const errorEl = document.getElementById('newWalletAddressError');
   const address = input.value.trim();
-  if (!address) { await win95Dialog.alert('Please enter a wallet address'); return; }
-
-  try {
-    await API.addWallet(address);
-    input.value = '';
-    lastWalletHash = '';
-    await loadWallets(true);
-    await refreshSetupExperience();
-    if (await win95Dialog.confirm('Wallet added (inactive by default). Configure it now?')) {
-      openWalletModal(address.toLowerCase());
-    }
-  } catch (error) {
-    await win95Dialog.error(`Failed to add wallet: ${error.message}`);
+  if (!address) {
+    await jungleModal.alert('Please enter a wallet address, @username, or Polymarket profile URL');
+    return;
   }
+
+  const looksLikeRawAddress = address.startsWith('0x');
+  if (looksLikeRawAddress && !isRawEthAddress(address)) {
+    input.classList.add('input-invalid');
+    if (errorEl) {
+      errorEl.textContent = 'Enter a valid 0x address (42 characters).';
+      errorEl.classList.remove('hidden');
+    }
+    return;
+  }
+  input.classList.remove('input-invalid');
+  if (errorEl) errorEl.classList.add('hidden');
+
+  await withLoading(addBtn, async () => {
+    try {
+      const result = await API.addWallet(address);
+      input.value = '';
+      input.classList.add('input-success');
+      window.setTimeout(() => input.classList.remove('input-success'), 1200);
+      lastWalletHash = '';
+      await loadWallets(true);
+      await refreshSetupExperience();
+      switchTab('wallets');
+      await openWalletModal((result.resolvedAddress || address).toLowerCase());
+    } catch (error) {
+      await jungleModal.error(`Failed to add wallet: ${error.message}`);
+    }
+  });
 }
 
 async function removeWallet(address) {
-  if (!await win95Dialog.confirm('Remove this tracked wallet?')) return;
+  if (!await jungleModal.confirm('Remove this wallet from your copy list?')) return;
   try { lastWalletHash = ''; await API.removeWallet(address); await loadWallets(true); }
-  catch (error) { await win95Dialog.error(`Failed to remove wallet: ${error.message}`); }
+  catch (error) { await jungleModal.error(`Failed to remove wallet: ${error.message}`); }
 }
 
 async function toggleWallet(address, active) {
-  try { lastWalletHash = ''; await API.toggleWallet(address, active); await loadWallets(true); }
-  catch (error) { await win95Dialog.error(`Failed to toggle wallet: ${error.message}`); await loadWallets(true); }
+  if (active) {
+    try {
+      const data = await API.getWallets();
+      const wallet = data.wallets.find((w) => w.address.toLowerCase() === address.toLowerCase());
+      if (wallet && !walletHasSizingConfig(wallet)) {
+        await loadWallets(true);
+        switchTab('wallets');
+        await openWalletModal(address);
+        return;
+      }
+    } catch {
+      // Fall through to API toggle attempt.
+    }
+  }
+
+  try {
+    lastWalletHash = '';
+    await API.toggleWallet(address, active);
+    await loadWallets(true);
+  } catch (error) {
+    if (active && isMissingSizingError(error.message)) {
+      await loadWallets(true);
+      switchTab('wallets');
+      await openWalletModal(address);
+      return;
+    }
+    await jungleModal.error(`Failed to toggle wallet: ${error.message}`);
+    await loadWallets(true);
+  }
 }
 
 // ============================================================
@@ -1279,27 +1598,41 @@ async function openWalletModal(address) {
   try {
     const data = await API.getWallets();
     const wallet = data.wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
-    if (!wallet) { await win95Dialog.error('Wallet not found'); return; }
+    if (!wallet) { await jungleModal.error('Wallet not found'); return; }
 
-    document.getElementById('walletModalTitle').textContent = `Configure: ${wallet.label || address.slice(0, 10) + '...'}`;
+    const displayName = wallet.label || `${address.slice(0, 6)}…${address.slice(-4)}`;
+    const eyebrow = document.getElementById('copySetupEyebrow');
+    if (eyebrow) {
+      eyebrow.textContent = wallet.active ? 'Edit copy' : 'Copy setup';
+    }
+    document.getElementById('walletModalTitle').textContent = wallet.active
+      ? `Copy settings: ${displayName}`
+      : `Set up copy: ${displayName}`;
+
+    const setupHint = document.getElementById('walletModalSetupHint');
+    if (setupHint) {
+      setupHint.classList.toggle('hidden', wallet.active);
+    }
     document.getElementById('modalWalletAddress').textContent = address;
 
     const statusEl = document.getElementById('modalWalletStatus');
-    statusEl.textContent = wallet.active ? 'Active' : 'Inactive';
-    statusEl.className = `win-badge ${wallet.active ? 'badge-success' : 'badge-danger'}`;
+    statusEl.textContent = wallet.active ? 'Copying live' : 'Draft';
+    statusEl.className = `jw-badge copy-setup-status-badge ${wallet.active ? 'badge-success' : ''}`;
 
     document.getElementById('modalWalletLabel').value = wallet.label || '';
     document.getElementById('modalTradeSize').value = wallet.fixedTradeSize || 2;
 
     const modeValue = wallet.tradeSizingMode || 'fixed';
-    document.querySelector(`input[name="modalTradeSizingMode"][value="${modeValue}"]`).checked = true;
+    const modeRadio = document.querySelector(`input[name="modalTradeSizingMode"][value="${modeValue}"]`);
+    if (modeRadio) modeRadio.checked = true;
 
     document.getElementById('modalThresholdEnabled').checked = wallet.thresholdEnabled || false;
-    document.getElementById('modalThresholdInputs').className = wallet.thresholdEnabled ? '' : 'hidden';
+    document.getElementById('modalThresholdInputs').className = wallet.thresholdEnabled ? 'copy-setup-subpanel' : 'copy-setup-subpanel hidden';
     document.getElementById('modalThresholdPercent').value = wallet.thresholdPercent || 10;
 
     const sideValue = wallet.tradeSideFilter || 'all';
-    document.querySelector(`input[name="modalTradeSideFilter"][value="${sideValue}"]`).checked = true;
+    const sideRadio = document.querySelector(`input[name="modalTradeSideFilter"][value="${sideValue}"]`);
+    if (sideRadio) sideRadio.checked = true;
 
     document.getElementById('modalNoRepeatEnabled').checked = wallet.noRepeatEnabled || false;
     document.getElementById('modalNoRepeatInputs').className = wallet.noRepeatEnabled ? '' : 'hidden';
@@ -1322,7 +1655,6 @@ async function openWalletModal(address) {
     document.getElementById('modalSlippagePercent').value = wallet.slippagePercent || '';
     updateSlippageBadge();
 
-    // Initialize tags
     const currentTags = wallet.tags || [];
     document.getElementById('modalWalletTags').value = JSON.stringify(currentTags);
     refreshModalTagButtons(currentTags);
@@ -1332,98 +1664,233 @@ async function openWalletModal(address) {
     modal.classList.remove('hidden');
     document.body.classList.add('j-drawer-open');
     setupModalEventListeners();
+
+    const tradeSizeInput = document.getElementById('modalTradeSize');
+    if (!wallet.active && tradeSizeInput) {
+      window.setTimeout(() => {
+        tradeSizeInput.focus();
+        tradeSizeInput.select();
+      }, 80);
+    }
   } catch (error) {
-    await win95Dialog.error(`Failed to load wallet: ${error.message}`);
+    await jungleModal.error(`Failed to load wallet: ${error.message}`);
   }
+}
+
+function bindModalLiveUpdate(el, handler) {
+  if (!el || el.dataset.copySetupBound === 'true') return;
+  el.dataset.copySetupBound = 'true';
+  el.addEventListener('input', handler);
+  el.addEventListener('change', handler);
 }
 
 function setupModalEventListeners() {
-  document.getElementById('modalTradeSize').onchange = updateModalPipeline;
-  document.querySelectorAll('input[name="modalTradeSizingMode"]').forEach(r => r.onchange = updateModalPipeline);
+  bindModalLiveUpdate(document.getElementById('modalTradeSize'), updateModalPipeline);
+  bindModalLiveUpdate(document.getElementById('modalWalletLabel'), updateModalPipeline);
+  bindModalLiveUpdate(document.getElementById('modalThresholdPercent'), updateModalPipeline);
+  bindModalLiveUpdate(document.getElementById('modalNoRepeatPeriod'), updateModalPipeline);
+  bindModalLiveUpdate(document.getElementById('modalValueFilterMin'), updateModalPipeline);
+  bindModalLiveUpdate(document.getElementById('modalValueFilterMax'), updateModalPipeline);
+  bindModalLiveUpdate(document.getElementById('modalRateLimitPerHour'), updateModalPipeline);
+  bindModalLiveUpdate(document.getElementById('modalRateLimitPerDay'), updateModalPipeline);
 
-  document.getElementById('modalThresholdEnabled').onchange = function () {
-    document.getElementById('modalThresholdInputs').className = this.checked ? '' : 'hidden';
-    updateModalPipeline();
-  };
+  document.querySelectorAll('input[name="modalTradeSizingMode"]').forEach((r) => {
+    bindModalLiveUpdate(r, updateModalPipeline);
+  });
+  document.querySelectorAll('input[name="modalTradeSideFilter"]').forEach((r) => {
+    bindModalLiveUpdate(r, updateModalPipeline);
+  });
 
-  document.querySelectorAll('input[name="modalTradeSideFilter"]').forEach(r => r.onchange = updateModalPipeline);
+  const thresholdToggle = document.getElementById('modalThresholdEnabled');
+  if (thresholdToggle && thresholdToggle.dataset.copySetupBound !== 'true') {
+    thresholdToggle.dataset.copySetupBound = 'true';
+    thresholdToggle.addEventListener('change', function () {
+      document.getElementById('modalThresholdInputs').className = this.checked ? 'copy-setup-subpanel' : 'copy-setup-subpanel hidden';
+      updateModalPipeline();
+    });
+  }
 
-  document.getElementById('modalNoRepeatEnabled').onchange = function () {
-    document.getElementById('modalNoRepeatInputs').className = this.checked ? '' : 'hidden';
-    updateModalPipeline();
-  };
-  document.getElementById('modalNoRepeatPeriod').onchange = updateModalPipeline;
+  const noRepeatToggle = document.getElementById('modalNoRepeatEnabled');
+  if (noRepeatToggle && noRepeatToggle.dataset.copySetupBound !== 'true') {
+    noRepeatToggle.dataset.copySetupBound = 'true';
+    noRepeatToggle.addEventListener('change', function () {
+      document.getElementById('modalNoRepeatInputs').className = this.checked ? '' : 'hidden';
+      updateModalPipeline();
+    });
+  }
 
-  document.getElementById('modalValueFilterEnabled').onchange = function () {
-    document.getElementById('modalValueFilterInputs').className = this.checked ? '' : 'hidden';
-    updateModalPipeline();
-  };
+  const valueToggle = document.getElementById('modalValueFilterEnabled');
+  if (valueToggle && valueToggle.dataset.copySetupBound !== 'true') {
+    valueToggle.dataset.copySetupBound = 'true';
+    valueToggle.addEventListener('change', function () {
+      document.getElementById('modalValueFilterInputs').className = this.checked ? '' : 'hidden';
+      updateModalPipeline();
+    });
+  }
 
-  document.getElementById('modalRateLimitEnabled').onchange = function () {
-    document.getElementById('modalRateLimitInputs').className = this.checked ? '' : 'hidden';
-    updateModalPipeline();
-  };
+  const rateToggle = document.getElementById('modalRateLimitEnabled');
+  if (rateToggle && rateToggle.dataset.copySetupBound !== 'true') {
+    rateToggle.dataset.copySetupBound = 'true';
+    rateToggle.addEventListener('change', function () {
+      document.getElementById('modalRateLimitInputs').className = this.checked ? '' : 'hidden';
+      updateModalPipeline();
+    });
+  }
 
-  document.getElementById('modalPriceLimitsMin').onchange = function () { updatePriceBadge(); updateModalPipeline(); };
-  document.getElementById('modalPriceLimitsMax').onchange = function () { updatePriceBadge(); updateModalPipeline(); };
-  document.getElementById('modalSlippagePercent').onchange = function () { updateSlippageBadge(); updateModalPipeline(); };
+  bindModalLiveUpdate(document.getElementById('modalPriceLimitsMin'), () => { updatePriceBadge(); updateModalPipeline(); });
+  bindModalLiveUpdate(document.getElementById('modalPriceLimitsMax'), () => { updatePriceBadge(); updateModalPipeline(); });
+  bindModalLiveUpdate(document.getElementById('modalSlippagePercent'), () => { updateSlippageBadge(); updateModalPipeline(); });
+}
+
+function formatCopySummaryChip(label, active) {
+  return `<span class="copy-setup-chip${active ? ' is-on' : ''}">${label}</span>`;
 }
 
 function updateModalPipeline() {
-  const tradeSize = document.getElementById('modalTradeSize').value || 2;
-  document.getElementById('modal-pipeline-size-desc').textContent = `$${tradeSize} USDC`;
+  const tradeSize = parseFloat(document.getElementById('modalTradeSize')?.value) || 2;
+  const mode = document.querySelector('input[name="modalTradeSizingMode"]:checked')?.value || 'fixed';
 
-  const side = document.querySelector('input[name="modalTradeSideFilter"]:checked').value;
+  const amountEl = document.getElementById('copySummaryAmount');
+  const sizingLabelEl = document.getElementById('copySummarySizingLabel');
+  if (amountEl && sizingLabelEl) {
+    if (mode === 'proportional') {
+      amountEl.textContent = 'Match %';
+      sizingLabelEl.textContent = 'of their portfolio per trade';
+    } else {
+      amountEl.textContent = `$${tradeSize.toFixed(2)}`;
+      sizingLabelEl.textContent = 'per trade (fixed amount)';
+    }
+  }
+
+  const side = document.querySelector('input[name="modalTradeSideFilter"]:checked')?.value || 'all';
+  const sideText = side === 'buy_only' ? 'Buys only' : side === 'sell_only' ? 'Sells only' : 'All buys & sells';
+
+  const minPrice = parseFloat(document.getElementById('modalPriceLimitsMin')?.value) || 0.01;
+  const maxPrice = parseFloat(document.getElementById('modalPriceLimitsMax')?.value) || 0.99;
+  const isDefaultPrice = minPrice === 0.01 && maxPrice === 0.99;
+  const priceText = isDefaultPrice ? 'Standard odds range' : `Odds $${minPrice.toFixed(2)}–$${maxPrice.toFixed(2)}`;
+
+  const metaEl = document.getElementById('copySummaryMeta');
+  if (metaEl) metaEl.textContent = `${sideText} · ${priceText}`;
+
+  const statusBadge = document.getElementById('modalWalletStatus');
+  const isLive = statusBadge?.textContent === 'Copying live';
+  const statusEl = document.getElementById('copySummaryStatus');
+  if (statusEl) {
+    statusEl.textContent = isLive
+      ? 'Live — copies run when the bot is on and this wallet is enabled'
+      : 'Not live yet — choose Save & enable copying when ready';
+    statusEl.classList.toggle('is-live', isLive);
+  }
+
+  const chips = [];
+  if (document.getElementById('modalThresholdEnabled')?.checked) {
+    const pct = document.getElementById('modalThresholdPercent')?.value || '10';
+    chips.push(formatCopySummaryChip(`${pct}% portfolio min`, true));
+  }
+  if (side !== 'all') {
+    chips.push(formatCopySummaryChip(sideText, true));
+  }
+  if (!isDefaultPrice) {
+    chips.push(formatCopySummaryChip('Custom odds', true));
+  }
+  if (document.getElementById('modalNoRepeatEnabled')?.checked) {
+    const period = document.getElementById('modalNoRepeatPeriod')?.value;
+    const repeatLabel = period === '0' ? 'No repeat markets' : `No repeat ${period}h`;
+    chips.push(formatCopySummaryChip(repeatLabel, true));
+  }
+  if (document.getElementById('modalValueFilterEnabled')?.checked) {
+    chips.push(formatCopySummaryChip('Trade size filter', true));
+  }
+  if (document.getElementById('modalRateLimitEnabled')?.checked) {
+    const rH = document.getElementById('modalRateLimitPerHour')?.value || 10;
+    const rD = document.getElementById('modalRateLimitPerDay')?.value || 50;
+    chips.push(formatCopySummaryChip(`Max ${rH}/hr · ${rD}/day`, true));
+  }
+  const slippage = document.getElementById('modalSlippagePercent')?.value;
+  if (slippage && parseFloat(slippage) !== 2) {
+    chips.push(formatCopySummaryChip(`${slippage}% slippage`, true));
+  }
+  const tags = getModalTags();
+  if (tags.length > 0) {
+    chips.push(formatCopySummaryChip(`${tags.length} tag${tags.length === 1 ? '' : 's'}`, true));
+  }
+
+  const chipsEl = document.getElementById('copySummaryChips');
+  if (chipsEl) {
+    chipsEl.innerHTML = chips.length > 0 ? chips.join('') : formatCopySummaryChip('No extra filters', false);
+    chipsEl.setAttribute('aria-hidden', chips.length === 0 ? 'true' : 'false');
+  }
+
+  // Legacy hidden nodes (tests / older hooks)
+  const sizeDesc = document.getElementById('modal-pipeline-size-desc');
+  if (sizeDesc) sizeDesc.textContent = mode === 'proportional' ? 'Proportional' : `$${tradeSize} USDC`;
+
   const sideDesc = document.getElementById('modal-pipeline-side-desc');
   const sideStatus = document.getElementById('modal-pipeline-side-status');
-  if (side !== 'all') {
-    sideDesc.textContent = side === 'buy_only' ? 'BUY only' : 'SELL only';
-    sideStatus.textContent = 'ON'; sideStatus.className = 'step-status on';
-  } else {
-    sideDesc.textContent = 'All trades';
-    sideStatus.textContent = 'OFF'; sideStatus.className = 'step-status off';
+  if (sideDesc && sideStatus) {
+    if (side !== 'all') {
+      sideDesc.textContent = side === 'buy_only' ? 'BUY only' : 'SELL only';
+      sideStatus.textContent = 'ON'; sideStatus.className = 'step-status on';
+    } else {
+      sideDesc.textContent = 'All trades';
+      sideStatus.textContent = 'OFF'; sideStatus.className = 'step-status off';
+    }
   }
 
-  const minPrice = document.getElementById('modalPriceLimitsMin').value || 0.01;
-  const maxPrice = document.getElementById('modalPriceLimitsMax').value || 0.99;
-  const isDefaultPrice = parseFloat(minPrice) === 0.01 && parseFloat(maxPrice) === 0.99;
-  document.getElementById('modal-pipeline-price-desc').textContent = `$${minPrice} - $${maxPrice}`;
-  document.getElementById('modal-pipeline-price-status').textContent = isDefaultPrice ? 'DEFAULT' : 'CUSTOM';
-  document.getElementById('modal-pipeline-price-status').className = `step-status ${isDefaultPrice ? 'off' : 'on'}`;
-
-  const noRepeatEnabled = document.getElementById('modalNoRepeatEnabled').checked;
-  const noRepeatPeriod = document.getElementById('modalNoRepeatPeriod').value;
-  if (noRepeatEnabled) {
-    document.getElementById('modal-pipeline-norepeat-desc').textContent = noRepeatPeriod === '0' ? 'Block forever' : `Block ${noRepeatPeriod}h`;
-    document.getElementById('modal-pipeline-norepeat-status').textContent = 'ON'; document.getElementById('modal-pipeline-norepeat-status').className = 'step-status on';
-  } else {
-    document.getElementById('modal-pipeline-norepeat-desc').textContent = 'Disabled';
-    document.getElementById('modal-pipeline-norepeat-status').textContent = 'OFF'; document.getElementById('modal-pipeline-norepeat-status').className = 'step-status off';
+  const priceDesc = document.getElementById('modal-pipeline-price-desc');
+  const priceStatus = document.getElementById('modal-pipeline-price-status');
+  if (priceDesc && priceStatus) {
+    priceDesc.textContent = `$${minPrice} - $${maxPrice}`;
+    priceStatus.textContent = isDefaultPrice ? 'DEFAULT' : 'CUSTOM';
+    priceStatus.className = `step-status ${isDefaultPrice ? 'off' : 'on'}`;
   }
 
-  const valueEnabled = document.getElementById('modalValueFilterEnabled').checked;
-  if (valueEnabled) {
-    const parts = [];
-    const vMin = document.getElementById('modalValueFilterMin').value;
-    const vMax = document.getElementById('modalValueFilterMax').value;
-    if (vMin) parts.push(`>$${vMin}`);
-    if (vMax) parts.push(`<$${vMax}`);
-    document.getElementById('modal-pipeline-value-desc').textContent = parts.length > 0 ? parts.join(', ') : 'No limits set';
-    document.getElementById('modal-pipeline-value-status').textContent = 'ON'; document.getElementById('modal-pipeline-value-status').className = 'step-status on';
-  } else {
-    document.getElementById('modal-pipeline-value-desc').textContent = 'No limits';
-    document.getElementById('modal-pipeline-value-status').textContent = 'OFF'; document.getElementById('modal-pipeline-value-status').className = 'step-status off';
+  const noRepeatEnabled = document.getElementById('modalNoRepeatEnabled')?.checked;
+  const noRepeatPeriod = document.getElementById('modalNoRepeatPeriod')?.value;
+  const noRepeatDesc = document.getElementById('modal-pipeline-norepeat-desc');
+  const noRepeatStatus = document.getElementById('modal-pipeline-norepeat-status');
+  if (noRepeatDesc && noRepeatStatus) {
+    if (noRepeatEnabled) {
+      noRepeatDesc.textContent = noRepeatPeriod === '0' ? 'Block forever' : `Block ${noRepeatPeriod}h`;
+      noRepeatStatus.textContent = 'ON'; noRepeatStatus.className = 'step-status on';
+    } else {
+      noRepeatDesc.textContent = 'Disabled';
+      noRepeatStatus.textContent = 'OFF'; noRepeatStatus.className = 'step-status off';
+    }
   }
 
-  const rateEnabled = document.getElementById('modalRateLimitEnabled').checked;
-  if (rateEnabled) {
-    const rH = document.getElementById('modalRateLimitPerHour').value || 10;
-    const rD = document.getElementById('modalRateLimitPerDay').value || 50;
-    document.getElementById('modal-pipeline-rate-desc').textContent = `${rH}/hr, ${rD}/day`;
-    document.getElementById('modal-pipeline-rate-status').textContent = 'ON'; document.getElementById('modal-pipeline-rate-status').className = 'step-status on';
-  } else {
-    document.getElementById('modal-pipeline-rate-desc').textContent = 'Unlimited';
-    document.getElementById('modal-pipeline-rate-status').textContent = 'OFF'; document.getElementById('modal-pipeline-rate-status').className = 'step-status off';
+  const valueEnabled = document.getElementById('modalValueFilterEnabled')?.checked;
+  const valueDesc = document.getElementById('modal-pipeline-value-desc');
+  const valueStatus = document.getElementById('modal-pipeline-value-status');
+  if (valueDesc && valueStatus) {
+    if (valueEnabled) {
+      const parts = [];
+      const vMin = document.getElementById('modalValueFilterMin')?.value;
+      const vMax = document.getElementById('modalValueFilterMax')?.value;
+      if (vMin) parts.push(`>$${vMin}`);
+      if (vMax) parts.push(`<$${vMax}`);
+      valueDesc.textContent = parts.length > 0 ? parts.join(', ') : 'No limits set';
+      valueStatus.textContent = 'ON'; valueStatus.className = 'step-status on';
+    } else {
+      valueDesc.textContent = 'No limits';
+      valueStatus.textContent = 'OFF'; valueStatus.className = 'step-status off';
+    }
+  }
+
+  const rateEnabled = document.getElementById('modalRateLimitEnabled')?.checked;
+  const rateDesc = document.getElementById('modal-pipeline-rate-desc');
+  const rateStatus = document.getElementById('modal-pipeline-rate-status');
+  if (rateDesc && rateStatus) {
+    if (rateEnabled) {
+      const rH = document.getElementById('modalRateLimitPerHour')?.value || 10;
+      const rD = document.getElementById('modalRateLimitPerDay')?.value || 50;
+      rateDesc.textContent = `${rH}/hr, ${rD}/day`;
+      rateStatus.textContent = 'ON'; rateStatus.className = 'step-status on';
+    } else {
+      rateDesc.textContent = 'Unlimited';
+      rateStatus.textContent = 'OFF'; rateStatus.className = 'step-status off';
+    }
   }
 }
 
@@ -1433,7 +1900,7 @@ function updatePriceBadge() {
   const isDefault = min === 0.01 && max === 0.99;
   const badge = document.getElementById('modalPriceBadge');
   badge.textContent = isDefault ? 'DEFAULT' : 'CUSTOM';
-  badge.className = `win-badge ${isDefault ? '' : 'badge-success'}`;
+  badge.className = `jw-badge ${isDefault ? '' : 'badge-success'}`;
 }
 
 function updateSlippageBadge() {
@@ -1441,10 +1908,10 @@ function updateSlippageBadge() {
   const badge = document.getElementById('modalSlippageBadge');
   if (!value || parseFloat(value) === 2) {
     badge.textContent = 'DEFAULT (2%)';
-    badge.className = 'win-badge';
+    badge.className = 'jw-badge';
   } else {
     badge.textContent = `${value}%`;
-    badge.className = 'win-badge badge-success';
+    badge.className = 'jw-badge badge-success';
   }
 }
 
@@ -1465,6 +1932,7 @@ function getModalTags() {
 function setModalTags(tags) {
   document.getElementById('modalWalletTags').value = JSON.stringify(tags);
   refreshModalTagButtons(tags);
+  updateModalPipeline();
 }
 
 function refreshModalTagButtons(tags) {
@@ -1501,33 +1969,39 @@ function addCustomModalTag() {
 
 async function saveWalletConfig() {
   if (!currentWalletAddress) return;
-  try {
-    const config = collectModalConfig();
-    const tags = getModalTags();
-    await API.updateWalletLabel(currentWalletAddress, document.getElementById('modalWalletLabel').value.trim());
-    await API.updateWalletTags(currentWalletAddress, tags);
-    await API.updateWalletTradeConfig(currentWalletAddress, config);
-    await win95Dialog.success('Configuration saved (wallet remains inactive until enabled)');
-    closeWalletModal();
-    lastWalletHash = '';
-    await loadWallets(true);
-  } catch (error) { await win95Dialog.error(`Failed to save: ${error.message}`); }
+  const btn = document.getElementById('modalSaveDraftLink');
+  await withLoading(btn, async () => {
+    try {
+      const config = collectModalConfig();
+      const tags = getModalTags();
+      await API.updateWalletLabel(currentWalletAddress, document.getElementById('modalWalletLabel').value.trim());
+      await API.updateWalletTags(currentWalletAddress, tags);
+      await API.updateWalletTradeConfig(currentWalletAddress, config);
+      await jungleModal.success('Saved as draft — enable copying when you are ready');
+      closeWalletModal();
+      lastWalletHash = '';
+      await loadWallets(true);
+    } catch (error) { await jungleModal.error(`Failed to save: ${error.message}`); }
+  });
 }
 
 async function saveWalletConfigAndEnable() {
   if (!currentWalletAddress) return;
-  try {
-    const config = collectModalConfig();
-    const tags = getModalTags();
-    await API.updateWalletLabel(currentWalletAddress, document.getElementById('modalWalletLabel').value.trim());
-    await API.updateWalletTags(currentWalletAddress, tags);
-    await API.updateWalletTradeConfig(currentWalletAddress, config);
-    await API.toggleWallet(currentWalletAddress, true);
-    await win95Dialog.success('Configuration saved and wallet enabled!');
-    closeWalletModal();
-    lastWalletHash = '';
-    await loadWallets(true);
-  } catch (error) { await win95Dialog.error(`Failed to save: ${error.message}`); }
+  const btn = document.getElementById('modalSaveEnableBtn');
+  await withLoading(btn, async () => {
+    try {
+      const config = collectModalConfig();
+      const tags = getModalTags();
+      await API.updateWalletLabel(currentWalletAddress, document.getElementById('modalWalletLabel').value.trim());
+      await API.updateWalletTags(currentWalletAddress, tags);
+      await API.updateWalletTradeConfig(currentWalletAddress, config);
+      await API.toggleWallet(currentWalletAddress, true);
+      await jungleModal.success('Copy saved and enabled!');
+      closeWalletModal();
+      lastWalletHash = '';
+      await loadWallets(true);
+    } catch (error) { await jungleModal.error(`Failed to save: ${error.message}`); }
+  });
 }
 
 function collectModalConfig() {
@@ -1582,27 +2056,27 @@ async function updateStopLoss() {
   const enabled = document.getElementById('stopLossEnabled').checked;
   const percent = parseInt(document.getElementById('stopLossPercent').value);
   document.getElementById('stopLossInputs').className = enabled ? '' : 'hidden';
-  try { await API.setStopLoss(enabled, percent); } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+  try { await API.setStopLoss(enabled, percent); } catch (error) { await jungleModal.error(`Failed: ${error.message}`); }
 }
 
 async function updateMonitoringInterval() {
   try { await API.setMonitoringInterval(parseInt(document.getElementById('monitoringInterval').value)); }
-  catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+  catch (error) { await jungleModal.error(`Failed: ${error.message}`); }
 }
 
 async function updateProxyWallet() {
   const addr = document.getElementById('proxyWalletAddress').value.trim();
-  if (!addr) { await win95Dialog.alert('Please enter your proxy wallet address'); return; }
-  if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) { await win95Dialog.error('Invalid address format.'); return; }
+  if (!addr) { await jungleModal.alert('Please enter your proxy wallet address'); return; }
+  if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) { await jungleModal.error('Invalid address format.'); return; }
   try {
     const response = await fetch('/api/config/proxy-wallet', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ proxyWalletAddress: addr })
     });
     const data = await response.json();
-    if (data.success) { await win95Dialog.success('Proxy wallet saved!'); loadWalletBalance(); }
-    else await win95Dialog.error(`Failed: ${data.error}`);
-  } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+    if (data.success) { await jungleModal.success('Proxy wallet saved!'); loadWalletBalance(); }
+    else await jungleModal.error(`Failed: ${data.error}`);
+  } catch (error) { await jungleModal.error(`Failed: ${error.message}`); }
 }
 
 // ============================================================
@@ -1658,7 +2132,7 @@ async function loadFailedTrades() {
     }
     let html = '<strong>Error Type Breakdown:</strong>';
     for (const [type, count] of Object.entries(data.analysis.errorTypes)) {
-      html += `<div class="flex-between" style="padding:4px 0;border-bottom:1px solid var(--win-dark)"><span>${type}</span><span>${count}</span></div>`;
+      html += `<div class="flex-between" style="padding:4px 0;border-bottom:1px solid var(--jw-dark)"><span>${type}</span><span>${count}</span></div>`;
     }
     html += '<br><strong>Recent Failures:</strong>';
     html += data.trades.slice(0, 5).map(t => `
@@ -1774,7 +2248,7 @@ async function createMasterPassword() {
     document.getElementById('masterPasswordConfirm').value = '';
 
     if (result.migrated && window.__hostedMultiTenant !== true) {
-      await win95Dialog.alert('Existing .env private key was migrated to encrypted storage as your "main" wallet.');
+      await jungleModal.alert('Existing .env private key was migrated to encrypted storage as your "main" wallet.');
     }
 
     document.getElementById('unlockSection').classList.add('hidden');
@@ -1790,7 +2264,7 @@ async function createMasterPassword() {
 // Returning user: unlock with existing master password
 async function unlockVault() {
   const pw = document.getElementById('masterPasswordInput').value;
-  if (!pw) { await win95Dialog.alert('Enter your master password'); return; }
+  if (!pw) { await jungleModal.alert('Enter your master password'); return; }
 
   try {
     const result = await API.unlockWallets(pw);
@@ -1800,14 +2274,14 @@ async function unlockVault() {
     document.getElementById('masterPasswordInput').value = '';
 
     if (result.migrated && window.__hostedMultiTenant !== true) {
-      await win95Dialog.alert('Existing .env private key was migrated to encrypted storage as "main" wallet.');
+      await jungleModal.alert('Existing .env private key was migrated to encrypted storage as "main" wallet.');
     }
     document.getElementById('unlockSection').classList.add('hidden');
     document.getElementById('tradingWalletsSection').classList.remove('hidden');
     await loadTradingWallets();
     await refreshSetupExperience();
   } catch (error) {
-    await win95Dialog.error(`Unlock failed: ${error.message}`);
+    await jungleModal.error(`Unlock failed: ${error.message}`);
   }
 }
 
@@ -1817,7 +2291,12 @@ async function loadTradingWallets() {
     const list = document.getElementById('tradingWalletsList');
 
     if (!data.wallets || data.wallets.length === 0) {
-      list.innerHTML = '<div class="text-center text-muted" style="padding:20px;">No trading wallets configured. Add one above.</div>';
+      list.innerHTML = `
+        <div class="j-empty-state-card">
+          <p class="j-empty-state-title">Set up your first trading wallet</p>
+          <p class="text-sm text-muted">Add a wallet with builder credentials so Ditto can place copied trades.</p>
+          <button type="button" class="j-btn j-btn-primary" onclick="document.getElementById('newTradingWalletId')?.focus()">Add wallet below</button>
+        </div>`;
       updateTradingWalletDropdown([]);
       return;
     }
@@ -1828,23 +2307,23 @@ async function loadTradingWallets() {
       <div class="trading-wallet-card ${w.isActive ? 'active-card' : 'inactive-card'}">
         <div class="flex-between flex-wrap gap-8">
           <div>
-            <div class="text-bold">${w.label} <span class="win-badge ${w.isActive ? 'badge-success' : ''}">${w.id}</span></div>
+            <div class="text-bold">${w.label} <span class="jw-badge ${w.isActive ? 'badge-success' : ''}">${w.id}</span></div>
             <div class="text-mono text-sm">${w.address}</div>
             <div class="text-sm text-muted">Created: ${new Date(w.createdAt).toLocaleDateString()}</div>
             <div class="text-sm" style="margin-top:2px;">
               ${w.hasCredentials
-          ? '<span style="color:var(--win-green,green);">Builder API: Configured</span>'
-          : '<span style="color:var(--win-red,#c00);font-weight:bold;">Builder API: Missing — cannot trade</span>'
+          ? '<span style="color:var(--jw-green,green);">Builder API: Configured</span>'
+          : '<span style="color:var(--jw-red,#c00);font-weight:bold;">Builder API: Missing — cannot trade</span>'
         }
             </div>
           </div>
           <div class="flex-row gap-4">
-            <button class="win-btn win-btn-sm" onclick="openTradingWalletSettingsModal('${w.id}', '${escapedLabel}')" title="Wallet settings (auto-redemption, etc.)">Settings</button>
-            ${!w.hasCredentials ? `<button class="win-btn win-btn-sm" onclick="openBuilderCredsModal('${w.id}', '${escapedLabel}')" title="Add Builder API credentials">Add Creds</button>` : `<button class="win-btn win-btn-sm" onclick="openBuilderCredsModal('${w.id}', '${escapedLabel}')" title="Update Builder API credentials">Update Creds</button>`}
-            <label class="win-toggle">
+            <button class="jw-btn jw-btn-sm" onclick="openTradingWalletSettingsModal('${w.id}', '${escapedLabel}')" title="Wallet settings (auto-redemption, etc.)">Settings</button>
+            ${!w.hasCredentials ? `<button class="jw-btn jw-btn-sm" onclick="openBuilderCredsModal('${w.id}', '${escapedLabel}')" title="Add Builder API credentials">Add Creds</button>` : `<button class="jw-btn jw-btn-sm" onclick="openBuilderCredsModal('${w.id}', '${escapedLabel}')" title="Update Builder API credentials">Update Creds</button>`}
+            <label class="jw-toggle">
               <input type="checkbox" ${w.isActive ? 'checked' : ''} onchange="toggleTradingWalletActive('${w.id}', this.checked)">
             </label>
-            <button class="win-btn win-btn-sm win-btn-danger" onclick="removeTradingWalletUI('${w.id}')">Remove</button>
+            <button class="jw-btn jw-btn-sm jw-btn-danger" onclick="removeTradingWalletUI('${w.id}')">Remove</button>
           </div>
         </div>
       </div>
@@ -1862,7 +2341,7 @@ function updateAssignmentDropdowns(trackedWallets) {
   const select = document.getElementById('assignTrackedWallet');
   if (!select) return;
   const current = select.value;
-  select.innerHTML = '<option value="">Select tracked wallet...</option>';
+  select.innerHTML = '<option value="">Select copy source...</option>';
   if (trackedWallets) {
     trackedWallets.forEach(w => {
       select.innerHTML += `<option value="${w.address}">${w.label || w.address.slice(0, 12) + '...'}</option>`;
@@ -1893,11 +2372,11 @@ async function addNewTradingWallet() {
   const apiPassphrase = document.getElementById('newTradingWalletApiPassphrase').value.trim();
   const passwordForRequest = usesHostedWalletAccess() ? undefined : masterPassword;
 
-  if (!id || !label || !pk) { await win95Dialog.alert('Wallet ID, Label, and Private Key are required'); return; }
-  if (!usesHostedWalletAccess() && !masterPassword) { await win95Dialog.alert('Wallets must be unlocked first'); return; }
+  if (!id || !label || !pk) { await jungleModal.alert('Wallet ID, Label, and Private Key are required'); return; }
+  if (!usesHostedWalletAccess() && !masterPassword) { await jungleModal.alert('Wallets must be unlocked first'); return; }
 
   if (!apiKey || !apiSecret || !apiPassphrase) {
-    const proceed = await win95Dialog.confirm(
+    const proceed = await jungleModal.confirm(
       'WARNING: You have not entered Builder API credentials.\n\n' +
       'Without these, this wallet CANNOT place orders on Polymarket.\n' +
       'Get them from: polymarket.com/settings → Builder tab\n\n' +
@@ -1914,23 +2393,23 @@ async function addNewTradingWallet() {
     document.getElementById('newTradingWalletApiKey').value = '';
     document.getElementById('newTradingWalletApiSecret').value = '';
     document.getElementById('newTradingWalletApiPassphrase').value = '';
-    await win95Dialog.success('Trading wallet added!');
+    await jungleModal.success('Trading wallet added!');
     await loadTradingWallets();
     await refreshSetupExperience();
   } catch (error) {
-    await win95Dialog.error(`Failed: ${error.message}`);
+    await jungleModal.error(`Failed: ${error.message}`);
   }
 }
 
 async function removeTradingWalletUI(id) {
-  if (!await win95Dialog.confirm(`Remove trading wallet "${id}"? This will delete the encrypted keystore.`)) return;
+  if (!await jungleModal.confirm(`Remove trading wallet "${id}"? This will delete the encrypted keystore.`)) return;
   try { await API.removeTradingWallet(id); await loadTradingWallets(); }
-  catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+  catch (error) { await jungleModal.error(`Failed: ${error.message}`); }
 }
 
 async function toggleTradingWalletActive(id, active) {
   try { await API.toggleTradingWallet(id, active); await loadTradingWallets(); }
-  catch (error) { await win95Dialog.error(`Failed: ${error.message}`); await loadTradingWallets(); }
+  catch (error) { await jungleModal.error(`Failed: ${error.message}`); await loadTradingWallets(); }
 }
 
 // ============================================================
@@ -1938,7 +2417,7 @@ async function toggleTradingWalletActive(id, active) {
 // ============================================================
 
 async function openBuilderCredsModal(walletId, walletLabel) {
-  if (!usesHostedWalletAccess() && !masterPassword) { await win95Dialog.alert('Wallets must be unlocked first'); return; }
+  if (!usesHostedWalletAccess() && !masterPassword) { await jungleModal.alert('Wallets must be unlocked first'); return; }
 
   document.getElementById('builderCredsWalletId').value = walletId;
   document.getElementById('builderCredsWalletLabel').textContent = `${walletLabel} (${walletId})`;
@@ -2027,7 +2506,7 @@ document.addEventListener('click', (e) => {
   if (e.target.id === 'builderCredsModal') {
     closeBuilderCredsModal();
   }
-  if (e.target.classList.contains('win-modal-overlay')) {
+  if (e.target.classList.contains('jw-modal-overlay')) {
     const id = e.target.id;
     if (id === 'tradeDetailModal') closeTradeDetailModal();
     if (id === 'paperModeModal') closePaperModeModal();
@@ -2054,6 +2533,24 @@ async function loadCopyAssignments() {
   try {
     const data = await API.getCopyAssignments();
     const list = document.getElementById('copyAssignmentsList');
+    const assignUi = document.getElementById('copyAssignmentUi');
+    const autoNote = document.getElementById('copyAssignmentAutoNote');
+    const tradingData = await API.getTradingWallets();
+    const credentialed = (tradingData.wallets || []).filter((w) => w.hasCredentials && w.active !== false);
+
+    if (credentialed.length <= 1) {
+      if (assignUi) assignUi.classList.add('hidden');
+      if (autoNote) {
+        autoNote.classList.remove('hidden');
+        const label = credentialed[0]?.label || credentialed[0]?.id || 'your trading wallet';
+        autoNote.textContent = credentialed.length === 1
+          ? `New tracked wallets auto-copy to ${label}.`
+          : 'Add a trading wallet with credentials to enable copy assignments.';
+      }
+    } else {
+      assignUi?.classList.remove('hidden');
+      autoNote?.classList.add('hidden');
+    }
 
     if (!data.assignments || data.assignments.length === 0) {
       list.innerHTML = '<div class="text-center text-muted" style="padding:12px;">No copy assignments yet</div>';
@@ -2061,12 +2558,12 @@ async function loadCopyAssignments() {
     }
 
     list.innerHTML = data.assignments.map(a => `
-      <div class="flex-between" style="padding:4px 0;border-bottom:1px solid var(--win-dark)">
+      <div class="flex-between" style="padding:4px 0;border-bottom:1px solid var(--jw-dark)">
         <span class="text-mono text-sm">${a.trackedWalletAddress.slice(0, 10)}...</span>
         <span>-></span>
         <span class="text-bold">${a.tradingWalletId}</span>
-        <span class="win-badge">${a.useOwnConfig ? 'Own config' : 'Inherited'}</span>
-        <button class="win-btn win-btn-sm win-btn-danger" onclick="removeAssignment('${a.trackedWalletAddress}', '${a.tradingWalletId}')">X</button>
+        <span class="jw-badge">${a.useOwnConfig ? 'Own config' : 'Inherited'}</span>
+        <button type="button" class="jw-btn jw-btn-sm jw-btn-danger" onclick="removeAssignment('${a.trackedWalletAddress}', '${a.tradingWalletId}')" aria-label="Remove assignment">Remove</button>
       </div>
     `).join('');
   } catch (error) { console.error('Error loading assignments:', error); }
@@ -2075,17 +2572,17 @@ async function loadCopyAssignments() {
 async function addAssignment() {
   const tracked = document.getElementById('assignTrackedWallet').value;
   const trading = document.getElementById('assignTradingWallet').value;
-  if (!tracked || !trading) { await win95Dialog.alert('Select both wallets'); return; }
+  if (!tracked || !trading) { await jungleModal.alert('Select both wallets'); return; }
 
   try {
     await API.addCopyAssignment(tracked, trading, false);
     await loadCopyAssignments();
-  } catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+  } catch (error) { await jungleModal.error(`Failed: ${error.message}`); }
 }
 
 async function removeAssignment(tracked, trading) {
   try { await API.removeCopyAssignment(tracked, trading); await loadCopyAssignments(); }
-  catch (error) { await win95Dialog.error(`Failed: ${error.message}`); }
+  catch (error) { await jungleModal.error(`Failed: ${error.message}`); }
 }
 
 // ============================================================
@@ -2141,7 +2638,7 @@ function renderMirrorTrades(trades) {
   let html = actionable.map(t => renderMirrorRow(t, false)).join('');
 
   if (skipped.length > 0) {
-    html += `<tr><td colspan="8" style="background:var(--win-surface);cursor:pointer;padding:4px 8px;font-size:12px;" onclick="toggleSkippedAccordion()">
+    html += `<tr><td colspan="8" style="background:var(--jw-surface);cursor:pointer;padding:4px 8px;font-size:12px;" onclick="toggleSkippedAccordion()">
       <span id="skippedAccordionIcon">+</span> Skipped positions (${skipped.length})</td></tr>`;
     html += skipped.map(t => renderMirrorRow(t, true)).join('');
   }
@@ -2226,8 +2723,8 @@ function updateMirrorSummary() {
 
 async function executeMirrorTrades() {
   const selected = currentMirrorTrades.filter(t => t.selected && t.action !== 'SKIP');
-  if (selected.length === 0) { await win95Dialog.alert('No trades selected'); return; }
-  if (!await win95Dialog.confirm(`Execute ${selected.length} trade(s)? This will place real orders.`)) return;
+  if (selected.length === 0) { await jungleModal.alert('No trades selected'); return; }
+  if (!await jungleModal.confirm(`Execute ${selected.length} trade(s)? This will place real orders.`)) return;
 
   const btn = document.getElementById('mirrorExecuteBtn');
   btn.disabled = true;
@@ -2248,10 +2745,10 @@ async function executeMirrorTrades() {
     if (result.success) msg = `All ${result.executedTrades} trade(s) executed!\n\n` + msg;
     else msg = `Partial: ${result.executedTrades} succeeded, ${result.failedTrades} failed\n\n` + msg;
 
-    result.success ? await win95Dialog.success(msg) : await win95Dialog.error(msg);
+    result.success ? await jungleModal.success(msg) : await jungleModal.error(msg);
     closeMirrorModal();
   } catch (error) {
-    await win95Dialog.error(`Execution failed: ${error.message}`);
+    await jungleModal.error(`Execution failed: ${error.message}`);
     btn.disabled = false;
     btn.textContent = 'Execute Selected';
   }
@@ -2284,19 +2781,19 @@ async function loadLadderStatus() {
     const monitorEl = document.getElementById('ladderPriceMonitorStatus');
     if (monitorData.isRunning) {
       monitorEl.textContent = 'RUNNING';
-      monitorEl.className = 'win-badge badge-success';
+      monitorEl.className = 'jw-badge badge-success';
     } else {
       monitorEl.textContent = 'OFF';
-      monitorEl.className = 'win-badge';
+      monitorEl.className = 'jw-badge';
     }
 
     const modeEl = document.getElementById('ladderModeStatus');
     if (statusData.config && statusData.config.liveMode) {
       modeEl.textContent = 'LIVE';
-      modeEl.className = 'win-badge badge-danger';
+      modeEl.className = 'jw-badge badge-danger';
     } else {
       modeEl.textContent = 'PAPER';
-      modeEl.className = 'win-badge badge-warning';
+      modeEl.className = 'jw-badge badge-warning';
     }
 
     // Pre-fill ladder config defaults from server config
@@ -2327,25 +2824,25 @@ async function loadLadderStatus() {
       const progressPct = totalSteps > 0 ? Math.round((executedSteps / totalSteps) * 100) : 0;
 
       html += `
-        <div style="background:var(--win-surface);border:1px solid var(--win-dark);padding:8px;margin-bottom:4px;">
+        <div style="background:var(--jw-surface);border:1px solid var(--jw-dark);padding:8px;margin-bottom:4px;">
           <div class="flex-between">
             <div>
               <span class="text-bold">${ladder.marketTitle || ladder.tokenId.slice(0, 12) + '...'}</span>
-              <span class="win-badge badge-success">${ladder.outcome}</span>
+              <span class="jw-badge badge-success">${ladder.outcome}</span>
               <span class="text-sm text-muted">Entry: $${ladder.entryPrice.toFixed(2)}</span>
             </div>
-            <button class="win-btn win-btn-sm win-btn-danger" onclick="cancelLadder('${ladder.id}')" aria-label="Cancel this ladder exit" tabindex="0">Cancel</button>
+            <button class="jw-btn jw-btn-sm jw-btn-danger" onclick="cancelLadder('${ladder.id}')" aria-label="Cancel this ladder exit" tabindex="0">Cancel</button>
           </div>
           <div class="flex-row gap-8 mt-4" style="margin-top:4px;">
             <span class="text-sm">Remaining: ${ladder.remainingShares.toFixed(1)} / ${ladder.totalShares.toFixed(1)} shares</span>
             <span class="text-sm">Steps: ${executedSteps}/${totalSteps}</span>
           </div>
-          <div style="background:var(--win-dark);height:6px;margin-top:4px;border:1px inset;">
+          <div style="background:var(--jw-dark);height:6px;margin-top:4px;border:1px inset;">
             <div style="background:#00aa00;height:100%;width:${progressPct}%;"></div>
           </div>
           <div class="flex-row gap-4 mt-4" style="margin-top:4px;flex-wrap:wrap;">
             ${ladder.steps.map((step, i) => `
-              <span class="text-sm" style="padding:2px 4px;border:1px solid var(--win-dark);background:${step.executed ? '#d4edda' : 'var(--win-surface)'};">
+              <span class="text-sm" style="padding:2px 4px;border:1px solid var(--jw-dark);background:${step.executed ? '#d4edda' : 'var(--jw-surface)'};">
                 $${step.triggerPrice.toFixed(2)} (${step.sellPercent}%)
                 ${step.executed ? ' &#10003;' : ''}
               </span>
@@ -2444,18 +2941,18 @@ async function loadWalletPositionsForLadder() {
       }).replace(/'/g, "\\'").replace(/"/g, '&quot;');
 
       html += `
-        <div style="background:var(--win-surface);border:1px solid var(--win-dark);padding:8px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;">
+        <div style="background:var(--jw-surface);border:1px solid var(--jw-dark);padding:8px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;">
           <div style="flex:1;min-width:0;">
             <div class="text-bold" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${title}</div>
             <div class="flex-row gap-8" style="margin-top:2px;">
-              <span class="win-badge ${outcome.toUpperCase() === 'YES' ? 'badge-success' : 'badge-danger'}">${outcome}</span>
+              <span class="jw-badge ${outcome.toUpperCase() === 'YES' ? 'badge-success' : 'badge-danger'}">${outcome}</span>
               <span class="text-sm">${size.toFixed(1)} shares</span>
               <span class="text-sm">Avg: $${avgPrice.toFixed(3)}</span>
               <span class="text-sm">Now: $${curPrice.toFixed(3)}</span>
               <span class="text-sm" style="color:${pnlColor};font-weight:bold;">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)</span>
             </div>
           </div>
-          <button class="win-btn win-btn-sm win-btn-primary" style="margin-left:8px;white-space:nowrap;"
+          <button class="jw-btn jw-btn-sm jw-btn-primary" style="margin-left:8px;white-space:nowrap;"
             onclick="selectPositionForLadder(this, '${posJson}')"
             aria-label="Add ladder exit for ${title}" tabindex="0">
             Add Ladder
@@ -2494,7 +2991,7 @@ function cancelLadderConfig() {
 
 async function confirmCreateLadder() {
   if (!selectedLadderPosition) {
-    await win95Dialog.alert('No position selected. Please select a position first.');
+    await jungleModal.alert('No position selected. Please select a position first.');
     return;
   }
 
@@ -2528,17 +3025,17 @@ async function confirmCreateLadder() {
     closeCreateLadderForm();
     await loadLadderStatus();
   } catch (error) {
-    await win95Dialog.error(`Failed to create ladder: ${error.message}`);
+    await jungleModal.error(`Failed to create ladder: ${error.message}`);
   }
 }
 
 async function cancelLadder(id) {
-  if (!await win95Dialog.confirm('Cancel this ladder exit? No further steps will execute.')) return;
+  if (!await jungleModal.confirm('Cancel this ladder exit? No further steps will execute.')) return;
   try {
     await API.cancelLadder(id);
     await loadLadderStatus();
   } catch (error) {
-    await win95Dialog.error(`Failed to cancel ladder: ${error.message}`);
+    await jungleModal.error(`Failed to cancel ladder: ${error.message}`);
   }
 }
 
@@ -2548,14 +3045,14 @@ async function toggleLadderLiveMode() {
     const currentLive = status.config?.liveMode || false;
     const newMode = !currentLive;
 
-    if (newMode && !await win95Dialog.confirm('Enable LIVE mode? Ladder steps will execute REAL sell orders on Polymarket. Make sure you understand the risks.')) {
+    if (newMode && !await jungleModal.confirm('Enable LIVE mode? Ladder steps will execute REAL sell orders on Polymarket. Make sure you understand the risks.')) {
       return;
     }
 
     await API.updateLadderConfig({ liveMode: newMode });
     await loadLadderStatus();
   } catch (error) {
-    await win95Dialog.error(`Failed to toggle mode: ${error.message}`);
+    await jungleModal.error(`Failed to toggle mode: ${error.message}`);
   }
 }
 
@@ -2634,15 +3131,15 @@ async function saveKalshiConfig() {
   const apiKeyId = document.getElementById('kalshiApiKeyId').value.trim();
   const privateKeyPem = document.getElementById('kalshiPrivateKeyPem').value.trim();
   if (!apiKeyId || !privateKeyPem) {
-    await win95Dialog.alert('Both API Key ID and Private Key PEM are required');
+    await jungleModal.alert('Both API Key ID and Private Key PEM are required');
     return;
   }
   try {
     await API.post('/config/kalshi', { apiKeyId, privateKeyPem });
-    await win95Dialog.success('Kalshi configuration saved');
+    await jungleModal.success('Kalshi configuration saved');
     loadPlatformStatus();
   } catch (err) {
-    await win95Dialog.error(`Failed to save: ${err.message}`);
+    await jungleModal.error(`Failed to save: ${err.message}`);
   }
 }
 
@@ -2680,7 +3177,7 @@ async function loadEntityPlatformMap() {
               <div class="entity-wallet-row">
                 <span class="platform-badge ${w.platform === 'polymarket' ? 'badge-poly' : 'badge-kalshi'}">${w.platform}</span>
                 <span class="address">${w.identifier.length > 20 ? w.identifier.slice(0, 8) + '...' + w.identifier.slice(-6) : w.identifier}</span>
-                <button class="win-btn win-btn-sm" onclick="removePlatformWalletUI('${entity.id}', '${w.platform}', '${w.identifier}')" title="Remove">X</button>
+                <button class="jw-btn jw-btn-sm" onclick="removePlatformWalletUI('${entity.id}', '${w.platform}', '${w.identifier}')" title="Remove">X</button>
               </div>
             `).join('')}
           </div>
@@ -2693,32 +3190,32 @@ async function loadEntityPlatformMap() {
 }
 
 async function addPlatformWalletDialog() {
-  const entityId = await win95Dialog.prompt('Entity ID:');
+  const entityId = await jungleModal.prompt('Entity ID:');
   if (!entityId) return;
-  const platform = await win95Dialog.prompt('Platform (polymarket or kalshi):');
+  const platform = await jungleModal.prompt('Platform (polymarket or kalshi):');
   if (!platform || !['polymarket', 'kalshi'].includes(platform)) {
-    await win95Dialog.error('Platform must be "polymarket" or "kalshi"');
+    await jungleModal.error('Platform must be "polymarket" or "kalshi"');
     return;
   }
-  const identifier = await win95Dialog.prompt(`${platform === 'polymarket' ? 'Wallet address (0x...)' : 'Kalshi account ID'}:`);
+  const identifier = await jungleModal.prompt(`${platform === 'polymarket' ? 'Wallet address (0x...)' : 'Kalshi account ID'}:`);
   if (!identifier) return;
 
   try {
     await API.addPlatformWallet(entityId, platform, identifier);
-    await win95Dialog.success('Platform wallet linked!');
+    await jungleModal.success('Platform wallet linked!');
     loadEntityPlatformMap();
   } catch (err) {
-    await win95Dialog.error(`Failed: ${err.message}`);
+    await jungleModal.error(`Failed: ${err.message}`);
   }
 }
 
 async function removePlatformWalletUI(entityId, platform, identifier) {
-  if (!await win95Dialog.confirm(`Remove ${platform} wallet ${identifier.slice(0, 12)}... from entity?`)) return;
+  if (!await jungleModal.confirm(`Remove ${platform} wallet ${identifier.slice(0, 12)}... from entity?`)) return;
   try {
     await API.removePlatformWallet(entityId, platform, identifier);
     loadEntityPlatformMap();
   } catch (err) {
-    await win95Dialog.error(`Failed: ${err.message}`);
+    await jungleModal.error(`Failed: ${err.message}`);
   }
 }
 
@@ -2746,7 +3243,7 @@ async function toggleExecutorPaperMode() {
     await API.updateExecutorConfig({ paperMode: !current.config.paperMode });
     refreshExecutorStatus();
   } catch (err) {
-    await win95Dialog.error(`Failed: ${err.message}`);
+    await jungleModal.error(`Failed: ${err.message}`);
   }
 }
 
@@ -2771,19 +3268,19 @@ async function scanArbitrageOpportunities() {
         <td class="${opp.spreadPercent > 3 ? 'text-success' : ''}">${opp.spreadPercent.toFixed(1)}%</td>
         <td>$${(opp.expectedProfit || 0).toFixed(2)}</td>
         <td>
-          <button class="win-btn win-btn-sm win-btn-primary" onclick='executeArbFromTable(${JSON.stringify(opp)})'>
+          <button class="jw-btn jw-btn-sm jw-btn-primary" onclick='executeArbFromTable(${JSON.stringify(opp)})'>
             Execute
           </button>
         </td>
       </tr>
     `).join('');
   } catch (err) {
-    await win95Dialog.error(`Scan failed: ${err.message}`);
+    await jungleModal.error(`Scan failed: ${err.message}`);
   }
 }
 
 async function executeArbFromTable(opp) {
-  if (!await win95Dialog.confirm(`Execute arb on "${opp.eventTitle}"?\nSpread: ${opp.spreadPercent.toFixed(1)}%`)) return;
+  if (!await jungleModal.confirm(`Execute arb on "${opp.eventTitle}"?\nSpread: ${opp.spreadPercent.toFixed(1)}%`)) return;
 
   try {
     const trade = {
@@ -2805,15 +3302,15 @@ async function executeArbFromTable(opp) {
 
     const result = await API.executeArb(trade);
     if (result.result.bothSucceeded) {
-      await win95Dialog.success('Arb executed successfully!');
+      await jungleModal.success('Arb executed successfully!');
     } else if (result.result.partialFill) {
-      await win95Dialog.error('WARNING: Partial fill — one leg failed. Check execution history.');
+      await jungleModal.error('WARNING: Partial fill — one leg failed. Check execution history.');
     } else {
-      await win95Dialog.error('Execution failed. Check execution history for details.');
+      await jungleModal.error('Execution failed. Check execution history for details.');
     }
     refreshExecutorStatus();
   } catch (err) {
-    await win95Dialog.error(`Execution failed: ${err.message}`);
+    await jungleModal.error(`Execution failed: ${err.message}`);
   }
 }
 
@@ -2841,7 +3338,7 @@ async function detectCrossPlatformHedges() {
       </tr>
     `).join('');
   } catch (err) {
-    await win95Dialog.error(`Hedge detection failed: ${err.message}`);
+    await jungleModal.error(`Hedge detection failed: ${err.message}`);
   }
 }
 
@@ -2872,19 +3369,19 @@ async function generateHedgeRecommendations() {
         </div>
         <div class="hedge-rec-actions">
           ${rec.executable
-        ? `<button class="win-btn win-btn-sm win-btn-primary" onclick='executeHedgeRec(${JSON.stringify(rec)})'>Execute</button>`
+        ? `<button class="jw-btn jw-btn-sm jw-btn-primary" onclick='executeHedgeRec(${JSON.stringify(rec)})'>Execute</button>`
         : '<span class="text-muted">Not executable</span>'
       }
         </div>
       </div>
     `).join('');
   } catch (err) {
-    await win95Dialog.error(`Failed: ${err.message}`);
+    await jungleModal.error(`Failed: ${err.message}`);
   }
 }
 
 async function executeHedgeRec(rec) {
-  if (!await win95Dialog.confirm(`Execute ${rec.action} ${rec.outcome} on ${rec.platform}?`)) return;
+  if (!await jungleModal.confirm(`Execute ${rec.action} ${rec.outcome} on ${rec.platform}?`)) return;
   try {
     const result = await API.executeHedge({
       platform: rec.platform,
@@ -2895,13 +3392,13 @@ async function executeHedgeRec(rec) {
       price: rec.estimatedPrice,
     });
     if (result.result.success) {
-      await win95Dialog.success('Hedge executed!');
+      await jungleModal.success('Hedge executed!');
     } else {
-      await win95Dialog.error(`Failed: ${result.result.error}`);
+      await jungleModal.error(`Failed: ${result.result.error}`);
     }
     refreshExecutorStatus();
   } catch (err) {
-    await win95Dialog.error(`Failed: ${err.message}`);
+    await jungleModal.error(`Failed: ${err.message}`);
   }
 }
 
@@ -2940,9 +3437,9 @@ async function saveExecutorConfig() {
       minSpread: parseFloat(document.getElementById('execMinSpread').value),
       simultaneousExecution: document.getElementById('execSimultaneous').checked,
     });
-    await win95Dialog.success('Executor config saved');
+    await jungleModal.success('Executor config saved');
   } catch (err) {
-    await win95Dialog.error(`Failed: ${err.message}`);
+    await jungleModal.error(`Failed: ${err.message}`);
   }
 }
 
@@ -3012,10 +3509,10 @@ const saveTradingWalletSettings = async () => {
       minRedeemValue: parseFloat(document.getElementById('twMinRedeemValue').value) || 0.10,
     };
     await API.updateLifecycleConfig(config);
-    await win95Dialog.success('Settings saved!');
+    await jungleModal.success('Settings saved!');
     closeTradingWalletSettingsModal();
   } catch (err) {
-    await win95Dialog.error(`Failed to save: ${err.message}`);
+    await jungleModal.error(`Failed to save: ${err.message}`);
   }
 };
 
@@ -3033,10 +3530,10 @@ const checkRedeemablePositions = async () => {
     }
 
     container.innerHTML = positions.map(pos => `
-      <div style="border:1px solid var(--win-dark);padding:4px 8px;margin-bottom:2px;display:flex;justify-content:space-between;align-items:center;">
+      <div style="border:1px solid var(--jw-dark);padding:4px 8px;margin-bottom:2px;display:flex;justify-content:space-between;align-items:center;">
         <div>
           <span class="text-bold">${pos.marketTitle || pos.tokenId?.slice(0, 12) || 'Unknown'}</span>
-          <span class="win-badge badge-success">${pos.outcome || 'YES'}</span>
+          <span class="jw-badge badge-success">${pos.outcome || 'YES'}</span>
           <span class="text-sm">${pos.size ? pos.size.toFixed(1) + ' shares' : ''}</span>
         </div>
         <div class="text-success text-bold">$${(pos.estimatedPayout || pos.estimatedValue || 0).toFixed(2)}</div>
@@ -3048,7 +3545,7 @@ const checkRedeemablePositions = async () => {
 };
 
 const redeemAllPositions = async () => {
-  if (!await win95Dialog.confirm('Redeem all eligible winning positions now?')) return;
+  if (!await jungleModal.confirm('Redeem all eligible winning positions now?')) return;
   try {
     const result = await API.redeemAll();
     const results = result.results || [];
@@ -3057,16 +3554,16 @@ const redeemAllPositions = async () => {
     const failed = results.filter(r => !r.success);
 
     if (succeeded === count && count > 0) {
-      await win95Dialog.success(`Successfully redeemed ${succeeded} position(s)!`);
+      await jungleModal.success(`Successfully redeemed ${succeeded} position(s)!`);
     } else if (failed.length > 0) {
       const errorMsg = failed[0].error || 'Unknown error';
-      await win95Dialog.error(`Redeemed ${succeeded}/${count} position(s).\n\nError: ${errorMsg}`);
+      await jungleModal.error(`Redeemed ${succeeded}/${count} position(s).\n\nError: ${errorMsg}`);
     } else {
-      await win95Dialog.alert(`Redeemed ${succeeded}/${count} position(s).`);
+      await jungleModal.alert(`Redeemed ${succeeded}/${count} position(s).`);
     }
     checkRedeemablePositions();
   } catch (err) {
-    await win95Dialog.error(`Redemption failed: ${err.message}`);
+    await jungleModal.error(`Redemption failed: ${err.message}`);
   }
 };
 
@@ -3077,8 +3574,8 @@ const redeemAllPositions = async () => {
 let activeMenu = null;
 
 const closeAllMenus = () => {
-  document.querySelectorAll('.win-menu-dropdown').forEach(m => m.remove());
-  document.querySelectorAll('.win-menu-item').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.jw-menu-dropdown').forEach(m => m.remove());
+  document.querySelectorAll('.jw-menu-item').forEach(b => b.classList.remove('active'));
   activeMenu = null;
 };
 
@@ -3094,17 +3591,17 @@ const showMenu = (menuId, items) => {
   activeMenu = menuId;
 
   const dropdown = document.createElement('div');
-  dropdown.className = 'win-menu-dropdown';
+  dropdown.className = 'jw-menu-dropdown';
 
   items.forEach(item => {
     if (item.separator) {
       const sep = document.createElement('div');
-      sep.className = 'win-menu-separator';
+      sep.className = 'jw-menu-separator';
       dropdown.appendChild(sep);
       return;
     }
     const el = document.createElement('button');
-    el.className = 'win-menu-dropdown-item';
+    el.className = 'jw-menu-dropdown-item';
     el.textContent = item.label;
     el.disabled = !!item.disabled;
     if (item.action) {
@@ -3116,7 +3613,7 @@ const showMenu = (menuId, items) => {
     dropdown.appendChild(el);
   });
 
-  const wrapper = btn.closest('.win-menu-wrapper') || btn.parentElement;
+  const wrapper = btn.closest('.jw-menu-wrapper') || btn.parentElement;
   const rect = btn.getBoundingClientRect();
   dropdown.style.position = 'fixed';
   dropdown.style.top = rect.bottom + 'px';
@@ -3135,7 +3632,7 @@ const toggleBotMenu = () => {
       { separator: true },
       {
         label: 'Lock Vault', action: async () => {
-          if (await win95Dialog.confirm('Lock the wallet vault? You will need to re-enter your master password to trade.')) {
+          if (await jungleModal.confirm('Lock the wallet vault? You will need to re-enter your master password to trade.')) {
             masterPassword = '';
             document.getElementById('unlockSection').classList.remove('hidden');
             document.getElementById('tradingWalletsSection').classList.add('hidden');
@@ -3149,16 +3646,18 @@ const toggleBotMenu = () => {
 };
 
 const toggleViewMenu = () => {
-  showMenu('menuView', [
+  const isAdmin = document.body.classList.contains('platform-admin');
+  const items = [
     { label: 'Home', action: () => switchTab('dashboard') },
-    { label: 'Discovery', action: () => switchTab('discovery') },
-    { label: 'Tracked Wallets', action: () => switchTab('wallets') },
-    { label: 'Trading Wallets', action: () => switchTab('trading-wallets') },
+    ...(isAdmin ? [{ label: 'Discovery', action: () => switchTab('discovery') }] : []),
+    { label: 'Copy List', action: () => switchTab('wallets') },
+    { label: 'My Wallets', action: () => switchTab('trading-wallets') },
     { label: 'Settings', action: () => switchTab('settings') },
     { label: 'Diagnostics', action: () => switchTab('diagnostics') },
     { separator: true },
     { label: 'Refresh Now', action: () => refreshCurrentTab() },
-  ]);
+  ];
+  showMenu('menuView', items);
 };
 
 const toggleHelpMenu = () => {
@@ -3360,7 +3859,7 @@ const addWalletToDiscoveryCompare = (address) => {
   const normalized = String(address || '').trim().toLowerCase();
   if (!normalized) return;
   if (discoveryCompareSelection.size >= 4 && !discoveryCompareSelection.has(normalized)) {
-    win95Dialog.alert('Compare limit', 'You can compare up to 4 wallets at once.');
+    jungleModal.alert('Compare limit', 'You can compare up to 4 wallets at once.');
     return;
   }
   discoveryCompareSelection.add(normalized);
@@ -3392,7 +3891,7 @@ const renderDiscoveryCompareChips = () => {
   chipsEl.innerHTML = addresses.map((address) => `
     <span class="discovery-chip">
       ${escapeHtml(getDiscoveryIdentityLabel(address))}
-      <button class="win-btn win-btn-sm" style="min-width:auto;padding:0 4px;" onclick="event.stopPropagation();removeWalletFromDiscoveryCompare('${escapeJsString(address)}')" aria-label="Remove compare wallet">x</button>
+      <button class="jw-btn jw-btn-sm" style="min-width:auto;padding:0 4px;" onclick="event.stopPropagation();removeWalletFromDiscoveryCompare('${escapeJsString(address)}')" aria-label="Remove compare wallet">x</button>
     </span>
   `).join('');
 };
@@ -3443,7 +3942,7 @@ const addSelectedDiscoveryWalletToWatchlist = async () => {
   const wallet = getDiscoveryWalletByAddress(discoverySelectedWalletAddress);
   if (!wallet?.address) return;
   try {
-    const note = await win95Dialog.prompt('Optional note for this watchlist wallet:', '', 'Watchlist');
+    const note = await jungleModal.prompt('Optional note for this watchlist wallet:', '', 'Watchlist');
     await fetch('/api/discovery/watchlist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3485,8 +3984,8 @@ const loadDiscoveryWatchlist = async () => {
         <td>${Number(row.discoveryScore || 0).toFixed(0)}</td>
         <td>${escapeHtml(row.allocationState || 'N/A')} ${row.allocationWeight != null ? `(${Number(row.allocationWeight).toFixed(2)}x)` : ''}</td>
         <td>
-          <button class="win-btn win-btn-sm" onclick="selectDiscoveryWallet('${escapeJsString(row.address)}')">Inspect</button>
-          <button class="win-btn win-btn-sm" onclick="removeDiscoveryWatchlist('${escapeJsString(row.address)}')">Remove</button>
+          <button class="jw-btn jw-btn-sm" onclick="selectDiscoveryWallet('${escapeJsString(row.address)}')">Inspect</button>
+          <button class="jw-btn jw-btn-sm" onclick="removeDiscoveryWatchlist('${escapeJsString(row.address)}')">Remove</button>
         </td>
       </tr>
     `).join('');
@@ -3516,7 +4015,7 @@ const loadDiscoveryAlertsCenter = async () => {
         <div class="text-xs text-muted">${escapeHtml(alert.description || '')}</div>
         <div class="text-xs text-muted">${escapeHtml(getDiscoveryIdentityLabel(alert.address || ''))} • ${escapeHtml(shortAddress(alert.address || ''))}</div>
         <div class="mt-8">
-          <button class="win-btn win-btn-sm" onclick="dismissDiscoveryAlert(${Number(alert.id || 0)})">Dismiss</button>
+          <button class="jw-btn jw-btn-sm" onclick="dismissDiscoveryAlert(${Number(alert.id || 0)})">Dismiss</button>
         </div>
       </div>
     `).join('');
@@ -3799,13 +4298,16 @@ const discoveryCategoryLabel = (category) => {
   return labels[category] || 'Real-World';
 };
 
-const buildDiscoveryTrackButton = (wallet) => {
+const buildDiscoveryCopyButton = (wallet) => {
   const safeAddress = (wallet.address || '').replace(/'/g, "\\'");
   if (wallet.isTracked) {
-    return '<button class="win-btn win-btn-sm" disabled>Tracked</button>';
+    return '<button class="jw-btn jw-btn-sm" disabled>Copying</button>';
   }
-  return `<button class="win-btn win-btn-sm win-btn-primary" onclick="event.stopPropagation();trackDiscoveredWallet('${safeAddress}', this)" aria-label="Track and activate wallet" tabindex="0">Track &amp; Activate</button>`;
+  return `<button class="jw-btn jw-btn-sm jw-btn-primary" onclick="event.stopPropagation();copyDiscoveredWallet('${safeAddress}', this)" aria-label="Copy this wallet" tabindex="0">Copy</button>`;
 };
+
+/** @deprecated */
+const buildDiscoveryTrackButton = buildDiscoveryCopyButton;
 
 const buildDiscoveryWalletCardHtml = (wallet) => {
   const safeAddress = (wallet.address || '').replace(/'/g, "\\'");
@@ -3846,9 +4348,9 @@ const buildDiscoveryWalletCardHtml = (wallet) => {
       <div class="discovery-wallet-card-actions">
         <div class="discovery-wallet-scoreline">${escapeHtml(scoreStackLine)}</div>
         <div class="flex-row gap-8">
-          <button class="win-btn win-btn-sm" onclick="event.stopPropagation();addWalletToDiscoveryCompare('${safeAddress}')" aria-label="Add wallet to compare">Compare</button>
-          <button class="win-btn win-btn-sm" onclick="event.stopPropagation();selectDiscoveryWallet('${safeAddress}');addSelectedDiscoveryWalletToWatchlist()" aria-label="Add wallet to watchlist">Watch</button>
-          <button class="win-btn win-btn-sm" onclick="event.stopPropagation();openWalletDetail('${safeAddress}')" aria-label="Open detailed wallet modal" tabindex="0">Deep View</button>
+          <button class="jw-btn jw-btn-sm" onclick="event.stopPropagation();addWalletToDiscoveryCompare('${safeAddress}')" aria-label="Add wallet to compare">Compare</button>
+          <button class="jw-btn jw-btn-sm" onclick="event.stopPropagation();selectDiscoveryWallet('${safeAddress}');addSelectedDiscoveryWalletToWatchlist()" aria-label="Add wallet to watchlist">Watch</button>
+          <button class="jw-btn jw-btn-sm" onclick="event.stopPropagation();openWalletDetail('${safeAddress}')" aria-label="Open detailed wallet modal" tabindex="0">Deep View</button>
           ${buildDiscoveryTrackButton(wallet)}
         </div>
       </div>
@@ -3933,8 +4435,8 @@ const renderDiscoveryTable = (wallets) => {
         <td>$${Number(wallet.volume7d || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</td>
         <td>
           <div class="flex-row gap-8">
-            <button class="win-btn win-btn-sm" onclick="event.stopPropagation();openWalletDetail('${safeAddress}')">View</button>
-            <button class="win-btn win-btn-sm" onclick="event.stopPropagation();selectDiscoveryWallet('${safeAddress}');addSelectedDiscoveryWalletToWatchlist()">Watch</button>
+            <button class="jw-btn jw-btn-sm" onclick="event.stopPropagation();openWalletDetail('${safeAddress}')">View</button>
+            <button class="jw-btn jw-btn-sm" onclick="event.stopPropagation();selectDiscoveryWallet('${safeAddress}');addSelectedDiscoveryWalletToWatchlist()">Watch</button>
             ${buildDiscoveryTrackButton(wallet)}
           </div>
         </td>
@@ -4107,9 +4609,9 @@ const renderDiscoveryInspector = async () => {
       <div class="discovery-inspector-label">Actions</div>
       <div class="flex-row gap-8">
         ${buildDiscoveryTrackButton(wallet)}
-        <button class="win-btn win-btn-sm" onclick="addWalletToDiscoveryCompare('${safeAddress}')" aria-label="Add wallet to compare" tabindex="0">Compare</button>
-        <button class="win-btn win-btn-sm" onclick="addSelectedDiscoveryWalletToWatchlist()" aria-label="Add wallet to watchlist" tabindex="0">Watchlist</button>
-        <button class="win-btn win-btn-sm" onclick="openWalletDetail('${safeAddress}')" aria-label="Open deep wallet detail modal" tabindex="0">Deep View</button>
+        <button class="jw-btn jw-btn-sm" onclick="addWalletToDiscoveryCompare('${safeAddress}')" aria-label="Add wallet to compare" tabindex="0">Compare</button>
+        <button class="jw-btn jw-btn-sm" onclick="addSelectedDiscoveryWalletToWatchlist()" aria-label="Add wallet to watchlist" tabindex="0">Watchlist</button>
+        <button class="jw-btn jw-btn-sm" onclick="openWalletDetail('${safeAddress}')" aria-label="Open deep wallet detail modal" tabindex="0">Deep View</button>
       </div>
     </div>
     <div class="discovery-inspector-section text-xs text-muted">Loading live positions and signals...</div>
@@ -4174,10 +4676,10 @@ const renderDiscoveryInspector = async () => {
         <div class="discovery-inspector-label">Actions</div>
         <div class="flex-row gap-8">
           ${buildDiscoveryTrackButton(wallet)}
-          <button class="win-btn win-btn-sm" onclick="addWalletToDiscoveryCompare('${safeAddress}')" aria-label="Add wallet to compare" tabindex="0">Compare</button>
-          <button class="win-btn win-btn-sm" onclick="addSelectedDiscoveryWalletToWatchlist()" aria-label="Add wallet to watchlist" tabindex="0">Watchlist</button>
-          <button class="win-btn win-btn-sm" onclick="openWalletDetail('${safeAddress}')" aria-label="Open deep wallet detail modal" tabindex="0">Deep View</button>
-          ${detail?.profileUrl ? `<button class="win-btn win-btn-sm" onclick="window.open('${safeProfileUrl}', '_blank')" aria-label="Open Polymarket profile" tabindex="0">Polymarket</button>` : ''}
+          <button class="jw-btn jw-btn-sm" onclick="addWalletToDiscoveryCompare('${safeAddress}')" aria-label="Add wallet to compare" tabindex="0">Compare</button>
+          <button class="jw-btn jw-btn-sm" onclick="addSelectedDiscoveryWalletToWatchlist()" aria-label="Add wallet to watchlist" tabindex="0">Watchlist</button>
+          <button class="jw-btn jw-btn-sm" onclick="openWalletDetail('${safeAddress}')" aria-label="Open deep wallet detail modal" tabindex="0">Deep View</button>
+          ${detail?.profileUrl ? `<button class="jw-btn jw-btn-sm" onclick="window.open('${safeProfileUrl}', '_blank')" aria-label="Open Polymarket profile" tabindex="0">Polymarket</button>` : ''}
         </div>
       </div>
     `;
@@ -4224,7 +4726,7 @@ const loadDiscoverySignals = async () => {
     listEl.innerHTML = sortedSignals.map((s) => {
       const timeAgo = s.detectedAt ? (Date.now() - s.detectedAt < 60000 ? 'Just now' : Math.floor((Date.now() - s.detectedAt) / 60000) + 'm ago') : '';
       const dismissBtn = s.canDismiss
-        ? '<button class="win-btn win-btn-sm" onclick="dismissSignal(' + s.id + ')" aria-label="Dismiss">Dismiss</button>'
+        ? '<button class="jw-btn jw-btn-sm" onclick="dismissSignal(' + s.id + ')" aria-label="Dismiss">Dismiss</button>'
         : '';
       const meta = s.metadata || {};
       const detail = s.signalType === 'CONVICTION_BUILD'
@@ -4268,7 +4770,7 @@ const loadUnusualMarkets = async () => {
       const wallets = (m.wallets || '').split(',').filter(Boolean);
       const walletActions = wallets.slice(0, 3).map((wallet) => {
         const safeWallet = String(wallet).replace(/'/g, "\\'");
-        return `<button class="win-btn win-btn-sm" style="margin-right:4px;" onclick="event.stopPropagation();openWalletDetail('${safeWallet}')">${wallet.slice(0, 6)}...${wallet.slice(-4)}</button>`;
+        return `<button class="jw-btn jw-btn-sm" style="margin-right:4px;" onclick="event.stopPropagation();openWalletDetail('${safeWallet}')">${wallet.slice(0, 6)}...${wallet.slice(-4)}</button>`;
       }).join('');
       return `<tr>
         <td>${title}</td>
@@ -4371,7 +4873,7 @@ const openWalletDetail = async (address) => {
     if (positions.length === 0) {
       html += '<p class="text-muted text-sm">No positions</p>';
     } else {
-      html += '<table class="win-listview"><thead><tr><th>Market</th><th>Shares</th><th>Cost</th><th>PnL</th><th>ROI</th><th>Trust</th></tr></thead><tbody>';
+      html += '<table class="jw-listview"><thead><tr><th>Market</th><th>Shares</th><th>Cost</th><th>PnL</th><th>ROI</th><th>Trust</th></tr></thead><tbody>';
       positions.forEach((p) => {
         const marketLabel = (p.marketTitle || p.conditionId?.slice(0, 12) || '—') + (p.outcome ? ` (${p.outcome})` : '');
         const priceNote = (p.currentPrice === null || p.currentPrice === undefined) ? ' <span class="text-xs text-muted">(price pending)</span>' : '';
@@ -4392,7 +4894,7 @@ const openWalletDetail = async (address) => {
         html += '<div class="signal-card severity-' + (s.severity || 'medium') + ' mb-4"><strong>' + (s.title || '') + '</strong><br><span class="text-sm">' + (s.description || '') + '</span></div>';
       });
     }
-    html += '<div class="mt-8"><button class="win-btn win-btn-primary" onclick="trackDiscoveredWallet(\'' + address.replace(/'/g, "\\'") + '\', this); closeWalletDetail();">Track &amp; Activate</button></div>';
+    html += '<div class="mt-8"><button class="jw-btn jw-btn-primary" onclick="copyDiscoveredWallet(\'' + address.replace(/'/g, "\\'") + '\', this); closeWalletDetail();">Copy wallet</button></div>';
     bodyEl.innerHTML = html;
   } catch (err) {
     bodyEl.innerHTML = '<p class="text-danger">Failed to load wallet details.</p>';
@@ -4404,7 +4906,7 @@ const closeWalletDetail = () => {
   if (overlay) overlay.style.display = 'none';
 };
 
-const trackDiscoveredWallet = async (address, btn) => {
+const copyDiscoveredWallet = async (address, btn) => {
   try {
     btn.disabled = true;
     btn.textContent = '...';
@@ -4415,35 +4917,38 @@ const trackDiscoveredWallet = async (address, btn) => {
       body: JSON.stringify({ address }),
     });
     const data = await resp.json();
-    const alreadyTracked = !resp.ok && typeof data.error === 'string' && data.error.includes('already being tracked');
+    const alreadyOnList = !resp.ok && typeof data.error === 'string' && data.error.includes('already being tracked');
+    const resolved = (data.resolvedAddress || address).toLowerCase();
 
-    if (data.success || resp.ok || alreadyTracked) {
-      const toggleResp = await fetch('/api/wallets/' + encodeURIComponent(address) + '/toggle', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ active: true }),
-      });
-      const toggleData = await toggleResp.json();
-      if (!toggleResp.ok || !toggleData.success) {
-        throw new Error(toggleData.error || 'Failed to activate wallet');
+    if (data.success || resp.ok || alreadyOnList) {
+      try {
+        await fetch(`/api/discovery/wallets/${address}/track`, { method: 'POST' });
+      } catch {
+        // Non-fatal discovery bookkeeping
       }
-
-      await fetch(`/api/discovery/wallets/${address}/track`, { method: 'POST' });
-      btn.textContent = 'Active';
-      btn.classList.remove('win-btn-primary');
+      btn.textContent = 'Copying';
+      btn.classList.remove('jw-btn-primary');
+      lastWalletHash = '';
+      await loadWallets(true);
+      switchTab('wallets');
+      closeWalletDetail();
+      await openWalletModal(resolved);
     } else {
-      btn.textContent = 'Track & Activate';
+      btn.textContent = 'Copy';
       btn.disabled = false;
-      win95Dialog.alert('Error', data.error || 'Failed to track wallet');
+      jungleModal.alert('Error', data.error || 'Failed to add wallet');
     }
   } catch (err) {
-    btn.textContent = 'Track & Activate';
+    btn.textContent = 'Copy';
     btn.disabled = false;
     if (err?.message) {
-      win95Dialog.alert('Error', err.message);
+      jungleModal.alert('Error', err.message);
     }
   }
 };
+
+/** @deprecated use copyDiscoveredWallet */
+const trackDiscoveredWallet = copyDiscoveredWallet;
 
 const saveDiscoveryConfig = async () => {
   try {
@@ -4480,12 +4985,12 @@ const saveDiscoveryConfig = async () => {
       const msg = urlVal
         ? 'Settings saved. Restart the engine for URL changes to take effect.'
         : 'Settings saved.';
-      win95Dialog.alert('Settings Saved', msg);
+      jungleModal.alert('Settings Saved', msg);
     } else {
-      win95Dialog.alert('Error', data.error || 'Failed to save settings');
+      jungleModal.alert('Error', data.error || 'Failed to save settings');
     }
   } catch (err) {
-    win95Dialog.alert('Error', 'Failed to save settings: ' + err.message);
+    jungleModal.alert('Error', 'Failed to save settings: ' + err.message);
   }
 };
 
@@ -4509,23 +5014,27 @@ const restartDiscovery = async () => {
     const resp = await fetch('/api/discovery/config/restart', { method: 'POST' });
     const data = await resp.json();
     if (data.success) {
-      win95Dialog.alert('Restart Needed', 'Discovery settings were saved. The dedicated discovery worker is restarted separately.');
+      jungleModal.alert('Restart Needed', 'Discovery settings were saved. The dedicated discovery worker is restarted separately.');
     } else {
-      win95Dialog.alert('Error', data.error || 'Failed to restart');
+      jungleModal.alert('Error', data.error || 'Failed to restart');
     }
   } catch (err) {
-    win95Dialog.alert('Error', 'Failed to restart: ' + err.message);
+    jungleModal.alert('Error', 'Failed to restart: ' + err.message);
   }
 };
 
 const purgeDiscoveryData = async () => {
-  const firstConfirm = await win95Dialog.confirm(
+  if (!isPlatformAdminUser()) {
+    await jungleModal.alert('Platform admin required', 'Clear Discovery Data is restricted to platform admins.');
+    return;
+  }
+  const firstConfirm = await jungleModal.confirm(
     'Clear Discovery Data',
     'Warning: this will erase the full discovery feed (wallets, trades, positions, signals, and market cache).'
   );
   if (!firstConfirm) return;
 
-  const secondConfirm = await win95Dialog.confirm(
+  const secondConfirm = await jungleModal.confirm(
     'Confirm Permanent Deletion',
     'This cannot be undone. Click OK again to permanently clear discovery data.'
   );
@@ -4549,9 +5058,13 @@ const purgeDiscoveryData = async () => {
       ]);
 
       const deletedTotal = typeof data.deleted?.total === 'number' ? data.deleted.total : 0;
-      win95Dialog.alert('Cleared', `Discovery data cleared. Removed ${deletedTotal} records.`);
+      jungleModal.alert('Cleared', `Discovery data cleared. Removed ${deletedTotal} records.`);
+    } else if (data.error) {
+      await jungleModal.error(data.error);
     }
-  } catch { /* best-effort */ }
+  } catch (err) {
+    await jungleModal.error(err?.message || 'Failed to clear discovery data');
+  }
 };
 
 const clearDiscoveryUiState = () => {
@@ -4690,7 +5203,7 @@ const originalSwitchTab = typeof switchTab === 'function' ? switchTab : null;
 
 // Close menus when clicking outside
 document.addEventListener('click', (e) => {
-  if (activeMenu && !e.target.closest('.win-menu-dropdown') && !e.target.closest('.win-menu-item')) {
+  if (activeMenu && !e.target.closest('.jw-menu-dropdown') && !e.target.closest('.jw-menu-item')) {
     closeAllMenus();
   }
 });

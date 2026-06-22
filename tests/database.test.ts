@@ -79,6 +79,7 @@ describe('Database module', () => {
         addedAt: new Date('2025-01-01T00:00:00Z'),
         active: true,
         label: 'Test Whale',
+        tags: ['sports', 'crypto'],
         tradeSizingMode: 'fixed',
         fixedTradeSize: 50,
         thresholdEnabled: true,
@@ -110,6 +111,7 @@ describe('Database module', () => {
     assert.equal(loaded[0].address, '0xabc');
     assert.equal(loaded[0].active, true);
     assert.equal(loaded[0].label, 'Test Whale');
+    assert.deepEqual(loaded[0].tags, ['sports', 'crypto']);
     assert.equal(loaded[0].tradeSizingMode, 'fixed');
     assert.equal(loaded[0].fixedTradeSize, 50);
     assert.equal(loaded[0].thresholdEnabled, true);
@@ -125,6 +127,7 @@ describe('Database module', () => {
     assert.equal(loaded[1].address, '0xdef');
     assert.equal(loaded[1].active, false);
     assert.equal(loaded[1].label, undefined);
+    assert.equal(loaded[1].tags, undefined);
     assert.equal(loaded[1].tradeSizingMode, undefined);
   });
 

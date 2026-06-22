@@ -280,6 +280,35 @@ export async function addCopyAssignment(
 }
 
 /**
+ * Migrate copy assignments when a tracked wallet address is corrected.
+ */
+export async function migrateCopyAssignmentAddress(
+  fromAddress: string,
+  toAddress: string,
+): Promise<number> {
+  const state = await ensureWalletConfigLoaded();
+  const from = fromAddress.toLowerCase();
+  const to = toAddress.toLowerCase();
+  if (from === to) {
+    return 0;
+  }
+
+  let migrated = 0;
+  for (const assignment of state.copyAssignments) {
+    if (assignment.trackedWalletAddress === from) {
+      assignment.trackedWalletAddress = to;
+      migrated++;
+    }
+  }
+
+  if (migrated > 0) {
+    await saveWalletConfig();
+  }
+
+  return migrated;
+}
+
+/**
  * Remove a copy assignment.
  */
 export async function removeCopyAssignment(

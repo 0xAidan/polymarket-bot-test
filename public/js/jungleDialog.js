@@ -1,6 +1,6 @@
 /**
- * Jungle dialog system — drawers and toasts (replaces centered Win95 modals).
- * Assigns window.win95Dialog for backward compatibility with existing call sites.
+ * Jungle dialog system — drawers and toasts.
+ * Canonical API: window.jungleDialog (alert/success/error/confirm/prompt).
  */
 
 const jungleDialog = (() => {
@@ -166,4 +166,6 @@ const jungleDialog = (() => {
 })();
 
 window.jungleDialog = jungleDialog;
+// DEPRECATED alias — all first-party call sites now use jungleDialog/jungleModal.
+// Kept for one release as a safety net for any cached pages; remove after launch.
 window.win95Dialog = jungleDialog;

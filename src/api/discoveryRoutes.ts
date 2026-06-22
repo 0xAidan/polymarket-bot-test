@@ -33,6 +33,7 @@ import {
   removeDiscoveryWatchlistEntry,
   upsertDiscoveryWatchlistEntry,
 } from '../discovery/productSurfaceStore.js';
+import { requirePlatformAdmin } from '../middleware/requirePlatformAdmin.js';
 import {
   evaluateAndPersistAllocationPolicies,
   getAllocationPolicyConfig,
@@ -1436,9 +1437,15 @@ export const createDiscoveryRoutes = (manager: DiscoveryRoutesController): Route
   });
 
   // -----------------------------------------------------------------------
-  // POST /purge — delete old discovery trades
+  // POST /purge — delete old discovery trades (full wipe requires platform admin)
   // -----------------------------------------------------------------------
-  router.post('/purge', (req: Request, res: Response) => {
+  router.post('/purge', (req: Request, res: Response, next: NextFunction) => {
+    if (req.body?.full === true) {
+      requirePlatformAdmin(req, res, next);
+      return;
+    }
+    next();
+  }, (req: Request, res: Response) => {
     try {
       if (req.body?.full === true) {
         const deleted = manager.resetData();

@@ -18,11 +18,18 @@ const isValidAddress = (addr) => !addr || EVM_RE.test(addr.trim());
 
 const sortByRosterOrder = (agents) => [...agents].sort((a, b) => a.sortOrder - b.sortOrder);
 
+const AGENT_CATEGORIES = [
+  'sports', 'politics', 'crypto', 'macro', 'company',
+  'legal', 'geopolitics', 'entertainment', 'event', 'other',
+];
+
 const defaultDraft = (agent) => ({
   displayName: agent.displayName || '',
   tagline: agent.tagline || '',
   modelLabel: agent.modelLabel || '',
   polymarketAddress: agent.polymarketAddress || '',
+  category: agent.category || '',
+  collection: agent.collection || '',
   enabled: agent.enabled !== false,
 });
 
@@ -41,6 +48,8 @@ const draftChanged = (agent) => {
     || d.tagline.trim() !== (saved.tagline || '').trim()
     || d.modelLabel.trim() !== (saved.modelLabel || '').trim()
     || d.polymarketAddress.trim() !== saved.polymarketAddress.trim()
+    || (d.category || '') !== (saved.category || '')
+    || d.collection.trim() !== (saved.collection || '').trim()
     || d.enabled !== saved.enabled
   );
 };
@@ -49,6 +58,7 @@ const showUnauthorized = () => {
   document.getElementById('adminLoading')?.classList.add('hidden');
   document.getElementById('adminUnauthorized')?.classList.remove('hidden');
   document.getElementById('adminApp')?.classList.add('hidden');
+  document.getElementById('adminHealth')?.classList.add('hidden');
   document.getElementById('adminComingSoon')?.classList.add('hidden');
 };
 
@@ -56,14 +66,26 @@ const showAdminApp = () => {
   document.getElementById('adminLoading')?.classList.add('hidden');
   document.getElementById('adminUnauthorized')?.classList.add('hidden');
   document.getElementById('adminComingSoon')?.classList.add('hidden');
+  document.getElementById('adminHealth')?.classList.add('hidden');
   document.getElementById('adminApp')?.classList.remove('hidden');
   setActiveNav('agents');
+};
+
+const showAdminHealth = () => {
+  document.getElementById('adminLoading')?.classList.add('hidden');
+  document.getElementById('adminUnauthorized')?.classList.add('hidden');
+  document.getElementById('adminComingSoon')?.classList.add('hidden');
+  document.getElementById('adminApp')?.classList.add('hidden');
+  document.getElementById('adminHealth')?.classList.remove('hidden');
+  setActiveNav('health');
+  void refreshAdminHealth();
 };
 
 const showComingSoon = (title, text) => {
   document.getElementById('adminLoading')?.classList.add('hidden');
   document.getElementById('adminUnauthorized')?.classList.add('hidden');
   document.getElementById('adminApp')?.classList.add('hidden');
+  document.getElementById('adminHealth')?.classList.add('hidden');
   const panel = document.getElementById('adminComingSoon');
   if (panel) {
     panel.classList.remove('hidden');
@@ -83,6 +105,131 @@ const setActiveNav = (section) => {
       else el.removeAttribute('aria-current');
     }
   });
+};
+
+const formatStorageSize = (bytes) => {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—';
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
+  return `${Math.floor(bytes / 1024 / 1024)} MiB`;
+};
+
+const refreshAdminHealth = async () => {
+  const alert = document.getElementById('adminDiskAlert');
+  const statusEl = document.getElementById('adminHealthDiskStatus');
+  const usedEl = document.getElementById('adminHealthDiskUsed');
+  const freeEl = document.getElementById('adminHealthDiskFree');
+  const pathEl = document.getElementById('adminHealthDiskPath');
+  const serviceStatusEl = document.getElementById('adminHealthServiceStatus');
+  const serviceCheckedEl = document.getElementById('adminHealthServiceChecked');
+  const metaEl = document.getElementById('adminHealthMetaLine');
+
+  try {
+    const resp = await fetch('/health');
+    const data = await resp.json();
+    const disk = data?.disk;
+
+    if (serviceStatusEl) {
+      serviceStatusEl.textContent = data?.status || 'unknown';
+      serviceStatusEl.classList.toggle('is-ok', data?.status === 'ok');
+      serviceStatusEl.classList.toggle('is-degraded', data?.status === 'degraded');
+    }
+    if (serviceCheckedEl && data?.timestamp) {
+      serviceCheckedEl.textContent = new Date(data.timestamp).toLocaleString();
+    }
+
+    if (!disk) {
+      if (statusEl) statusEl.textContent = 'unavailable';
+      if (alert) alert.classList.add('hidden');
+      if (metaEl) metaEl.textContent = 'Disk metrics unavailable.';
+      return;
+    }
+
+    if (statusEl) {
+      statusEl.textContent = disk.status || 'unknown';
+      statusEl.classList.toggle('is-ok', disk.status === 'ok');
+      statusEl.classList.toggle('is-degraded', disk.status === 'degraded');
+      statusEl.classList.toggle('is-critical', disk.status === 'critical');
+    }
+    if (usedEl) usedEl.textContent = `${disk.usedPercent ?? '—'}%`;
+    if (freeEl) freeEl.textContent = formatStorageSize(disk.availableBytes || 0);
+    if (pathEl) pathEl.textContent = disk.path || '—';
+
+    if (alert) {
+      if (disk.status === 'ok') {
+        alert.classList.add('hidden');
+        alert.textContent = '';
+      } else {
+        const availMb = Math.floor((disk.availableBytes || 0) / 1024 / 1024);
+        alert.textContent = disk.status === 'critical'
+          ? `Server disk is critically full (${disk.usedPercent}% used, ${availMb} MiB free). Saves may fail until space is freed.`
+          : `Server disk is running low (${disk.usedPercent}% used). Consider freeing space soon.`;
+        alert.classList.toggle('is-degraded', disk.status === 'degraded');
+        alert.classList.toggle('is-critical', disk.status === 'critical');
+        alert.classList.remove('hidden');
+      }
+    }
+
+    if (metaEl) {
+      metaEl.textContent = disk.status === 'ok'
+        ? 'All infrastructure checks are within normal limits.'
+        : 'One or more infrastructure checks need attention.';
+    }
+  } catch {
+    if (metaEl) metaEl.textContent = 'Could not load health metrics.';
+    if (alert) alert.classList.add('hidden');
+  }
+
+  await refreshAdminPlatformStats();
+};
+
+const refreshAdminPlatformStats = async () => {
+  const tbody = document.getElementById('adminTenantStatsBody');
+  const setOverview = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  };
+
+  try {
+    const data = await API.getAdminSystemStats();
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to load platform stats');
+    }
+
+    setOverview('adminPlatformSuccessRate', `${(data.successRate || 0).toFixed(1)}%`);
+    setOverview('adminPlatformTotalTrades', String(data.totalTrades || 0));
+    setOverview('adminPlatformAvgLatency', `${Math.round(data.averageLatencyMs || 0)}ms`);
+    setOverview('adminPlatformActiveAccounts', String(data.activeAccounts || 0));
+    setOverview('adminPlatformWalletsTracked', String(data.walletsTracked || 0));
+    setOverview('adminPlatformTrades24h', String(data.tradesLast24h || 0));
+
+    if (!tbody) return;
+    const tenants = Array.isArray(data.tenants) ? data.tenants : [];
+    if (tenants.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-muted">No account activity recorded yet.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = tenants.map((tenant) => `
+      <tr>
+        <td>${escapeHtml(tenant.tenantName || tenant.tenantId)}</td>
+        <td>${tenant.totalTrades ?? 0}</td>
+        <td>${(tenant.successRate ?? 0).toFixed(1)}%</td>
+        <td>${Math.round(tenant.averageLatencyMs ?? 0)}ms</td>
+        <td>${tenant.walletsTracked ?? 0}</td>
+        <td>${tenant.tradesLast24h ?? 0}</td>
+      </tr>
+    `).join('');
+  } catch {
+    setOverview('adminPlatformSuccessRate', '—');
+    setOverview('adminPlatformTotalTrades', '—');
+    setOverview('adminPlatformAvgLatency', '—');
+    setOverview('adminPlatformActiveAccounts', '—');
+    setOverview('adminPlatformWalletsTracked', '—');
+    setOverview('adminPlatformTrades24h', '—');
+    if (tbody) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-muted">Could not load platform stats.</td></tr>';
+    }
+  }
 };
 
 const updateMetaLine = (agents) => {
@@ -141,14 +288,18 @@ const renderTable = () => {
     const missing = !agent.polymarketAddress;
     const addrInvalid = draft.polymarketAddress.trim() && !isValidAddress(draft.polymarketAddress);
     const perf = perfSnapshots.get(agent.id);
-    const initial = (draft.displayName || agent.displayName || '?').slice(0, 1).toUpperCase();
+    const avatarInner = renderJungleAgentAvatar(agent, {
+      imgClass: 'j-admin-agent-avatar-img',
+      iconClass: 'j-admin-agent-avatar-icon',
+      fallbackClass: 'j-admin-agent-avatar-fallback',
+    });
 
     return `
     <tr class="${missing ? 'row-missing' : ''}${dirty ? ' row-dirty' : ''}" data-agent-row="${agent.id}">
       <td class="col-order">${agent.sortOrder}</td>
       <td class="col-agent">
         <div class="j-admin-agent-cell">
-          <div class="j-admin-agent-avatar" aria-hidden="true">${escapeHtml(initial)}</div>
+          <div class="j-admin-agent-avatar" aria-hidden="true">${avatarInner}</div>
           <div class="j-admin-agent-fields">
             <input
               type="text"
@@ -179,6 +330,27 @@ const renderTable = () => {
           value="${escapeHtml(draft.modelLabel)}"
           placeholder="Model label"
           aria-label="Model for ${escapeHtml(agent.displayName)}"
+        />
+      </td>
+      <td class="col-curation">
+        <select
+          class="j-admin-field-input j-admin-category-select"
+          data-field="category"
+          data-agent-id="${agent.id}"
+          aria-label="Category for ${escapeHtml(agent.displayName)}"
+        >
+          <option value="">No category</option>
+          ${AGENT_CATEGORIES.map((c) => `<option value="${c}"${draft.category === c ? ' selected' : ''}>${c}</option>`).join('')}
+        </select>
+        <input
+          type="text"
+          class="j-admin-field-input"
+          data-field="collection"
+          data-agent-id="${agent.id}"
+          value="${escapeHtml(draft.collection)}"
+          maxlength="60"
+          placeholder="Collection (e.g. MLB Opening Week)"
+          aria-label="Collection for ${escapeHtml(agent.displayName)}"
         />
       </td>
       <td class="col-wallet">
@@ -230,7 +402,7 @@ const renderTable = () => {
       }
       updateRowVisuals(id);
     };
-    if (el.type === 'checkbox') {
+    if (el.type === 'checkbox' || el.tagName === 'SELECT') {
       el.addEventListener('change', handler);
     } else {
       el.addEventListener('input', handler);
@@ -246,9 +418,9 @@ const renderTable = () => {
       if (!val) return;
       try {
         await navigator.clipboard.writeText(val);
-        await win95Dialog.success('Wallet copied');
+        await jungleDialog.success('Wallet copied');
       } catch {
-        await win95Dialog.alert(val, 'Copy manually');
+        await jungleDialog.alert(val, 'Copy manually');
       }
     });
   });
@@ -291,6 +463,9 @@ const collectUpdates = () => {
       tagline: d.tagline.trim() || undefined,
       modelLabel: d.modelLabel.trim() || undefined,
       polymarketAddress: addr,
+      // Empty string means "clear" — the store normalizes '' to undefined.
+      category: d.category || '',
+      collection: d.collection.trim(),
       enabled: d.enabled,
     });
   }
@@ -300,20 +475,25 @@ const collectUpdates = () => {
 const saveAllChanges = async () => {
   const { updates, invalid } = collectUpdates();
   if (invalid.length > 0) {
-    await win95Dialog.error(`Invalid wallet format for: ${invalid.join(', ')}. Use 0x plus 40 hex characters, or leave blank.`);
+    await jungleDialog.error(`Invalid wallet format for: ${invalid.join(', ')}. Use 0x plus 40 hex characters, or leave blank.`);
     return;
   }
   if (updates.length === 0) {
-    await win95Dialog.alert('No changes to save.');
+    await jungleDialog.alert('No changes to save.');
     return;
   }
   try {
     await API.bulkSaveAdminJungleAgents(updates);
     rowDrafts.clear();
     await loadAdminAgents();
-    await win95Dialog.success(`Saved ${updates.length} agent${updates.length === 1 ? '' : 's'}.`);
+    await jungleDialog.success(`Saved ${updates.length} agent${updates.length === 1 ? '' : 's'}.`);
   } catch (error) {
-    await win95Dialog.error(error.message || 'Save failed');
+    const message = error?.message || 'Save failed';
+    if (message.includes('DISK_FULL') || message.includes('Disk space')) {
+      await jungleDialog.error('Server disk is full. Free space on the server before saving agent changes.');
+      return;
+    }
+    await jungleDialog.error(message);
   }
 };
 
@@ -341,13 +521,19 @@ const bootAdmin = async () => {
     await loadAdminAgents();
   } catch (error) {
     console.error(error);
+    const panel = document.getElementById('adminUnauthorized');
+    const textEl = panel?.querySelector('p');
+    const isNetwork = error?.message?.includes('fetch') || error?.message?.includes('Failed to fetch');
+    if (textEl && isNetwork) {
+      textEl.textContent = 'Could not reach the server. Check your connection and try again.';
+    }
     showUnauthorized();
   }
 };
 
 document.getElementById('adminRefreshBtn')?.addEventListener('click', () => {
   rowDrafts.clear();
-  loadAdminAgents().catch((e) => win95Dialog.error(e.message));
+  loadAdminAgents().catch((e) => jungleDialog.error(e.message));
 });
 document.getElementById('adminSaveAllBtn')?.addEventListener('click', () => saveAllChanges());
 
@@ -361,15 +547,18 @@ document.querySelectorAll('[data-admin-nav]').forEach((el) => {
     }
     e.preventDefault();
     if (section === 'health') {
-      showComingSoon('System Health', 'Server health checks and uptime will live here in a future release.');
-      setActiveNav('health');
+      showAdminHealth();
       return;
     }
     if (section === 'tenants') {
-      showComingSoon('Tenants', 'Multi-tenant workspace management is planned but not built yet.');
+      showComingSoon('Tenants', 'Multi-account management is planned but not built yet.');
       setActiveNav('tenants');
     }
   });
+});
+
+document.getElementById('adminHealthRefreshBtn')?.addEventListener('click', () => {
+  refreshAdminHealth().catch((e) => jungleDialog.error(e.message));
 });
 
 document.getElementById('adminBackToAgentsBtn')?.addEventListener('click', () => showAdminApp());

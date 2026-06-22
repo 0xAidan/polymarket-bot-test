@@ -51,6 +51,14 @@ const API = {
 
   // Base fetch with error handling + auth
   async fetch(endpoint, options = {}) {
+    const connectivityBanner = document.getElementById('connectivityBanner');
+    const showConnectivityIssue = () => {
+      if (connectivityBanner) connectivityBanner.classList.remove('hidden');
+    };
+    const clearConnectivityIssue = () => {
+      if (connectivityBanner) connectivityBanner.classList.add('hidden');
+    };
+
     try {
       const token = this.getToken();
       const usingLegacyToken = Boolean(token);
@@ -68,6 +76,8 @@ const API = {
         ...options
       });
 
+      clearConnectivityIssue();
+
       // If 401, show login modal and bail
       if (response.status === 401) {
         this.clearToken();
@@ -82,12 +92,25 @@ const API = {
         throw new Error('Authentication required');
       }
 
+      if (response.status === 507) {
+        throw new Error('Server disk is full. Saves are blocked until space is freed — contact support if this persists.');
+      }
+
+      if (response.status === 403) {
+        const parsed403 = await readApiResponseViaCore(response);
+        const msg = parsed403.data?.message || parsed403.error || 'You do not have permission for this action.';
+        throw new Error(msg);
+      }
+
       const parsed = await readApiResponseViaCore(response);
       if (!parsed.ok) {
         throw new Error(parsed.error || `HTTP ${response.status}`);
       }
       return parsed.data;
     } catch (error) {
+      if (error instanceof TypeError || /fetch|network/i.test(String(error.message || ''))) {
+        showConnectivityIssue();
+      }
       console.error(`API Error [${endpoint}]:`, error);
       throw error;
     }
@@ -177,6 +200,10 @@ const API = {
 
   async getAdminJungleAgents() {
     return this.get('/admin/jungle-agents');
+  },
+
+  async getAdminSystemStats() {
+    return this.get('/admin/system-stats');
   },
 
   async createAdminJungleAgent(payload) {

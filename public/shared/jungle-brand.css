@@ -42,7 +42,26 @@
   --j-radius-lg: 14px;
   --j-drawer-width: 400px;
   --j-table-row-h: 36px;
+
+  /* Elevation scale */
   --j-shadow-1: 0 4px 24px rgba(0, 0, 0, 0.35);
+  --j-shadow-2: 0 12px 40px rgba(0, 0, 0, 0.5);
+  --j-shadow-3: 0 24px 64px rgba(0, 0, 0, 0.65);
+
+  /* Motion standards — use these for ALL new transitions */
+  --j-motion-fast: 0.15s ease;       /* hovers, color/border changes */
+  --j-motion-base: 0.25s ease;       /* reveals, panel state changes */
+  --j-motion-slow: 0.4s cubic-bezier(0.22, 1, 0.36, 1); /* entrances */
+
+  /* Type scale (mono UI text) */
+  --j-text-xs: 11px;
+  --j-text-sm: 12px;
+  --j-text-base: 13px;
+  --j-text-md: 14px;
+  --j-text-lg: 17px;
+  --j-display-sm: 20px;   /* serif */
+  --j-display-md: 26px;   /* serif */
+  --j-display-lg: 34px;   /* serif */
 }
 
 /* ---------- Reset & Base ---------- */
@@ -151,6 +170,37 @@ body {
     rgba(0, 0, 0, 0.02) 4px
   );
   pointer-events: none;
+}
+
+/* Skeleton loading states */
+@keyframes j-skeleton-sheen {
+  0%   { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+
+.j-skeleton {
+  display: inline-block;
+  border-radius: var(--j-radius-sm);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 25%, rgba(229, 184, 11, 0.08) 50%, rgba(255, 255, 255, 0.04) 75%);
+  background-size: 200px 100%;
+  animation: j-skeleton-sheen 1.4s ease-in-out infinite;
+  color: transparent !important;
+  user-select: none;
+  min-height: 1em;
+}
+
+.j-skeleton-line  { display: block; height: 12px; width: 100%; }
+.j-skeleton-line.short { width: 55%; }
+
+/* Respect users who turn off animation at the OS level */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Confidence bar */

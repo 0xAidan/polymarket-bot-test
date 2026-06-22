@@ -38,6 +38,8 @@ import {
   summarizeClobConnectivityDiagnosis,
 } from '../tradeExecutionDiagnostics.js';
 import { createComponentLogger } from '../logger.js';
+import { resolveTrackedWalletAddress } from '../trackedWalletAddress.js';
+import { verifyPolymarketAddress } from '../jungleAgentsPolymarketSync.js';
 import { isHostedMultiTenantMode } from '../hostedMode.js';
 import { DEFAULT_TENANT_ID, getTenantId, runWithTenant } from '../tenantContext.js';
 import { listTenantIdsWithLadderOrStopLossActivity } from '../database.js';
@@ -296,18 +298,21 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         });
       }
 
-      // Basic address validation
-      if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+      const resolved = await resolveTrackedWalletAddress(address.trim());
+      if (!resolved.verification.isLikelyValid) {
         return res.status(400).json({
           success: false,
-          error: 'Invalid wallet address format'
+          error: 'This wallet has no Polymarket trading activity. Use a Polymarket profile URL, @username, or the account\'s active proxy wallet address.',
+          input: address,
+          monitoringAddress: resolved.monitoringAddress,
         });
       }
 
-      await Storage.addWallet(address);
+      const monitoringAddress = resolved.monitoringAddress.toLowerCase();
+      await Storage.addWallet(monitoringAddress);
 
       if (label && typeof label === 'string' && label.trim()) {
-        await Storage.updateWalletLabel(address, label.trim());
+        await Storage.updateWalletLabel(monitoringAddress, label.trim());
       }
 
       // Reload wallets in the monitor so the new wallet is tracked immediately
@@ -315,13 +320,17 @@ export function createRoutes(copyTrader: CopyTrader): Router {
 
       // Return the updated wallet list so the UI can update immediately
       const wallets = await Storage.loadTrackedWallets();
-      const addedWallet = wallets.find(w => w.address.toLowerCase() === address.toLowerCase());
+      const addedWallet = wallets.find(w => w.address.toLowerCase() === monitoringAddress);
 
       res.json({
         success: true,
-        message: 'Wallet added successfully',
+        message: resolved.monitoringAddress !== address.trim().toLowerCase()
+          ? 'Wallet added using verified Polymarket proxy address'
+          : 'Wallet added successfully',
         wallet: addedWallet,
-        wallets: wallets
+        wallets: wallets,
+        resolvedAddress: monitoringAddress,
+        resolutionSource: resolved.source,
       });
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
@@ -1646,15 +1655,19 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       if (!(await requireTrackedWalletAccess(address, res))) {
         return;
       }
+      const resolved = await resolveTrackedWalletAddress(address);
+      const portfolioAddress = resolved.verification.isLikelyValid
+        ? resolved.monitoringAddress
+        : address;
       const polymarketApi = copyTrader.getPolymarketApi();
       const balanceTracker = copyTrader.getBalanceTracker();
 
-      log.info(`[API] Fetching tracked wallet portfolio for: ${address}`);
+      log.info(`[API] Fetching tracked wallet portfolio for: ${portfolioAddress}`);
 
       // Get full portfolio value (USDC + positions)
-      const portfolioData = await polymarketApi.getPortfolioValue(address, balanceTracker);
+      const portfolioData = await polymarketApi.getPortfolioValue(portfolioAddress, balanceTracker);
 
-      log.info(`[API] Tracked wallet ${address.substring(0, 8)}... portfolio: $${portfolioData.totalValue.toFixed(2)}`);
+      log.info(`[API] Tracked wallet ${portfolioAddress.substring(0, 8)}... portfolio: $${portfolioData.totalValue.toFixed(2)}`);
       log.info(`[API]   USDC: $${portfolioData.usdcBalance.toFixed(2)}`);
       log.info(`[API]   Positions: $${portfolioData.positionsValue.toFixed(2)} (${portfolioData.positionCount} positions)`);
 
@@ -1665,8 +1678,10 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         positionsValue: portfolioData.positionsValue,
         positionCount: portfolioData.positionCount,
         walletAddress: address,
+        monitoringAddress: portfolioAddress,
         proxyWallet: portfolioData.proxyWallet,
-        source: 'usdc_plus_positions'
+        source: 'usdc_plus_positions',
+        addressHealthy: resolved.verification.isLikelyValid && (portfolioData.totalValue > 0 || portfolioData.positionCount > 0),
       });
     } catch (error: any) {
       log.error({ detail: error.message }, `[API] Error fetching tracked wallet balance`)
@@ -1685,6 +1700,30 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       const { active } = req.body;
       if (!(await requireTrackedWalletAccess(address, res))) {
         return;
+      }
+
+      const enabling = active === undefined ? undefined : Boolean(active);
+      if (enabling === true) {
+        const verification = await verifyPolymarketAddress(address);
+        if (!verification.isLikelyValid) {
+          const resolved = await resolveTrackedWalletAddress(address);
+          if (!resolved.verification.isLikelyValid) {
+            return res.status(400).json({
+              success: false,
+              error: 'Cannot enable copy trading — this wallet has no Polymarket activity. Remove it and re-add using a profile URL, @username, or verified proxy wallet address.',
+            });
+          }
+          await Storage.migrateWalletAddress(address, resolved.monitoringAddress);
+          await copyTrader.reloadWallets();
+          const wallet = await Storage.toggleWalletActive(resolved.monitoringAddress, true);
+          return res.json({
+            success: true,
+            message: 'Wallet copy trading enabled using verified Polymarket proxy address',
+            wallet,
+            migratedFrom: address,
+            resolvedAddress: resolved.monitoringAddress,
+          });
+        }
       }
 
       const wallet = await Storage.toggleWalletActive(address, active);
@@ -2376,7 +2415,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       if (isHostedMultiTenantMode()) {
         return res.status(403).json({
           success: false,
-          error: 'Server Builder credentials cannot be changed in hosted mode. Configure per trading wallet after unlocking.',
+          error: 'Server Builder credentials cannot be changed in hosted mode. Add Builder credentials per trading wallet under Trading Wallets.',
         });
       }
 
@@ -3341,6 +3380,149 @@ export function createRoutes(copyTrader: CopyTrader): Router {
         success: false,
         error: error.message || 'Failed to fetch geoblock status',
       });
+    }
+  });
+
+  // Aggregated per-wallet summary for dashboard cards
+  router.get('/wallets/summary', async (req: Request, res: Response) => {
+    try {
+      const wallets = await Storage.loadTrackedWallets();
+      const recentTrades = performanceTracker.getRecentTrades(1000);
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+
+      const summaries = wallets.map((wallet) => {
+        const addr = wallet.address.toLowerCase();
+        const walletTrades = recentTrades.filter(
+          (t) => t.walletAddress.toLowerCase() === addr
+        );
+        const todayTrades = walletTrades.filter(
+          (t) => new Date(t.timestamp) >= startOfToday
+        );
+        const successful = walletTrades.filter((t) => t.success);
+        const lastTrade = walletTrades.length > 0 ? walletTrades[0] : null;
+
+        return {
+          address: wallet.address,
+          active: wallet.active,
+          label: wallet.label || '',
+          tags: wallet.tags || [],
+          lastTradeTime: lastTrade?.timestamp ?? null,
+          tradesCopiedToday: todayTrades.length,
+          successRate: walletTrades.length > 0
+            ? Math.round((successful.length / walletTrades.length) * 1000) / 10
+            : null,
+          configSummary: {
+            tradeSizingMode: wallet.tradeSizingMode || 'fixed',
+            fixedTradeSize: wallet.fixedTradeSize,
+            tradeSideFilter: wallet.tradeSideFilter || 'all',
+            noRepeatEnabled: !!wallet.noRepeatEnabled,
+            rateLimitEnabled: !!wallet.rateLimitEnabled,
+            valueFilterEnabled: !!wallet.valueFilterEnabled,
+          },
+        };
+      });
+
+      res.json({ success: true, wallets: summaries });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Pre-start readiness check for copy trading
+  router.get('/preflight', async (req: Request, res: Response) => {
+    try {
+      const issues: Array<{ code: string; message: string; fixTab: string }> = [];
+
+      const trackedWallets = await Storage.loadTrackedWallets();
+      const activeTracked = trackedWallets.filter((w) => w.active);
+      if (activeTracked.length === 0) {
+        issues.push({
+          code: 'no_active_tracked',
+          message: 'Enable at least one wallet on your Watch List.',
+          fixTab: 'wallets',
+        });
+      }
+
+      await ensureWalletConfigLoaded();
+      const tradingWallets = await getTradingWallets();
+      const credentialedActive = tradingWallets.filter(
+        (w) => w.isActive !== false && w.hasCredentials
+      );
+      if (credentialedActive.length === 0) {
+        issues.push({
+          code: 'no_trading_wallet',
+          message: 'Add a trading wallet with builder credentials under My Wallets.',
+          fixTab: 'trading-wallets',
+        });
+      }
+
+      const credentialedCount = tradingWallets.filter((w) => w.hasCredentials).length;
+      if (isHostedMultiTenantMode() || credentialedCount >= 2) {
+        const assignments = await getCopyAssignments();
+        if (assignments.length === 0 && activeTracked.length > 0 && credentialedActive.length > 0) {
+          issues.push({
+            code: 'no_copy_assignments',
+            message: 'Map tracked wallets to trading wallets under Copy Assignments.',
+            fixTab: 'trading-wallets',
+          });
+        }
+      }
+
+      let clobReachable: boolean | null = null;
+      if (!isHostedMultiTenantMode()) {
+        try {
+          const axios = (await import('axios')).default;
+          const clobUrl = config.polymarketClobApiUrl || 'https://clob.polymarket.com';
+          const timeResponse = await axios.get(`${clobUrl}/time`, { timeout: 5000, validateStatus: () => true });
+          clobReachable = timeResponse.status === 200;
+          if (!clobReachable) {
+            issues.push({
+              code: 'clob_unreachable',
+              message: 'Cannot reach Polymarket CLOB — check network or run Diagnostics.',
+              fixTab: 'diagnostics',
+            });
+          }
+        } catch {
+          clobReachable = false;
+          issues.push({
+            code: 'clob_unreachable',
+            message: 'Cannot reach Polymarket CLOB — check network or run Diagnostics.',
+            fixTab: 'diagnostics',
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        ready: issues.length === 0,
+        issues,
+        clobReachable,
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Pipeline / execution state for debugging
+  router.get('/status/pipeline', async (req: Request, res: Response) => {
+    try {
+      const status = copyTrader.getStatus();
+      const stopLossStatus = await copyTrader.getUsageStopLossStatus();
+      const recentTrades = performanceTracker.getRecentTrades(50);
+      const pendingCount = recentTrades.filter((t) => t.status === 'pending').length;
+
+      res.json({
+        success: true,
+        inFlightCount: pendingCount,
+        processedTradesCount: status.executedTradesCount,
+        monitoringMode: status.monitoringMode,
+        running: status.running,
+        stopLossStatus,
+        perWalletRateLimits: {},
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
     }
   });
 

@@ -110,3 +110,198 @@
   outline: 2px solid rgba(229, 184, 11, 0.35);
   outline-offset: 1px;
 }
+
+/* ============================================================
+   Jungle Agents — onboarding tutorial (overlay card)
+   Single prefix: onb-
+   ============================================================ */
+
+.onb-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  pointer-events: none;
+}
+
+.onb-overlay .onb-backdrop,
+.onb-overlay .onb-card {
+  pointer-events: auto;
+}
+
+.onb-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 9, 14, 0.78);
+  backdrop-filter: blur(2px);
+}
+
+.onb-spotlight {
+  position: fixed;
+  display: none;
+  background: transparent;
+  border: 2px solid rgba(229, 184, 11, 0.65);
+  border-radius: 8px;
+  outline: 1px solid rgba(229, 184, 11, 0.35);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 24px rgba(229, 184, 11, 0.2);
+  pointer-events: none;
+  transition: left 0.25s ease, top 0.25s ease, width 0.25s ease, height 0.25s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onb-spotlight { transition: none; }
+}
+
+.onb-card {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: var(--jungle-bg-card);
+  border: 1px solid var(--jungle-border-strong);
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(229, 184, 11, 0.08);
+  padding: 20px 22px;
+  font-family: var(--font-mono);
+  z-index: 10001;
+}
+
+.onb-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.onb-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--jungle-gold-dim, #8a6e07), var(--jungle-gold));
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.onb-step-count {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--jungle-text-dim);
+  margin-bottom: 6px;
+}
+
+.onb-title {
+  font-family: var(--font-serif);
+  font-size: 24px;
+  font-weight: 400;
+  color: var(--jungle-gold);
+  margin: 0 0 14px;
+  letter-spacing: 0.02em;
+}
+
+.onb-action-list {
+  margin: 0 0 14px;
+  padding-left: 1.35rem;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--jungle-text);
+}
+
+.onb-action-list li {
+  margin-bottom: 8px;
+  padding-left: 4px;
+}
+
+.onb-action-list li::marker {
+  color: var(--jungle-gold);
+  font-weight: 600;
+}
+
+.onb-action-list li:last-child {
+  margin-bottom: 0;
+}
+
+.onb-detected {
+  font-size: 12.5px;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 4px 0 10px;
+  border: 1px solid var(--jungle-border);
+}
+
+.onb-detected.hidden { display: none; }
+
+.onb-detected-yes {
+  color: var(--jungle-win, #41d98d);
+  border-color: rgba(65, 217, 141, 0.35);
+  background: rgba(65, 217, 141, 0.08);
+}
+
+.onb-detected-waiting {
+  color: var(--jungle-text-dim);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.onb-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.onb-actions-spacer { flex: 1; }
+
+.onb-btn {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 9px 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--jungle-border-strong);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--jungle-text);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.onb-btn:hover {
+  border-color: rgba(229, 184, 11, 0.45);
+  background: rgba(229, 184, 11, 0.1);
+}
+
+.onb-btn:disabled {
+  color: var(--jungle-text-dim);
+  cursor: default;
+  opacity: 0.6;
+}
+
+.onb-btn:focus-visible {
+  outline: 2px solid rgba(229, 184, 11, 0.35);
+  outline-offset: 1px;
+}
+
+.onb-btn-next {
+  background: var(--jungle-gold);
+  border-color: var(--jungle-gold);
+  color: #161721;
+  font-weight: 700;
+}
+
+.onb-btn-next:hover {
+  background: var(--jungle-gold-light, #ffd700);
+  border-color: var(--jungle-gold-light, #ffd700);
+}
+
+.onb-btn-skip {
+  background: transparent;
+  border-color: transparent;
+  color: var(--jungle-text-dim);
+}
+
+.onb-btn-skip:hover {
+  background: transparent;
+  border-color: var(--jungle-border);
+  color: var(--jungle-text-muted);
+}

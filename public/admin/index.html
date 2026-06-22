@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ditto Admin — Jungle Agents</title>
+  <link rel="icon" type="image/png" href="/shared/favicon-gold.png">
+  <style>html { background: #161721; }</style>
   <link rel="stylesheet" href="/shared/jungle-brand.css">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/admin/admin.css">
@@ -32,6 +34,68 @@
         <a href="/" class="j-btn j-btn-primary">Return to Ditto</a>
       </section>
 
+      <section id="adminHealth" class="j-admin-health hidden">
+        <header class="j-admin-header">
+          <div>
+            <h1 class="font-serif j-admin-title">System Health</h1>
+            <p id="adminHealthMetaLine" class="j-admin-meta text-muted">Infrastructure status for platform operators.</p>
+          </div>
+          <div class="j-admin-header-actions">
+            <button type="button" class="j-btn" id="adminHealthRefreshBtn">Refresh</button>
+          </div>
+        </header>
+
+        <div id="adminDiskAlert" class="j-admin-health-alert hidden" role="alert" aria-live="polite"></div>
+
+        <div class="j-card j-admin-health-card glow-border">
+          <h2 class="j-admin-health-card-title">Disk</h2>
+          <dl class="j-admin-health-metrics" id="adminHealthDiskMetrics">
+            <div><dt>Status</dt><dd id="adminHealthDiskStatus">—</dd></div>
+            <div><dt>Used</dt><dd id="adminHealthDiskUsed">—</dd></div>
+            <div><dt>Free</dt><dd id="adminHealthDiskFree">—</dd></div>
+            <div><dt>Data path</dt><dd id="adminHealthDiskPath" class="text-mono">—</dd></div>
+          </dl>
+        </div>
+
+        <div class="j-card j-admin-health-card glow-border">
+          <h2 class="j-admin-health-card-title">Service</h2>
+          <dl class="j-admin-health-metrics" id="adminHealthServiceMetrics">
+            <div><dt>Health</dt><dd id="adminHealthServiceStatus">—</dd></div>
+            <div><dt>Last check</dt><dd id="adminHealthServiceChecked">—</dd></div>
+          </dl>
+        </div>
+
+        <div class="j-card j-admin-health-card glow-border">
+          <h2 class="j-admin-health-card-title">Platform performance</h2>
+          <p class="j-admin-health-intro text-muted">Aggregated copy-trade stats across all accounts. Not shown on the user dashboard.</p>
+          <dl class="j-admin-health-metrics j-admin-platform-overview" id="adminPlatformOverview">
+            <div><dt>Success rate</dt><dd id="adminPlatformSuccessRate">—</dd></div>
+            <div><dt>Total trades</dt><dd id="adminPlatformTotalTrades">—</dd></div>
+            <div><dt>Avg latency</dt><dd id="adminPlatformAvgLatency">—</dd></div>
+            <div><dt>Active accounts</dt><dd id="adminPlatformActiveAccounts">—</dd></div>
+            <div><dt>Wallets tracked</dt><dd id="adminPlatformWalletsTracked">—</dd></div>
+            <div><dt>Trades (24h)</dt><dd id="adminPlatformTrades24h">—</dd></div>
+          </dl>
+          <div class="j-admin-table-scroll j-admin-tenant-stats-scroll">
+            <table class="j-admin-table j-admin-tenant-stats-table" aria-label="Per-account performance">
+              <thead>
+                <tr>
+                  <th>Account</th>
+                  <th>Trades</th>
+                  <th>Success</th>
+                  <th>Latency</th>
+                  <th>Wallets</th>
+                  <th>24h</th>
+                </tr>
+              </thead>
+              <tbody id="adminTenantStatsBody">
+                <tr><td colspan="6" class="text-muted">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <section id="adminComingSoon" class="j-admin-coming-soon hidden">
         <h1 class="font-serif" id="adminComingSoonTitle">Coming soon</h1>
         <p class="text-muted" id="adminComingSoonText">This section is not available yet.</p>
@@ -58,6 +122,7 @@
                   <th class="col-order">#</th>
                   <th class="col-agent">Agent</th>
                   <th class="col-model">Model</th>
+                  <th class="col-curation">Category &amp; collection</th>
                   <th class="col-wallet">Polymarket wallet</th>
                   <th class="col-status">Status</th>
                   <th class="col-live">Live</th>
@@ -79,6 +144,7 @@
   <script src="/js/api-core.js"></script>
   <script src="/js/api.js"></script>
   <script src="/js/jungleDialog.js"></script>
+  <script src="/js/jungleAgentIcons.js"></script>
   <script src="/admin/admin.js"></script>
   <script>
     window.maybeStartApp = function adminMaybeStart() {
