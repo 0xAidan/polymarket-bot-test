@@ -396,8 +396,7 @@ body {
   flex: 1;
   gap: var(--space-md);
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 /* ============================================================
@@ -2911,9 +2910,12 @@ body.app-ready .auth-gate-screen {
    ============================================================ */
 
 .j-app {
-  min-height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .j-topbar {
@@ -3028,7 +3030,10 @@ body.app-ready .auth-gate-screen {
 .j-main:has(#tab-dashboard.active) {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
+  max-width: none;
 }
 
 .jw-body:has(#tab-dashboard.active) {
@@ -3570,6 +3575,9 @@ body.j-drawer-open { overflow: hidden; }
   flex: 1;
   min-height: 0;
   gap: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* Compact top bar: setup + wallet + actions in one row */
@@ -4039,20 +4047,23 @@ body.j-drawer-open { overflow: hidden; }
 /* Main grid: trade history dominates; agents roster is a compact sidebar */
 .j-dash-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(200px, 248px);
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 300px);
+  grid-template-rows: minmax(0, 1fr);
   gap: 12px;
   align-items: stretch;
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
-  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
 }
 
 .j-dash-primary {
   min-width: 0;
   min-height: 0;
-  height: 100%;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .j-trade-panel {
@@ -4060,7 +4071,8 @@ body.j-drawer-open { overflow: hidden; }
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
 }
 
 .j-trade-panel .j-panel-head,
@@ -4189,8 +4201,9 @@ body.j-drawer-open { overflow: hidden; }
   gap: var(--space-md);
   min-height: 0;
   min-width: 0;
-  max-width: 248px;
-  height: 100%;
+  max-width: 300px;
+  max-height: 100%;
+  overflow: hidden;
 }
 
 /* Home Jungle Agents roster */
@@ -4200,7 +4213,8 @@ body.j-drawer-open { overflow: hidden; }
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
 }
 
 .j-agents-roster .j-roster-head,
@@ -4235,9 +4249,11 @@ body.j-drawer-open { overflow: hidden; }
 .j-roster-list {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 
 .j-roster-item {
@@ -4274,12 +4290,16 @@ body.j-drawer-open { overflow: hidden; }
   align-items: center;
   gap: 6px;
   grid-column: 2;
+  width: 100%;
+  max-width: 100%;
 }
 
 .j-roster-copy-btn {
   min-width: 0;
   padding: 4px 10px;
   font-size: 11px;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .j-roster-item:last-child {
@@ -4690,24 +4710,24 @@ body.j-drawer-open { overflow: hidden; }
 /* DASHBOARD responsive — must stay AFTER the base .j-dash-* definitions above. */
 @media (max-width: 1100px) {
   .j-main:has(#tab-dashboard.active) {
-    overflow: auto;
+    overflow: hidden;
   }
 
   .j-dash-grid {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1.35fr) minmax(0, 1fr);
-    height: auto;
+    max-height: 100%;
   }
 
   .j-dash-aside {
     max-width: none;
-    height: auto;
+    max-height: 100%;
   }
 
   .j-trade-panel,
   .j-agents-roster {
     min-height: 0;
-    height: 100%;
+    max-height: 100%;
   }
 }
 
