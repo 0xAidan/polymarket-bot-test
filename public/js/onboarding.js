@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const STORAGE_PREFIX = 'ditto_onboarding_v3';
+  const STORAGE_PREFIX = 'ditto_onboarding_v1';
   const CHECK_POLL_MS = 3000;
 
   let overlayEl = null;
@@ -49,7 +49,21 @@
     }
   };
 
-  const getSteps = () => window.DITTO_ONBOARDING_STEPS || [];
+  const getSteps = () => {
+    const base = window.DITTO_ONBOARDING_STEPS || [];
+    if (!window.__hostedMultiTenant) return base;
+    return base.map((step) => {
+      if (step.id !== 'add-key-to-bot') return step;
+      return {
+        ...step,
+        actions: [
+          'Open the My Wallets tab, paste your private key, and name the wallet',
+          'In hosted Ditto your key is encrypted when you sign in — no vault password',
+          'When the wallet appears in your list, you\'ll see a green Detected badge',
+        ],
+      };
+    });
+  };
 
   /* ── Progress persistence (per workspace) ─────────────────────────────── */
   const storageKey = () => {
@@ -82,71 +96,19 @@
     return '<ol class="onb-action-list">' + items + '</ol>';
   };
 
-  const MIN_SPOTLIGHT_PX = 8;
-
-  const isElementSpotlightable = (el) => {
-    if (!el || !el.isConnected) return false;
-    const style = window.getComputedStyle(el);
-    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
-      return false;
-    }
-    const rect = el.getBoundingClientRect();
-    if (rect.width < MIN_SPOTLIGHT_PX || rect.height < MIN_SPOTLIGHT_PX) return false;
-
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const visibleW = Math.min(rect.right, vw) - Math.max(rect.left, 0);
-    const visibleH = Math.min(rect.bottom, vh) - Math.max(rect.top, 0);
-    return visibleW >= MIN_SPOTLIGHT_PX && visibleH >= MIN_SPOTLIGHT_PX;
-  };
-
-  const hideSpotlight = () => {
-    if (!spotlightEl) return;
-    spotlightEl.style.display = 'none';
-    spotlightEl.style.width = '0';
-    spotlightEl.style.height = '0';
-  };
-
   const positionSpotlight = (selector) => {
     if (!spotlightEl) return;
-    if (!selector) {
-      hideSpotlight();
-      return;
-    }
-
-    const el = document.querySelector(selector);
+    const el = selector ? document.querySelector(selector) : null;
     if (!el) {
-      hideSpotlight();
+      spotlightEl.style.display = 'none';
       return;
     }
-
-    try {
-      el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
-    } catch {
-      el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    }
-
-    if (!isElementSpotlightable(el)) {
-      hideSpotlight();
-      return;
-    }
-
     const rect = el.getBoundingClientRect();
-    const pad = 4;
     spotlightEl.style.display = 'block';
-    spotlightEl.style.left = Math.max(0, rect.left - pad) + 'px';
-    spotlightEl.style.top = Math.max(0, rect.top - pad) + 'px';
-    spotlightEl.style.width = Math.max(MIN_SPOTLIGHT_PX, rect.width + pad * 2) + 'px';
-    spotlightEl.style.height = Math.max(MIN_SPOTLIGHT_PX, rect.height + pad * 2) + 'px';
-  };
-
-  const scheduleSpotlight = (selector) => {
-    // Wait for tab switches and layout before measuring targets.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        positionSpotlight(selector);
-      });
-    });
+    spotlightEl.style.left = rect.left + 'px';
+    spotlightEl.style.top = rect.top + 'px';
+    spotlightEl.style.width = rect.width + 'px';
+    spotlightEl.style.height = rect.height + 'px';
   };
 
   const stopCheckPolling = () => {
@@ -159,6 +121,14 @@
   const runCompletionCheck = async (step) => {
     const badge = cardEl && cardEl.querySelector('.onb-detected');
     if (!badge) return;
+
+    const progress = loadProgress();
+    if (step.manualComplete && progress?.manualSteps?.[step.id]) {
+      badge.className = 'onb-detected onb-detected-yes';
+      badge.textContent = '✓ Marked complete';
+      return;
+    }
+
     const checker = step.completionCheck && CHECKS[step.completionCheck];
     if (!checker) {
       badge.className = 'onb-detected hidden';
@@ -189,11 +159,24 @@
     }
 
     const pct = Math.round(((currentIndex + 1) / steps.length) * 100);
+    const introHtml = currentIndex === 0
+      ? '<p class="onb-intro">' + (window.DITTO_ONBOARDING_INTRO || 'This setup takes about 15 minutes.') + '</p>'
+      : '';
+    const whyHtml = step.why ? '<p class="onb-why">' + step.why + '</p>' : '';
+    const manualHtml = step.manualComplete
+      ? '<label class="onb-manual-check jw-checkbox"><input type="checkbox" class="onb-manual-input"' +
+        (loadProgress()?.manualSteps?.[step.id] ? ' checked' : '') +
+        ' aria-label="I have completed this step"><span>I\'ve done this</span></label>'
+      : '';
+
     cardEl.innerHTML =
       '<div class="onb-progress"><div class="onb-progress-fill" style="width:' + pct + '%"></div></div>' +
       '<div class="onb-step-count">Step ' + (currentIndex + 1) + ' of ' + steps.length + '</div>' +
+      introHtml +
       '<h2 class="onb-title">' + step.title + '</h2>' +
+      whyHtml +
       renderActionList(step.actions) +
+      manualHtml +
       '<div class="onb-detected hidden" role="status"></div>' +
       '<div class="onb-actions">' +
       '<button type="button" class="onb-btn onb-btn-skip">Skip tutorial</button>' +
@@ -214,7 +197,23 @@
     });
     cardEl.querySelector('.onb-btn-skip').addEventListener('click', () => finish(false));
 
-    scheduleSpotlight(step.target);
+    const manualInput = cardEl.querySelector('.onb-manual-input');
+    if (manualInput) {
+      manualInput.addEventListener('change', () => {
+        const progress = loadProgress() || {};
+        const manualSteps = { ...(progress.manualSteps || {}) };
+        if (manualInput.checked) {
+          manualSteps[step.id] = true;
+        } else {
+          delete manualSteps[step.id];
+        }
+        saveProgress({ manualSteps });
+        runCompletionCheck(step);
+      });
+    }
+
+    // Give the tab switch a beat to paint before measuring the spotlight target.
+    setTimeout(() => positionSpotlight(step.target), 120);
 
     stopCheckPolling();
     runCompletionCheck(step);
@@ -294,7 +293,7 @@
 
     resizeHandler = () => {
       const step = getSteps()[currentIndex];
-      if (step) scheduleSpotlight(step.target);
+      if (step) positionSpotlight(step.target);
     };
     window.addEventListener('resize', resizeHandler);
 

@@ -29,6 +29,7 @@ Discovery v3 live ingest is bootstrapped by `src/discovery/discoveryWorker.ts`.
 
 | Stage | Script | Output |
 |---|---|---|
+| 0. Preflight capacity | `scripts/backfill/00_preflight_capacity.ts --mode full-backfill` | Pass/fail on CPU, RAM, disk + optional cost math |
 | 1. Fetch parquet | `scripts/backfill/00_fetch_parquet.ts` | markets.parquet (users.parquet requires 70GB free) |
 | 2. Init DuckDB | `scripts/backfill/01_init_duckdb.ts` | DDL applied |
 | 3. Load events | `scripts/backfill/02_load_events.ts --limit N --source-url URL` | `discovery_activity_v3` |
@@ -38,6 +39,17 @@ Discovery v3 live ingest is bootstrapped by `src/discovery/discoveryWorker.ts`.
 | 7. Validate | `scripts/backfill/06_validate.ts` | Spot-checks 20 wallets against data-api |
 
 All steps are idempotent. Re-running any stage produces byte-identical output.
+For a strict one-command execution of full historical + gap fill, run:
+
+```bash
+bash scripts/backfill/08_run_full_backfill_and_forward.sh
+```
+
+For a forward-only deployment (no historical backfill on this machine), run:
+
+```bash
+npm run discovery:preflight:forward
+```
 
 ## Live ingest
 
@@ -45,6 +57,10 @@ The worker bootstrap (`src/discovery/v3/workerIntegration.ts`) polls Goldsky
 every 5 minutes (`goldskyIntervalMs`) and refreshes tier rankings every hour
 (`refreshIntervalMs`). Duplicates are absorbed by the DuckDB `UNIQUE(tx_hash,
 log_index)` index.
+
+When RPC polling is enabled, logs include `rpc_calls_est=...` so you can map
+actual observed poll load to provider billing dashboards before production cost
+commitment.
 
 ## Flags
 
@@ -56,6 +72,13 @@ log_index)` index.
 | `DISCOVERY_V3_HISTORICAL_BACKFILL_SOURCE` | `huggingface:SII-WANGZJ/Polymarket_data/users.parquet` | Coverage contract source label returned by v3 API health/cutover endpoints. |
 | `DISCOVERY_V3_HISTORICAL_COVERAGE_MAX_TS` | `1772668800` | Coverage contract boundary (unix ts) used to communicate known historical completeness limits. |
 | `DISCOVERY_V3_KNOWN_GAP_POLICY` | built-in text | Coverage policy returned by v3 API health/cutover endpoints. |
+| `DISCOVERY_V3_RPC_POLL_ENABLED` | `true` when `DISCOVERY_V3=true` | Enables hourly Polygon `eth_getLogs` forward-fill. |
+| `DISCOVERY_V3_RPC_POLL_INTERVAL_MS` | `3600000` | Forward-fill poll cadence (hourly default). |
+| `DISCOVERY_V3_RPC_BLOCK_CHUNK` | `2000` | Block range per `eth_getLogs` request. |
+| `DISCOVERY_V3_RPC_OVERLAP_BLOCKS` | `100` | Reorg-safe overlap when resuming from block cursor. |
+| `DISCOVERY_V3_RPC_INITIAL_LOOKBACK_BLOCKS` | `1800` | Initial catch-up window on first boot (~1 hour). |
+| `POLYGON_RPC_HEADER_NAME` | empty | Optional auth header name for paid RPC providers (example `x-api-key`). |
+| `POLYGON_RPC_HEADER_VALUE` | empty | Optional auth header value paired with `POLYGON_RPC_HEADER_NAME`. |
 
 ## Cutover sequence (Phase 4)
 

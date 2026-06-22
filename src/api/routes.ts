@@ -3383,6 +3383,149 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
+  // Aggregated per-wallet summary for dashboard cards
+  router.get('/wallets/summary', async (req: Request, res: Response) => {
+    try {
+      const wallets = await Storage.loadTrackedWallets();
+      const recentTrades = performanceTracker.getRecentTrades(1000);
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+
+      const summaries = wallets.map((wallet) => {
+        const addr = wallet.address.toLowerCase();
+        const walletTrades = recentTrades.filter(
+          (t) => t.walletAddress.toLowerCase() === addr
+        );
+        const todayTrades = walletTrades.filter(
+          (t) => new Date(t.timestamp) >= startOfToday
+        );
+        const successful = walletTrades.filter((t) => t.success);
+        const lastTrade = walletTrades.length > 0 ? walletTrades[0] : null;
+
+        return {
+          address: wallet.address,
+          active: wallet.active,
+          label: wallet.label || '',
+          tags: wallet.tags || [],
+          lastTradeTime: lastTrade?.timestamp ?? null,
+          tradesCopiedToday: todayTrades.length,
+          successRate: walletTrades.length > 0
+            ? Math.round((successful.length / walletTrades.length) * 1000) / 10
+            : null,
+          configSummary: {
+            tradeSizingMode: wallet.tradeSizingMode || 'fixed',
+            fixedTradeSize: wallet.fixedTradeSize,
+            tradeSideFilter: wallet.tradeSideFilter || 'all',
+            noRepeatEnabled: !!wallet.noRepeatEnabled,
+            rateLimitEnabled: !!wallet.rateLimitEnabled,
+            valueFilterEnabled: !!wallet.valueFilterEnabled,
+          },
+        };
+      });
+
+      res.json({ success: true, wallets: summaries });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Pre-start readiness check for copy trading
+  router.get('/preflight', async (req: Request, res: Response) => {
+    try {
+      const issues: Array<{ code: string; message: string; fixTab: string }> = [];
+
+      const trackedWallets = await Storage.loadTrackedWallets();
+      const activeTracked = trackedWallets.filter((w) => w.active);
+      if (activeTracked.length === 0) {
+        issues.push({
+          code: 'no_active_tracked',
+          message: 'Enable at least one wallet on your Watch List.',
+          fixTab: 'wallets',
+        });
+      }
+
+      await ensureWalletConfigLoaded();
+      const tradingWallets = await getTradingWallets();
+      const credentialedActive = tradingWallets.filter(
+        (w) => w.isActive !== false && w.hasCredentials
+      );
+      if (credentialedActive.length === 0) {
+        issues.push({
+          code: 'no_trading_wallet',
+          message: 'Add a trading wallet with builder credentials under My Wallets.',
+          fixTab: 'trading-wallets',
+        });
+      }
+
+      const credentialedCount = tradingWallets.filter((w) => w.hasCredentials).length;
+      if (isHostedMultiTenantMode() || credentialedCount >= 2) {
+        const assignments = await getCopyAssignments();
+        if (assignments.length === 0 && activeTracked.length > 0 && credentialedActive.length > 0) {
+          issues.push({
+            code: 'no_copy_assignments',
+            message: 'Map tracked wallets to trading wallets under Copy Assignments.',
+            fixTab: 'trading-wallets',
+          });
+        }
+      }
+
+      let clobReachable: boolean | null = null;
+      if (!isHostedMultiTenantMode()) {
+        try {
+          const axios = (await import('axios')).default;
+          const clobUrl = config.polymarketClobApiUrl || 'https://clob.polymarket.com';
+          const timeResponse = await axios.get(`${clobUrl}/time`, { timeout: 5000, validateStatus: () => true });
+          clobReachable = timeResponse.status === 200;
+          if (!clobReachable) {
+            issues.push({
+              code: 'clob_unreachable',
+              message: 'Cannot reach Polymarket CLOB — check network or run Diagnostics.',
+              fixTab: 'diagnostics',
+            });
+          }
+        } catch {
+          clobReachable = false;
+          issues.push({
+            code: 'clob_unreachable',
+            message: 'Cannot reach Polymarket CLOB — check network or run Diagnostics.',
+            fixTab: 'diagnostics',
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        ready: issues.length === 0,
+        issues,
+        clobReachable,
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Pipeline / execution state for debugging
+  router.get('/status/pipeline', async (req: Request, res: Response) => {
+    try {
+      const status = copyTrader.getStatus();
+      const stopLossStatus = await copyTrader.getUsageStopLossStatus();
+      const recentTrades = performanceTracker.getRecentTrades(50);
+      const pendingCount = recentTrades.filter((t) => t.status === 'pending').length;
+
+      res.json({
+        success: true,
+        inFlightCount: pendingCount,
+        processedTradesCount: status.executedTradesCount,
+        monitoringMode: status.monitoringMode,
+        running: status.running,
+        stopLossStatus,
+        perWalletRateLimits: {},
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   // Test endpoint to check balance for any address (for debugging)
   router.get('/test/balance/:address', async (req: Request, res: Response) => {
     if (isHostedMultiTenantMode()) {

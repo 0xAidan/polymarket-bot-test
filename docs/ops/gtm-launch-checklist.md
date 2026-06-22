@@ -9,7 +9,8 @@ DATA_DIR=/opt/polymarket-bot/data
 AUTH_MODE=oidc
 STORAGE_BACKEND=sqlite
 AUTH0_BASE_URL=https://ditto.jungle.win
-AUTH0_ISSUER_BASE_URL=https://dev-rjdevt32s21vhh86.us.auth0.com
+# GTM: use custom domain — NOT dev-xxx.us.auth0.com (see docs/auth0-branding/custom-domain-setup.md)
+AUTH0_ISSUER_BASE_URL=https://login.ditto.jungle.win
 AUTH_SESSION_SECRET=<64+ random chars>
 PLATFORM_ADMIN_EMAILS=<real admin emails only>
 # PRIVATE_KEY unset
@@ -26,10 +27,14 @@ Restart: `sudo systemctl restart polymarket-app.service`
 
 ## Branded Auth0 verification
 
-- [ ] Incognito → `https://ditto.jungle.win` → Auth0 shows "Welcome to the Jungle", gold logo, dark navy
+See [auth0-branding/production-gate.md](../auth0-branding/production-gate.md) for blockers.
+
+- [ ] Login URL is `login.ditto.jungle.win` (not `dev-….us.auth0.com`)
+- [ ] `bash docs/auth0-branding/apply.sh` run after copy changes
+- [ ] Incognito → `https://ditto.jungle.win` → Auth0 shows "Log in to copy Jungle Agents", gold logo, dark navy
 - [ ] `curl -s https://ditto.jungle.win/api/auth/required` → `"mode":"oidc"`, `"required":true`
 - [ ] Log out → branded login returns
-- [ ] No Google "development keys" banner (disable Google or use real OAuth)
+- [ ] Auth0 dashboard **Alerts → Dev Keys** cleared (disable Google or use real Google OAuth)
 
 ## Investor demo script (15 min)
 

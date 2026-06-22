@@ -50,6 +50,33 @@ Watch `disk.usedPercent` and `disk.status`. At **≥90%** the dashboard shows an
 
 ## Code hooks
 
-- `src/diskGuard.ts` — preflight before JSON writes
+- `src/diskGuard.ts` — preflight before JSON writes; disk metrics for `/health`
+- `src/diskMaintenance.ts` — automated cleanup (stale backups, retention, WAL, VACUUM)
+- `scripts/disk-maintenance.sh` — hourly systemd/cron maintenance script
 - `src/jungleAgentsStore.ts` — single-save bulk updates
-- `src/index.ts` — orphan `*.tmp` cleanup, WAL checkpoint, aggressive discovery retention under pressure
+- `src/index.ts` + `src/discovery/discoveryWorker.ts` — startup + scheduled maintenance
+
+## Automated prevention (deploy once)
+
+```bash
+# Journal size cap
+sudo cp deploy/systemd/journald-ditto.conf /etc/systemd/journald.conf.d/ditto.conf
+sudo systemctl restart systemd-journald
+
+# Hourly maintenance timer
+sudo cp deploy/systemd/polymarket-disk-maintenance.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now polymarket-disk-maintenance.timer
+```
+
+After deploy, the app also runs maintenance every 15 minutes (`DISK_MAINTENANCE_INTERVAL_MS`).
+
+## Staging discovery worker
+
+Ensure staging `DATA_DIR` points at the attached volume (`/mnt/HC_Volume_*/polymarket-staging-data`), then restart:
+
+```bash
+sudo systemctl restart polymarket-discovery-worker-staging.service
+```
+
+Stale `data.bak-on-root` on `/opt/polymarket-bot-staging` is safe to delete once the worker is stopped.

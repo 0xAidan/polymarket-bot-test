@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Applies the Jungle Agents branding to the active Auth0 tenant.
-# Prereq: `auth0 login` against the tenant that hosts the Jungle Agents application.
+# Applies Ditto branding to the active Auth0 tenant.
+# Prereq: `auth0 login` against the tenant that hosts the Ditto application.
 # Usage:  bash docs/auth0-branding/apply.sh
 set -euo pipefail
 
@@ -8,7 +8,7 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 LOGO_URL="https://raw.githubusercontent.com/0xAidan/polymarket-bot-test/3089100063ebd1879319d1cd8c7ba07a3d833686/public/shared/logo-gold.png"
 
 echo "1/5 Tenant friendly name + logo..."
-auth0 api patch "tenants/settings" --data "{\"friendly_name\":\"Jungle Agents\",\"picture_url\":\"$LOGO_URL\"}" < /dev/null
+auth0 api patch "tenants/settings" --data "{\"friendly_name\":\"Ditto\",\"picture_url\":\"$LOGO_URL\"}" < /dev/null
 
 echo "2/5 Classic branding colors + logo..."
 auth0 api patch "branding" --data "{\"colors\":{\"primary\":\"#E5B80B\",\"page_background\":\"#161721\"},\"logo_url\":\"$LOGO_URL\"}" < /dev/null

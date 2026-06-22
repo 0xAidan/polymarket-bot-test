@@ -15,11 +15,17 @@ test('admin-only nav tabs are hidden by default in CSS', () => {
 
 test('index marks in-progress tools as admin-only', () => {
   const html = readFileSync(join(publicDir, 'index.html'), 'utf8');
-  assert.match(html, /data-tab="platforms"[^>]*data-admin-only/);
-  assert.match(html, /data-tab="cross-platform"[^>]*data-admin-only/);
+  const appJs = readFileSync(join(publicDir, 'js', 'app.js'), 'utf8');
   assert.match(html, /data-tab="discovery"[^>]*data-admin-only/);
   assert.match(html, /data-tour="ladder-exits"[^>]*data-admin-only/);
-  assert.match(html, /JUNGLE AGENTS/);
+  assert.doesNotMatch(html, /data-tab="platforms"/);
+  assert.doesNotMatch(html, /data-tab="cross-platform"/);
+  assert.match(html, /id="tab-platforms"/);
+  assert.match(html, /id="tab-cross-platform"/);
+  assert.match(appJs, /consolidatePowerUserTabsIntoSettings/);
+  assert.match(appJs, /setAttribute\('data-admin-only'/);
+  assert.match(html, /auth-gate-eyebrow">DITTO/);
+  assert.match(html, /Jungle Agents/);
   assert.doesNotMatch(html, /auth-gate-eyebrow">JUNGLE DAO/);
 });
 

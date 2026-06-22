@@ -44,6 +44,8 @@ export const config = {
   // Blockchain configuration
   // Using Alchemy RPC for reliable balance fetching (needed for position threshold filter)
   polygonRpcUrl: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+  polygonRpcHeaderName: process.env.POLYGON_RPC_HEADER_NAME || '',
+  polygonRpcHeaderValue: process.env.POLYGON_RPC_HEADER_VALUE || '',
 
   // API authentication (static bearer token)
   authMode: (process.env.AUTH_MODE || (process.env.AUTH0_ISSUER_BASE_URL ? 'oidc' : 'legacy')).toLowerCase() as 'legacy' | 'oidc',
@@ -107,11 +109,11 @@ export const config = {
       if (!this.auth0IssuerBaseUrl || !this.auth0BaseUrl || !this.auth0ClientId || !this.auth0ClientSecret) {
         throw new Error('AUTH0_ISSUER_BASE_URL, AUTH0_BASE_URL, AUTH0_CLIENT_ID, and AUTH0_CLIENT_SECRET are required when AUTH_MODE=oidc');
       }
-      const expectedTenant = process.env.AUTH0_EXPECTED_TENANT || 'dev-rjdevt32s21vhh86';
-      if (!this.auth0IssuerBaseUrl.includes(expectedTenant)) {
+      const expectedTenant = process.env.AUTH0_EXPECTED_TENANT;
+      if (expectedTenant && !this.auth0IssuerBaseUrl.includes(expectedTenant)) {
         log.warn(
           { issuer: this.auth0IssuerBaseUrl, expectedTenant },
-          'AUTH0 issuer does not match expected GTM tenant — verify Auth0 dashboard and .env'
+          'AUTH0 issuer does not match AUTH0_EXPECTED_TENANT — verify .env (use custom domain issuer after login.ditto.jungle.win is live)'
         );
       }
     }
