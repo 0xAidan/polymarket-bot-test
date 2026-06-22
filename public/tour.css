@@ -120,6 +120,11 @@
   position: fixed;
   inset: 0;
   z-index: 10000;
+  overflow-y: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(24px, env(safe-area-inset-top, 0px)) 16px max(24px, env(safe-area-inset-bottom, 0px));
   pointer-events: none;
 }
 
@@ -133,11 +138,13 @@
   inset: 0;
   background: rgba(8, 9, 14, 0.78);
   backdrop-filter: blur(2px);
+  pointer-events: auto;
 }
 
 .onb-spotlight {
   position: fixed;
   display: none;
+  z-index: 10000;
   background: transparent;
   border: 2px solid rgba(229, 184, 11, 0.65);
   border-radius: 8px;
@@ -146,6 +153,7 @@
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 24px rgba(229, 184, 11, 0.2);
   pointer-events: none;
   transition: left 0.25s ease, top 0.25s ease, width 0.25s ease, height 0.25s ease;
+  box-sizing: border-box;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -153,13 +161,13 @@
 }
 
 .onb-card {
-  position: fixed;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  position: relative;
+  flex-shrink: 0;
   width: min(560px, calc(100vw - 32px));
-  max-height: calc(100vh - 48px);
+  max-height: min(560px, calc(100dvh - 48px));
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   background: var(--jungle-bg-card);
   border: 1px solid var(--jungle-border-strong);
   border-radius: 14px;
