@@ -26,7 +26,7 @@ import {
   summarizeDetectedTradeForDebug,
 } from './tradeDiagnostics.js';
 import { createComponentLogger } from './logger.js';
-import { getTenantIdOrDefault } from './tenantContext.js';
+import { getTenantIdOrDefault, getTenantId } from './tenantContext.js';
 import { getAllocationPolicyState } from './allocation/policyEngine.js';
 import {
   startClobHeartbeatManager,
@@ -88,6 +88,7 @@ export class CopyTrader {
   private executedTradesCount = 0; // Number of trades successfully executed this session
   private processedCompoundKeys = new Map<string, number>(); // Track by compound key (wallet-market-outcome-side-timeWindow) to catch same trade with different hashes
   private inFlightTrades = new Set<string>(); // Prevent concurrent processing of the same trade
+  private recentDittoRejections = new Map<string, number>();
   
   // Per-wallet rate limiting state (in-memory, keyed by wallet address)
   private perWalletRateLimits: PerWalletRateLimitStates = new Map();
@@ -119,9 +120,9 @@ export class CopyTrader {
       const userWallet = this.getWalletAddress();
       const initialAddrs = userWallet
         ? [userWallet]
-        : isHostedMultiTenantMode()
-          ? getActiveTradingWallets().map(w => w.address)
-          : [];
+        : isHostedMultiTenantMode() && !getTenantId()
+          ? []
+          : getActiveTradingWallets().map(w => w.address);
       for (const addr of initialAddrs) {
         try {
           await this.balanceTracker.recordBalance(addr);
@@ -133,17 +134,19 @@ export class CopyTrader {
       // Cleanup expired executed positions (for no-repeat-trades feature)
       // Find the shortest non-zero block period from all wallets to determine cleanup threshold
       try {
-        const wallets = await Storage.loadTrackedWallets();
-        const blockPeriods = wallets
-          .filter(w => w.noRepeatEnabled && w.noRepeatPeriodHours !== 0) // Skip 'forever' (0)
-          .map(w => w.noRepeatPeriodHours ?? 24);
-        
-        if (blockPeriods.length > 0) {
-          // Use the longest block period to avoid removing positions that are still valid
-          const maxBlockPeriod = Math.max(...blockPeriods);
-          const removed = await Storage.cleanupExpiredPositions(maxBlockPeriod);
-          if (removed > 0) {
-            log.info(`[CopyTrader] Cleaned up ${removed} expired no-repeat-trades entries (older than ${maxBlockPeriod}h)`);
+        if (!(isHostedMultiTenantMode() && !getTenantId())) {
+          const wallets = await Storage.loadTrackedWallets();
+          const blockPeriods = wallets
+            .filter(w => w.noRepeatEnabled && w.noRepeatPeriodHours !== 0) // Skip 'forever' (0)
+            .map(w => w.noRepeatPeriodHours ?? 24);
+          
+          if (blockPeriods.length > 0) {
+            // Use the longest block period to avoid removing positions that are still valid
+            const maxBlockPeriod = Math.max(...blockPeriods);
+            const removed = await Storage.cleanupExpiredPositions(maxBlockPeriod);
+            if (removed > 0) {
+              log.info(`[CopyTrader] Cleaned up ${removed} expired no-repeat-trades entries (older than ${maxBlockPeriod}h)`);
+            }
           }
         }
       } catch (cleanupError: any) {
@@ -174,7 +177,7 @@ export class CopyTrader {
     log.info('Starting copy trading bot...');
     this.isRunning = true;
 
-    if (isHostedMultiTenantMode()) {
+    if (isHostedMultiTenantMode() && getTenantId()) {
       await ensureWalletConfigLoaded();
       await enrichTradingWalletsFromPolymarket(this.monitor.getApi());
     }
@@ -190,7 +193,7 @@ export class CopyTrader {
 
     // Start balance tracking for user wallet(s) (reduces RPC calls significantly)
     const userWallet = this.getWalletAddress();
-    const hostedAddrs = isHostedMultiTenantMode()
+    const hostedAddrs = isHostedMultiTenantMode() && getTenantId()
       ? (await ensureWalletConfigLoaded()).tradingWallets.filter((w) => w.isActive).map((w) => w.address)
       : [];
     const toTrack = userWallet ? [userWallet] : hostedAddrs;
@@ -295,6 +298,10 @@ export class CopyTrader {
     log.info(`${'='.repeat(60)}`);
     log.info({ detail: JSON.stringify(trade, null, 2) }, '   Trade object');
     log.info(`${'='.repeat(60)}\n`);
+
+    if (isHostedMultiTenantMode() && getTenantId()) {
+      await ensureWalletConfigLoaded();
+    }
     
     // CRITICAL: Verify the wallet is actually in the active tracked wallets list
     // This prevents executing trades from wallets that were removed or never tracked
@@ -377,6 +384,12 @@ export class CopyTrader {
     // Apply Ditto Execution State Logic
     let dittoMultiplier = 1.0;
     if (dittoState === DittoExecutionState.COOLDOWN_PAUSED || dittoState === DittoExecutionState.NEW_UNRANKED) {
+      const rejectKey = `${trade.walletAddress.toLowerCase()}:${trade.marketId}:${dittoState}`;
+      const lastReject = this.recentDittoRejections.get(rejectKey);
+      if (lastReject && Date.now() - lastReject < 5 * 60 * 1000) {
+        return;
+      }
+      this.recentDittoRejections.set(rejectKey, Date.now());
       log.info(`[CopyTrader] ⏸️ Ditto State blocked trade for ${trade.walletAddress.slice(0, 10)}...: State is ${dittoState}`);
       await this.performanceTracker.recordTrade({
         timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId, marketTitle: trade.marketTitle,
@@ -1024,13 +1037,17 @@ export class CopyTrader {
       }
 
       // SAFETY CAP: Reject any order that exceeds a reasonable maximum.
-      // Proportional mode: cap at 2x calculated size with a floor of $500. Fixed/global: 2x configured size.
+      // Proportional mode: cap at 2x the CONFIGURED baseline size with a floor of $500.
+      // (The cap must reference a value independent of the calculated size — comparing the
+      // calculated size against 2x itself can never fire, which left proportional trades
+      // uncapped and able to spend the whole balance on one bad sizing input.)
+      // Fixed/global: 2x configured size.
       const configuredSize = trade.fixedTradeSize ?? parseFloat(await Storage.getTradeSize() || '50');
       const maxAllowedUsd = trade.tradeSizingMode === 'proportional'
-        ? Math.max(tradeSizeUsdcNum * 2, 500)
+        ? Math.max(configuredSize * 2, 500)
         : configuredSize * 2;
       if (tradeSizeUsdcNum > maxAllowedUsd) {
-        log.error(`\n❌ [CopyTrader] SAFETY CAP: Order $${tradeSizeUsdcNum.toFixed(2)} exceeds max $${maxAllowedUsd.toFixed(2)} (${trade.tradeSizingMode === 'proportional' ? 'proportional 2x / $500 floor' : `2x configured $${configuredSize}`})`);
+        log.error(`\n❌ [CopyTrader] SAFETY CAP: Order $${tradeSizeUsdcNum.toFixed(2)} exceeds max $${maxAllowedUsd.toFixed(2)} (${trade.tradeSizingMode === 'proportional' ? `proportional: 2x configured $${configuredSize} / $500 floor` : `2x configured $${configuredSize}`})`);
         log.error(`   Mode: ${tradeSizeSource}`);
         log.error(`   This likely indicates a bug in trade sizing. Trade BLOCKED.\n`);
         await this.performanceTracker.logIssue(
@@ -1599,7 +1616,9 @@ export class CopyTrader {
             .map(order => order?.orderID ?? order?.orderId ?? order?.id)
             .filter((orderId): orderId is string => typeof orderId === 'string' && orderId.length > 0)
         );
-        const confirmedPositionSize = await this.getCurrentPositionSize(trade);
+        // Must pass the probe wallet id — without it hosted mode cannot resolve a trading
+        // wallet, throws, and the pending block becomes permanent for this market.
+        const confirmedPositionSize = await this.getCurrentPositionSize(trade, probeWalletId);
         const confirmationDecision = decidePendingOrderReconciliation({
           pendingOrderId: pendingBlock.orderId,
           openOrderIds: confirmedOpenOrderIds,
@@ -1813,18 +1832,37 @@ export class CopyTrader {
         };
       }
 
-      // Get our wallet address
+      // Resolve the wallet whose commitment we measure. Legacy mode: global .env wallet
+      // (or its proxy). Hosted mode: the tenant's first active trading wallet.
+      let walletToCheck: string | null = null;
+      let tenantTradingWalletId: string | undefined;
+
       const userWallet = this.getWalletAddress();
       const proxyWallet = await this.getProxyWalletAddress();
-      const walletToCheck = proxyWallet || userWallet;
-      
+      walletToCheck = proxyWallet || userWallet;
+
       if (!walletToCheck) {
-        log.warn(`[CopyTrader] Cannot check stop-loss: wallet address not available`);
+        const tenantWallet = getActiveTradingWallets()[0];
+        if (tenantWallet) {
+          tenantTradingWalletId = tenantWallet.id;
+          walletToCheck =
+            tenantWallet.proxyAddress ||
+            (await this.monitor.getApi().getProxyWalletAddress(tenantWallet.address)) ||
+            tenantWallet.address;
+        }
+      }
+
+      if (!walletToCheck) {
+        // FAIL-SAFE: the stop-loss is enabled but we cannot identify a wallet to measure.
+        // Blocking is safe here — with no resolvable trading wallet, no trade could be
+        // placed correctly anyway. Returning active:false would silently disable an
+        // enabled risk control (previous behavior in hosted mode).
+        log.error('[CopyTrader] Stop-loss enabled but wallet address not available — BLOCKING trades for safety');
         return {
           enabled: true,
           maxCommitmentPercent: stopLossConfig.maxCommitmentPercent,
           commitmentPercent: null,
-          active: false,
+          active: true,
           error: 'Wallet address not available'
         };
       }
@@ -1832,7 +1870,9 @@ export class CopyTrader {
       // Get our current USDC balance from Polymarket CLOB API (free USDC for trading)
       let freeUsdc = 0;
       try {
-        const clobClient = this.executor.getClobClient();
+        const clobClient = tenantTradingWalletId
+          ? await this.executor.getClobClientForTradingWalletId(tenantTradingWalletId)
+          : this.executor.getClobClient();
         freeUsdc = await clobClient.getUsdcBalance();
       } catch (error: any) {
         log.error(`[CopyTrader] Cannot fetch USDC balance for stop-loss check — BLOCKING trades for safety: ${error.message}`);

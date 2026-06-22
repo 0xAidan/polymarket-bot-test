@@ -4,10 +4,26 @@ import path from 'path';
 import { config } from './config.js';
 import { createComponentLogger } from './logger.js';
 import { Storage } from './storage.js';
+import { assertDiskWritable } from './diskGuard.js';
 
 const log = createComponentLogger('JungleAgentsStore');
 
 type LegacyOlympicsAgent = { id: string; displayName: string; walletAddress: string };
+
+export const JUNGLE_AGENT_CATEGORIES = [
+  'sports',
+  'politics',
+  'crypto',
+  'macro',
+  'company',
+  'legal',
+  'geopolitics',
+  'entertainment',
+  'event',
+  'other',
+] as const;
+
+export type JungleAgentCategory = (typeof JUNGLE_AGENT_CATEGORIES)[number];
 
 export type JungleAgentRecord = {
   id: string;
@@ -17,8 +33,16 @@ export type JungleAgentRecord = {
   tagline?: string;
   modelLabel?: string;
   polymarketAddress: string;
+  /** Polymarket @username used for exact proxy-wallet lookup (e.g. junglekingagent). */
+  polymarketUsername?: string;
+  /** MetaMask / login EOA from ops spreadsheet — not used for trade monitoring. */
+  loginWalletAddress?: string;
   olympicsProfileUrl: string;
   avatarUrl?: string;
+  /** Market focus shown to users (sports, politics, crypto, …). */
+  category?: JungleAgentCategory;
+  /** Named group for curation (e.g. "MLB Opening Week"). Free text, ≤60 chars. */
+  collection?: string;
   sortOrder: number;
   enabled: boolean;
   createdAtMs: number;
@@ -71,6 +95,24 @@ const assertDisplayName = (name: string): void => {
   if (t.length > 80) throw new Error('displayName too long');
 };
 
+/** Returns the normalized category, or undefined for empty input. Throws on unknown values. */
+const normalizeCategory = (value: unknown): JungleAgentCategory | undefined => {
+  const t = String(value ?? '').trim().toLowerCase();
+  if (!t) return undefined;
+  if (!(JUNGLE_AGENT_CATEGORIES as readonly string[]).includes(t)) {
+    throw new Error(`Invalid category "${t}" — allowed: ${JUNGLE_AGENT_CATEGORIES.join(', ')}`);
+  }
+  return t as JungleAgentCategory;
+};
+
+/** Returns the trimmed collection name, or undefined for empty input. Throws when too long. */
+const normalizeCollection = (value: unknown): string | undefined => {
+  const t = String(value ?? '').trim();
+  if (!t) return undefined;
+  if (t.length > 60) throw new Error('collection too long (max 60 characters)');
+  return t;
+};
+
 const duplicateEnabledAddress = (agents: JungleAgentRecord[], address: string, selfId?: string): boolean => {
   if (!address) return false;
   const lower = address.toLowerCase();
@@ -115,6 +157,7 @@ export async function loadAgentsFile(): Promise<JungleAgentRecord[]> {
 
 export async function saveAgentsFile(agents: JungleAgentRecord[]): Promise<void> {
   const file = agentsFilePath();
+  assertDiskWritable(path.dirname(file));
   await fs.mkdir(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(agents, null, 2), 'utf8');
@@ -150,6 +193,8 @@ export async function createAgent(input: Partial<JungleAgentRecord>): Promise<Ju
     polymarketAddress,
     olympicsProfileUrl,
     avatarUrl: input.avatarUrl?.trim() || undefined,
+    category: normalizeCategory(input.category),
+    collection: normalizeCollection(input.collection),
     sortOrder: typeof input.sortOrder === 'number' ? input.sortOrder : agents.length + 1,
     enabled: input.enabled !== false,
     createdAtMs: now,
@@ -160,8 +205,11 @@ export async function createAgent(input: Partial<JungleAgentRecord>): Promise<Ju
   return rec;
 }
 
-export async function updateAgent(id: string, patch: Partial<JungleAgentRecord>): Promise<JungleAgentRecord> {
-  const agents = await loadAgentsFile();
+const applyAgentPatch = (
+  agents: JungleAgentRecord[],
+  id: string,
+  patch: Partial<JungleAgentRecord>
+): JungleAgentRecord => {
   const idx = agents.findIndex((a) => a.id === id);
   if (idx < 0) throw new Error('Agent not found');
   const cur = agents[idx];
@@ -179,14 +227,22 @@ export async function updateAgent(id: string, patch: Partial<JungleAgentRecord>)
     olympicsProfileUrl:
       patch.olympicsProfileUrl !== undefined ? String(patch.olympicsProfileUrl).trim() : cur.olympicsProfileUrl,
     avatarUrl: patch.avatarUrl !== undefined ? patch.avatarUrl?.trim() || undefined : cur.avatarUrl,
+    category: patch.category !== undefined ? normalizeCategory(patch.category) : cur.category,
+    collection: patch.collection !== undefined ? normalizeCollection(patch.collection) : cur.collection,
     sortOrder: typeof patch.sortOrder === 'number' ? patch.sortOrder : cur.sortOrder,
     enabled: typeof patch.enabled === 'boolean' ? patch.enabled : cur.enabled,
-    updatedAtMs: Date.now()
+    updatedAtMs: Date.now(),
   };
   if (next.enabled && next.polymarketAddress && duplicateEnabledAddress(agents, next.polymarketAddress, id)) {
     throw new Error('Another enabled agent already uses this Polymarket address');
   }
   agents[idx] = next;
+  return next;
+};
+
+export async function updateAgent(id: string, patch: Partial<JungleAgentRecord>): Promise<JungleAgentRecord> {
+  const agents = await loadAgentsFile();
+  const next = applyAgentPatch(agents, id, patch);
   await saveAgentsFile(agents);
   return next;
 }
@@ -219,11 +275,13 @@ export async function bulkUpdateAgents(updates: Array<Partial<JungleAgentRecord>
   if (!Array.isArray(updates) || updates.length === 0) {
     throw new Error('updates must be a non-empty array');
   }
+  const agents = await loadAgentsFile();
   for (const row of updates) {
     const { id, ...patch } = row;
-    await updateAgent(id, patch);
+    applyAgentPatch(agents, id, patch);
   }
-  return [...(await loadAgentsFile())].sort((a, b) => a.sortOrder - b.sortOrder);
+  await saveAgentsFile(agents);
+  return [...agents].sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
 export async function bulkUpdateAddresses(updates: BulkAddressUpdate[]): Promise<JungleAgentRecord[]> {

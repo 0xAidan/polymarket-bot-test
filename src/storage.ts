@@ -24,6 +24,7 @@ import { assertWalletCanBeEnabled } from './walletConfigSafety.js';
 import { createComponentLogger } from './logger.js';
 import { DEFAULT_TENANT_ID, getTenantIdOrDefault } from './tenantContext.js';
 import { isHostedMultiTenantMode } from './hostedMode.js';
+import { assertDiskWritable } from './diskGuard.js';
 
 const log = createComponentLogger('Storage');
 
@@ -152,6 +153,7 @@ export class Storage {
 
   private static async _saveTrackedWalletsJson(wallets: TrackedWallet[]): Promise<void> {
     await this.ensureDataDir();
+    assertDiskWritable(config.dataDir);
     await fs.writeFile(walletsFile(), JSON.stringify(wallets, null, 2));
   }
 
@@ -183,7 +185,9 @@ export class Storage {
     const newWallet: TrackedWallet = {
       address: address.toLowerCase(),
       addedAt: new Date(),
-      active: false
+      active: false,
+      tradeSizingMode: 'fixed',
+      fixedTradeSize: 2,
     };
     
     wallets.push(newWallet);
@@ -198,6 +202,31 @@ export class Storage {
       w => w.address.toLowerCase() !== address.toLowerCase()
     );
     await this.saveTrackedWallets(filtered);
+  }
+
+  static async migrateWalletAddress(fromAddress: string, toAddress: string): Promise<TrackedWallet | null> {
+    const from = fromAddress.toLowerCase();
+    const to = toAddress.toLowerCase();
+    if (from === to) {
+      const wallets = await this.loadTrackedWallets();
+      return wallets.find((wallet) => wallet.address.toLowerCase() === from) ?? null;
+    }
+
+    const wallets = await this.loadTrackedWallets();
+    const source = wallets.find((wallet) => wallet.address.toLowerCase() === from);
+    if (!source) {
+      return null;
+    }
+
+    const existingTarget = wallets.find((wallet) => wallet.address.toLowerCase() === to);
+    if (existingTarget) {
+      await this.removeWallet(from);
+      return existingTarget;
+    }
+
+    source.address = to;
+    await this.saveTrackedWallets(wallets);
+    return source;
   }
 
   static async getActiveWallets(): Promise<TrackedWallet[]> {
@@ -389,6 +418,7 @@ export class Storage {
 
   private static async _saveConfigJson(configData: any): Promise<void> {
     await this.ensureDataDir();
+    assertDiskWritable(config.dataDir);
     await fs.writeFile(configFile(), JSON.stringify(configData, null, 2));
   }
 
@@ -572,6 +602,7 @@ export class Storage {
 
   private static async _saveExecutedPositionsJson(positions: ExecutedPosition[]): Promise<void> {
     await this.ensureDataDir();
+    assertDiskWritable(config.dataDir);
     await fs.writeFile(executedPositionsFile(), JSON.stringify(positions, null, 2));
   }
 
@@ -612,6 +643,7 @@ export class Storage {
         if (position.tokenId && details.positionKey === `token:${position.tokenId}`) {
           return true;
         }
+        return false;
       }
 
       return position.marketId === marketId && position.side === side;
@@ -633,20 +665,32 @@ export class Storage {
     const existing = positions.find(
       p => matchesIdentity(p) && (p.status ?? 'executed') === 'executed'
     );
-    
-    if (!existing) {
-      positions.push({
-        marketId,
-        side,
-        timestamp: Date.now(),
-        walletAddress: walletAddress.toLowerCase(),
-        status: 'executed',
-        orderId: details?.orderId,
-        tokenId: details?.tokenId,
-        positionKey: details?.positionKey,
-      });
+
+    if (existing) {
+      // SAFETY: refresh the timestamp on every successful trade. Without this, the
+      // no-repeat window is anchored to the FIRST trade on a market forever — once that
+      // window expires, repeat protection is permanently dead for the market even though
+      // newer trades executed (real duplicate-trade losses).
+      existing.timestamp = Date.now();
+      existing.walletAddress = walletAddress.toLowerCase();
+      existing.orderId = details?.orderId ?? existing.orderId;
+      existing.tokenId = details?.tokenId ?? existing.tokenId;
+      existing.positionKey = details?.positionKey ?? existing.positionKey;
       await this.saveExecutedPositions(positions);
+      return;
     }
+
+    positions.push({
+      marketId,
+      side,
+      timestamp: Date.now(),
+      walletAddress: walletAddress.toLowerCase(),
+      status: 'executed',
+      orderId: details?.orderId,
+      tokenId: details?.tokenId,
+      positionKey: details?.positionKey,
+    });
+    await this.saveExecutedPositions(positions);
   }
 
   static async addPendingPosition(
@@ -760,6 +804,7 @@ export class Storage {
           if (p.tokenId && positionKey === `token:${p.tokenId}`) {
             return true;
           }
+          return false;
         }
 
         return p.marketId === marketId && p.side === side;

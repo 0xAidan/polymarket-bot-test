@@ -210,6 +210,30 @@ export interface WalletStats {
   lastActivity?: Date;
 }
 
+export interface PlatformTenantStats {
+  tenantId: string;
+  tenantName: string;
+  totalTrades: number;
+  successfulTrades: number;
+  failedTrades: number;
+  successRate: number;
+  averageLatencyMs: number;
+  walletsTracked: number;
+  tradesLast24h: number;
+}
+
+export interface PlatformStats {
+  totalTrades: number;
+  successfulTrades: number;
+  failedTrades: number;
+  successRate: number;
+  averageLatencyMs: number;
+  walletsTracked: number;
+  activeAccounts: number;
+  tradesLast24h: number;
+  tenants: PlatformTenantStats[];
+}
+
 /**
  * Performance data point for charting
  */

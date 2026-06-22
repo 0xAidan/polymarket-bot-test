@@ -1,5 +1,5 @@
 ---
-description: Never use native browser dialogs (alert, confirm, prompt). Use the win95Dialog system instead.
+description: Never use native browser dialogs (alert, confirm, prompt). Use the jungleDialog/jungleModal system instead.
 globs: ["public/js/**/*.js", "public/**/*.html"]
 alwaysApply: false
 ---
@@ -8,19 +8,30 @@ alwaysApply: false
 
 NEVER use `alert()`, `confirm()`, or `prompt()` in any frontend code. These produce ugly, unbranded OS-level popups that cannot be styled, tracked, or debugged.
 
-## Use the `win95Dialog` system instead
+## Use the Jungle dialog systems instead
 
-The custom dialog system lives at the top of `public/js/app.js` and provides:
+There are two first-party implementations with the same API shape:
 
-- `await win95Dialog.alert(message, title?)` — informational message, returns `true`
-- `await win95Dialog.success(message, title?)` — green success text, returns `true`
-- `await win95Dialog.error(message, title?)` — red error text, returns `true`
-- `await win95Dialog.confirm(message, title?)` — OK/Cancel, returns `true` or `false`
-- `await win95Dialog.prompt(message, defaultValue?, title?)` — text input, returns `string` or `null`
+- **`jungleDialog`** (`public/js/jungleDialog.js`, on `window`) — toasts for
+  alert/success/error, side drawers for confirm/prompt. Used by `admin.js`,
+  `jungleAgents.js`, `auth-bootstrap.js`, and any page that loads `jungleDialog.js`.
+- **`jungleModal`** (top of `public/js/app.js`, dashboard-local) — centered modal
+  dialogs. Used throughout `app.js`.
+
+API (identical for both):
+
+- `await jungleDialog.alert(message, title?)` — informational message, returns `true`
+- `await jungleDialog.success(message, title?)` — success styling, returns `true`
+- `await jungleDialog.error(message, title?)` — error styling, returns `true`
+- `await jungleDialog.confirm(message, title?)` — returns `true` or `false`
+- `await jungleDialog.prompt(message, defaultValue?, title?)` — returns `string` or `null`
 
 ## Rules
 
 1. All dialog calls are async — use `await` and ensure the enclosing function is `async`
 2. Use `.error()` for failure messages, `.success()` for success messages, `.alert()` for informational
-3. For confirm patterns: `if (!await win95Dialog.confirm('...')) return;`
-4. For prompt patterns: `const val = await win95Dialog.prompt('...'); if (!val) return;`
+3. For confirm patterns: `if (!await jungleDialog.confirm('...')) return;`
+4. For prompt patterns: `const val = await jungleDialog.prompt('...'); if (!val) return;`
+5. Inside `app.js`, use `jungleModal.*`; everywhere else use `jungleDialog.*`
+6. `window.win95Dialog` is a DEPRECATED alias of `jungleDialog` kept one release as a
+   safety net — never write new code against it
