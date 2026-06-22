@@ -185,7 +185,9 @@ export class Storage {
     const newWallet: TrackedWallet = {
       address: address.toLowerCase(),
       addedAt: new Date(),
-      active: false
+      active: false,
+      tradeSizingMode: 'fixed',
+      fixedTradeSize: 2,
     };
     
     wallets.push(newWallet);

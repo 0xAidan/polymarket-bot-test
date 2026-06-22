@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-# Disables Google social login for the Ditto Auth0 application.
-#
-# Use this before GTM if you have NOT replaced Auth0's shared Google "dev keys"
-# with your own Google Cloud OAuth credentials. Email/password login keeps working.
+# Re-enables Google social login for the Jungle Agents Auth0 application.
+# Use AFTER configure-google-oauth.sh (real Google credentials), not with dev keys.
 #
 # Prereq: auth0 login
-# Usage:  bash docs/auth0-branding/disable-google-login.sh
+# Usage:  bash docs/auth0-branding/enable-google-login.sh
 set -euo pipefail
 
 APP_NAME="${AUTH0_APP_NAME:-Jungle Agents}"
@@ -21,8 +19,6 @@ CLIENT_ID=$(auth0 apps list --json < /dev/null 2>/dev/null | node -e "
   });
 ")
 
-echo "Client ID: $CLIENT_ID"
-
 CONN_ID=$(auth0 api get "connections" --query "strategy=google-oauth2" < /dev/null 2>/dev/null | node -e "
   let d='';
   process.stdin.on('data',c=>d+=c).on('end',()=>{
@@ -33,12 +29,11 @@ CONN_ID=$(auth0 api get "connections" --query "strategy=google-oauth2" < /dev/nu
   });
 ")
 
+echo "Client ID: $CLIENT_ID"
 echo "Google connection ID: $CONN_ID"
-echo "Removing Google login from application..."
+echo "Enabling Google login for application..."
 
 auth0 api patch "connections/$CONN_ID/clients" \
-  --data "[{\"client_id\":\"$CLIENT_ID\",\"status\":false}]" < /dev/null
+  --data "[{\"client_id\":\"$CLIENT_ID\",\"status\":true}]" < /dev/null
 
-echo "Done. Google sign-in is disabled for $APP_NAME."
-echo "The Auth0 dashboard 'development keys' alert should clear within a few minutes."
-echo "Users can still sign in with email and password."
+echo "Done. Google sign-in is enabled for $APP_NAME."

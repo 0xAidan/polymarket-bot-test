@@ -16,9 +16,9 @@
     },
     {
       tab: 'dashboard',
-      target: '.j-dash-header',
+      target: '.j-dash-top-aside',
       title: 'Home',
-      body: 'The home screen is your command center — setup guide, quick actions, and recent trades.'
+      body: 'Setup progress, your trading wallet balance, and quick actions — all in one compact bar.'
     },
     {
       tab: 'dashboard',
@@ -28,15 +28,15 @@
     },
     {
       tab: 'dashboard',
-      target: '.j-dash-hero',
-      title: 'Live Status',
-      body: 'Your wallet balance and compact performance stats live here. Tap All stats to expand the full breakdown.'
+      target: '.j-dash-wallet-card',
+      title: 'Trading wallet',
+      body: 'Your live balance and wallet address appear here once you connect a trading wallet.'
     },
     {
       tab: 'dashboard',
       target: '.j-trade-panel',
       title: 'Trade History',
-      body: 'Recent copy attempts across tracked wallets. Click any row for full trade details.'
+      body: 'Recent copy attempts from wallets on your copy list. Click any row for full trade details.'
     },
     {
       tab: 'dashboard',
@@ -48,26 +48,26 @@
     {
       tab: 'wallets',
       target: '#tab-wallets',
-      title: 'Tracked Wallets',
-      body: 'Add addresses to copy from. Configure per wallet (size, filters). Mirror to copy positions.'
+      title: 'Copy List',
+      body: 'Wallets you copy on Polymarket. Click Copy on a Jungle Agent or add an address — setup opens automatically.'
     },
     {
       tab: 'trading-wallets',
       target: '#tab-trading-wallets',
-      title: 'Trading Wallets',
-      body: 'Your trading wallets are the wallets Ditto uses to place copied trades. For first-time users, this is the most important setup page.'
+      title: 'My Wallets',
+      body: 'Your wallets execute copied trades. Add builder credentials here first.'
     },
     {
       tab: 'trading-wallets',
       target: '#copyAssignmentsList',
       title: 'Copy Assignments',
-      body: 'Map tracked to trading wallet (dropdowns + Assign). Per-wallet Settings (gear): auto-redeem, auto-merge.'
+      body: 'Map each copy source to the trading wallet that executes its trades. Per-wallet Settings (gear): auto-redeem, auto-merge.'
     },
     {
       tab: 'discovery',
       target: '#tab-discovery',
       title: 'Discovery',
-      body: 'Discovery helps you find promising wallets to track next. It is useful, but it should not get in the way of basic setup.',
+      body: 'Discovery helps you find promising wallets to copy next. It is useful, but it should not get in the way of basic setup.',
       adminOnly: true,
     },
     {
@@ -86,7 +86,7 @@
       tab: 'dashboard',
       target: '.jw-statusbar',
       title: "You're all set",
-      body: "Use the Start button when your setup is complete. Re-open the setup guide or this walkthrough any time from the Guide menu."
+      body: "Use Start Copying when your setup is complete. Re-open the setup guide or tour any time from the top bar."
     }
   ];
 

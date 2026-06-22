@@ -17,6 +17,9 @@ import {
 } from '../jungleAgentsStore.js';
 import { reconcileAgentAddressesFromPolymarket, resolveCanonicalPolymarketAddress } from '../jungleAgentsPolymarketSync.js';
 import { requirePlatformAdmin } from '../middleware/requirePlatformAdmin.js';
+import { fetchJungleAgentPolymarketStats } from '../jungleAgentPolymarketStats.js';
+import { dbListAppTenants, dbLoadTrackedWallets } from '../database.js';
+import { DEFAULT_TENANT_ID } from '../tenantContext.js';
 
 const log = createComponentLogger('JungleAgentsRoutes');
 
@@ -87,26 +90,39 @@ export function createJungleAgentsRouter(copyTrader: CopyTrader): Router {
         res.json({ ...cached.payload, stale: true });
         return;
       }
-      const api = copyTrader.getPolymarketApi();
-      const balanceTracker = copyTrader.getBalanceTracker();
       const { resolveMonitoringAddress } = await import('../trackedWalletAddress.js');
       const lookupInput = agent.polymarketUsername?.trim()
         ? `@${agent.polymarketUsername.replace(/^@/, '')}`
         : agent.polymarketAddress;
       const resolved = await resolveMonitoringAddress(lookupInput);
       const monitoringAddress = resolved.monitoringAddress.toLowerCase();
-      const portfolio = await api.getPortfolioValue(monitoringAddress, balanceTracker);
+      const balanceTracker = copyTrader.getBalanceTracker();
+      const stats = await fetchJungleAgentPolymarketStats(monitoringAddress, fetch, {
+        getCashBalance: (addr) => balanceTracker.getBalance(addr),
+      });
+      if (!stats) {
+        res.status(502).json({ success: false, error: 'Could not load Polymarket stats for this wallet' });
+        return;
+      }
       const payload = {
         success: true,
         agentId: agent.id,
         address: monitoringAddress,
-        portfolioValueUsd: portfolio.totalValue,
-        usdcBalance: portfolio.usdcBalance,
-        positionsValue: portfolio.positionsValue,
-        positionCount: portfolio.positionCount,
+        portfolioValueUsd: stats.portfolioValueUsd,
+        usdcBalance: stats.usdcBalanceUsd,
+        positionsValue: stats.positionsValueUsd,
+        positionCount: stats.positionCount,
+        lifetimePnlUsd: stats.lifetimePnlUsd,
+        roiPct: stats.roiPct,
+        winRatePct: stats.winRatePct,
+        wins: stats.wins,
+        losses: stats.losses,
+        breakeven: stats.breakeven,
+        closedPositionsCount: stats.closedPositionsCount,
+        totalDeployedUsd: stats.totalDeployedUsd,
         tradeCount30d: null as null,
         lastActiveAt: null as null,
-        source: 'full_portfolio',
+        source: stats.source,
         stale: false,
       };
       perfCache.set(cacheKey, { at: now, payload });
@@ -126,6 +142,23 @@ export function createJungleAgentsRouter(copyTrader: CopyTrader): Router {
     try {
       const agents = (await loadAgentsFile()).sort((a, b) => a.sortOrder - b.sortOrder);
       res.json({ success: true, agents });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  router.get('/admin/system-stats', requirePlatformAdmin, async (_req: Request, res: Response) => {
+    try {
+      const performanceTracker = copyTrader.getPerformanceTracker();
+      const walletCounts = new Map<string, number>();
+      for (const wallet of dbLoadTrackedWallets()) {
+        if (!wallet.active) continue;
+        const tenantId = wallet.tenantId ?? DEFAULT_TENANT_ID;
+        walletCounts.set(tenantId, (walletCounts.get(tenantId) ?? 0) + 1);
+      }
+      const tenantNames = new Map(dbListAppTenants().map((tenant) => [tenant.id, tenant.name]));
+      const stats = await performanceTracker.getPlatformStats(walletCounts, tenantNames);
+      res.json({ success: true, ...stats });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }

@@ -1203,6 +1203,17 @@ export function dbSaveExecutedPositions(positions: ExecutedPosition[], tenantId 
   tx();
 }
 
+export function dbListAppTenants(): { id: string; name: string; slug: string }[] {
+  const database = getDatabase();
+  try {
+    return database
+      .prepare('SELECT id, name, slug FROM app_tenants ORDER BY created_at_ms ASC')
+      .all() as { id: string; name: string; slug: string }[];
+  } catch {
+    return [];
+  }
+}
+
 // ============================================================================
 // MIGRATION: Import JSON files into SQLite
 // ============================================================================

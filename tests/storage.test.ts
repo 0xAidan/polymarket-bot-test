@@ -69,11 +69,21 @@ describe('Storage dual-backend', () => {
       assert.equal(w2.active, false);
     });
 
-    it('rejects enabling an unconfigured wallet', async () => {
-      await Storage.addWallet('0xUNCONFIGURED');
+    it('new wallets include starter sizing defaults and can be enabled', async () => {
+      const wallet = await Storage.addWallet('0xUNCONFIGURED');
+      assert.equal(wallet.tradeSizingMode, 'fixed');
+      assert.equal(wallet.fixedTradeSize, 2);
+
+      const enabled = await Storage.toggleWalletActive('0xUNCONFIGURED', true);
+      assert.equal(enabled.active, true);
+    });
+
+    it('rejects enabling a wallet after sizing config is cleared', async () => {
+      await Storage.addWallet('0xCLEARED');
+      await Storage.clearWalletTradeConfig('0xCLEARED');
 
       await assert.rejects(
-        () => Storage.toggleWalletActive('0xUNCONFIGURED', true),
+        () => Storage.toggleWalletActive('0xCLEARED', true),
         /explicit trade sizing/i
       );
     });
@@ -251,8 +261,9 @@ describe('Storage dual-backend', () => {
       assert.equal(loaded[0].fixedTradeSize, 100);
     });
 
-    it('rejects enabling an unconfigured wallet via SQLite', async () => {
+    it('rejects enabling a wallet after sizing config is cleared via SQLite', async () => {
       await Storage.addWallet('0xSQLUNCONFIGURED');
+      await Storage.clearWalletTradeConfig('0xSQLUNCONFIGURED');
 
       await assert.rejects(
         () => Storage.toggleWalletActive('0xSQLUNCONFIGURED', true),
