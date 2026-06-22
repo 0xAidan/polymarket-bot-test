@@ -393,8 +393,11 @@ body {
 .jw-tab-panel.active.j-dashboard {
   display: flex !important;
   flex-direction: column;
+  flex: 1;
   gap: var(--space-md);
   min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* ============================================================
@@ -3018,6 +3021,22 @@ body.app-ready .auth-gate-screen {
   max-width: 1500px;
   width: 100%;
   margin: 0 auto;
+  min-height: 0;
+}
+
+/* Dashboard fills the viewport; inner panels scroll instead of the whole page */
+.j-main:has(#tab-dashboard.active) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.jw-body:has(#tab-dashboard.active) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .jw-body {
@@ -3548,6 +3567,7 @@ body.j-drawer-open { overflow: hidden; }
    DASHBOARD — Command center layout
    ============================================================ */
 .j-dashboard {
+  flex: 1;
   min-height: 0;
   gap: 12px;
 }
@@ -3558,6 +3578,7 @@ body.j-drawer-open { overflow: hidden; }
   align-items: stretch;
   gap: 10px;
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .j-dash-topbar-actions {
@@ -3667,6 +3688,7 @@ body.j-drawer-open { overflow: hidden; }
 
 .j-dash-collapsible {
   margin-top: 4px;
+  flex-shrink: 0;
 }
 
 .j-dash-collapsible-summary {
@@ -4022,11 +4044,13 @@ body.j-drawer-open { overflow: hidden; }
   align-items: stretch;
   flex: 1;
   min-height: 0;
+  height: 100%;
 }
 
 .j-dash-primary {
   min-width: 0;
   min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
 }
@@ -4035,16 +4059,22 @@ body.j-drawer-open { overflow: hidden; }
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-height: min(72vh, 760px);
+  min-height: 0;
+  height: 100%;
+}
+
+.j-trade-panel .j-panel-head,
+.j-trade-panel .j-panel-foot {
+  flex-shrink: 0;
 }
 
 .j-trade-scroll {
   flex: 1;
-  min-height: 320px;
-  max-height: none;
+  min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .j-trade-panel .j-trade-scroll.trades-scroll-container {
@@ -4160,6 +4190,7 @@ body.j-drawer-open { overflow: hidden; }
   min-height: 0;
   min-width: 0;
   max-width: 248px;
+  height: 100%;
 }
 
 /* Home Jungle Agents roster */
@@ -4168,7 +4199,13 @@ body.j-drawer-open { overflow: hidden; }
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-height: min(72vh, 760px);
+  min-height: 0;
+  height: 100%;
+}
+
+.j-agents-roster .j-roster-head,
+.j-agents-roster .j-roster-foot {
+  flex-shrink: 0;
 }
 
 .j-roster-head {
@@ -4652,17 +4689,25 @@ body.j-drawer-open { overflow: hidden; }
 
 /* DASHBOARD responsive — must stay AFTER the base .j-dash-* definitions above. */
 @media (max-width: 1100px) {
+  .j-main:has(#tab-dashboard.active) {
+    overflow: auto;
+  }
+
   .j-dash-grid {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1.35fr) minmax(0, 1fr);
+    height: auto;
   }
 
   .j-dash-aside {
     max-width: none;
+    height: auto;
   }
 
   .j-trade-panel,
   .j-agents-roster {
-    min-height: min(56vh, 560px);
+    min-height: 0;
+    height: 100%;
   }
 }
 
@@ -4684,10 +4729,6 @@ body.j-drawer-open { overflow: hidden; }
 
   .j-dash-aside {
     order: -1;
-  }
-
-  .j-trade-scroll {
-    min-height: 280px;
   }
 }
 
