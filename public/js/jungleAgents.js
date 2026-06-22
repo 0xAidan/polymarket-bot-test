@@ -278,6 +278,7 @@ const handleCopyAgent = async (agent) => {
     trackedAddressSet.add(addr);
     if (typeof loadWallets === 'function') await loadWallets(true);
     syncCopyButtons(cachedAgents);
+    syncHomeRosterCopyButtons();
     switchTab('wallets');
     if (typeof openWalletModal === 'function') {
       await openWalletModal(addr);
@@ -333,10 +334,38 @@ window.initJungleAgentsTab = async (force = false) => {
   }
 };
 
+const syncHomeRosterCopyButtons = () => {
+  document.querySelectorAll('[data-home-copy-agent]').forEach((btn) => {
+    const addr = btn.getAttribute('data-agent-address')?.toLowerCase() || '';
+    const pending = btn.getAttribute('data-address-pending') === 'true';
+    const isCopying = addr && trackedAddressSet.has(addr);
+    btn.disabled = pending || isCopying || !addr;
+    btn.textContent = isCopying ? 'Copying' : 'Copy';
+  });
+};
+
+const bindHomeRosterEvents = (container, agents) => {
+  const agentById = new Map(agents.map((a) => [a.id, a]));
+  container.querySelectorAll('[data-home-copy-agent]').forEach((btn) => {
+    if (btn.dataset.bound === 'true') return;
+    btn.dataset.bound = 'true';
+    btn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      const id = btn.getAttribute('data-home-copy-agent');
+      const agent = agentById.get(id);
+      if (agent) {
+        await handleCopyAgent(agent);
+        syncHomeRosterCopyButtons();
+      }
+    });
+  });
+};
+
 window.renderHomeJungleAgentTeaser = async () => {
   const row = document.getElementById('homeJungleAgentsTeaser');
   if (!row) return;
   try {
+    await refreshTrackedSet();
     const data = await API.getJungleAgents();
     const agents = (data.agents || []).slice(0, 6);
     if (!agents.length) {
@@ -359,21 +388,34 @@ window.renderHomeJungleAgentTeaser = async () => {
       iconClass: 'j-roster-avatar-icon',
       fallbackClass: 'j-roster-avatar-fallback',
     });
+    const address = a.polymarketAddress?.toLowerCase() || '';
+    const isCopying = address && trackedAddressSet.has(address);
+    const copyDisabled = a.addressPending || isCopying || !address;
+    const copyLabel = isCopying ? 'Copying' : 'Copy';
     return `
-          <button type="button" class="j-roster-item" onclick="switchTab('jungle-agents')" aria-label="Open ${a.displayName} in Jungle Agents">
+          <div class="j-roster-item">
             <div class="j-roster-avatar">${avatar}</div>
             <div class="j-roster-body">
               <div class="j-roster-name">${a.displayName}</div>
               <div class="j-roster-tagline">${a.tagline || a.modelLabel || 'Curated copy agent'}</div>
             </div>
-            ${a.modelLabel ? `<span class="j-roster-badge">${a.modelLabel}</span>` : '<span class="j-roster-badge">Agent</span>'}
-          </button>`;
+            <div class="j-roster-actions">
+              ${a.modelLabel ? `<span class="j-roster-badge">${a.modelLabel}</span>` : '<span class="j-roster-badge">Agent</span>'}
+              <button type="button" class="j-btn j-btn-primary j-btn-sm j-roster-copy-btn"
+                data-home-copy-agent="${a.id}"
+                data-agent-address="${a.polymarketAddress || ''}"
+                data-address-pending="${a.addressPending ? 'true' : 'false'}"
+                ${copyDisabled ? 'disabled' : ''}
+                aria-label="Copy ${a.displayName}">${copyLabel}</button>
+            </div>
+          </div>`;
   }).join('')}
       </div>
       <footer class="j-roster-foot">
         <button type="button" class="j-btn j-btn-sm" onclick="switchTab('jungle-agents')">Browse full roster →</button>
       </footer>
     `;
+    bindHomeRosterEvents(row, agents);
   } catch {
     row.classList.add('hidden');
   }

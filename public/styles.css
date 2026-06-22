@@ -4209,13 +4209,22 @@ body.j-drawer-open { overflow: hidden; }
   align-items: center;
   width: 100%;
   padding: 14px 16px;
-  border: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   background: transparent;
   color: inherit;
   text-align: left;
-  cursor: pointer;
-  transition: background 0.12s ease;
+}
+
+.j-roster-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.j-roster-copy-btn {
+  min-width: 72px;
 }
 
 .j-roster-item:last-child {
@@ -4223,7 +4232,7 @@ body.j-drawer-open { overflow: hidden; }
 }
 
 .j-roster-item:hover {
-  background: rgba(229, 184, 11, 0.06);
+  background: rgba(229, 184, 11, 0.04);
 }
 
 .j-roster-avatar {
