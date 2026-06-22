@@ -16,7 +16,7 @@
     },
     {
       tab: 'dashboard',
-      target: '.j-dash-topbar',
+      target: '.j-dash-top-aside',
       title: 'Home',
       body: 'Setup progress, your trading wallet balance, and quick actions — all in one compact bar.'
     },

@@ -3563,39 +3563,85 @@ body.j-drawer-open { overflow: hidden; }
   .j-teaser-grid { grid-template-columns: 1fr; }
   .j-drawer-backdrop { align-items: flex-end; }
   .j-drawer { width: 100%; max-height: 85vh; border-left: none; border-top: 1px solid var(--jungle-border-strong); }
-  /* NOTE: .j-dash-grid / .j-dash-aside / .j-trade-scroll responsive rules live in the
-     "DASHBOARD responsive" block near the end of the file — they must come AFTER the
-     base definitions or the cascade silently ignores them (that bug shipped once). */
+  /* NOTE: dashboard responsive rules live in the "DASHBOARD responsive" block near the end of the file. */
 }
 
 /* ============================================================
    DASHBOARD — Command center layout
    ============================================================ */
 .j-dashboard {
+  --j-dash-sidebar: 300px;
+  --j-dash-gap: 12px;
   flex: 1;
   min-height: 0;
-  gap: 12px;
+  gap: var(--j-dash-gap);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-/* Compact top bar: setup + wallet + actions in one row */
-.j-dash-topbar {
+/* Shared 2-column grid: left = main content, right = sidebar (wallet + agents align) */
+.j-dash-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--j-dash-sidebar);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--j-dash-gap);
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.j-dash-top-primary {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
   display: flex;
   align-items: stretch;
-  gap: 10px;
+}
+
+.j-dash-top-primary:has(#setupProgressCard.hidden) {
+  display: none;
+}
+
+.j-dash-layout:has(#setupProgressCard.hidden) .j-dash-top-aside {
+  grid-column: 1 / -1;
+  flex-direction: row;
   flex-wrap: wrap;
-  flex-shrink: 0;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: var(--j-dash-gap);
+}
+
+.j-dash-layout:has(#setupProgressCard.hidden) .j-dash-wallet-card {
+  flex: 1 1 220px;
+  max-width: min(100%, 360px);
+}
+
+.j-dash-layout:has(#setupProgressCard.hidden) .j-dash-topbar-actions {
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-self: center;
+}
+
+.j-dash-top-aside {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
 }
 
 .j-dash-topbar-actions {
   display: flex;
   flex-direction: column;
-  justify-content: center;
   gap: 6px;
-  flex: 0 0 auto;
-  margin-left: auto;
+}
+
+.j-dash-topbar-actions .j-btn {
+  width: 100%;
+  justify-content: center;
 }
 
 .j-setup-strip {
@@ -3603,9 +3649,8 @@ body.j-drawer-open { overflow: hidden; }
   border-radius: var(--j-radius-md);
   background: rgba(229, 184, 11, 0.04);
   padding: 8px 12px;
-  flex: 1 1 280px;
+  width: 100%;
   min-width: 0;
-  max-width: 100%;
 }
 
 .j-setup-strip.is-nearly-done {
@@ -3820,7 +3865,7 @@ body.j-drawer-open { overflow: hidden; }
 
 .j-dash-wallet-card {
   flex: 0 0 auto;
-  width: min(100%, 268px);
+  width: 100%;
   padding: 10px 12px;
   border-radius: var(--j-radius-md);
   border: 1px solid var(--jungle-border);
@@ -4044,20 +4089,10 @@ body.j-drawer-open { overflow: hidden; }
 .j-metric-chip.is-win .j-metric-chip-val { color: var(--jungle-win); }
 .j-metric-chip.is-loss .j-metric-chip-val { color: var(--jungle-loss); }
 
-/* Main grid: trade history dominates; agents roster is a compact sidebar */
-.j-dash-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 300px);
-  grid-template-rows: minmax(0, 1fr);
-  gap: 12px;
-  align-items: stretch;
-  flex: 1 1 0;
-  min-height: 0;
-  max-height: 100%;
-  overflow: hidden;
-}
-
+/* Main stage: trade history (left) + jungle agents (right) share sidebar column width */
 .j-dash-primary {
+  grid-column: 1;
+  grid-row: 2;
   min-width: 0;
   min-height: 0;
   max-height: 100%;
@@ -4196,12 +4231,13 @@ body.j-drawer-open { overflow: hidden; }
 }
 
 .j-dash-aside {
+  grid-column: 2;
+  grid-row: 2;
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
   min-height: 0;
   min-width: 0;
-  max-width: 300px;
   max-height: 100%;
   overflow: hidden;
 }
@@ -4713,15 +4749,54 @@ body.j-drawer-open { overflow: hidden; }
     overflow: hidden;
   }
 
-  .j-dash-grid {
+  .j-dash-layout {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 1.35fr) minmax(0, 1fr);
-    max-height: 100%;
+    grid-template-rows: auto auto minmax(0, 1fr) minmax(0, 1.35fr);
+  }
+
+  .j-dash-top-primary {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .j-dash-top-aside {
+    grid-column: 1;
+    grid-row: 2;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  .j-dash-layout:has(#setupProgressCard.hidden) .j-dash-top-aside {
+    grid-column: 1;
+    grid-row: 1;
   }
 
   .j-dash-aside {
-    max-width: none;
+    grid-column: 1;
+    grid-row: 3;
     max-height: 100%;
+  }
+
+  .j-dash-primary {
+    grid-column: 1;
+    grid-row: 4;
+  }
+
+  .j-dash-wallet-card {
+    flex: 1 1 200px;
+    max-width: none;
+  }
+
+  .j-dash-topbar-actions {
+    flex-direction: row;
+    flex: 1 1 auto;
+    align-self: center;
+    justify-content: flex-end;
+  }
+
+  .j-dash-topbar-actions .j-btn {
+    width: auto;
   }
 
   .j-trade-panel,
@@ -4732,15 +4807,18 @@ body.j-drawer-open { overflow: hidden; }
 }
 
 @media (max-width: 900px) {
-  .j-dash-topbar {
+  .j-dash-top-aside {
     flex-direction: column;
     align-items: stretch;
   }
 
   .j-dash-topbar-actions {
     flex-direction: row;
-    margin-left: 0;
-    justify-content: flex-end;
+    justify-content: stretch;
+  }
+
+  .j-dash-topbar-actions .j-btn {
+    flex: 1;
   }
 
   .j-dash-wallet-card {

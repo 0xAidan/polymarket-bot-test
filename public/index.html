@@ -81,39 +81,41 @@
              DASHBOARD TAB
              ============================================================ -->
         <div id="tab-dashboard" class="jw-tab-panel active j-dashboard">
-          <div class="j-dash-topbar">
-            <div id="setupProgressCard" class="j-setup-strip hidden" role="status" aria-live="polite">
-              <div class="j-setup-strip-inner">
-                <div id="setupProgressChecklist" class="j-setup-stepper" aria-label="Setup progress"></div>
-                <button type="button" class="j-btn j-btn-primary j-btn-sm" id="setupStripAction">Continue</button>
+          <div class="j-dash-layout">
+            <div class="j-dash-top-primary">
+              <div id="setupProgressCard" class="j-setup-strip hidden" role="status" aria-live="polite">
+                <div class="j-setup-strip-inner">
+                  <div id="setupProgressChecklist" class="j-setup-stepper" aria-label="Setup progress"></div>
+                  <button type="button" class="j-btn j-btn-primary j-btn-sm" id="setupStripAction">Continue</button>
+                </div>
+                <p id="setupProgressSummary" class="j-setup-strip-hint hidden"></p>
               </div>
-              <p id="setupProgressSummary" class="j-setup-strip-hint hidden"></p>
             </div>
 
-            <div class="j-dash-wallet-card glow-border" aria-label="Trading wallet balance">
-              <div class="j-dash-wallet-top">
-                <span class="j-dash-wallet-label">Trading wallet</span>
-                <span class="j-dash-live-dot pulse-dot" aria-hidden="true" title="Live balance"></span>
-              </div>
-              <div class="j-dash-wallet-row">
-                <span class="j-dash-wallet-addr-wrap">
-                  <code class="j-dash-wallet-addr" id="walletAddress">Not configured</code>
-                  <button type="button" class="j-addr-copy hidden" id="walletAddressCopy" onclick="copyWalletAddress()" aria-label="Copy wallet address" title="Copy full address">⧉</button>
-                </span>
-                <div class="j-dash-wallet-balance">
-                  <span class="j-dash-balance" id="walletBalance">$0.00</span>
-                  <span class="j-dash-balance-delta positive" id="balanceChange">+$0.00 (24h)</span>
+            <div class="j-dash-top-aside">
+              <div class="j-dash-wallet-card glow-border" aria-label="Trading wallet balance">
+                <div class="j-dash-wallet-top">
+                  <span class="j-dash-wallet-label">Trading wallet</span>
+                  <span class="j-dash-live-dot pulse-dot" aria-hidden="true" title="Live balance"></span>
+                </div>
+                <div class="j-dash-wallet-row">
+                  <span class="j-dash-wallet-addr-wrap">
+                    <code class="j-dash-wallet-addr" id="walletAddress">Not configured</code>
+                    <button type="button" class="j-addr-copy hidden" id="walletAddressCopy" onclick="copyWalletAddress()" aria-label="Copy wallet address" title="Copy full address">⧉</button>
+                  </span>
+                  <div class="j-dash-wallet-balance">
+                    <span class="j-dash-balance" id="walletBalance">$0.00</span>
+                    <span class="j-dash-balance-delta positive" id="balanceChange">+$0.00 (24h)</span>
+                  </div>
                 </div>
               </div>
+
+              <div class="j-dash-topbar-actions">
+                <button class="j-btn j-btn-primary j-btn-sm" type="button" onclick="startSetupWizard(true)">Setup guide</button>
+                <button class="j-btn j-btn-sm" type="button" onclick="switchTab('wallets')">Add wallet to copy</button>
+              </div>
             </div>
 
-            <div class="j-dash-topbar-actions">
-              <button class="j-btn j-btn-primary j-btn-sm" type="button" onclick="startSetupWizard(true)">Setup guide</button>
-              <button class="j-btn j-btn-sm" type="button" onclick="switchTab('wallets')">Add wallet to copy</button>
-            </div>
-          </div>
-
-          <div class="j-dash-grid">
             <section class="j-dash-primary">
               <div class="j-panel j-trade-panel">
                 <header class="j-panel-head">
