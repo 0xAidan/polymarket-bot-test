@@ -4014,10 +4014,10 @@ body.j-drawer-open { overflow: hidden; }
 .j-metric-chip.is-win .j-metric-chip-val { color: var(--jungle-win); }
 .j-metric-chip.is-loss .j-metric-chip-val { color: var(--jungle-loss); }
 
-/* Main grid: trade history + jungle agents share the stage */
+/* Main grid: trade history dominates; agents roster is a compact sidebar */
 .j-dash-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 248px);
   gap: 12px;
   align-items: stretch;
   flex: 1;
@@ -4159,6 +4159,7 @@ body.j-drawer-open { overflow: hidden; }
   gap: var(--space-md);
   min-height: 0;
   min-width: 0;
+  max-width: 248px;
 }
 
 /* Home Jungle Agents roster */
@@ -4174,24 +4175,24 @@ body.j-drawer-open { overflow: hidden; }
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 12px;
-  padding: 16px 18px 12px;
+  gap: 8px;
+  padding: 12px 12px 10px;
   border-bottom: 1px solid var(--jungle-border);
   background: linear-gradient(180deg, rgba(229, 184, 11, 0.04), transparent);
 }
 
 .j-roster-title {
-  font-size: 20px;
+  font-size: 17px;
   color: var(--jungle-gold);
   line-height: 1.15;
   font-weight: 400;
 }
 
 .j-roster-sub {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--jungle-text-muted);
-  margin-top: 4px;
-  line-height: 1.4;
+  margin-top: 3px;
+  line-height: 1.35;
 }
 
 .j-roster-list {
@@ -4204,27 +4205,44 @@ body.j-drawer-open { overflow: hidden; }
 
 .j-roster-item {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
+  grid-template-columns: 36px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  gap: 6px 10px;
+  align-items: start;
   width: 100%;
-  padding: 14px 16px;
+  padding: 10px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   background: transparent;
   color: inherit;
   text-align: left;
 }
 
+.j-roster-avatar {
+  grid-row: 1 / span 2;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--j-radius-sm);
+  border: 1px solid var(--jungle-border-strong);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: rgba(229, 184, 11, 0.08);
+}
+
 .j-roster-actions {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-  flex-shrink: 0;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  grid-column: 2;
 }
 
 .j-roster-copy-btn {
-  min-width: 72px;
+  min-width: 0;
+  padding: 4px 10px;
+  font-size: 11px;
 }
 
 .j-roster-item:last-child {
@@ -4233,18 +4251,6 @@ body.j-drawer-open { overflow: hidden; }
 
 .j-roster-item:hover {
   background: rgba(229, 184, 11, 0.04);
-}
-
-.j-roster-avatar {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--j-radius-sm);
-  border: 1px solid var(--jungle-border-strong);
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  flex-shrink: 0;
-  background: rgba(229, 184, 11, 0.08);
 }
 
 .j-roster-avatar img {
@@ -4278,35 +4284,40 @@ body.j-drawer-open { overflow: hidden; }
 
 .j-roster-name {
   font-family: var(--font-serif);
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.2;
   color: var(--jungle-text);
 }
 
 .j-roster-tagline {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--jungle-text-muted);
-  margin-top: 3px;
+  margin-top: 2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .j-roster-badge {
-  font-size: 9px;
-  letter-spacing: 0.08em;
+  font-size: 8px;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--jungle-gold);
   border: 1px solid var(--jungle-border);
   border-radius: 999px;
-  padding: 3px 7px;
+  padding: 2px 6px;
   white-space: nowrap;
 }
 
 .j-roster-foot {
-  padding: 10px 14px;
+  padding: 8px 10px;
   border-top: 1px solid var(--jungle-border);
   text-align: center;
+}
+
+.j-roster-foot .j-btn {
+  font-size: 11px;
+  padding: 6px 10px;
 }
 
 .j-issues-panel .j-issues-list {
@@ -4643,6 +4654,10 @@ body.j-drawer-open { overflow: hidden; }
 @media (max-width: 1100px) {
   .j-dash-grid {
     grid-template-columns: 1fr;
+  }
+
+  .j-dash-aside {
+    max-width: none;
   }
 
   .j-trade-panel,
