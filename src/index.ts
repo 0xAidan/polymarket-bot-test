@@ -19,9 +19,8 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import readline from 'readline';
 import { createComponentLogger } from './logger.js';
-import { cleanupOrphanTempFiles, logDiskPressure } from './diskGuard.js';
-import { checkpointWalIfDiskPressure } from './database.js';
-import { runRetentionCleanupWithDiskPressure } from './discovery/statsStore.js';
+import { logDiskPressure } from './diskGuard.js';
+import { runDiskMaintenance, startDiskMaintenanceScheduler } from './diskMaintenance.js';
 
 const log = createComponentLogger('Index');
 
@@ -300,12 +299,11 @@ async function startAppRuntime() {
   try {
     // Ensure data directory exists (always do this, even if config fails)
     await Storage.ensureDataDir();
-    await cleanupOrphanTempFiles();
     logDiskPressure('startup');
     try {
       await initDatabase();
-      checkpointWalIfDiskPressure();
-      runRetentionCleanupWithDiskPressure();
+      await runDiskMaintenance(process.cwd());
+      startDiskMaintenanceScheduler(process.cwd());
     } catch (diskErr: unknown) {
       const message = diskErr instanceof Error ? diskErr.message : String(diskErr);
       log.warn({ err: message }, 'Startup disk maintenance skipped (non-fatal)');
