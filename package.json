@@ -26,7 +26,8 @@
     "verify:pnl:dry-run": "DUCKDB_MEMORY_LIMIT_GB=${DUCKDB_MEMORY_LIMIT_GB:-5} DUCKDB_TEMP_DIR=${DUCKDB_TEMP_DIR:-/mnt/HC_Volume_105468668/duckdb_tmp} npx tsx scripts/verify-pnl-vs-polymarket-api.ts --dry-run",
     "verify:promotion-gate": "DUCKDB_MEMORY_LIMIT_GB=${DUCKDB_MEMORY_LIMIT_GB:-5} DUCKDB_TEMP_DIR=${DUCKDB_TEMP_DIR:-/mnt/HC_Volume_105468668/duckdb_tmp} npx tsx scripts/backfill/06_promotion_gate.ts",
     "verify:staging-display": "npx tsx scripts/verify-staging-discovery-display.ts",
-    "verify:soak": "DUCKDB_MEMORY_LIMIT_GB=${DUCKDB_MEMORY_LIMIT_GB:-5} DUCKDB_TEMP_DIR=${DUCKDB_TEMP_DIR:-/mnt/HC_Volume_105468668/duckdb_tmp} npx tsx scripts/backfill/07_soak_report.ts"
+    "verify:soak": "DUCKDB_MEMORY_LIMIT_GB=${DUCKDB_MEMORY_LIMIT_GB:-5} DUCKDB_TEMP_DIR=${DUCKDB_TEMP_DIR:-/mnt/HC_Volume_105468668/duckdb_tmp} npx tsx scripts/backfill/07_soak_report.ts",
+    "purge:accounts": "tsx scripts/purge-hosted-accounts.ts"
   },
   "keywords": [
     "polymarket",
