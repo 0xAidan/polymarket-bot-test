@@ -120,7 +120,7 @@ export const requireAuthForMutations = (req: Request, res: Response, next: NextF
     res.status(401).json({
       success: false,
       error: 'Authentication required',
-      loginUrl: '/auth/login'
+      loginUrl: '/login'
     });
     return;
   }

@@ -113,7 +113,7 @@ test('mutation endpoints reject anonymous OIDC requests with 401 JSON + loginUrl
       const body = await res.json();
       assert.equal(body.success, false);
       assert.equal(body.error, 'Authentication required');
-      assert.equal(body.loginUrl, '/auth/login');
+      assert.equal(body.loginUrl, '/login');
     }
   } finally {
     await close();

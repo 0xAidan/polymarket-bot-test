@@ -11,6 +11,7 @@ import { createDiscoveryRoutes } from './api/discoveryRoutes.js';
 import { createDiscoveryV3Router } from './api/discoveryRoutesV3.js';
 import { createJungleAgentsRouter } from './api/jungleAgentsRoutes.js';
 import { createOlympicsRoutes } from './api/olympicsRoutes.js';
+import { createLandingPublicRouter } from './api/landingPublicRoutes.js';
 import { isDiscoveryV3Enabled } from './discovery/v3/featureFlag.js';
 import { initDatabase, getDatabase } from './database.js';
 import { DiscoveryManager } from './discovery/discoveryManager.js';
@@ -75,11 +76,15 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   const publicPath = path.join(process.cwd(), 'public');
   app.use((req, res, next) => {
     const urlPath = req.path || '';
+    if (urlPath === '/' || urlPath === '/app' || urlPath === '/login' || urlPath === '/admin') {
+      next();
+      return;
+    }
     if (urlPath === '/discovery-v3' || urlPath.startsWith('/discovery-v3/')) {
       next();
       return;
     }
-    express.static(publicPath)(req, res, next);
+    express.static(publicPath, { index: false })(req, res, next);
   });
 
   const mountProtectedDiscoveryV3Static = (): void => {
@@ -215,6 +220,8 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     }
     res.json({ required: !!config.apiSecret, mode: 'legacy', hostedMultiTenant });
   });
+
+  app.use('/api', apiLimiter, createLandingPublicRouter());
 
   // In OIDC mode we need req.oidc populated on v3 requests so the
   // per-route mutation gate can distinguish logged-in vs anonymous. Mounting
@@ -470,8 +477,43 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     });
   });
 
-  // Serve dashboard UI (fallback for SPA-style routing)
+  const sendLandingPage = (res: express.Response): void => {
+    res.sendFile(path.join(publicPath, 'landing.html'));
+  };
+
+  const redirectToLandingAuth = (req: express.Request, res: express.Response): void => {
+    const params = new URLSearchParams();
+    const mode = String(req.query.mode || 'login').trim();
+    const returnTo = String(req.query.returnTo || '/app').trim();
+    if (mode) params.set('mode', mode);
+    if (returnTo.startsWith('/')) params.set('returnTo', returnTo);
+    params.set('section', 'get-started');
+    const qs = params.toString();
+    res.redirect(qs ? `/?${qs}` : '/');
+  };
+
+  const isOidcAuthenticated = (req: express.Request): boolean => (
+    config.authMode === 'oidc' && Boolean(req.oidc?.isAuthenticated())
+  );
+
+  // Marketing landing at /; product dashboard at /app
   app.get('/', (req, res) => {
+    if (isOidcAuthenticated(req)) {
+      res.redirect('/app');
+      return;
+    }
+    sendLandingPage(res);
+  });
+
+  app.get('/login', (req, res) => {
+    if (isOidcAuthenticated(req)) {
+      res.redirect('/app');
+      return;
+    }
+    redirectToLandingAuth(req, res);
+  });
+
+  app.get('/app', (_req, res) => {
     res.sendFile(path.join(publicPath, 'index.html'));
   });
 

@@ -35,7 +35,7 @@
   "fonts": {
     "body_text": { "bold": false, "size": 87.5 },
     "buttons_text": { "bold": true, "size": 100 },
-    "font_url": "",
+    "font_url": "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap",
     "input_labels": { "bold": false, "size": 100 },
     "links": { "bold": true, "size": 87.5 },
     "links_style": "normal",

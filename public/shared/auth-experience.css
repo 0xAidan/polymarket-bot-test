@@ -1,0 +1,246 @@
+/* ==========================================================================
+   Ditto — shared auth journey chrome (landing, login panel, app gate, Auth0)
+   ========================================================================== */
+
+/* Sticky nav */
+.landing-nav,
+.auth-shell-nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--jungle-border);
+  background: rgba(22, 23, 33, 0.88);
+  backdrop-filter: blur(12px);
+}
+
+.landing-nav-brand,
+.auth-shell-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.landing-nav-logo,
+.auth-shell-logo {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
+.landing-nav-eyebrow,
+.auth-shell-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: var(--jungle-gold);
+  text-transform: uppercase;
+}
+
+.landing-nav-title,
+.auth-shell-title {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  line-height: 1;
+  color: var(--jungle-text);
+}
+
+.landing-nav-actions,
+.auth-shell-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Buttons */
+.landing-btn,
+.auth-shell-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: var(--j-radius-sm);
+  border: 1px solid var(--jungle-border-strong);
+  background: transparent;
+  color: var(--jungle-text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: border-color var(--j-motion-fast), background var(--j-motion-fast), color var(--j-motion-fast);
+}
+
+.landing-btn:hover,
+.auth-shell-btn:hover {
+  border-color: var(--jungle-gold);
+  color: var(--jungle-gold);
+}
+
+.landing-btn:focus-visible,
+.auth-shell-btn:focus-visible {
+  outline: 2px solid var(--jungle-gold);
+  outline-offset: 2px;
+}
+
+.landing-btn-primary,
+.auth-shell-btn-primary {
+  background: var(--jungle-gold);
+  border-color: var(--jungle-gold);
+  color: var(--jungle-bg);
+  font-weight: 600;
+}
+
+.landing-btn-primary:hover,
+.auth-shell-btn-primary:hover {
+  background: var(--jungle-gold-light);
+  border-color: var(--jungle-gold-light);
+  color: var(--jungle-bg);
+}
+
+/* Auth panel card */
+.auth-shell-panel {
+  position: relative;
+  width: min(480px, 100%);
+  padding: 28px;
+  border: 1px solid var(--jungle-border);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(34, 35, 58, 0.92), rgba(21, 22, 35, 0.98));
+  box-shadow: var(--j-shadow-2), inset 0 1px 0 rgba(229, 184, 11, 0.06);
+}
+
+.auth-shell-panel-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--jungle-gold);
+  margin-bottom: 8px;
+}
+
+.auth-shell-panel-title {
+  margin: 0 0 10px;
+  font-family: var(--font-serif);
+  font-size: clamp(26px, 4vw, 34px);
+  font-weight: 400;
+  line-height: 1.05;
+  color: var(--jungle-text);
+}
+
+.auth-shell-panel-body {
+  margin: 0 0 20px;
+  color: var(--jungle-text-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.auth-shell-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.auth-shell-tab {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--jungle-border);
+  border-radius: var(--j-radius-sm);
+  background: transparent;
+  color: var(--jungle-text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color var(--j-motion-fast), color var(--j-motion-fast), background var(--j-motion-fast);
+}
+
+.auth-shell-tab[aria-selected="true"] {
+  border-color: var(--jungle-gold);
+  color: var(--jungle-gold);
+  background: rgba(229, 184, 11, 0.08);
+}
+
+.auth-shell-tab:focus-visible {
+  outline: 2px solid var(--jungle-gold);
+  outline-offset: 2px;
+}
+
+.auth-shell-trust {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.auth-shell-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--jungle-border);
+  font-size: 11px;
+  color: var(--jungle-text-muted);
+}
+
+/* Transition overlay (OIDC handoff) */
+.auth-handoff-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: rgba(22, 23, 33, 0.94);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity var(--j-motion-base), visibility var(--j-motion-base);
+}
+
+.auth-handoff-overlay.is-active {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.auth-handoff-overlay img {
+  width: 56px;
+  height: 56px;
+}
+
+.auth-handoff-overlay p {
+  color: var(--jungle-text-muted);
+  font-size: 14px;
+}
+
+/* App auth gate — reuse panel styling */
+.auth-gate-screen .auth-gate-panel {
+  border: 1px solid var(--jungle-border);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(34, 35, 58, 0.88), rgba(21, 22, 35, 0.95));
+}
+
+@media (max-width: 640px) {
+  .landing-nav,
+  .auth-shell-nav {
+    padding: 12px 16px;
+  }
+
+  .landing-nav-actions .landing-btn:not(.landing-btn-primary),
+  .auth-shell-actions .auth-shell-btn:not(.auth-shell-btn-primary) {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-handoff-overlay {
+    transition: none;
+  }
+}
