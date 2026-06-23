@@ -14,7 +14,7 @@ Jungle Agents design system (`public/shared/jungle-brand.css`).
 | Tenant friendly name | "Jungle Agents" (replaces the raw `dev-…` name on screens/emails) |
 | Logo | gold jungle-eyes mark, served from this repo (raw GitHub URL pinned to a commit) |
 | Theme | dark navy page (#161721), card #1C1D2E, gold primary (#E5B80B) — see `theme.json` |
-| Custom text | "Log in to copy Jungle Agents" / "Sign up to copy Jungle Agents" — see `custom-text-*.json` |
+| Custom text | "Welcome to the Jungle" / "Join the Jungle" — see `custom-text-*.json` |
 
 ## How to re-apply (e.g. on a new tenant)
 
@@ -44,6 +44,26 @@ bash docs/auth0-branding/apply.sh
 
 No manual steps: the first time anyone logs in (email/password signup or Google), the app
 creates their account row and a private workspace automatically (`src/authStore.ts`).
+
+## Signup troubleshooting
+
+**Symptom:** Signup shows *"Something went wrong, please try again later"* (red banner on Join the Jungle).
+
+**Common cause:** That email is **already registered in Auth0** from a previous signup attempt.
+Auth0 hides this by default to prevent email enumeration, so the UI looks like a server crash.
+
+**Fix (production):**
+
+```bash
+auth0 login
+bash docs/auth0-branding/fix-signup-errors.sh
+# Optional: remove a stale test account so signup works again for that email
+bash docs/auth0-branding/fix-signup-errors.sh --delete-user test@test.com
+```
+
+**User workaround:** Use **Log in** instead of Create account, or sign up with a different email.
+New emails (e.g. `you@gmail.com`) work when the password meets the rules shown on screen
+(8+ chars, 3 of: upper, lower, number, symbol).
 
 ## Where to change login/signup copy
 
