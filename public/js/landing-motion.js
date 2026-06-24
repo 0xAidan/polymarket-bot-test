@@ -73,75 +73,82 @@ const initRosterCursorScroll = () => {
   const roster = document.getElementById('landingRoster');
   if (!shell || !roster) return;
 
-  if (prefersReducedMotion() || !window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
-    return;
-  }
+  if (prefersReducedMotion()) return;
 
-  const MAX_SPEED = 5.5;
-  const DEAD_ZONE = 0.14;
-  let scrollSpeed = 0;
+  const MAX_SPEED = 7;
+  const IDLE_SPEED = 1.4;
+  let pointerRatio = null;
+  let driftDirection = 1;
+  let isVisible = false;
   let frameId = 0;
-  let isActive = false;
 
-  const clampScroll = () => {
-    const maxScroll = roster.scrollWidth - roster.clientWidth;
-    if (maxScroll <= 0) {
-      scrollSpeed = 0;
-      return;
-    }
-    roster.scrollLeft = Math.max(0, Math.min(maxScroll, roster.scrollLeft));
-  };
+  const getMaxScroll = () => Math.max(0, roster.scrollWidth - roster.clientWidth);
 
   const tick = () => {
-    if (isActive && scrollSpeed !== 0) {
-      roster.scrollLeft += scrollSpeed;
-      clampScroll();
+    const maxScroll = getMaxScroll();
+
+    if (isVisible && maxScroll > 0) {
+      let speed;
+      if (pointerRatio !== null) {
+        speed = (pointerRatio - 0.5) * 2 * MAX_SPEED;
+      } else {
+        speed = IDLE_SPEED * driftDirection;
+      }
+
+      roster.scrollLeft += speed;
+
+      if (roster.scrollLeft <= 0) {
+        roster.scrollLeft = 0;
+        driftDirection = 1;
+      } else if (roster.scrollLeft >= maxScroll - 1) {
+        roster.scrollLeft = maxScroll;
+        driftDirection = -1;
+      }
     }
+
     frameId = window.requestAnimationFrame(tick);
   };
 
-  const updateSpeedFromPointer = (clientX) => {
+  const updatePointerRatio = (clientX) => {
     const rect = shell.getBoundingClientRect();
-    const ratio = (clientX - rect.left) / rect.width;
-    const center = 0.5;
-
-    if (ratio <= center - DEAD_ZONE) {
-      const t = (center - DEAD_ZONE - ratio) / (center - DEAD_ZONE);
-      scrollSpeed = -MAX_SPEED * Math.min(1, Math.max(0, t));
-      return;
-    }
-
-    if (ratio >= center + DEAD_ZONE) {
-      const t = (ratio - center - DEAD_ZONE) / (center - DEAD_ZONE);
-      scrollSpeed = MAX_SPEED * Math.min(1, Math.max(0, t));
-      return;
-    }
-
-    scrollSpeed = 0;
-  };
-
-  const handlePointerMove = (event) => {
-    if (!isActive) return;
-    updateSpeedFromPointer(event.clientX);
+    if (rect.width <= 0) return;
+    pointerRatio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
   };
 
   shell.addEventListener('pointerenter', (event) => {
-    isActive = true;
-    updateSpeedFromPointer(event.clientX);
-    if (!frameId) {
-      frameId = window.requestAnimationFrame(tick);
-    }
+    updatePointerRatio(event.clientX);
   });
 
   shell.addEventListener('pointerleave', () => {
-    isActive = false;
-    scrollSpeed = 0;
+    pointerRatio = null;
   });
 
-  shell.addEventListener('pointermove', handlePointerMove, { passive: true });
+  shell.addEventListener('pointermove', (event) => {
+    updatePointerRatio(event.clientX);
+  }, { passive: true });
+
+  const visibilityObserver = new IntersectionObserver(
+    ([entry]) => {
+      isVisible = entry.isIntersecting;
+    },
+    { threshold: 0.15 },
+  );
+  visibilityObserver.observe(shell);
+
+  const rosterObserver = new MutationObserver(() => {
+    const maxScroll = getMaxScroll();
+    if (roster.scrollLeft > maxScroll) {
+      roster.scrollLeft = maxScroll;
+    }
+  });
+  rosterObserver.observe(roster, { childList: true, subtree: true });
+
+  frameId = window.requestAnimationFrame(tick);
 
   window.addEventListener('beforeunload', () => {
     if (frameId) window.cancelAnimationFrame(frameId);
+    visibilityObserver.disconnect();
+    rosterObserver.disconnect();
   }, { once: true });
 };
 

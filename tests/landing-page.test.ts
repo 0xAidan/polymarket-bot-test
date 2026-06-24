@@ -68,6 +68,8 @@ test('landing-motion.js respects reduced motion for marquees', () => {
   assert.match(js, /prefers-reduced-motion/);
   assert.match(js, /IntersectionObserver/);
   assert.match(js, /initRosterCursorScroll/);
+  assert.match(js, /IDLE_SPEED/);
+  assert.match(js, /pointerRatio/);
 });
 
 test('auth-bootstrap redirects unauthenticated users to /login not /auth/login', () => {
