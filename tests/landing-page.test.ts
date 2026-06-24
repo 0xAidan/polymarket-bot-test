@@ -40,14 +40,15 @@ test('landing-transitions.js exposes view transition helper with reduced-motion 
   assert.match(js, /prefers-reduced-motion/);
 });
 
-test('landing.js uses jungle-agents API for roster and showcase', () => {
+test('landing.js uses public landing API for roster and showcase', () => {
   const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
   assert.match(js, /screen_hint/);
   assert.match(js, /\/auth\/login/);
   assert.match(js, /returnTo/);
   assert.match(js, /\/app/);
   assert.match(js, /prefers-reduced-motion/);
-  assert.match(js, /\/api\/jungle-agents/);
+  assert.match(js, /\/api\/public\/landing-preview/);
+  assert.match(js, /\/api\/public\/jungle-agents/);
   assert.match(js, /showcaseJungleAgents/);
   assert.match(js, /createShowcaseAgentsPresenter/);
 });

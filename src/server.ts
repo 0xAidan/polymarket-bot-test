@@ -32,6 +32,7 @@ import { reconcileAgentAddressesFromPolymarket } from './jungleAgentsPolymarketS
 import { reconcileTrackedWalletAddresses } from './trackedWalletAddress.js';
 import { resolveIsPlatformAdmin } from './platformAdmin.js';
 import { getDiskMetrics, isEnospcError, DiskSpaceError } from './diskGuard.js';
+import { sanitizeReturnTo } from './sanitizeReturnTo.js';
 
 const log = createComponentLogger('Server');
 
@@ -68,7 +69,10 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   app.set('trust proxy', 1);
 
   // Middleware
-  app.use(cors());
+  const corsOptions: cors.CorsOptions = config.corsAllowedOrigins.length > 0
+    ? { origin: config.corsAllowedOrigins, credentials: true }
+    : {};
+  app.use(cors(corsOptions));
   app.use(express.json({ limit: '5mb' }));  // Increased from default 100kb for large trade lists
 
   // Serve static files from public directory (discovery-v3 is mounted after auth below)
@@ -221,7 +225,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     res.json({ required: !!config.apiSecret, mode: 'legacy', hostedMultiTenant });
   });
 
-  app.use('/api', apiLimiter, createLandingPublicRouter());
+  app.use('/api', apiLimiter, createLandingPublicRouter(copyTrader));
 
   // In OIDC mode we need req.oidc populated on v3 requests so the
   // per-route mutation gate can distinguish logged-in vs anonymous. Mounting
@@ -484,9 +488,9 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   const redirectToLandingAuth = (req: express.Request, res: express.Response): void => {
     const params = new URLSearchParams();
     const mode = String(req.query.mode || 'login').trim();
-    const returnTo = String(req.query.returnTo || '/app').trim();
+    const returnTo = sanitizeReturnTo(req.query.returnTo, '/app');
     if (mode) params.set('mode', mode);
-    if (returnTo.startsWith('/')) params.set('returnTo', returnTo);
+    params.set('returnTo', returnTo);
     const section = String(req.query.section || '').trim();
     if (section === 'get-started') {
       params.set('section', section);

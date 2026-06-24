@@ -172,7 +172,7 @@ const loadShowcaseAgentStats = async (agents) => {
     if (!card) return;
 
     try {
-      const res = await fetch(`/api/jungle-agents/${encodeURIComponent(agent.id)}/performance`);
+      const res = await fetch(`/api/public/jungle-agents/${encodeURIComponent(agent.id)}/performance`);
       const perf = await res.json();
       if (!res.ok || perf.success === false) return;
 
@@ -311,7 +311,7 @@ const createRosterPresenter = (showcaseAgents) => {
   const loadPreview = async () => {
     renderSkeleton();
     try {
-      const res = await fetch('/api/jungle-agents');
+      const res = await fetch('/api/public/landing-preview');
       const data = await res.json();
       if (!res.ok || !data.success) {
         renderAgents([]);
