@@ -30,7 +30,8 @@ import { seedJungleAgentsIfMissing, migrateOlympicsConfigToJungleStore } from '.
 import { reconcileAgentAddressesFromPolymarket } from './jungleAgentsPolymarketSync.js';
 import { reconcileTrackedWalletAddresses } from './trackedWalletAddress.js';
 import { resolveIsPlatformAdmin } from './platformAdmin.js';
-import { getDiskMetrics, isEnospcError, DiskSpaceError } from './diskGuard.js';
+import { getDiskMetrics, getDiskBreakdown, isEnospcError, DiskSpaceError } from './diskGuard.js';
+import { getLastDiskMaintenanceSnapshot } from './diskMaintenance.js';
 
 const log = createComponentLogger('Server');
 
@@ -458,6 +459,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   app.get('/health', (_req, res) => {
     const disk = getDiskMetrics();
     const overallStatus = disk.status === 'critical' ? 'critical' : disk.status === 'degraded' ? 'degraded' : 'ok';
+    const lastMaintenance = getLastDiskMaintenanceSnapshot();
     res.status(disk.status === 'critical' ? 503 : 200).json({
       status: overallStatus,
       timestamp: new Date().toISOString(),
@@ -466,6 +468,14 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
         usedPercent: disk.usedPercent,
         availableBytes: disk.availableBytes,
         status: disk.status,
+        breakdown: getDiskBreakdown(),
+        lastMaintenance: lastMaintenance
+          ? {
+              at: lastMaintenance.at,
+              rowsRemoved: lastMaintenance.rowsRemoved,
+              bytesReclaimed: lastMaintenance.bytesReclaimedEstimate,
+            }
+          : null,
       },
     });
   });

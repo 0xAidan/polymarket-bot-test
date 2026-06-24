@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly Ditto disk maintenance (staging)
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=polymarket-disk-maintenance-staging.service
+
+[Install]
+WantedBy=timers.target

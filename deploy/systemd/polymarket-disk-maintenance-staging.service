@@ -1,0 +1,14 @@
+[Unit]
+Description=Ditto disk maintenance (staging)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Environment=APP_DIR=/opt/polymarket-bot-staging
+Environment=DATA_DIR=/mnt/HC_Volume_105468668/polymarket-staging-data
+Environment=DISCOVERY_LAB_ROOT=/mnt/HC_Volume_105468668
+ExecStart=/usr/bin/env bash /opt/polymarket-bot/scripts/disk-maintenance.sh
+
+[Install]
+WantedBy=multi-user.target

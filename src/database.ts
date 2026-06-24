@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import path from 'path';
-import { promises as fs } from 'fs';
+import { promises as fs, statSync } from 'fs';
 import { config } from './config.js';
 import { DEFAULT_TENANT_ID } from './tenantContext.js';
 import { getDiskMetrics } from './diskGuard.js';
@@ -145,12 +145,54 @@ export function checkpointWalIfDiskPressure(): boolean {
   }
 }
 
+const WAL_CHECKPOINT_MAX_AGE_MS = 7 * 86400 * 1000;
+const WAL_CHECKPOINT_MIN_BYTES = 100 * 1024 * 1024;
+let lastWalCheckpointMs = 0;
+
+/** Routine WAL checkpoint (weekly or when WAL file exceeds threshold). */
+export function checkpointWalRoutine(): boolean {
+  if (!db || !currentDbPath) return false;
+  try {
+    const now = Date.now();
+    const walPath = `${currentDbPath}-wal`;
+    let walBytes = 0;
+    try {
+      walBytes = statSync(walPath).size;
+    } catch {
+      walBytes = 0;
+    }
+
+    const dueByAge = now - lastWalCheckpointMs >= WAL_CHECKPOINT_MAX_AGE_MS;
+    const dueBySize = walBytes >= WAL_CHECKPOINT_MIN_BYTES;
+    if (!dueByAge && !dueBySize) return false;
+
+    db.pragma('wal_checkpoint(TRUNCATE)');
+    lastWalCheckpointMs = now;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Reclaim SQLite file space after retention deletes when disk is critical. */
 export function vacuumDatabaseIfDiskPressure(): boolean {
   if (!db) return false;
   try {
     const metrics = getDiskMetrics();
     if (metrics.status !== 'critical') return false;
+    db.exec('VACUUM');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Reclaim SQLite file space when disk is degraded or critical. */
+export function vacuumDatabaseIfDegraded(): boolean {
+  if (!db) return false;
+  try {
+    const metrics = getDiskMetrics();
+    if (metrics.status === 'ok') return false;
     db.exec('VACUUM');
     return true;
   } catch {

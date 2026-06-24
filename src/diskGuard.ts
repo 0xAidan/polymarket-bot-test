@@ -1,4 +1,4 @@
-import { statfsSync } from 'fs';
+import { statfsSync, statSync } from 'fs';
 import path from 'path';
 import { config } from './config.js';
 import { createComponentLogger } from './logger.js';
@@ -31,6 +31,36 @@ const resolveStatus = (usedPercent: number, availableBytes: number): DiskHealthS
   if (availableBytes < MIN_WRITE_BYTES || usedPercent >= 98) return 'critical';
   if (usedPercent >= 90 || availableBytes < 512 * 1024 * 1024) return 'degraded';
   return 'ok';
+};
+
+export type DiskBreakdownEntry = {
+  path: string;
+  bytes: number;
+};
+
+const BREAKDOWN_CANDIDATES = [
+  'copytrade.db',
+  'copytrade.db-wal',
+  'discovery_v3.duckdb',
+  'discovery_v3.duckdb-wal',
+];
+
+export const getDiskBreakdown = (dataDir?: string): DiskBreakdownEntry[] => {
+  const resolved = path.resolve(dataDir || config.dataDir || process.cwd());
+  const entries: DiskBreakdownEntry[] = [];
+
+  for (const name of BREAKDOWN_CANDIDATES) {
+    const filePath = path.join(resolved, name);
+    try {
+      const stat = statSync(filePath);
+      if (!stat.isFile()) continue;
+      entries.push({ path: name, bytes: stat.size });
+    } catch {
+      // file may not exist
+    }
+  }
+
+  return entries.sort((a, b) => b.bytes - a.bytes);
 };
 
 export const getDiskMetrics = (targetPath?: string): DiskMetrics => {

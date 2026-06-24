@@ -34,6 +34,11 @@ fi
 
 rm -f "$APP_DIR"/.env.backup* 2>/dev/null || true
 
+# Discovery lab file cleanup when Discovery is disabled
+if [[ -x "$APP_DIR/scripts/cleanup-discovery-lab.sh" ]]; then
+  APP_DIR="$APP_DIR" DATA_DIR="${DATA_DIR:-$APP_DIR/data}" bash "$APP_DIR/scripts/cleanup-discovery-lab.sh" || true
+fi
+
 # App-level maintenance (WAL checkpoint, retention purge, vacuum under pressure)
 if [[ -f "$APP_DIR/dist/index.js" ]]; then
   node --input-type=module -e "
