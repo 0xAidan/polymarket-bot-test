@@ -195,6 +195,24 @@ test('index.html loads auth-experience.css for unified auth gate styling', () =>
   assert.match(html, /auth-experience\.css/);
 });
 
+test('index.html runs auth bootstrap before heavy dashboard scripts', () => {
+  const html = readFileSync(join(publicDir, 'index.html'), 'utf8');
+  const authBootstrapIdx = html.indexOf('auth-bootstrap.js');
+  const appShellIdx = html.indexOf('id="appShell"');
+  const appJsIdx = html.indexOf('app.js');
+  assert.ok(authBootstrapIdx > 0);
+  assert.ok(appShellIdx > authBootstrapIdx, 'auth bootstrap should load before app shell markup finishes parsing');
+  assert.ok(appJsIdx > authBootstrapIdx, 'auth bootstrap should load before app.js');
+  assert.match(html, /Checking your Ditto session/);
+});
+
+test('auth-bootstrap uses fetch timeouts and non-blocking capabilities load', () => {
+  const js = readFileSync(join(publicDir, 'js', 'auth-bootstrap.js'), 'utf8');
+  assert.match(js, /fetchWithTimeout/);
+  assert.match(js, /location\.replace/);
+  assert.match(js, /void loadCapabilities\(\)/);
+});
+
 test('landing and dashboard show beta risk disclaimer', () => {
   const landingHtml = readFileSync(join(publicDir, 'landing.html'), 'utf8');
   const indexHtml = readFileSync(join(publicDir, 'index.html'), 'utf8');

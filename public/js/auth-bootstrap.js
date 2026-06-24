@@ -49,10 +49,20 @@ const hideAuthModal = () => {
 
 window.redirectToMagicLinkLogin = () => {
   const returnTo = encodeURIComponent('/app');
-  window.location.href = `/login?returnTo=${returnTo}`;
+  window.location.replace(`/login?returnTo=${returnTo}`);
 };
 
-const escapeHtml = window.escapeHtml;
+const AUTH_FETCH_TIMEOUT_MS = 10000;
+
+const fetchWithTimeout = async (url, options = {}, timeoutMs = AUTH_FETCH_TIMEOUT_MS) => {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
+};
 
 window.setupTenantSwitcher = (meData) => {
   const sel = document.getElementById('tenantSwitcher');
@@ -63,8 +73,8 @@ window.setupTenantSwitcher = (meData) => {
   }
   sel.classList.remove('hidden');
   sel.innerHTML = meData.tenants.map((m) => {
-    const id = escapeHtml(m.tenantId);
-    const name = escapeHtml(m.tenantName || m.tenantSlug || m.tenantId);
+    const id = window.escapeHtml(m.tenantId);
+    const name = window.escapeHtml(m.tenantName || m.tenantSlug || m.tenantId);
     const selected = m.tenantId === meData.activeTenant.tenantId ? ' selected' : '';
     return `<option value="${id}"${selected}>${name}</option>`;
   }).join('');
@@ -139,9 +149,9 @@ window.maybeStartApp = () => {
 };
 
 const finishAuthenticatedBoot = async () => {
-  await loadCapabilities();
   window.markAppShellReady();
   window.maybeStartApp();
+  void loadCapabilities();
 };
 
 window.submitAuthToken = async () => {
@@ -177,8 +187,14 @@ document.getElementById('authTokenInput')?.addEventListener('keydown', (e) => {
 });
 
 (async function checkAuth() {
+  setAuthGateState(
+    'Checking your Ditto session',
+    'If you’re not signed in yet, we’ll send you to the secure login screen.',
+    'This is the normal sign-in path for hosted Ditto.',
+  );
+
   try {
-    const res = await fetch('/api/auth/required', { credentials: 'same-origin' });
+    const res = await fetchWithTimeout('/api/auth/required', { credentials: 'same-origin' });
     const data = await res.json();
     window.__authMode = data.mode || 'legacy';
     window.__hostedMultiTenant = !!data.hostedMultiTenant;
@@ -190,12 +206,7 @@ document.getElementById('authTokenInput')?.addEventListener('keydown', (e) => {
     }
 
     if (data.mode === 'oidc') {
-      setAuthGateState(
-        'Checking your Ditto session',
-        'If you’re not signed in yet, we’ll send you to the secure login screen.',
-        'This is the normal sign-in path for hosted Ditto.',
-      );
-      const meResponse = await fetch('/api/auth/me', { credentials: 'same-origin' });
+      const meResponse = await fetchWithTimeout('/api/auth/me', { credentials: 'same-origin' });
       if (meResponse.ok) {
         const meData = await meResponse.json();
         window.__authRequired = false;
@@ -245,10 +256,15 @@ document.getElementById('authTokenInput')?.addEventListener('keydown', (e) => {
 
     window.showAuthModal();
   } catch (error) {
+    const timedOut = Boolean(
+      error && typeof error === 'object' && 'name' in error && error.name === 'AbortError',
+    );
     console.warn('Could not check auth status:', error);
     setAuthGateState(
-      'Sign-in check failed',
-      'Ditto could not confirm your hosted sign-in automatically. Retry the check or open the secure sign-in flow.',
+      timedOut ? 'Sign-in check timed out' : 'Sign-in check failed',
+      timedOut
+        ? 'Ditto could not reach the auth service in time. Open sign in to continue.'
+        : 'Ditto could not confirm your hosted sign-in automatically. Retry the check or open the secure sign-in flow.',
       'This usually means your session expired, the auth service is unavailable, or the environment is not fully configured yet.',
     );
     setAuthGateActions({ show: true, allowLogin: true, allowLegacy: false });
