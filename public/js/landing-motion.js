@@ -9,7 +9,21 @@
 
     document.querySelectorAll('.landing-marquee').forEach((marquee) => {
       const track = marquee.querySelector('.landing-marquee-track');
-      if (!track || marquee.querySelectorAll('.landing-marquee-track').length > 1) return;
+      if (!track) return;
+
+      marquee.querySelectorAll('.landing-marquee-track').forEach((node, index) => {
+        if (index > 0) node.remove();
+      });
+
+      const minTrackWidth = Math.max(window.innerWidth * 1.25, 960);
+      let guard = 0;
+      while (track.scrollWidth < minTrackWidth && guard < 12) {
+        Array.from(track.children).forEach((child) => {
+          track.appendChild(child.cloneNode(true));
+        });
+        guard += 1;
+      }
+
       const clone = track.cloneNode(true);
       clone.setAttribute('aria-hidden', 'true');
       marquee.appendChild(clone);

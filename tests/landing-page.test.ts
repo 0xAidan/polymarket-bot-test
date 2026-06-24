@@ -14,6 +14,8 @@ test('landing.html includes branding, marquees, and embedded auth panel', () => 
   assert.match(html, /id="get-started"/);
   assert.match(html, /id="authPanelContinue"/);
   assert.match(html, /landing-marquee/);
+  assert.match(html, /landing-cta-band-lead/);
+  assert.doesNotMatch(html, /Start copying<\/span>\s*<span class="landing-marquee-item">Start copying/);
   assert.match(html, /any wallet address/);
   assert.match(html, /landing-transitions\.js/);
   assert.match(html, /data-landing-action/);
@@ -96,8 +98,10 @@ test('landing-showcase.js drives hero preview autoplay via radio inputs', () => 
   assert.match(js, /prefers-reduced-motion/);
 });
 
-test('landing-motion.js respects reduced motion for marquees', () => {
+test('landing-motion.js expands marquee tracks to fill the viewport', () => {
   const js = readFileSync(join(publicDir, 'js', 'landing-motion.js'), 'utf8');
+  assert.match(js, /minTrackWidth/);
+  assert.match(js, /cloneNode\(true\)/);
   assert.match(js, /prefers-reduced-motion/);
   assert.match(js, /IntersectionObserver/);
   assert.match(js, /initRosterCursorScroll/);
