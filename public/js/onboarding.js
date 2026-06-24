@@ -3,7 +3,7 @@
  *
  * Renders the guided, step-by-step setup walkthrough defined in
  * onboarding-steps.js: centered card with numbered actions, progress bar,
- * spotlighted UI targets, live "Detected" completion badges, and progress
+ * live "Detected" completion badges, and progress
  * persistence (resume where you left off).
  *
  * Entry points:
@@ -18,11 +18,9 @@
 
   let overlayEl = null;
   let cardEl = null;
-  let spotlightEl = null;
   let currentIndex = 0;
   let checkTimer = null;
   let keydownHandler = null;
-  let resizeHandler = null;
 
   /* ── Live completion checks ─────────────────────────────────────────────
      Each returns true (done), false (not yet) or null (unknown / API error).
@@ -94,21 +92,6 @@
   const renderActionList = (actions) => {
     const items = (actions || []).map((action) => '<li>' + action + '</li>').join('');
     return '<ol class="onb-action-list">' + items + '</ol>';
-  };
-
-  const positionSpotlight = (selector) => {
-    if (!spotlightEl) return;
-    const el = selector ? document.querySelector(selector) : null;
-    if (!el) {
-      spotlightEl.style.display = 'none';
-      return;
-    }
-    const rect = el.getBoundingClientRect();
-    spotlightEl.style.display = 'block';
-    spotlightEl.style.left = rect.left + 'px';
-    spotlightEl.style.top = rect.top + 'px';
-    spotlightEl.style.width = rect.width + 'px';
-    spotlightEl.style.height = rect.height + 'px';
   };
 
   const stopCheckPolling = () => {
@@ -212,9 +195,6 @@
       });
     }
 
-    // Give the tab switch a beat to paint before measuring the spotlight target.
-    setTimeout(() => positionSpotlight(step.target), 120);
-
     stopCheckPolling();
     runCompletionCheck(step);
     if (step.completionCheck) {
@@ -241,14 +221,9 @@
       document.removeEventListener('keydown', keydownHandler);
       keydownHandler = null;
     }
-    if (resizeHandler) {
-      window.removeEventListener('resize', resizeHandler);
-      resizeHandler = null;
-    }
     if (overlayEl && overlayEl.parentNode) overlayEl.parentNode.removeChild(overlayEl);
     overlayEl = null;
     cardEl = null;
-    spotlightEl = null;
   };
 
   /**
@@ -270,14 +245,10 @@
     const backdrop = document.createElement('div');
     backdrop.className = 'onb-backdrop';
 
-    spotlightEl = document.createElement('div');
-    spotlightEl.className = 'onb-spotlight';
-
     cardEl = document.createElement('div');
     cardEl.className = 'onb-card';
 
     overlayEl.appendChild(backdrop);
-    overlayEl.appendChild(spotlightEl);
     overlayEl.appendChild(cardEl);
     document.body.appendChild(overlayEl);
 
@@ -290,12 +261,6 @@
       if (e.key === 'Escape') finish(false);
     };
     document.addEventListener('keydown', keydownHandler);
-
-    resizeHandler = () => {
-      const step = getSteps()[currentIndex];
-      if (step) positionSpotlight(step.target);
-    };
-    window.addEventListener('resize', resizeHandler);
 
     renderStep();
   };
