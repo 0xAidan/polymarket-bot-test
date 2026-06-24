@@ -1,22 +1,10 @@
 /**
- * Ditto landing — hero dashboard preview tabs + iframe scaling.
+ * Ditto landing — hero dashboard preview tabs + live mock blink.
  */
 
 const SHOWCASE_TABS = ['dashboard', 'copy-list', 'jungle-agents'];
-const CAPTURE_WIDTH = 1100;
-const CAPTURE_HEIGHT = 640;
 
 const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-const fitUiCaptures = () => {
-  document.querySelectorAll('.landing-ui-iframe-wrap').forEach((wrap) => {
-    const scaleEl = wrap.querySelector('.landing-ui-iframe-scale');
-    if (!scaleEl) return;
-    const scale = Math.min(1, wrap.clientWidth / CAPTURE_WIDTH);
-    scaleEl.style.transform = `scale(${scale})`;
-    wrap.style.height = `${CAPTURE_HEIGHT * scale}px`;
-  });
-};
 
 const setShowcaseTab = (root, tabId) => {
   const tabs = root.querySelectorAll('[data-showcase-tab]');
@@ -37,7 +25,6 @@ const setShowcaseTab = (root, tabId) => {
         panel.setAttribute('hidden', '');
       }
     });
-    window.requestAnimationFrame(fitUiCaptures);
   };
 
   if (typeof window.landingWithViewTransition === 'function') {
@@ -63,9 +50,6 @@ const initShowcaseAutoplay = (root) => {
 const initLandingShowcase = () => {
   const root = document.querySelector('.landing-hero-showcase');
   if (!root) return;
-
-  fitUiCaptures();
-  window.addEventListener('resize', fitUiCaptures, { passive: true });
 
   let autoplayId = initShowcaseAutoplay(root);
 

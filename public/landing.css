@@ -289,7 +289,7 @@
 .landing-showcase-viewport {
   position: relative;
   flex: 1;
-  min-height: 320px;
+  min-height: 300px;
   border: 1px solid rgba(229, 184, 11, 0.15);
   border-radius: 12px;
   background: rgba(16, 17, 28, 0.85);
@@ -301,7 +301,7 @@
   flex-direction: column;
   gap: 10px;
   height: 100%;
-  padding: 12px;
+  padding: 10px;
   animation: landing-showcase-fade-in 0.35s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -326,8 +326,37 @@
 }
 
 @keyframes landing-preview-trade-pulse {
-  0%, 100% { background: rgba(0, 212, 170, 0.06); }
-  50% { background: rgba(0, 212, 170, 0.14); }
+  0%, 100% {
+    background: rgba(0, 212, 170, 0.07);
+    box-shadow: inset 0 0 0 1px rgba(0, 212, 170, 0.12);
+  }
+  50% {
+    background: rgba(0, 212, 170, 0.22);
+    box-shadow: inset 0 0 0 1px rgba(0, 212, 170, 0.45);
+  }
+}
+
+@keyframes landing-showcase-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.l-preview-app {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+}
+
+.landing-showcase-live-blink {
+  animation: landing-showcase-blink 1.8s ease-in-out infinite;
+}
+
+.l-preview-time-blink {
+  color: var(--jungle-win);
+  font-weight: 600;
+  animation: landing-showcase-blink 1.8s ease-in-out infinite;
 }
 
 /* Scaled dashboard preview primitives */
@@ -418,7 +447,7 @@
   border: 1px solid var(--jungle-border);
   border-radius: 10px;
   background: rgba(28, 29, 46, 0.55);
-  overflow: hidden;
+  overflow: auto;
 }
 
 .l-preview-panel-head {
@@ -1123,6 +1152,13 @@
     opacity: 1;
     transform: none;
     transition: none;
+  }
+
+  .l-preview-trade-new,
+  .landing-showcase-live-blink,
+  .l-preview-time-blink {
+    animation: none;
+    background: rgba(0, 212, 170, 0.1);
   }
 
   ::view-transition-group(*),
