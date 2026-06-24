@@ -15,9 +15,10 @@ data/keystores/
 *.db
 *.sqlite
 
-# Editor (keep .cursor/rules/ tracked for AI agent context)
+# Editor (keep .cursor/rules/ and .cursor/skills/ tracked for AI agent context)
 .cursor/*
 !.cursor/rules/
+!.cursor/skills/
 
 
 CLAUDE.md
