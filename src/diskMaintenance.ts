@@ -7,8 +7,13 @@ import {
   logDiskPressure,
   type DiskHealthStatus,
 } from './diskGuard.js';
-import { checkpointWalIfDiskPressure, vacuumDatabaseIfDiskPressure } from './database.js';
-import { runRetentionCleanupWithDiskPressure } from './discovery/statsStore.js';
+import {
+  checkpointWalIfDiskPressure,
+  checkpointWalRoutine,
+  vacuumDatabaseIfDegraded,
+  vacuumDatabaseIfDiskPressure,
+} from './database.js';
+import { runAppDataRetention } from './dataRetention.js';
 import { createComponentLogger } from './logger.js';
 
 const log = createComponentLogger('DiskMaintenance');
@@ -18,6 +23,19 @@ const ENV_BACKUP_PATTERN = /^\.env\.backup/;
 const TEMP_TEST_DIR_PATTERN = /^cross-platform-test-/;
 const DEFAULT_BACKUP_RETENTION_DAYS = 14;
 const DEFAULT_MAINTENANCE_INTERVAL_MS = 15 * 60 * 1000;
+
+export type LastDiskMaintenanceSnapshot = {
+  at: string;
+  rowsRemoved: number;
+  bytesReclaimedEstimate: number;
+  statusBefore: DiskHealthStatus;
+  statusAfter: DiskHealthStatus;
+};
+
+let lastMaintenanceSnapshot: LastDiskMaintenanceSnapshot | null = null;
+
+export const getLastDiskMaintenanceSnapshot = (): LastDiskMaintenanceSnapshot | null =>
+  lastMaintenanceSnapshot;
 
 export type DiskMaintenanceResult = {
   statusBefore: DiskHealthStatus;
@@ -203,11 +221,28 @@ export const runDiskMaintenance = async (
   const tempTestDirsRemoved =
     before.status !== 'ok' ? await pruneTempTestDirectories() : 0;
 
-  const walCheckpointed = checkpointWalIfDiskPressure();
-  const retentionRowsRemoved = runRetentionCleanupWithDiskPressure();
-  const vacuumed = vacuumDatabaseIfDiskPressure();
+  const retentionResult = await runAppDataRetention();
+  const retentionRowsRemoved = retentionResult.totalRowsRemoved;
+
+  const walCheckpointed =
+    checkpointWalIfDiskPressure() || checkpointWalRoutine();
+  let vacuumed = vacuumDatabaseIfDiskPressure();
+  if (!vacuumed && retentionRowsRemoved > 0) {
+    vacuumed = vacuumDatabaseIfDegraded();
+  }
 
   const after = getDiskMetrics();
+  const bytesReclaimedEstimate = Math.max(
+    0,
+    after.availableBytes - before.availableBytes,
+  );
+  lastMaintenanceSnapshot = {
+    at: new Date().toISOString(),
+    rowsRemoved: retentionRowsRemoved,
+    bytesReclaimedEstimate,
+    statusBefore: before.status,
+    statusAfter: after.status,
+  };
   const result: DiskMaintenanceResult = {
     statusBefore: before.status,
     statusAfter: after.status,
