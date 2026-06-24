@@ -3,6 +3,9 @@
    ========================================================================== */
 
 .landing-page {
+  --landing-shell-max: min(1680px, calc(100vw - 48px));
+  --landing-shell-pad: clamp(16px, 2.5vw, 28px);
+  --landing-shell-inset: max(var(--landing-shell-pad), calc((100vw - var(--landing-shell-max)) / 2));
   min-height: 100vh;
   overflow-x: hidden;
 }
@@ -14,15 +17,20 @@
 }
 
 /* Hero */
+.landing-nav.auth-shell-nav {
+  padding-inline: var(--landing-shell-inset);
+}
+
 .landing-hero {
   position: relative;
   display: flex;
   flex-direction: column;
   justify-content: center;
   min-height: min(88vh, 900px);
-  padding: clamp(24px, 4vw, 48px) clamp(20px, 4vw, 40px) clamp(32px, 5vw, 56px);
-  max-width: 1320px;
-  margin: 0 auto;
+  padding:
+    clamp(24px, 4vw, 48px)
+    var(--landing-shell-inset)
+    clamp(32px, 5vw, 56px);
   width: 100%;
 }
 
@@ -1014,9 +1022,7 @@
 
 /* Sections */
 .landing-section {
-  padding: 36px 20px;
-  max-width: 1200px;
-  margin: 0 auto;
+  padding: 36px var(--landing-shell-inset);
   width: 100%;
 }
 
@@ -1308,9 +1314,7 @@
 
 /* Get started / auth panel section */
 .landing-get-started {
-  padding: 56px 24px 72px;
-  max-width: 1200px;
-  margin: 0 auto;
+  padding: 56px var(--landing-shell-inset) 72px;
   width: 100%;
   scroll-margin-top: 80px;
 }
@@ -1324,7 +1328,7 @@
 
 /* CTA band */
 .landing-cta-band {
-  padding: 40px 24px;
+  padding: 40px var(--landing-shell-inset);
   text-align: center;
   border-top: 1px solid var(--jungle-border);
   background: rgba(28, 29, 46, 0.4);
@@ -1336,7 +1340,7 @@
 
 /* Footer */
 .landing-footer {
-  padding: 32px 24px 48px;
+  padding: 32px var(--landing-shell-inset) 48px;
   text-align: center;
   border-top: 1px solid var(--jungle-border);
   color: var(--jungle-text-dim);
@@ -1366,6 +1370,20 @@
 .landing-reveal.is-visible {
   opacity: 1;
   transform: none;
+}
+
+@media (min-width: 1280px) {
+  .landing-hero-copy {
+    padding: clamp(28px, 3vw, 44px) clamp(24px, 2.5vw, 36px);
+  }
+
+  .landing-hero-showcase {
+    padding: clamp(16px, 2vw, 22px);
+  }
+
+  .landing-hero-inner {
+    gap: clamp(24px, 2.5vw, 36px);
+  }
 }
 
 @media (max-width: 900px) {

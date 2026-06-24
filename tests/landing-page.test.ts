@@ -122,6 +122,15 @@ test('server.ts skips static index for landing and app routes', () => {
   assert.match(server, /urlPath === '\/'/);
 });
 
+test('landing.css uses shared shell inset for wide-screen layout', () => {
+  const css = readFileSync(join(publicDir, 'landing.css'), 'utf8');
+  assert.match(css, /--landing-shell-max/);
+  assert.match(css, /--landing-shell-inset/);
+  assert.match(css, /\.landing-nav\.auth-shell-nav/);
+  assert.doesNotMatch(css, /max-width:\s*1320px/);
+  assert.doesNotMatch(css, /max-width:\s*1200px/);
+});
+
 test('auth-experience.css defines shared auth shell primitives', () => {
   const css = readFileSync(join(publicDir, 'shared', 'auth-experience.css'), 'utf8');
   assert.match(css, /\.auth-shell-panel/);
