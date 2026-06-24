@@ -13,7 +13,7 @@ test('landing.html includes branding, marquees, and embedded auth panel', () => 
   assert.match(html, /id="get-started"/);
   assert.match(html, /id="authPanelContinue"/);
   assert.match(html, /landing-marquee/);
-  assert.match(html, /any Polymarket wallet address/);
+  assert.match(html, /any wallet address/);
   assert.match(html, /landing-transitions\.js/);
   assert.match(html, /data-landing-action/);
   assert.match(html, /landing-showcase\.js/);

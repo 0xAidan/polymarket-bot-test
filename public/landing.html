@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ditto — Copy any Polymarket wallet</title>
-  <meta name="description" content="Mirror any Polymarket wallet into yours. Start with curated Jungle Agents or paste any address. Copy wallets. Mirror their moves.">
+  <title>Ditto — Copy any Polymarket trader</title>
+  <meta name="description" content="Mirror trades from Jungle Agents or any Polymarket wallet into yours. Live execution, encrypted keys, one dashboard.">
   <link rel="icon" type="image/png" href="/shared/favicon-gold.png">
   <style>html { background: #161721; }</style>
   <link rel="preload" href="/shared/logo-gold.png" as="image" type="image/png">
@@ -23,7 +23,7 @@
     </a>
     <nav class="landing-nav-actions auth-shell-actions" aria-label="Account">
       <button type="button" class="landing-btn auth-shell-btn" id="navLogin" data-landing-action="nav-login">Log in</button>
-      <button type="button" class="landing-btn landing-btn-primary auth-shell-btn auth-shell-btn-primary" id="navSignup" data-landing-action="nav-signup">Create account</button>
+      <button type="button" class="landing-btn landing-btn-primary auth-shell-btn auth-shell-btn-primary" id="navSignup" data-landing-action="nav-signup">Get started</button>
     </nav>
   </header>
 
@@ -33,12 +33,12 @@
       <div class="landing-hero-inner">
         <div class="landing-hero-copy noise-overlay">
           <img src="/shared/logo-gold.png" alt="" class="landing-hero-logo" width="96" height="96">
-          <p class="landing-hero-eyebrow">Polymarket copy bot</p>
-          <h1 id="hero-title" class="landing-hero-title">Copy wallets.<br>Mirror their moves.</h1>
-          <p class="landing-hero-sub">Follow curated Jungle Agents or paste <strong class="landing-hero-em">any Polymarket wallet address</strong> into your copy list. Ditto mirrors their trades into your wallet — with encrypted keys, live execution, and a private workspace for every account.</p>
-          <p class="landing-hero-note">Jungle Agents are a head start. You are not limited to them.</p>
-          <div class="landing-hero-wallet-demo" aria-label="Example copy list entry">
-            <span class="landing-hero-wallet-demo-label">Your copy list</span>
+          <p class="landing-hero-eyebrow">Polymarket copy trading</p>
+          <h1 id="hero-title" class="landing-hero-title">Copy any trader.<br>Automatically.</h1>
+          <p class="landing-hero-sub">Ditto mirrors Polymarket trades into your wallet — from curated <strong class="landing-hero-em">Jungle Agents</strong> or <strong class="landing-hero-em">any wallet address</strong> you add. Encrypted keys, live execution, your own private dashboard.</p>
+          <p class="landing-hero-note">Start with Jungle Agents. Follow anyone else whenever you want.</p>
+          <div class="landing-hero-wallet-demo" aria-label="Example copy list">
+            <span class="landing-hero-wallet-demo-label">Who you can copy</span>
             <div class="landing-hero-wallet-demo-rows">
               <span class="landing-hero-wallet-demo-row landing-hero-wallet-demo-row--curated">
                 <span class="landing-hero-wallet-demo-tag">Jungle Agent</span>
@@ -46,19 +46,19 @@
               </span>
               <span class="landing-hero-wallet-demo-row">
                 <span class="landing-hero-wallet-demo-tag">Any wallet</span>
-                <code>paste address</code>
+                <code>paste any address</code>
               </span>
             </div>
           </div>
           <div class="landing-hero-ctas">
-            <button type="button" class="landing-btn landing-btn-primary" id="heroSignup" data-landing-action="hero-signup">Create account</button>
+            <button type="button" class="landing-btn landing-btn-primary" id="heroSignup" data-landing-action="hero-signup">Get started</button>
             <button type="button" class="landing-btn" id="heroLogin" data-landing-action="hero-login">Log in</button>
           </div>
           <div class="auth-shell-trust" aria-label="Trust highlights">
-            <span class="auth-shell-chip">Any wallet address</span>
-            <span class="auth-shell-chip">Jungle Agents roster</span>
-            <span class="auth-shell-chip">Encrypted wallet keys</span>
-            <span class="auth-shell-chip">Live trade execution</span>
+            <span class="auth-shell-chip">Copy any wallet</span>
+            <span class="auth-shell-chip">Curated Jungle Agents</span>
+            <span class="auth-shell-chip">Encrypted keys</span>
+            <span class="auth-shell-chip">Live trade mirroring</span>
           </div>
         </div>
         <aside class="landing-hero-showcase noise-overlay" aria-label="Ditto dashboard preview">
@@ -131,11 +131,11 @@
             <div class="landing-showcase-panel" id="showcase-panel-copy-list" role="tabpanel" aria-labelledby="showcase-tab-copy-list" data-showcase-panel="copy-list">
               <div class="l-preview-app">
                 <div class="l-preview-page-head">
-                  <span class="l-preview-eyebrow">Copy sources</span>
-                  <span class="l-preview-page-title">Copy List</span>
+                  <span class="l-preview-eyebrow">Wallets you follow</span>
+                  <span class="l-preview-page-title">Copy list</span>
                 </div>
                 <div class="l-preview-field glow-border">
-                  <label class="l-preview-label">Wallet address or profile</label>
+                  <label class="l-preview-label">Paste a wallet address</label>
                   <div class="l-preview-input-row">
                     <span class="l-preview-input">0x9c4e…a82f</span>
                     <span class="l-preview-btn">Add</span>
@@ -148,7 +148,7 @@
                       <span class="l-preview-toggle l-preview-toggle--on landing-showcase-live-blink">ON</span>
                     </div>
                     <code>0x7a3f…c42d</code>
-                    <span class="l-preview-list-meta">$50 per trade · mirroring live</span>
+                    <span class="l-preview-list-meta">$50 per trade · copying live</span>
                   </div>
                   <div class="l-preview-list-item">
                     <div class="l-preview-list-top">
@@ -164,16 +164,16 @@
             <div class="landing-showcase-panel" id="showcase-panel-jungle-agents" role="tabpanel" aria-labelledby="showcase-tab-jungle-agents" data-showcase-panel="jungle-agents">
               <div class="l-preview-app">
                 <div class="l-preview-page-head">
-                  <span class="l-preview-eyebrow">Curated roster</span>
+                  <span class="l-preview-eyebrow">Vetted traders</span>
                   <span class="l-preview-page-title">Jungle Agents</span>
                 </div>
                 <div class="l-preview-agents" id="showcaseJungleAgents" aria-live="polite">
-                  <p class="l-preview-agents-status">Loading Jungle Agents…</p>
+                  <p class="l-preview-agents-status">Loading traders…</p>
                 </div>
               </div>
             </div>
           </div>
-          <p class="landing-showcase-caption">Your workspace after sign-in — pick any wallet or Jungle Agent to copy.</p>
+          <p class="landing-showcase-caption">Your dashboard after sign-in — pick a Jungle Agent or add any wallet.</p>
         </aside>
       </div>
     </section>
@@ -181,21 +181,20 @@
     <div class="landing-marquee-wrap" aria-hidden="true">
       <div class="landing-marquee">
         <div class="landing-marquee-track">
-          <span class="landing-marquee-item">Copy trades</span>
-          <span class="landing-marquee-item">Mirror moves</span>
+          <span class="landing-marquee-item">Live mirroring</span>
           <span class="landing-marquee-item">Any wallet</span>
           <span class="landing-marquee-item">Jungle Agents</span>
           <span class="landing-marquee-item">Polymarket</span>
-          <span class="landing-marquee-item">Live execution</span>
-          <span class="landing-marquee-item">Private workspace</span>
+          <span class="landing-marquee-item">Encrypted keys</span>
+          <span class="landing-marquee-item">Your dashboard</span>
         </div>
       </div>
     </div>
 
     <section class="landing-section" aria-labelledby="roster-title">
-      <p class="landing-section-kicker">Copy any wallet</p>
-      <h2 id="roster-title" class="landing-section-title">Jungle Agents or your own picks</h2>
-      <p class="landing-section-lead">Start with proven traders from the Jungle roster — or paste any Polymarket wallet address into your copy list.</p>
+      <p class="landing-section-kicker">Who to copy</p>
+      <h2 id="roster-title" class="landing-section-title">Jungle Agents or any wallet</h2>
+      <p class="landing-section-lead">Follow vetted traders from the Jungle roster — or paste any Polymarket wallet address you want to mirror.</p>
       <div id="landingRoster" class="landing-roster" role="list" aria-label="Jungle Agents preview">
         <article class="landing-roster-card glow-border" role="listitem">
           <div class="landing-roster-card-top">
@@ -218,81 +217,81 @@
             <div class="landing-roster-avatar" aria-hidden="true">+</div>
             <div><div class="landing-roster-name">Any wallet</div></div>
           </div>
-          <p class="landing-roster-tagline">Paste any Polymarket address into your copy list</p>
+          <p class="landing-roster-tagline">Paste any Polymarket wallet address</p>
         </article>
       </div>
     </section>
 
     <section class="landing-section landing-why" aria-labelledby="why-title">
       <p class="landing-section-kicker">Why Ditto</p>
-      <h2 id="why-title" class="landing-section-title">Built for copy trading</h2>
-      <p class="landing-section-lead">Mirror any Polymarket wallet you choose — curated Jungle Agents, your own research, or both.</p>
+      <h2 id="why-title" class="landing-section-title">Copy trading, simplified</h2>
+      <p class="landing-section-lead">Pick who to follow. Ditto handles the rest — detection, sizing, and execution.</p>
       <div class="landing-why-grid">
         <article class="landing-why-card landing-why-card--featured glow-border">
           <div class="landing-why-metric" aria-live="polite">
             <span class="landing-why-metric-value" id="statAgents">Curated</span>
-            <span class="landing-why-metric-label" id="statAgentsLabel">curated agents — or add your own</span>
+            <span class="landing-why-metric-label" id="statAgentsLabel">agents ready to follow</span>
           </div>
           <div class="landing-why-card-copy">
-            <h3 class="landing-why-card-title">Any wallet, not just Jungle Agents</h3>
-            <p class="landing-why-card-body">Browse the Jungle Agents roster for vetted picks, or paste any Polymarket address into your copy list. Tune sizing and rules per wallet.</p>
+            <h3 class="landing-why-card-title">Follow anyone on Polymarket</h3>
+            <p class="landing-why-card-body">Browse Jungle Agents for a fast start, or paste any wallet address. Set sizing and rules per trader.</p>
           </div>
         </article>
         <article class="landing-why-card">
           <p class="landing-why-card-kicker">Execution</p>
-          <h3 class="landing-why-card-title">Live trade mirroring</h3>
-          <p class="landing-why-card-body">When a followed agent trades, Ditto detects the move and places matching orders in your connected wallet — automatically.</p>
+          <h3 class="landing-why-card-title">Trades copy in real time</h3>
+          <p class="landing-why-card-body">When someone you follow trades, Ditto places matching orders in your wallet — no manual chasing.</p>
         </article>
         <article class="landing-why-card">
           <p class="landing-why-card-kicker">Security</p>
-          <h3 class="landing-why-card-title">Hosted wallet security</h3>
-          <p class="landing-why-card-body">Trading keys are encrypted with session-derived protection in hosted mode. No shared vault — your workspace is isolated.</p>
+          <h3 class="landing-why-card-title">Your keys stay protected</h3>
+          <p class="landing-why-card-body">We encrypt trading keys in hosted mode. Your workspace is isolated — not shared with other accounts.</p>
         </article>
         <article class="landing-why-card">
           <p class="landing-why-card-kicker">Dashboard</p>
-          <h3 class="landing-why-card-title">One control panel</h3>
-          <p class="landing-why-card-body">Balances, copied trades, bot status, and diagnostics in a single dashboard — so you always know what Ditto is doing.</p>
+          <h3 class="landing-why-card-title">One place to track everything</h3>
+          <p class="landing-why-card-body">See balances, copied trades, bot status, and diagnostics without switching tools.</p>
         </article>
       </div>
     </section>
 
     <section class="landing-section" aria-labelledby="steps-title">
       <p class="landing-section-kicker">How it works</p>
-      <h2 id="steps-title" class="landing-section-title">Three steps to copying</h2>
+      <h2 id="steps-title" class="landing-section-title">Up and running in three steps</h2>
       <div class="landing-steps">
         <article class="landing-step">
           <div class="landing-step-num">01</div>
-          <h3 class="landing-step-title">Create your workspace</h3>
-          <p class="landing-step-body">Sign up for Ditto. Your private workspace is provisioned automatically on first sign-in.</p>
+          <h3 class="landing-step-title">Create your account</h3>
+          <p class="landing-step-body">Sign up and we provision your private workspace automatically.</p>
         </article>
         <article class="landing-step">
           <div class="landing-step-num">02</div>
-          <h3 class="landing-step-title">Connect &amp; follow</h3>
-          <p class="landing-step-body">Add a trading wallet, then follow Jungle Agents or paste any Polymarket address into your copy list.</p>
+          <h3 class="landing-step-title">Choose who to copy</h3>
+          <p class="landing-step-body">Connect a trading wallet, then follow Jungle Agents or paste any Polymarket address.</p>
         </article>
         <article class="landing-step">
           <div class="landing-step-num">03</div>
-          <h3 class="landing-step-title">Start copying</h3>
-          <p class="landing-step-body">Enable wallets, tune sizing, and start the bot. Monitor trades and diagnostics from your dashboard.</p>
+          <h3 class="landing-step-title">Turn on copying</h3>
+          <p class="landing-step-body">Set your trade size, start the bot, and watch copied trades land in your dashboard.</p>
         </article>
       </div>
     </section>
 
     <section class="landing-section" aria-labelledby="features-title">
       <p class="landing-section-kicker">What you get</p>
-      <h2 id="features-title" class="landing-section-title">Everything in one place</h2>
+      <h2 id="features-title" class="landing-section-title">What you get with Ditto</h2>
       <div class="landing-features">
         <article class="landing-feature glow-border">
-          <h3 class="landing-feature-title">Any wallet + Jungle Agents</h3>
-          <p class="landing-feature-body">Follow curated Jungle Agents for quick starts, or add any Polymarket wallet address you want to mirror.</p>
+          <h3 class="landing-feature-title">Any trader, one click</h3>
+          <p class="landing-feature-body">Follow Jungle Agents or add any Polymarket wallet — you choose who to mirror.</p>
         </article>
         <article class="landing-feature glow-border">
-          <h3 class="landing-feature-title">Hosted wallet security</h3>
-          <p class="landing-feature-body">Trading wallet keys are encrypted with session-derived protection in hosted mode — no separate vault password.</p>
+          <h3 class="landing-feature-title">Encrypted wallet keys</h3>
+          <p class="landing-feature-body">Your trading keys are encrypted in hosted mode. No extra vault password to remember.</p>
         </article>
         <article class="landing-feature glow-border">
-          <h3 class="landing-feature-title">Live dashboard</h3>
-          <p class="landing-feature-body">Track balances, copied trades, bot status, and diagnostics from a single Ditto control panel.</p>
+          <h3 class="landing-feature-title">Full visibility</h3>
+          <p class="landing-feature-body">Track balances, copied trades, and bot health from one dashboard.</p>
         </article>
       </div>
     </section>
@@ -301,22 +300,22 @@
       <div class="landing-get-started-grid">
         <div>
           <p class="landing-section-kicker">Get started</p>
-          <h2 id="get-started-title" class="landing-section-title">Ready to copy any wallet?</h2>
-          <p class="landing-section-lead">Log in or create an account, then follow Jungle Agents or add any Polymarket address to your copy list.</p>
+          <h2 id="get-started-title" class="landing-section-title">Start copying in minutes</h2>
+          <p class="landing-section-lead">Create an account, connect your wallet, and pick traders to follow — Jungle Agents or any address.</p>
         </div>
         <div class="auth-shell-panel noise-overlay" role="region" aria-label="Sign in">
           <div class="auth-shell-tabs" role="tablist" aria-label="Account mode">
             <button type="button" class="auth-shell-tab" id="authTabLogin" role="tab" aria-selected="true" aria-controls="authPanelBody" data-landing-action="auth-tab-login">Log in</button>
-            <button type="button" class="auth-shell-tab" id="authTabSignup" role="tab" aria-selected="false" aria-controls="authPanelBody" data-landing-action="auth-tab-signup">Create account</button>
+            <button type="button" class="auth-shell-tab" id="authTabSignup" role="tab" aria-selected="false" aria-controls="authPanelBody" data-landing-action="auth-tab-signup">Sign up</button>
           </div>
-          <h3 class="auth-shell-panel-title" id="authPanelTitle">Log in to Ditto</h3>
-          <p class="auth-shell-panel-body landing-vt-auth-copy" id="authPanelBody">Follow Jungle Agents or paste any Polymarket wallet address into your copy list.</p>
+          <h3 class="auth-shell-panel-title" id="authPanelTitle">Welcome back</h3>
+          <p class="auth-shell-panel-body landing-vt-auth-copy" id="authPanelBody">Log in to manage your copy list, trading wallet, and copied trades.</p>
           <button type="button" class="landing-btn landing-btn-primary auth-shell-btn auth-shell-btn-primary" id="authPanelContinue" style="width:100%" data-landing-action="auth-continue">Continue</button>
           <div class="auth-shell-trust">
-            <span class="auth-shell-chip">Any wallet address</span>
-            <span class="auth-shell-chip">Jungle Agents roster</span>
-            <span class="auth-shell-chip">Encrypted wallet keys</span>
-            <span class="auth-shell-chip">Live trade execution</span>
+            <span class="auth-shell-chip">Copy any wallet</span>
+            <span class="auth-shell-chip">Curated Jungle Agents</span>
+            <span class="auth-shell-chip">Encrypted keys</span>
+            <span class="auth-shell-chip">Live trade mirroring</span>
           </div>
         </div>
       </div>
@@ -333,18 +332,18 @@
           </div>
         </div>
       </div>
-      <button type="button" class="landing-btn landing-btn-primary" id="ctaSignup" data-landing-action="cta-signup">Create your Ditto account</button>
+      <button type="button" class="landing-btn landing-btn-primary" id="ctaSignup" data-landing-action="cta-signup">Get started</button>
     </section>
   </main>
 
   <footer class="landing-footer">
-    <p>Part of the <a href="https://www.jungle.win/" target="_blank" rel="noopener noreferrer">Jungle</a> prediction market ecosystem.</p>
+    <p>Part of the <a href="https://www.jungle.win/" target="_blank" rel="noopener noreferrer">Jungle</a> prediction market platform.</p>
     <p class="landing-footer-version">DITTO v1.0</p>
   </footer>
 
   <div id="authHandoffOverlay" class="auth-handoff-overlay grid-pattern" aria-hidden="true" aria-live="polite">
     <img src="/shared/logo-gold.png" alt="" width="56" height="56">
-    <p>Opening secure sign-in…</p>
+    <p>Taking you to sign in…</p>
   </div>
 
   <script src="/js/landing-transitions.js" defer></script>

@@ -4,13 +4,13 @@
 
 const AUTH_COPY = {
   login: {
-    title: 'Log in to Ditto',
-    description: 'Follow Jungle Agents or paste any Polymarket wallet address into your copy list.',
-    button: 'Continue',
+    title: 'Welcome back',
+    description: 'Log in to manage your copy list, trading wallet, and copied trades.',
+    button: 'Log in',
   },
   signup: {
-    title: 'Create your Ditto account',
-    description: 'Start with curated agents — or add any wallet address you want to mirror.',
+    title: 'Start copying trades',
+    description: 'Create your account, pick traders to follow, and connect your wallet.',
     button: 'Create account',
   },
 };
@@ -200,7 +200,7 @@ const createShowcaseAgentsPresenter = () => {
       .slice(0, 2);
 
     if (!showcaseAgents.length) {
-      grid.innerHTML = '<p class="l-preview-agents-status">Sign in to browse the full Jungle Agents roster.</p>';
+      grid.innerHTML = '<p class="l-preview-agents-status">Create an account to browse the full roster.</p>';
       return;
     }
 
@@ -254,7 +254,7 @@ const createRosterPresenter = (showcaseAgents) => {
 
     const update = () => {
       if (!agents.length) {
-        roster.innerHTML = '<p class="landing-section-lead">Browse Jungle Agents here — or add any Polymarket wallet address after you sign in.</p>';
+        roster.innerHTML = '<p class="landing-section-lead">Create an account to follow Jungle Agents or add any Polymarket wallet.</p>';
         return;
       }
 
@@ -330,8 +330,8 @@ const createRosterPresenter = (showcaseAgents) => {
         animateStat(totalEl, meta.totalEnabled);
         if (labelEl) {
           labelEl.textContent = meta.totalEnabled === 1
-            ? 'curated agent — add any wallet too'
-            : 'curated agents — add any wallet too';
+            ? 'agent ready to follow'
+            : 'agents ready to follow';
         }
       }
     } catch {
