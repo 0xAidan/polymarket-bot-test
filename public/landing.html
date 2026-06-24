@@ -61,32 +61,138 @@
             <span class="auth-shell-chip">Live trade execution</span>
           </div>
         </div>
-        <aside class="landing-hero-aside landing-reveal noise-overlay" aria-label="How Ditto works">
-          <p class="landing-hero-aside-kicker">How it works</p>
-          <h2 class="landing-hero-aside-title">Three steps to copying</h2>
-          <ol class="landing-hero-step-list">
-            <li class="landing-hero-step-item">
-              <span class="landing-hero-step-num" aria-hidden="true">01</span>
-              <div>
-                <strong>Create your workspace</strong>
-                <p>Sign up once — your private Ditto workspace is ready automatically.</p>
+        <aside class="landing-hero-showcase landing-reveal noise-overlay" aria-label="Ditto dashboard preview">
+          <div class="landing-showcase-chrome" aria-hidden="true">
+            <span class="landing-showcase-dot landing-showcase-dot--close"></span>
+            <span class="landing-showcase-dot landing-showcase-dot--min"></span>
+            <span class="landing-showcase-dot landing-showcase-dot--max"></span>
+            <span class="landing-showcase-url">ditto.jungle.win/app</span>
+          </div>
+          <div class="landing-showcase-tabs" role="tablist" aria-label="Dashboard views">
+            <button type="button" class="landing-showcase-tab is-active" role="tab" id="showcase-tab-dashboard" aria-selected="true" aria-controls="showcase-panel-dashboard" data-showcase-tab="dashboard">Dashboard</button>
+            <button type="button" class="landing-showcase-tab" role="tab" id="showcase-tab-copy-list" aria-selected="false" aria-controls="showcase-panel-copy-list" data-showcase-tab="copy-list">Copy list</button>
+            <button type="button" class="landing-showcase-tab" role="tab" id="showcase-tab-jungle-agents" aria-selected="false" aria-controls="showcase-panel-jungle-agents" data-showcase-tab="jungle-agents">Jungle Agents</button>
+          </div>
+          <div class="landing-showcase-viewport landing-vt-showcase">
+            <div class="landing-showcase-panel is-active" id="showcase-panel-dashboard" role="tabpanel" aria-labelledby="showcase-tab-dashboard" data-showcase-panel="dashboard">
+              <div class="l-preview-topbar">
+                <img src="/shared/logo-gold.png" alt="" width="18" height="18">
+                <span class="l-preview-topbar-title">Ditto</span>
+                <span class="l-preview-pill l-preview-pill--live">Copying</span>
               </div>
-            </li>
-            <li class="landing-hero-step-item">
-              <span class="landing-hero-step-num" aria-hidden="true">02</span>
-              <div>
-                <strong>Pick wallets to copy</strong>
-                <p>Follow Jungle Agents from the roster — or add any Polymarket address to your copy list.</p>
+              <div class="l-preview-wallet glow-border">
+                <div class="l-preview-wallet-head">
+                  <span>Trading wallet</span>
+                  <span class="l-preview-live pulse-dot" aria-hidden="true"></span>
+                </div>
+                <code class="l-preview-addr">0x4f2a…9b1e</code>
+                <div class="l-preview-balance-row">
+                  <strong class="l-preview-balance">$2,847.50</strong>
+                  <span class="l-preview-delta">+$124.20 (24h)</span>
+                </div>
               </div>
-            </li>
-            <li class="landing-hero-step-item">
-              <span class="landing-hero-step-num" aria-hidden="true">03</span>
-              <div>
-                <strong>Start copying</strong>
-                <p>Ditto mirrors their Polymarket trades into your wallet in real time.</p>
+              <div class="l-preview-panel">
+                <div class="l-preview-panel-head">
+                  <span class="l-preview-panel-title">Trade history</span>
+                  <span class="l-preview-panel-meta">3 trades</span>
+                </div>
+                <table class="l-preview-table">
+                  <thead>
+                    <tr><th>Time</th><th>Market</th><th>Side</th><th>Status</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr class="l-preview-trade-new">
+                      <td>Just now</td>
+                      <td>Trump wins 2028?</td>
+                      <td class="l-preview-buy">BUY</td>
+                      <td><span class="l-preview-status l-preview-status--ok">Filled</span></td>
+                    </tr>
+                    <tr>
+                      <td>2m ago</td>
+                      <td>Fed cut in June?</td>
+                      <td class="l-preview-sell">SELL</td>
+                      <td><span class="l-preview-status l-preview-status--ok">Filled</span></td>
+                    </tr>
+                    <tr>
+                      <td>14m ago</td>
+                      <td>BTC &gt; $120k?</td>
+                      <td class="l-preview-buy">BUY</td>
+                      <td><span class="l-preview-status l-preview-status--ok">Filled</span></td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
-            </li>
-          </ol>
+            </div>
+            <div class="landing-showcase-panel" id="showcase-panel-copy-list" role="tabpanel" aria-labelledby="showcase-tab-copy-list" data-showcase-panel="copy-list" hidden>
+              <div class="l-preview-page-head">
+                <span class="l-preview-eyebrow">Copy sources</span>
+                <span class="l-preview-page-title">Copy List</span>
+              </div>
+              <div class="l-preview-field glow-border">
+                <label class="l-preview-label">Wallet address or profile</label>
+                <div class="l-preview-input-row">
+                  <span class="l-preview-input">0x9c4e…a82f</span>
+                  <span class="l-preview-btn">Add</span>
+                </div>
+              </div>
+              <div class="l-preview-list">
+                <div class="l-preview-list-item glow-border">
+                  <div class="l-preview-list-top">
+                    <strong>Jungle Agent · Macro</strong>
+                    <span class="l-preview-toggle l-preview-toggle--on">ON</span>
+                  </div>
+                  <code>0x7a3f…c42d</code>
+                  <span class="l-preview-list-meta">$50 per trade · 2x sizing</span>
+                </div>
+                <div class="l-preview-list-item">
+                  <div class="l-preview-list-top">
+                    <strong>Custom wallet</strong>
+                    <span class="l-preview-toggle l-preview-toggle--on">ON</span>
+                  </div>
+                  <code>0x9c4e…a82f</code>
+                  <span class="l-preview-list-meta">$25 per trade · 1x sizing</span>
+                </div>
+              </div>
+            </div>
+            <div class="landing-showcase-panel" id="showcase-panel-jungle-agents" role="tabpanel" aria-labelledby="showcase-tab-jungle-agents" data-showcase-panel="jungle-agents" hidden>
+              <div class="l-preview-page-head">
+                <span class="l-preview-eyebrow">Curated roster</span>
+                <span class="l-preview-page-title">Jungle Agents</span>
+              </div>
+              <div class="l-preview-agents">
+                <article class="l-preview-agent glow-border">
+                  <div class="l-preview-agent-top">
+                    <span class="l-preview-avatar">M</span>
+                    <div>
+                      <strong>Macro Maven</strong>
+                      <span class="l-preview-agent-tag">Politics · Macro</span>
+                    </div>
+                    <span class="l-preview-live pulse-dot" aria-hidden="true"></span>
+                  </div>
+                  <div class="l-preview-agent-stats">
+                    <span><em>PnL</em> +$48.2k</span>
+                    <span><em>Win</em> 62%</span>
+                    <span><em>ROI</em> 18%</span>
+                  </div>
+                </article>
+                <article class="l-preview-agent">
+                  <div class="l-preview-agent-top">
+                    <span class="l-preview-avatar">S</span>
+                    <div>
+                      <strong>Sports Edge</strong>
+                      <span class="l-preview-agent-tag">Sports · Live</span>
+                    </div>
+                  </div>
+                  <div class="l-preview-agent-stats">
+                    <span><em>PnL</em> +$12.7k</span>
+                    <span><em>Win</em> 58%</span>
+                    <span><em>ROI</em> 11%</span>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </div>
+          <p class="landing-showcase-caption">Your workspace after sign-in — pick any wallet or Jungle Agent to copy.</p>
         </aside>
       </div>
     </section>
@@ -249,6 +355,7 @@
 
   <script src="/js/landing-transitions.js" defer></script>
   <script src="/js/landing.js" defer></script>
+  <script src="/js/landing-showcase.js" defer></script>
   <script src="/js/landing-motion.js" defer></script>
 </body>
 </html>
