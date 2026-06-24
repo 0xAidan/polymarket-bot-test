@@ -53,6 +53,7 @@ test('landing-showcase.js switches hero preview tabs with autoplay', () => {
   assert.match(js, /setShowcaseTab/);
   assert.match(js, /SHOWCASE_TABS/);
   assert.match(js, /prefers-reduced-motion/);
+  assert.doesNotMatch(js, /landingWithViewTransition/);
 });
 
 test('landing-motion.js respects reduced motion for marquees', () => {
