@@ -23,6 +23,9 @@ test('landing.html includes branding, marquees, and embedded auth panel', () => 
   assert.match(html, /l-preview-trade-new/);
   assert.match(html, /landing-roster-shell/);
   assert.match(html, /landing-motion\.js/);
+  assert.match(html, /landing-nav-links/);
+  assert.match(html, /id="how-it-works"/);
+  assert.doesNotMatch(html, /landing-nav-eyebrow/);
 });
 
 test('landing.js uses composition controllers, parallel session fetch, and view transitions', () => {
@@ -127,6 +130,7 @@ test('landing.css uses shared shell inset for wide-screen layout', () => {
   assert.match(css, /--landing-shell-max/);
   assert.match(css, /--landing-shell-inset/);
   assert.match(css, /\.landing-nav\.auth-shell-nav/);
+  assert.match(css, /\.landing-nav-links/);
   assert.doesNotMatch(css, /max-width:\s*1320px/);
   assert.doesNotMatch(css, /max-width:\s*1200px/);
 });
