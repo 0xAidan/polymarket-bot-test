@@ -330,32 +330,82 @@
   flex-shrink: 0;
 }
 
-/* Stats */
-.landing-stats {
+/* Why Ditto — capability bento */
+.landing-why-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
 }
 
-.landing-stat {
-  padding: 20px;
+.landing-why-card {
+  padding: 22px 24px;
   border: 1px solid var(--jungle-border);
   border-radius: var(--j-radius-md);
-  background: var(--jungle-bg-card);
+  background: linear-gradient(180deg, rgba(34, 35, 58, 0.55), rgba(21, 22, 35, 0.92));
 }
 
-.landing-stat-value {
+.landing-why-card--featured {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(140px, 200px) minmax(0, 1fr);
+  gap: clamp(20px, 4vw, 32px);
+  align-items: center;
+  padding: clamp(24px, 4vw, 32px);
+}
+
+.landing-why-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: clamp(12px, 3vw, 20px);
+  border-right: 1px solid var(--jungle-border);
+}
+
+.landing-why-metric-value {
   font-family: var(--font-serif);
-  font-size: 32px;
-  color: var(--jungle-gold);
+  font-size: clamp(36px, 5vw, 52px);
   line-height: 1;
-  margin-bottom: 8px;
+  color: var(--jungle-gold);
 }
 
-.landing-stat-label {
+.landing-why-metric-label {
   font-size: 12px;
+  line-height: 1.45;
   color: var(--jungle-text-muted);
-  line-height: 1.4;
+}
+
+.landing-why-card-kicker {
+  margin: 0 0 10px;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--jungle-gold);
+}
+
+.landing-why-card-title {
+  margin: 0 0 8px;
+  font-family: var(--font-serif);
+  font-size: clamp(20px, 2.5vw, 24px);
+  font-weight: 400;
+  line-height: 1.1;
+  color: var(--jungle-text);
+}
+
+.landing-why-card-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--jungle-text-muted);
+}
+
+.landing-why-card-copy .landing-why-card-title {
+  font-size: clamp(22px, 3vw, 28px);
+  margin-bottom: 10px;
+}
+
+.landing-why-card-copy .landing-why-card-body {
+  font-size: 14px;
+  max-width: 52ch;
 }
 
 /* Steps */
@@ -521,6 +571,21 @@
 
   .landing-get-started-grid {
     grid-template-columns: 1fr;
+  }
+
+  .landing-why-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-why-card--featured {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-why-metric {
+    padding-right: 0;
+    padding-bottom: 16px;
+    border-right: none;
+    border-bottom: 1px solid var(--jungle-border);
   }
 }
 

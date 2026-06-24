@@ -169,9 +169,15 @@ const loadLandingPreview = async () => {
     renderRoster(data.agents || []);
 
     const totalEl = document.getElementById('statAgents');
+    const labelEl = document.getElementById('statAgentsLabel');
     const meta = data.meta || {};
-    if (totalEl && typeof meta.totalEnabled === 'number') {
+    if (totalEl && typeof meta.totalEnabled === 'number' && meta.totalEnabled > 0) {
       animateStat(totalEl, meta.totalEnabled);
+      if (labelEl) {
+        labelEl.textContent = meta.totalEnabled === 1
+          ? 'Jungle Agent ready to copy'
+          : 'Jungle Agents ready to copy';
+      }
     }
   } catch {
     renderRoster([]);
