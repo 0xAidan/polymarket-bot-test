@@ -390,6 +390,22 @@
   font-size: 11px;
 }
 
+.l-preview-app--dashboard {
+  gap: 14px;
+}
+
+.landing-showcase-panel[data-showcase-panel="dashboard"] .l-preview-wallet {
+  padding: 14px 16px;
+}
+
+.landing-showcase-panel[data-showcase-panel="dashboard"] .l-preview-balance {
+  font-size: 32px;
+}
+
+.landing-showcase-panel[data-showcase-panel="dashboard"] .l-preview-table td:nth-child(2) {
+  max-width: 160px;
+}
+
 .l-preview-nav {
   display: flex;
   flex-wrap: wrap;
