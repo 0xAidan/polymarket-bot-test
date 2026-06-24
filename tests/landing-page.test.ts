@@ -194,3 +194,15 @@ test('index.html loads auth-experience.css for unified auth gate styling', () =>
   const html = readFileSync(join(publicDir, 'index.html'), 'utf8');
   assert.match(html, /auth-experience\.css/);
 });
+
+test('landing and dashboard show beta risk disclaimer', () => {
+  const landingHtml = readFileSync(join(publicDir, 'landing.html'), 'utf8');
+  const indexHtml = readFileSync(join(publicDir, 'index.html'), 'utf8');
+  const brandCss = readFileSync(join(publicDir, 'shared', 'jungle-brand.css'), 'utf8');
+
+  assert.match(landingHtml, /ditto-beta-notice/);
+  assert.match(indexHtml, /ditto-beta-notice/);
+  assert.match(landingHtml, /discretion and risk/i);
+  assert.match(indexHtml, /not recommended with major assets/i);
+  assert.match(brandCss, /\.ditto-beta-notice/);
+});
