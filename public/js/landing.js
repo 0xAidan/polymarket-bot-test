@@ -17,13 +17,7 @@ const AUTH_COPY = {
 
 const getQueryParams = () => new URLSearchParams(window.location.search);
 
-const getReturnTo = () => {
-  const fromQuery = getQueryParams().get('returnTo');
-  if (fromQuery && fromQuery.startsWith('/')) {
-    return fromQuery;
-  }
-  return '/app';
-};
+const getReturnTo = () => sanitizeReturnTo(getQueryParams().get('returnTo'), '/app');
 
 const getAuthMode = () => {
   const mode = getQueryParams().get('mode');
@@ -41,11 +35,7 @@ const getScrollBehavior = (preferred) => {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
 };
 
-const escapeHtml = (value) => String(value)
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;');
+const escapeHtml = window.escapeHtml;
 
 const formatCompactSignedUsd = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';

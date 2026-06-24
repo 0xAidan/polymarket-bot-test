@@ -52,11 +52,7 @@ window.redirectToMagicLinkLogin = () => {
   window.location.href = `/login?returnTo=${returnTo}`;
 };
 
-const escapeHtml = (s) => String(s)
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;');
+const escapeHtml = window.escapeHtml;
 
 window.setupTenantSwitcher = (meData) => {
   const sel = document.getElementById('tenantSwitcher');

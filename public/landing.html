@@ -88,9 +88,21 @@
             <div class="landing-showcase-panel" id="showcase-panel-dashboard" role="tabpanel" aria-labelledby="showcase-tab-dashboard" data-showcase-panel="dashboard">
               <div class="l-preview-app l-preview-app--dashboard">
                 <div class="l-preview-topbar">
-                  <img src="/shared/logo-gold.png" alt="" width="18" height="18">
+                  <img src="/shared/logo-gold.png" alt="" width="20" height="20">
                   <span class="l-preview-topbar-title">Ditto</span>
                   <span class="l-preview-pill l-preview-pill--live landing-showcase-live-blink">Copying</span>
+                </div>
+                <nav class="l-preview-nav" aria-label="App navigation preview">
+                  <span class="l-preview-nav-item is-active">Home</span>
+                  <span class="l-preview-nav-item">Jungle Agents</span>
+                  <span class="l-preview-nav-item">Copy list</span>
+                  <span class="l-preview-nav-item">My Wallets</span>
+                </nav>
+                <div class="l-preview-dash-stats" aria-label="Dashboard summary">
+                  <div class="l-preview-dash-stat"><em>Bot</em><strong class="is-win">Running</strong></div>
+                  <div class="l-preview-dash-stat"><em>Sources</em><strong>3 active</strong></div>
+                  <div class="l-preview-dash-stat"><em>24h PnL</em><strong class="is-win">+$124.20</strong></div>
+                  <div class="l-preview-dash-stat"><em>Copied today</em><strong>6 trades</strong></div>
                 </div>
                 <div class="l-preview-wallet glow-border">
                   <div class="l-preview-wallet-head">
@@ -106,7 +118,7 @@
                 <div class="l-preview-panel">
                   <div class="l-preview-panel-head">
                     <span class="l-preview-panel-title">Trade history</span>
-                    <span class="l-preview-panel-meta">4 trades</span>
+                    <span class="l-preview-panel-meta">6 trades</span>
                   </div>
                   <table class="l-preview-table">
                     <thead>
@@ -126,14 +138,26 @@
                         <td><span class="l-preview-status l-preview-status--ok">Filled</span></td>
                       </tr>
                       <tr>
-                        <td>6m ago</td>
+                        <td>5m ago</td>
+                        <td>Celtics win East finals?</td>
+                        <td class="l-preview-buy">BUY</td>
+                        <td><span class="l-preview-status l-preview-status--ok">Filled</span></td>
+                      </tr>
+                      <tr>
+                        <td>8m ago</td>
                         <td>Yankees win World Series?</td>
                         <td class="l-preview-sell">SELL</td>
                         <td><span class="l-preview-status l-preview-status--ok">Filled</span></td>
                       </tr>
                       <tr>
-                        <td>14m ago</td>
+                        <td>12m ago</td>
                         <td>Man City win Champions League?</td>
+                        <td class="l-preview-buy">BUY</td>
+                        <td><span class="l-preview-status l-preview-status--ok">Filled</span></td>
+                      </tr>
+                      <tr>
+                        <td>18m ago</td>
+                        <td>McDavid Hart Trophy?</td>
                         <td class="l-preview-buy">BUY</td>
                         <td><span class="l-preview-status l-preview-status--ok">Filled</span></td>
                       </tr>
@@ -147,6 +171,11 @@
                 <div class="l-preview-page-head">
                   <span class="l-preview-eyebrow">Wallets you follow</span>
                   <span class="l-preview-page-title">Copy list</span>
+                </div>
+                <div class="l-preview-copy-summary" aria-label="Copy list summary">
+                  <span>4 wallets</span>
+                  <span>3 copying live</span>
+                  <span>$125 max per trade</span>
                 </div>
                 <div class="l-preview-field glow-border">
                   <label class="l-preview-label">Paste a wallet address</label>
@@ -180,6 +209,14 @@
                     <code>0x9c4e…a82f</code>
                     <span class="l-preview-list-meta">$25 per trade · 1x sizing</span>
                   </div>
+                  <div class="l-preview-list-item">
+                    <div class="l-preview-list-top">
+                      <strong>Politics whale</strong>
+                      <span class="l-preview-toggle">OFF</span>
+                    </div>
+                    <code>0x1d4a…88c0</code>
+                    <span class="l-preview-list-meta">$25 per trade · paused</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -188,6 +225,11 @@
                 <div class="l-preview-page-head">
                   <span class="l-preview-eyebrow">Vetted traders</span>
                   <span class="l-preview-page-title">Jungle Agents</span>
+                </div>
+                <div class="l-preview-copy-summary" aria-label="Jungle Agents summary">
+                  <span>Curated roster</span>
+                  <span>Live Polymarket stats</span>
+                  <span>One-click copy</span>
                 </div>
                 <div class="l-preview-agents l-preview-agents--grid" id="showcaseJungleAgents" aria-live="polite">
                   <p class="l-preview-agents-status">Loading traders…</p>
@@ -337,6 +379,8 @@
     <p>Taking you to sign in…</p>
   </div>
 
+  <script src="/js/sanitizeReturnTo.js" defer></script>
+  <script src="/js/escapeHtml.js" defer></script>
   <script src="/js/landing-transitions.js" defer></script>
   <script src="/js/landing-showcase.js" defer></script>
   <script src="/js/landing.js" defer></script>

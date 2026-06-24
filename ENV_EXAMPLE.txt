@@ -40,8 +40,8 @@ PLATFORM_ADMIN_EMAILS=aidannuge@gmail.com
 REQUIRE_API_SECRET=true
 
 # Optional: comma-separated CORS allowlist for browser origins that can call the API.
+# Required in production (NODE_ENV=production). Leave blank for local development only.
 # Example: https://ditto.jungle.win,https://staging.ditto.jungle.win
-# Leave blank for local development.
 CORS_ALLOWED_ORIGINS=
 
 # Your wallet private key (NEVER commit this to git!)

@@ -102,6 +102,18 @@ export const config = {
 
   // Validate required configuration
   validate(): void {
+    if (process.env.NODE_ENV === 'production') {
+      if (this.authMode !== 'oidc') {
+        throw new Error('Production requires AUTH_MODE=oidc. Legacy and open API modes are forbidden.');
+      }
+      if (!this.requireApiSecret) {
+        throw new Error('Production requires REQUIRE_API_SECRET=true.');
+      }
+      if (this.corsAllowedOrigins.length === 0) {
+        throw new Error('Production requires CORS_ALLOWED_ORIGINS to be set (comma-separated browser origins).');
+      }
+    }
+
     if (this.authMode === 'oidc') {
       if (!this.authSessionSecret) {
         throw new Error('AUTH_SESSION_SECRET is required when AUTH_MODE=oidc');
