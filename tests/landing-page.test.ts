@@ -139,6 +139,13 @@ test('server.ts skips static index for landing and app routes', () => {
   assert.match(server, /urlPath === '\/'/);
 });
 
+test('landing.css compacts get-started section into a centered shell', () => {
+  const css = readFileSync(join(publicDir, 'landing.css'), 'utf8');
+  assert.match(css, /\.landing-get-started-grid/);
+  assert.match(css, /width:\s*min\(960px,\s*100%\)/);
+  assert.match(css, /\.landing-get-started-panel/);
+});
+
 test('landing.css uses shared shell inset for wide-screen layout', () => {
   const css = readFileSync(join(publicDir, 'landing.css'), 'utf8');
   assert.match(css, /--landing-shell-max/);
