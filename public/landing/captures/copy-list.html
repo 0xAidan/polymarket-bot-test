@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1100">
+  <title>Ditto copy list capture</title>
+  <style>html { background: #161721; }</style>
+  <link rel="stylesheet" href="/shared/jungle-brand.css">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/landing/captures/capture.css">
+</head>
+<body class="grid-pattern landing-capture">
+  <div class="app-shell j-app landing-capture-app">
+    <header class="j-topbar">
+      <div class="j-topbar-brand">
+        <div class="j-topbar-mark" aria-hidden="true"><img src="/shared/logo-gold.png" alt="" class="j-topbar-logo"></div>
+        <div>
+          <div class="j-topbar-eyebrow">DITTO</div>
+          <div class="j-topbar-title font-serif">Ditto</div>
+        </div>
+      </div>
+      <nav class="j-nav" aria-label="Primary">
+        <button type="button" class="j-nav-btn">Home</button>
+        <button type="button" class="j-nav-btn">Jungle Agents</button>
+        <button type="button" class="j-nav-btn active">Copy List</button>
+        <button type="button" class="j-nav-btn">My Wallets</button>
+      </nav>
+    </header>
+    <main class="j-main">
+      <div class="jw-body">
+        <div class="jw-tab-panel active j-page">
+          <header class="j-page-header">
+            <div>
+              <p class="j-dash-eyebrow">Copy sources</p>
+              <h1 class="font-serif j-page-title">Copy List</h1>
+              <p class="j-page-sub">Wallets you copy on Polymarket. Add one, set your size, then enable copying.</p>
+            </div>
+          </header>
+          <div class="jw-group">
+            <div class="jw-group-title">Add a wallet manually</div>
+            <div class="form-row">
+              <label>Wallet address or profile</label>
+              <div class="flex-row gap-8" style="flex:1;">
+                <input type="text" class="jw-input" style="flex:1;" value="0x9c4e12a8…a82f" readonly>
+                <button type="button" class="jw-btn jw-btn-primary">Add &amp; set up</button>
+              </div>
+            </div>
+          </div>
+          <div class="jw-group">
+            <div class="jw-group-title">Your copy list</div>
+            <div class="wallet-entry active-wallet">
+              <div class="wallet-entry-info">
+                <div class="wallet-entry-address">
+                  <div>
+                    <div><strong>Macro Maven</strong> <span class="jw-badge">Jungle Agent</span></div>
+                    <div class="text-sm text-muted">0x7a3f4b2c…c42d</div>
+                  </div>
+                </div>
+                <div class="wallet-entry-config">$50 / trade · 2x sizing · ON</div>
+              </div>
+            </div>
+            <div class="wallet-entry active-wallet">
+              <div class="wallet-entry-info">
+                <div class="wallet-entry-address">
+                  <div>
+                    <div><strong>Custom wallet</strong></div>
+                    <div class="text-sm text-muted">0x9c4e12a8…a82f</div>
+                  </div>
+                </div>
+                <div class="wallet-entry-config">$25 / trade · 1x sizing · ON</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

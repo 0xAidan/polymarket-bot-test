@@ -1,0 +1,30 @@
+/* Scaled 1:1 app UI iframes inside landing showcase */
+.landing-ui-iframe-wrap {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #161721;
+}
+
+.landing-ui-iframe-scale {
+  width: 1100px;
+  height: 640px;
+  transform-origin: top left;
+}
+
+.landing-ui-iframe {
+  display: block;
+  width: 1100px;
+  height: 640px;
+  border: 0;
+  pointer-events: none;
+}
+
+.landing-showcase-panel {
+  padding: 0;
+}
+
+.landing-showcase-viewport {
+  min-height: 0;
+  padding: 8px;
+}

@@ -18,7 +18,8 @@ test('landing.html includes branding, marquees, and embedded auth panel', () => 
   assert.match(html, /data-landing-action/);
   assert.match(html, /landing-showcase\.js/);
   assert.match(html, /landing-hero-showcase/);
-  assert.match(html, /showcase-panel-dashboard/);
+  assert.match(html, /landing\/captures\/dashboard\.html/);
+  assert.match(html, /landing-roster-card/);
   assert.match(html, /landing-motion\.js/);
 });
 
@@ -47,11 +48,10 @@ test('landing.js uses /login handoff and OIDC screen_hint for signup', () => {
   assert.match(js, /landing-preview/);
 });
 
-test('landing-showcase.js rotates dashboard preview tabs with reduced-motion guard', () => {
+test('landing-showcase.js scales 1:1 UI capture iframes', () => {
   const js = readFileSync(join(publicDir, 'js', 'landing-showcase.js'), 'utf8');
-  assert.match(js, /data-showcase-tab/);
-  assert.match(js, /prefers-reduced-motion/);
-  assert.match(js, /landingWithViewTransition/);
+  assert.match(js, /fitUiCaptures/);
+  assert.match(js, /CAPTURE_WIDTH/);
 });
 
 test('landing-motion.js respects reduced motion for marquees', () => {

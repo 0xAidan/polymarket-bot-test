@@ -134,6 +134,7 @@ const createRosterPresenter = () => {
 
   const renderSkeleton = () => {
     if (!roster) return;
+    if (roster.querySelector('.landing-roster-card')) return;
     roster.innerHTML = Array.from({ length: 4 }, () => (
       '<div class="landing-roster-card"><span class="j-skeleton j-skeleton-line"></span></div>'
     )).join('');
