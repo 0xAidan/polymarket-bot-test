@@ -46,6 +46,7 @@
 .auth-shell-title {
   font-family: var(--font-serif);
   font-size: 22px;
+  font-weight: 400;
   line-height: 1;
   color: var(--jungle-text);
 }

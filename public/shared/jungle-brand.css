@@ -90,7 +90,7 @@ body,
 }
 
 /* ---------- Utility Classes ---------- */
-.font-serif { font-family: var(--font-serif); }
+.font-serif { font-family: var(--font-serif); font-weight: 400; }
 .font-mono  { font-family: var(--font-mono); }
 
 .text-gold  { color: var(--jungle-gold); }
