@@ -86,8 +86,8 @@ const API = {
         if (legacyModal && (usingLegacyToken || usingLegacyMode)) {
           showAuthModal();
         } else {
-          const returnTo = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
-          window.location.href = `/auth/login?returnTo=${returnTo}`;
+          const returnTo = encodeURIComponent('/app');
+          window.location.href = `/login?returnTo=${returnTo}`;
         }
         throw new Error('Authentication required');
       }

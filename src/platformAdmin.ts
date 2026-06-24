@@ -36,7 +36,7 @@ const normalizePossibleEmail = (value: unknown): string | null => {
 const resolveOidcEmailCandidates = (claims: Record<string, unknown>): string[] => {
   const candidates = new Set<string>();
 
-  const directKeys = ['email', 'preferred_username', 'upn', 'nickname', 'name'] as const;
+  const directKeys = ['email'] as const;
   for (const key of directKeys) {
     const normalized = normalizePossibleEmail(claims[key]);
     if (normalized) candidates.add(normalized);

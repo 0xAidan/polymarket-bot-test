@@ -851,17 +851,20 @@ async function loadTrades() {
 
       const rejectReason = getShortRejectReason(trade);
       const statusLabel = rejectReason
-        ? `<span class="status-pill failed">${rejectReason}</span>`
-        : `<span class="status-pill ${trade.success ? 'success' : (trade.status === 'pending' ? 'pending' : 'failed')}">${trade.status || (trade.success ? 'OK' : 'FAIL')}</span>`;
+        ? `<span class="status-pill failed">${escapeHtml(rejectReason)}</span>`
+        : `<span class="status-pill ${trade.success ? 'success' : (trade.status === 'pending' ? 'pending' : 'failed')}">${escapeHtml(trade.status || (trade.success ? 'OK' : 'FAIL'))}</span>`;
 
       const side = (trade.side || 'BUY').toUpperCase();
       const sideClass = side === 'SELL' ? 'is-sell' : 'is-buy';
-      const sideBadge = `<span class="j-trade-side ${sideClass}">${side}</span>`;
+      const walletLabel = escapeHtml(trade.walletLabel || `${trade.walletAddress?.slice(0, 6) || ''}…`);
+      const walletTitle = escapeHtml(trade.walletLabel || trade.walletAddress || '');
+      const marketLabel = escapeHtml(trade.marketName || `${trade.marketId?.slice(0, 12) || ''}…`);
+      const marketTitle = escapeHtml(trade.marketName || trade.marketId || '');
 
       return `<tr class="clickable-row ${newlySeen.has(tradeKey(trade)) ? 'trade-row-new' : ''}" onclick="openTradeDetailModal(${idx})" tabindex="0" role="button" aria-label="View trade details" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openTradeDetailModal(${idx});}">
         <td class="j-trade-time">${new Date(trade.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
-        <td class="j-trade-wallet" title="${trade.walletLabel || trade.walletAddress}">${trade.walletLabel || trade.walletAddress.slice(0, 6) + '…'}</td>
-        <td class="j-trade-market" title="${trade.marketName || trade.marketId || ''}">${trade.marketName || trade.marketId?.slice(0, 12) + '…'}</td>
+        <td class="j-trade-wallet" title="${walletTitle}">${walletLabel}</td>
+        <td class="j-trade-market" title="${marketTitle}">${marketLabel}</td>
         <td><span class="j-trade-side ${sideClass}">${side}</span></td>
         <td class="j-trade-amount">${amountDisplay}</td>
         <td>${statusLabel}</td>
@@ -1187,7 +1190,7 @@ const renderTagBadges = (tags) => {
   if (!tags || tags.length === 0) return '';
   return tags.map(tag => {
     const cls = TAG_COLOR_MAP[tag] || '';
-    return `<span class="tag-badge ${cls}">${tag}</span>`;
+    return `<span class="tag-badge ${cls}">${escapeHtml(tag)}</span>`;
   }).join('');
 };
 
@@ -1219,7 +1222,7 @@ function renderJungleAgentCategoryOptions(categories = []) {
   const current = select.value || 'ALL';
   const unique = ['ALL', ...new Set(categories.filter(Boolean))];
   select.innerHTML = unique.map((category) => (
-    `<option value="${category}">${category === 'ALL' ? 'All' : category}</option>`
+    `<option value="${escapeHtml(category)}">${category === 'ALL' ? 'All' : escapeHtml(category)}</option>`
   )).join('');
   if (unique.includes(current)) {
     select.value = current;
@@ -1262,19 +1265,20 @@ function renderJungleAgentPresets() {
       : 'Address missing';
 
     const disabled = !address ? 'disabled' : '';
+    const safeId = escapeHtml(agent.id);
     return `
       <div class="wallet-entry" style="margin-bottom:6px;">
         <div class="wallet-entry-info">
           <div class="wallet-entry-address" style="display:flex;align-items:center;gap:8px;">
             ${avatar}
             <div>
-              <div><strong>${agent.displayName}</strong> <span class="jw-badge">${agent.category || 'Uncategorized'}</span></div>
-              <div class="text-sm text-muted">${agent.modelLabel || 'No model label'} - ${shortAddress}</div>
+              <div><strong>${escapeHtml(agent.displayName)}</strong> <span class="jw-badge">${escapeHtml(agent.category || 'Uncategorized')}</span></div>
+              <div class="text-sm text-muted">${escapeHtml(agent.modelLabel || 'No model label')} - ${escapeHtml(shortAddress)}</div>
             </div>
           </div>
         </div>
         <div class="wallet-entry-actions">
-          <button class="jw-btn jw-btn-sm jw-btn-primary" onclick="oneClickCopyJungleAgent('${agent.id}')" ${disabled}>Copy</button>
+          <button class="jw-btn jw-btn-sm jw-btn-primary" onclick="oneClickCopyJungleAgent('${safeId}')" ${disabled}>Copy</button>
         </div>
       </div>
     `;
@@ -1390,7 +1394,7 @@ async function loadWallets(forceRebuild = false) {
         <span class="text-sm text-muted" style="line-height:22px;">Filter:</span>
         <button class="tag-filter-btn ${!activeTagFilter ? 'active' : ''}" data-tag="" onclick="handleTagFilter('')" aria-label="Show all wallets" tabindex="0">All</button>
         ${[...allTags].sort().map(tag => `
-          <button class="tag-filter-btn ${activeTagFilter === tag ? 'active' : ''}" data-tag="${tag}" onclick="handleTagFilter('${tag}')" aria-label="Filter by ${tag}" tabindex="0">${tag}</button>
+          <button class="tag-filter-btn ${activeTagFilter === tag ? 'active' : ''}" data-tag="${escapeHtml(tag)}" onclick="handleTagFilter('${escapeHtml(tag).replace(/'/g, "\\'")}')" aria-label="Filter by ${escapeHtml(tag)}" tabindex="0">${escapeHtml(tag)}</button>
         `).join('')}
       </div>`;
     }
@@ -1399,20 +1403,21 @@ async function loadWallets(forceRebuild = false) {
       const isActive = wallet.active;
       const configBadges = getWalletConfigBadges(wallet);
       const tagBadges = renderTagBadges(wallet.tags);
-      const tagsDataAttr = (wallet.tags || []).join(',');
+      const tagsDataAttr = escapeHtml((wallet.tags || []).join(','));
       const pausedBadge = isActive ? '' : '<span class="paused-badge" aria-label="Draft">Draft</span>';
       const summary = walletSummaryByAddress.get(wallet.address.toLowerCase());
       const lastTradeLabel = formatRelativeTime(summary?.lastTradeTime);
+      const safeAddress = escapeHtml(wallet.address);
       const enableBtn = isActive
         ? ''
-        : `<button type="button" class="jw-btn jw-btn-sm jw-btn-primary" onclick="toggleWallet('${wallet.address}', true)" aria-label="Enable copying">Enable copying</button>`;
+        : `<button type="button" class="jw-btn jw-btn-sm jw-btn-primary" onclick="toggleWallet('${safeAddress}', true)" aria-label="Enable copying">Enable copying</button>`;
 
       return `
-        <div class="wallet-entry ${isActive ? 'active-wallet' : 'inactive-wallet'}" id="wallet-${wallet.address}" data-tags="${tagsDataAttr}">
+        <div class="wallet-entry ${isActive ? 'active-wallet' : 'inactive-wallet'}" id="wallet-${safeAddress}" data-tags="${tagsDataAttr}">
           <div class="wallet-entry-info">
             <div class="wallet-entry-address">
-              ${wallet.label ? `<span class="wallet-entry-label">${wallet.label}</span>` : ''}
-              <span class="text-mono">${wallet.address.slice(0, 10)}...${wallet.address.slice(-8)}</span>
+              ${wallet.label ? `<span class="wallet-entry-label">${escapeHtml(wallet.label)}</span>` : ''}
+              <span class="text-mono">${escapeHtml(wallet.address.slice(0, 10))}...${escapeHtml(wallet.address.slice(-8))}</span>
               ${pausedBadge}
               ${tagBadges}
             </div>
@@ -1424,12 +1429,12 @@ async function loadWallets(forceRebuild = false) {
           </div>
           <div class="wallet-entry-actions">
             <label class="jw-toggle" title="${isActive ? 'Copying live' : 'Draft (not copying)'}">
-              <input type="checkbox" ${isActive ? 'checked' : ''} onchange="toggleWallet('${wallet.address}', this.checked)" aria-checked="${isActive}">
+              <input type="checkbox" ${isActive ? 'checked' : ''} onchange="toggleWallet('${safeAddress}', this.checked)" aria-checked="${isActive}">
             </label>
             ${enableBtn}
-            <button type="button" class="jw-btn jw-btn-sm" onclick="openMirrorModal('${wallet.address}')" aria-label="Mirror positions">Mirror</button>
-            <button type="button" class="jw-btn jw-btn-sm" onclick="openWalletModal('${wallet.address}')" aria-label="Edit copy settings">Edit copy</button>
-            <button type="button" class="jw-btn jw-btn-sm jw-btn-danger" onclick="removeWallet('${wallet.address}')" aria-label="Remove wallet">Remove</button>
+            <button type="button" class="jw-btn jw-btn-sm" onclick="openMirrorModal('${safeAddress}')" aria-label="Mirror positions">Mirror</button>
+            <button type="button" class="jw-btn jw-btn-sm" onclick="openWalletModal('${safeAddress}')" aria-label="Edit copy settings">Edit copy</button>
+            <button type="button" class="jw-btn jw-btn-sm jw-btn-danger" onclick="removeWallet('${safeAddress}')" aria-label="Remove wallet">Remove</button>
           </div>
         </div>
       `;
@@ -2096,7 +2101,7 @@ async function testClobConnectivity() {
     });
     html += `<br><strong>Diagnosis:</strong> ${data.summary.diagnosis}`;
     resultsDiv.innerHTML = html;
-  } catch (error) { resultsDiv.innerHTML = `<div class="text-danger">Test failed: ${error.message}</div>`; }
+  } catch (error) { resultsDiv.innerHTML = `<div class="text-danger">Test failed: ${escapeHtml(error.message)}</div>`; }
 }
 
 async function testGeoblockStatus() {
@@ -2118,7 +2123,7 @@ async function testGeoblockStatus() {
       ${data.tradingAllowed ? '' : '<div class="text-danger" style="margin-top:4px;">This deployment region cannot place trades. Move to an eligible region before going live.</div>'}
     `;
   } catch (error) {
-    resultsDiv.innerHTML = `<div class="text-danger">Geoblock check failed: ${error.message}</div>`;
+    resultsDiv.innerHTML = `<div class="text-danger">Geoblock check failed: ${escapeHtml(error.message)}</div>`;
   }
 }
 
@@ -2142,7 +2147,7 @@ async function loadFailedTrades() {
       </div>
     `).join('');
     container.innerHTML = html;
-  } catch (error) { container.innerHTML = `<div class="text-danger">Failed to load: ${error.message}</div>`; }
+  } catch (error) { container.innerHTML = `<div class="text-danger">Failed to load: ${escapeHtml(error.message)}</div>`; }
 }
 
 // ============================================================
@@ -2617,7 +2622,7 @@ async function openMirrorModal(address) {
     renderMirrorTrades(preview.trades);
     updateMirrorSummary();
   } catch (error) {
-    document.getElementById('mirrorTradesBody').innerHTML = `<tr class="empty-row"><td colspan="8">Mirror preview failed: ${error.message}</td></tr>`;
+    document.getElementById('mirrorTradesBody').innerHTML = `<tr class="empty-row"><td colspan="8">Mirror preview failed: ${escapeHtml(error.message)}</td></tr>`;
   }
 }
 
@@ -2963,7 +2968,7 @@ async function loadWalletPositionsForLadder() {
 
     container.innerHTML = html;
   } catch (error) {
-    container.innerHTML = `<div class="text-center text-muted" style="padding:12px;">Failed to load positions: ${error.message}</div>`;
+    container.innerHTML = `<div class="text-center text-muted" style="padding:12px;">Failed to load positions: ${escapeHtml(error.message)}</div>`;
     console.error('Error loading positions for ladder:', error);
   }
 }
@@ -2978,7 +2983,7 @@ function selectPositionForLadder(btn, posJsonEncoded) {
 
   // Update summary
   const summary = document.getElementById('ladderConfigPositionSummary');
-  summary.innerHTML = `<strong>${pos.marketTitle}</strong> | ${pos.outcome} | ${pos.totalShares.toFixed(1)} shares @ $${pos.entryPrice.toFixed(3)} (now $${pos.curPrice.toFixed(3)})`;
+  summary.innerHTML = `<strong>${escapeHtml(pos.marketTitle)}</strong> | ${escapeHtml(pos.outcome)} | ${pos.totalShares.toFixed(1)} shares @ $${pos.entryPrice.toFixed(3)} (now $${pos.curPrice.toFixed(3)})`;
 
   // Scroll config panel into view
   panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -4763,14 +4768,14 @@ const loadUnusualMarkets = async () => {
       return;
     }
     tbody.innerHTML = markets.map((m) => {
-      const title = m.market_title || m.condition_id?.slice(0, 12) || '—';
-      const types = (m.signal_types || '').replace(/,/g, ', ');
+      const title = escapeHtml(m.market_title || m.condition_id?.slice(0, 12) || '—');
+      const types = escapeHtml((m.signal_types || '').replace(/,/g, ', '));
       const walletCount = m.wallets ? m.wallets.split(',').length : 0;
       const firstDetected = m.first_detected ? new Date(m.first_detected).toLocaleString() : '—';
       const wallets = (m.wallets || '').split(',').filter(Boolean);
       const walletActions = wallets.slice(0, 3).map((wallet) => {
-        const safeWallet = String(wallet).replace(/'/g, "\\'");
-        return `<button class="jw-btn jw-btn-sm" style="margin-right:4px;" onclick="event.stopPropagation();openWalletDetail('${safeWallet}')">${wallet.slice(0, 6)}...${wallet.slice(-4)}</button>`;
+        const safeWallet = escapeHtml(wallet);
+        return `<button class="jw-btn jw-btn-sm" style="margin-right:4px;" onclick="event.stopPropagation();openWalletDetail('${safeWallet.replace(/'/g, "\\'")}')">${escapeHtml(wallet.slice(0, 6))}...${escapeHtml(wallet.slice(-4))}</button>`;
       }).join('');
       return `<tr>
         <td>${title}</td>

@@ -8,13 +8,9 @@ Jungle Agents design system (`public/shared/jungle-brand.css`).
 | Piece | Value |
 | --- | --- |
 | Tenant | `dev-rjdevt32s21vhh86.us.auth0.com` (account linked to the owner's GitHub) |
-| Application | "Jungle Agents" (Regular Web App) |
-| Callbacks | `http://localhost:3000/auth/callback`, `https://ditto.jungle.win/auth/callback` |
-| Logout URLs | `http://localhost:3000`, `https://ditto.jungle.win` |
-| Tenant friendly name | "Jungle Agents" (replaces the raw `dev-…` name on screens/emails) |
-| Logo | gold jungle-eyes mark, served from this repo (raw GitHub URL pinned to a commit) |
-| Theme | dark navy page (#161721), card #1C1D2E, gold primary (#E5B80B) — see `theme.json` |
-| Custom text | "Welcome to the Jungle" / "Join the Jungle" — see `custom-text-*.json` |
+| Application | "Ditto" (Regular Web App; renamed from legacy "Jungle Agents") |
+| Tenant friendly name | "Ditto" |
+| Custom text | "Log in to Ditto" / "Create your Ditto account" — see `custom-text-*.json` (includes `login-id` + `signup-id`) |
 
 ## How to re-apply (e.g. on a new tenant)
 
@@ -45,26 +41,6 @@ bash docs/auth0-branding/apply.sh
 No manual steps: the first time anyone logs in (email/password signup or Google), the app
 creates their account row and a private workspace automatically (`src/authStore.ts`).
 
-## Signup troubleshooting
-
-**Symptom:** Signup shows *"Something went wrong, please try again later"* (red banner on Join the Jungle).
-
-**Common cause:** That email is **already registered in Auth0** from a previous signup attempt.
-Auth0 hides this by default to prevent email enumeration, so the UI looks like a server crash.
-
-**Fix (production):**
-
-```bash
-auth0 login
-bash docs/auth0-branding/fix-signup-errors.sh
-# Optional: remove a stale test account so signup works again for that email
-bash docs/auth0-branding/fix-signup-errors.sh --delete-user test@test.com
-```
-
-**User workaround:** Use **Log in** instead of Create account, or sign up with a different email.
-New emails (e.g. `you@gmail.com`) work when the password meets the rules shown on screen
-(8+ chars, 3 of: upper, lower, number, symbol).
-
 ## Where to change login/signup copy
 
 The text on the Auth0 Universal Login screens is **not** in the app UI — it lives in Auth0's
@@ -89,8 +65,8 @@ Current recommended copy (also in the JSON files):
 
 | Screen | Headline | Subtext |
 | --- | --- | --- |
-| Login | Log in to copy Jungle Agents | Ditto mirrors their Polymarket trades into your wallet. |
-| Signup | Sign up to copy Jungle Agents | Create an account, pick your agents, connect your wallet. |
+| Login | Log in to Ditto | Copy any Polymarket trader into your wallet. |
+| Signup | Create your Ditto account | Pick traders to follow and connect your wallet. |
 | Login alternate action | No account yet? | Sign up |
 
 ## Fix: Auth0 development keys

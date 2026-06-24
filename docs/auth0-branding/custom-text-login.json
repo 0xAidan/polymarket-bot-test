@@ -1,12 +1,12 @@
 {
   "login": {
     "pageTitle": "Log in | Ditto",
-    "title": "Welcome to the Jungle",
-    "description": "Log in to your Ditto workspace to manage your copy trading.",
+    "title": "Log in to Ditto",
+    "description": "Copy any Polymarket trader into your wallet.",
     "buttonText": "Continue",
     "emailPlaceholder": "Email address",
     "passwordPlaceholder": "Password",
-    "signupActionLinkText": "Create one",
-    "signupActionText": "New to Jungle Agents?"
+    "signupActionLinkText": "Sign up",
+    "signupActionText": "No account yet?"
   }
 }

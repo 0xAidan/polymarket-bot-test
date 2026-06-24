@@ -1,17 +1,12 @@
 {
   "signup": {
     "pageTitle": "Sign up | Ditto",
-    "title": "Join the Jungle",
-    "description": "Create your Ditto account. Your own private workspace is set up automatically.",
+    "title": "Create your Ditto account",
+    "description": "Pick traders to follow and connect your wallet.",
     "buttonText": "Create account",
     "emailPlaceholder": "Email address",
     "passwordPlaceholder": "Password",
     "loginActionLinkText": "Log in",
-    "loginActionText": "Already have an account?",
-    "email-in-use": "An account with this email already exists. Use Log in below instead.",
-    "auth0-users-validation": "Could not create this account. If you already signed up, use Log in below. Otherwise check your password meets the requirements.",
-    "no-password": "Please enter a password.",
-    "password-too-weak": "Your password is too weak. Use at least 8 characters with upper/lowercase, a number, and a symbol.",
-    "password-policy-not-conformant": "Your password does not meet the requirements shown below."
+    "loginActionText": "Already signed up?"
   }
 }

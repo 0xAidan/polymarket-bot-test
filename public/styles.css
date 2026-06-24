@@ -1211,29 +1211,6 @@ body.platform-admin [data-admin-only].j-dash-collapsible {
   .jw-tabs { flex-wrap: wrap; }
 }
 
-/* Scrollbar styling for classic feel */
-::-webkit-scrollbar {
-  width: 16px;
-  height: 16px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--jw-light);
-  border: 1px solid var(--jw-dark);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--jw-surface);
-  border: 2px outset var(--jw-surface);
-}
-
-::-webkit-scrollbar-button {
-  background: var(--jw-surface);
-  border: 2px outset var(--jw-surface);
-  width: 16px;
-  height: 16px;
-}
-
 /* ============================================================
    PLATFORM CARDS & CROSS-PLATFORM UI
    ============================================================ */
@@ -2239,22 +2216,6 @@ textarea.jw-input:focus {
   background: rgba(229, 184, 11, 0.12);
   color: var(--jungle-gold);
   border-color: rgba(229, 184, 11, 0.35);
-}
-
-::-webkit-scrollbar-track {
-  background: var(--jungle-bg-elevated);
-  border: 1px solid var(--jungle-border);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--jungle-bg-surface);
-  border: 1px solid var(--jungle-border-strong);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-button {
-  background: var(--jungle-bg-elevated);
-  border: 1px solid var(--jungle-border);
 }
 
 ::selection {

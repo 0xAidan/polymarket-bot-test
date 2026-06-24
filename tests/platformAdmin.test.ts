@@ -50,7 +50,7 @@ describe('platformAdmin', () => {
     assert.equal(isLegacyPlatformAdminBearer(badReq), false);
   });
 
-  it('resolves OIDC platform admin when email is in preferred_username', () => {
+  it('resolves OIDC platform admin when email claim matches', () => {
     (config as { authMode: 'legacy' | 'oidc' }).authMode = 'oidc';
     (config as { platformAdminEmails: string }).platformAdminEmails = 'aidannuge@gmail.com';
     resetPlatformAdminEmailCache();
@@ -59,11 +59,28 @@ describe('platformAdmin', () => {
       oidc: {
         isAuthenticated: () => true,
         user: {
-          preferred_username: 'aidannuge@gmail.com',
+          email: 'aidannuge@gmail.com',
         },
       },
     } as unknown as Request;
 
     assert.equal(resolveIsPlatformAdmin(req), true);
+  });
+
+  it('does not grant platform admin from nickname claim alone', () => {
+    (config as { authMode: 'legacy' | 'oidc' }).authMode = 'oidc';
+    (config as { platformAdminEmails: string }).platformAdminEmails = 'aidannuge@gmail.com';
+    resetPlatformAdminEmailCache();
+
+    const req = {
+      oidc: {
+        isAuthenticated: () => true,
+        user: {
+          nickname: 'aidannuge@gmail.com',
+        },
+      },
+    } as unknown as Request;
+
+    assert.equal(resolveIsPlatformAdmin(req), false);
   });
 });
