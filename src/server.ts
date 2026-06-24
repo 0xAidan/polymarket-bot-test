@@ -495,18 +495,15 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     res.sendFile(path.join(publicPath, 'landing.html'));
   };
 
-  const redirectToLandingAuth = (req: express.Request, res: express.Response): void => {
+  const redirectToOidcAuth = (req: express.Request, res: express.Response): void => {
     const params = new URLSearchParams();
-    const mode = String(req.query.mode || 'login').trim();
     const returnTo = sanitizeReturnTo(req.query.returnTo, '/app');
-    if (mode) params.set('mode', mode);
     params.set('returnTo', returnTo);
-    const section = String(req.query.section || '').trim();
-    if (section === 'get-started') {
-      params.set('section', section);
+    const mode = String(req.query.mode || 'login').trim();
+    if (mode === 'signup') {
+      params.set('screen_hint', 'signup');
     }
-    const qs = params.toString();
-    res.redirect(qs ? `/?${qs}` : '/');
+    res.redirect(`/auth/login?${params.toString()}`);
   };
 
   const isOidcAuthenticated = (req: express.Request): boolean => (
@@ -527,7 +524,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
       res.redirect('/app');
       return;
     }
-    redirectToLandingAuth(req, res);
+    redirectToOidcAuth(req, res);
   });
 
   app.get('/app', (_req, res) => {

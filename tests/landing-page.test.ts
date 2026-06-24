@@ -35,13 +35,11 @@ test('landing.js parses without syntax errors', () => {
   });
 });
 
-test('landing.js routes header auth through landing login path', () => {
+test('landing.js sends header auth buttons directly to OIDC handoff', () => {
   const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
-  assert.match(js, /buildLandingLoginPath/);
-  assert.match(js, /goToLandingAuth/);
-  assert.match(js, /'nav-login': \(\) => goToLandingAuth\(authPanel, 'login'\)/);
-  assert.match(js, /'nav-signup': \(\) => goToLandingAuth\(authPanel, 'signup'\)/);
-  assert.doesNotMatch(js, /'nav-login': \(\) => authPanel\.handoffToOidc\('login'\)/);
+  assert.match(js, /'nav-login': \(\) => authPanel\.handoffToOidc\('login'\)/);
+  assert.match(js, /'nav-signup': \(\) => authPanel\.handoffToOidc\('signup'\)/);
+  assert.doesNotMatch(js, /goToLandingAuth/);
 });
 
 test('landing.js uses document-level click delegation for header auth buttons', () => {
@@ -131,21 +129,24 @@ test('api.js 401 handler routes to /login with /app returnTo', () => {
   assert.match(js, /encodeURIComponent\('\/app'\)/);
 });
 
+test('server.ts login route redirects to Auth0 login', () => {
+  const server = readFileSync(join(rootDir, 'src', 'server.ts'), 'utf8');
+  assert.match(server, /app\.get\('\/login'/);
+  assert.match(server, /redirectToOidcAuth/);
+  assert.match(server, /\/auth\/login\?\$\{params\.toString\(\)\}/);
+  assert.doesNotMatch(server, /redirectToLandingAuth/);
+});
+
 test('server.ts login redirect does not force get-started scroll', () => {
   const server = readFileSync(join(rootDir, 'src', 'server.ts'), 'utf8');
   assert.match(server, /app\.get\('\/login'/);
   assert.doesNotMatch(server, /params\.set\('section', 'get-started'\)/);
 });
 
-test('landing.js scrolls to auth panel when returnTo is present', () => {
-  const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
-  assert.match(js, /params\.has\('returnTo'\)/);
-});
-
 test('landing.js only auto-scrolls when section=get-started is present', () => {
   const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
   assert.match(js, /get\('section'\) === 'get-started'/);
-  assert.doesNotMatch(js, /params\.has\('mode'\)/);
+  assert.doesNotMatch(js, /params\.has\('returnTo'\)/);
 });
 
 test('server.ts serves landing at / and dashboard at /app', () => {

@@ -339,32 +339,6 @@ const createRosterPresenter = (showcaseAgents) => {
   return { loadPreview };
 };
 
-const buildLandingLoginPath = (mode) => {
-  const params = new URLSearchParams({ returnTo: '/app' });
-  if (mode === 'signup') {
-    params.set('mode', 'signup');
-  }
-  return `/login?${params.toString()}`;
-};
-
-const goToLandingAuth = (authPanel, mode) => {
-  const resolvedMode = mode === 'signup' ? 'signup' : 'login';
-  if (window.location.pathname === '/') {
-    authPanel.scrollToGetStarted(resolvedMode);
-    const params = new URLSearchParams(window.location.search);
-    params.set('returnTo', '/app');
-    if (resolvedMode === 'signup') {
-      params.set('mode', 'signup');
-    } else {
-      params.delete('mode');
-    }
-    const qs = params.toString();
-    window.history.replaceState({}, '', qs ? `/?${qs}` : '/');
-    return;
-  }
-  window.location.href = buildLandingLoginPath(resolvedMode);
-};
-
 const createSessionGuard = () => {
   const check = async () => {
     try {
@@ -402,8 +376,8 @@ const createSessionGuard = () => {
 
 const wireLandingUi = (authPanel) => {
   const authActions = {
-    'nav-login': () => goToLandingAuth(authPanel, 'login'),
-    'nav-signup': () => goToLandingAuth(authPanel, 'signup'),
+    'nav-login': () => authPanel.handoffToOidc('login'),
+    'nav-signup': () => authPanel.handoffToOidc('signup'),
     'hero-login': () => authPanel.scrollToGetStarted('login'),
     'hero-signup': () => authPanel.scrollToGetStarted('signup'),
     'cta-signup': () => authPanel.scrollToGetStarted('signup'),
@@ -433,7 +407,7 @@ const initLandingFromQuery = (authPanel) => {
   const mode = getAuthMode();
   authPanel.setMode(mode);
 
-  if (params.get('section') === 'get-started' || params.has('returnTo')) {
+  if (params.get('section') === 'get-started') {
     window.requestAnimationFrame(() => {
       authPanel.scrollToGetStarted(mode, { behavior: 'auto' });
     });
