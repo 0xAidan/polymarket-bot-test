@@ -69,14 +69,14 @@ const initNavScroll = () => {
 };
 
 const initRosterCursorScroll = () => {
-  const shell = document.querySelector('[data-landing-roster-shell]');
   const roster = document.getElementById('landingRoster');
-  if (!shell || !roster) return;
+  if (!roster || roster.dataset.rosterScrollReady === 'true') return;
 
-  if (prefersReducedMotion()) return;
+  const reduceMotion = prefersReducedMotion();
+  const MAX_SPEED = 10;
+  const IDLE_SPEED = reduceMotion ? 0 : 1.8;
+  const EDGE_DEADZONE = 0.06;
 
-  const MAX_SPEED = 7;
-  const IDLE_SPEED = 1.4;
   let pointerRatio = null;
   let driftDirection = 1;
   let isVisible = false;
@@ -84,25 +84,32 @@ const initRosterCursorScroll = () => {
 
   const getMaxScroll = () => Math.max(0, roster.scrollWidth - roster.clientWidth);
 
+  const speedFromRatio = (ratio) => {
+    const centered = (ratio - 0.5) * 2;
+    if (Math.abs(centered) <= EDGE_DEADZONE) return 0;
+    const magnitude = (Math.abs(centered) - EDGE_DEADZONE) / (1 - EDGE_DEADZONE);
+    return Math.sign(centered) * magnitude * MAX_SPEED;
+  };
+
   const tick = () => {
     const maxScroll = getMaxScroll();
 
-    if (isVisible && maxScroll > 0) {
-      let speed;
+    if (isVisible && maxScroll > 2) {
+      let speed = 0;
       if (pointerRatio !== null) {
-        speed = (pointerRatio - 0.5) * 2 * MAX_SPEED;
-      } else {
+        speed = speedFromRatio(pointerRatio);
+      } else if (IDLE_SPEED > 0) {
         speed = IDLE_SPEED * driftDirection;
       }
 
-      roster.scrollLeft += speed;
+      if (speed !== 0) {
+        roster.scrollLeft = Math.min(maxScroll, Math.max(0, roster.scrollLeft + speed));
 
-      if (roster.scrollLeft <= 0) {
-        roster.scrollLeft = 0;
-        driftDirection = 1;
-      } else if (roster.scrollLeft >= maxScroll - 1) {
-        roster.scrollLeft = maxScroll;
-        driftDirection = -1;
+        if (roster.scrollLeft <= 0) {
+          driftDirection = 1;
+        } else if (roster.scrollLeft >= maxScroll - 1) {
+          driftDirection = -1;
+        }
       }
     }
 
@@ -110,20 +117,22 @@ const initRosterCursorScroll = () => {
   };
 
   const updatePointerRatio = (clientX) => {
-    const rect = shell.getBoundingClientRect();
+    const rect = roster.getBoundingClientRect();
     if (rect.width <= 0) return;
     pointerRatio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
   };
 
-  shell.addEventListener('pointerenter', (event) => {
+  roster.addEventListener('pointerenter', (event) => {
+    roster.setPointerCapture?.(event.pointerId);
     updatePointerRatio(event.clientX);
   });
 
-  shell.addEventListener('pointerleave', () => {
+  roster.addEventListener('pointerleave', (event) => {
+    roster.releasePointerCapture?.(event.pointerId);
     pointerRatio = null;
   });
 
-  shell.addEventListener('pointermove', (event) => {
+  roster.addEventListener('pointermove', (event) => {
     updatePointerRatio(event.clientX);
   }, { passive: true });
 
@@ -131,9 +140,9 @@ const initRosterCursorScroll = () => {
     ([entry]) => {
       isVisible = entry.isIntersecting;
     },
-    { threshold: 0.15 },
+    { threshold: 0.08 },
   );
-  visibilityObserver.observe(shell);
+  visibilityObserver.observe(roster);
 
   const rosterObserver = new MutationObserver(() => {
     const maxScroll = getMaxScroll();
@@ -143,6 +152,7 @@ const initRosterCursorScroll = () => {
   });
   rosterObserver.observe(roster, { childList: true, subtree: true });
 
+  roster.dataset.rosterScrollReady = 'true';
   frameId = window.requestAnimationFrame(tick);
 
   window.addEventListener('beforeunload', () => {
@@ -152,9 +162,15 @@ const initRosterCursorScroll = () => {
   }, { once: true });
 };
 
+window.initLandingRosterScroll = initRosterCursorScroll;
+
 document.addEventListener('DOMContentLoaded', () => {
   duplicateMarqueeTracks();
   observeReveals();
   initNavScroll();
+  initRosterCursorScroll();
+});
+
+document.addEventListener('landing-roster-updated', () => {
   initRosterCursorScroll();
 });

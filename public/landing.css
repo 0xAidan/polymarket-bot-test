@@ -1074,6 +1074,7 @@
   overflow-x: auto;
   padding: 4px 2px 6px;
   -webkit-overflow-scrolling: touch;
+  cursor: default;
 }
 
 .landing-roster-card {

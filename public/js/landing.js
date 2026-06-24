@@ -303,6 +303,8 @@ const createRosterPresenter = (showcaseAgents) => {
       void loadRosterAgentStats(agents);
     };
 
+    document.dispatchEvent(new CustomEvent('landing-roster-updated'));
+
     if (typeof window.landingWithViewTransition === 'function') {
       window.landingWithViewTransition(update);
     } else {
