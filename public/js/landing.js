@@ -404,8 +404,8 @@ const createSessionGuard = () => {
 
 const wireLandingUi = (authPanel) => {
   const authActions = {
-    'nav-login': () => authPanel.scrollToGetStarted('login'),
-    'nav-signup': () => authPanel.scrollToGetStarted('signup'),
+    'nav-login': () => authPanel.handoffToOidc('login'),
+    'nav-signup': () => authPanel.handoffToOidc('signup'),
     'hero-login': () => authPanel.scrollToGetStarted('login'),
     'hero-signup': () => authPanel.scrollToGetStarted('signup'),
     'cta-signup': () => authPanel.scrollToGetStarted('signup'),

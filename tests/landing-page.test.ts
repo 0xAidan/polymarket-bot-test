@@ -28,6 +28,12 @@ test('landing.html includes branding, marquees, and embedded auth panel', () => 
   assert.doesNotMatch(html, /landing-nav-eyebrow/);
 });
 
+test('landing.js sends header auth buttons directly to OIDC handoff', () => {
+  const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
+  assert.match(js, /'nav-login': \(\) => authPanel\.handoffToOidc\('login'\)/);
+  assert.match(js, /'nav-signup': \(\) => authPanel\.handoffToOidc\('signup'\)/);
+});
+
 test('landing.js uses document-level click delegation for header auth buttons', () => {
   const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
   assert.match(js, /document\.addEventListener\('click'/);
