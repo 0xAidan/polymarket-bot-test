@@ -1,0 +1,11 @@
+{
+  "signup-id": {
+    "pageTitle": "Sign up | Ditto",
+    "title": "Create your account",
+    "description": "Sign up for Ditto to start copy trading on Polymarket.",
+    "buttonText": "Continue",
+    "emailPlaceholder": "Email address",
+    "loginActionLinkText": "Log in",
+    "loginActionText": "Already have an account?"
+  }
+}
