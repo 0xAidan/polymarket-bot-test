@@ -25,10 +25,19 @@
       <a href="#features" class="landing-nav-link">Features</a>
     </nav>
     <nav class="landing-nav-actions auth-shell-actions" aria-label="Account">
-      <button type="button" class="landing-btn auth-shell-btn" id="navLogin" data-landing-action="nav-login">Log in</button>
-      <button type="button" class="landing-btn landing-btn-primary auth-shell-btn auth-shell-btn-primary" id="navSignup" data-landing-action="nav-signup">Get started</button>
+      <button type="button" class="landing-btn auth-shell-btn" id="navLogin" data-landing-action="nav-login" onclick="landingHeaderAuth('login')">Log in</button>
+      <button type="button" class="landing-btn landing-btn-primary auth-shell-btn auth-shell-btn-primary" id="navSignup" data-landing-action="nav-signup" onclick="landingHeaderAuth('signup')">Get started</button>
     </nav>
   </header>
+
+  <script>
+    window.landingHeaderAuth = function landingHeaderAuth(mode) {
+      var returnTo = encodeURIComponent('/app');
+      var query = 'returnTo=' + returnTo;
+      if (mode === 'signup') query += '&screen_hint=signup';
+      window.location.assign('/auth/login?' + query);
+    };
+  </script>
 
   <aside class="ditto-beta-notice" role="note" aria-label="Beta disclaimer">
     <span class="ditto-beta-notice-badge">Beta</span>
