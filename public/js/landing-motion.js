@@ -68,8 +68,86 @@ const initNavScroll = () => {
   handleScroll();
 };
 
+const initRosterCursorScroll = () => {
+  const shell = document.querySelector('[data-landing-roster-shell]');
+  const roster = document.getElementById('landingRoster');
+  if (!shell || !roster) return;
+
+  if (prefersReducedMotion() || !window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+    return;
+  }
+
+  const MAX_SPEED = 5.5;
+  const DEAD_ZONE = 0.14;
+  let scrollSpeed = 0;
+  let frameId = 0;
+  let isActive = false;
+
+  const clampScroll = () => {
+    const maxScroll = roster.scrollWidth - roster.clientWidth;
+    if (maxScroll <= 0) {
+      scrollSpeed = 0;
+      return;
+    }
+    roster.scrollLeft = Math.max(0, Math.min(maxScroll, roster.scrollLeft));
+  };
+
+  const tick = () => {
+    if (isActive && scrollSpeed !== 0) {
+      roster.scrollLeft += scrollSpeed;
+      clampScroll();
+    }
+    frameId = window.requestAnimationFrame(tick);
+  };
+
+  const updateSpeedFromPointer = (clientX) => {
+    const rect = shell.getBoundingClientRect();
+    const ratio = (clientX - rect.left) / rect.width;
+    const center = 0.5;
+
+    if (ratio <= center - DEAD_ZONE) {
+      const t = (center - DEAD_ZONE - ratio) / (center - DEAD_ZONE);
+      scrollSpeed = -MAX_SPEED * Math.min(1, Math.max(0, t));
+      return;
+    }
+
+    if (ratio >= center + DEAD_ZONE) {
+      const t = (ratio - center - DEAD_ZONE) / (center - DEAD_ZONE);
+      scrollSpeed = MAX_SPEED * Math.min(1, Math.max(0, t));
+      return;
+    }
+
+    scrollSpeed = 0;
+  };
+
+  const handlePointerMove = (event) => {
+    if (!isActive) return;
+    updateSpeedFromPointer(event.clientX);
+  };
+
+  shell.addEventListener('pointerenter', (event) => {
+    isActive = true;
+    updateSpeedFromPointer(event.clientX);
+    if (!frameId) {
+      frameId = window.requestAnimationFrame(tick);
+    }
+  });
+
+  shell.addEventListener('pointerleave', () => {
+    isActive = false;
+    scrollSpeed = 0;
+  });
+
+  shell.addEventListener('pointermove', handlePointerMove, { passive: true });
+
+  window.addEventListener('beforeunload', () => {
+    if (frameId) window.cancelAnimationFrame(frameId);
+  }, { once: true });
+};
+
 document.addEventListener('DOMContentLoaded', () => {
   duplicateMarqueeTracks();
   observeReveals();
   initNavScroll();
+  initRosterCursorScroll();
 });

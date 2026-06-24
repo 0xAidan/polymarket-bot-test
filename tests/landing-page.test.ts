@@ -21,7 +21,7 @@ test('landing.html includes branding, marquees, and embedded auth panel', () => 
   assert.match(html, /showcaseJungleAgents/);
   assert.match(html, /showcase-radio-dashboard/);
   assert.match(html, /l-preview-trade-new/);
-  assert.match(html, /landing-roster-card/);
+  assert.match(html, /landing-roster-shell/);
   assert.match(html, /landing-motion\.js/);
 });
 
@@ -51,6 +51,8 @@ test('landing.js uses public landing API for roster and showcase', () => {
   assert.match(js, /\/api\/public\/jungle-agents/);
   assert.match(js, /showcaseJungleAgents/);
   assert.match(js, /createShowcaseAgentsPresenter/);
+  assert.match(js, /data-roster-agent-id/);
+  assert.match(js, /loadRosterAgentStats/);
 });
 
 test('landing-showcase.js drives hero preview autoplay via radio inputs', () => {
@@ -65,6 +67,7 @@ test('landing-motion.js respects reduced motion for marquees', () => {
   const js = readFileSync(join(publicDir, 'js', 'landing-motion.js'), 'utf8');
   assert.match(js, /prefers-reduced-motion/);
   assert.match(js, /IntersectionObserver/);
+  assert.match(js, /initRosterCursorScroll/);
 });
 
 test('auth-bootstrap redirects unauthenticated users to /login not /auth/login', () => {

@@ -166,9 +166,10 @@ const createAuthPanelController = () => {
   };
 };
 
-const loadShowcaseAgentStats = async (agents) => {
+const loadAgentPerformanceStats = async (agents, getCard) => {
   await Promise.all(agents.map(async (agent) => {
-    const card = document.querySelector(`[data-showcase-agent-id="${agent.id}"]`);
+    if (!agent.id || agent.addressPending || !agent.polymarketAddress) return;
+    const card = getCard(agent);
     if (!card) return;
 
     try {
@@ -179,7 +180,12 @@ const loadShowcaseAgentStats = async (agents) => {
       const pnlEl = card.querySelector('[data-stat="pnl"]');
       const winEl = card.querySelector('[data-stat="win"]');
       const roiEl = card.querySelector('[data-stat="roi"]');
-      if (pnlEl) pnlEl.textContent = formatCompactSignedUsd(perf.lifetimePnlUsd);
+      if (pnlEl) {
+        pnlEl.textContent = formatCompactSignedUsd(perf.lifetimePnlUsd);
+        const pnl = Number(perf.lifetimePnlUsd);
+        pnlEl.classList.toggle('is-win', Number.isFinite(pnl) && pnl > 0);
+        pnlEl.classList.toggle('is-loss', Number.isFinite(pnl) && pnl < 0);
+      }
       if (winEl) winEl.textContent = formatWinRate(perf.winRatePct);
       if (roiEl) roiEl.textContent = formatSignedPercent(perf.roiPct);
     } catch {
@@ -187,6 +193,16 @@ const loadShowcaseAgentStats = async (agents) => {
     }
   }));
 };
+
+const loadShowcaseAgentStats = (agents) => loadAgentPerformanceStats(
+  agents,
+  (agent) => document.querySelector(`[data-showcase-agent-id="${agent.id}"]`),
+);
+
+const loadRosterAgentStats = (agents) => loadAgentPerformanceStats(
+  agents,
+  (agent) => document.querySelector(`[data-roster-agent-id="${agent.id}"]`),
+);
 
 const createShowcaseAgentsPresenter = () => {
   const grid = document.getElementById('showcaseJungleAgents');
@@ -266,7 +282,7 @@ const createRosterPresenter = (showcaseAgents) => {
           ? `<img src="${escapeHtml(agent.avatarUrl)}" alt="" loading="lazy" decoding="async">`
           : initial;
         return `
-          <article class="landing-roster-card glow-border" role="listitem">
+          <article class="landing-roster-card glow-border" role="listitem" data-roster-agent-id="${escapeHtml(agent.id)}">
             <div class="landing-roster-card-top">
               <div class="landing-roster-avatar" aria-hidden="true">${avatar}</div>
               <div>
@@ -275,9 +291,16 @@ const createRosterPresenter = (showcaseAgents) => {
               <span class="landing-roster-live pulse-dot" title="Live on Polymarket" aria-hidden="true"></span>
             </div>
             <p class="landing-roster-tagline">${tagline}</p>
+            <div class="landing-roster-stats" aria-label="Live Polymarket stats">
+              <span><em>PnL</em> <span data-stat="pnl">…</span></span>
+              <span><em>Win</em> <span data-stat="win">…</span></span>
+              <span><em>ROI</em> <span data-stat="roi">…</span></span>
+            </div>
           </article>
         `;
       }).join('');
+
+      void loadRosterAgentStats(agents);
     };
 
     if (typeof window.landingWithViewTransition === 'function') {

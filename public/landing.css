@@ -876,17 +876,51 @@
 }
 
 /* Roster strip */
+.landing-roster-shell {
+  position: relative;
+  overflow: hidden;
+  margin: 0 -4px;
+  padding: 4px 0;
+}
+
+.landing-roster-shell::before,
+.landing-roster-shell::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 40px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.landing-roster-shell::before {
+  left: 0;
+  background: linear-gradient(90deg, #161721 10%, transparent);
+}
+
+.landing-roster-shell::after {
+  right: 0;
+  background: linear-gradient(270deg, #161721 10%, transparent);
+}
+
 .landing-roster {
   display: flex;
   gap: 14px;
   overflow-x: auto;
-  padding-bottom: 8px;
-  scroll-snap-type: x mandatory;
+  padding: 4px 2px 6px;
+  scroll-snap-type: x proximity;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.landing-roster::-webkit-scrollbar {
+  display: none;
 }
 
 .landing-roster-card {
-  flex: 0 0 220px;
+  flex: 0 0 248px;
   scroll-snap-align: start;
   padding: 16px;
   border: 1px solid var(--jungle-border);
@@ -928,9 +962,35 @@
 }
 
 .landing-roster-tagline {
+  margin: 0 0 10px;
   font-size: 12px;
   color: var(--jungle-text-muted);
   line-height: 1.45;
+}
+
+.landing-roster-stats {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--jungle-text-muted);
+}
+
+.landing-roster-stats em {
+  display: block;
+  font-style: normal;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--jungle-text-dim);
+}
+
+.landing-roster-stats [data-stat="pnl"].is-win {
+  color: var(--jungle-win);
+}
+
+.landing-roster-stats [data-stat="pnl"].is-loss {
+  color: var(--jungle-loss, #ff6b6b);
 }
 
 .landing-roster-live {
