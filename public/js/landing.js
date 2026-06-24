@@ -392,6 +392,8 @@ const goToLandingAuth = (authPanel, mode) => {
   }
   window.location.href = buildLandingLoginPath(resolvedMode);
 };
+
+const createSessionGuard = () => {
   const check = async () => {
     try {
       const [requiredRes, capRes] = await Promise.all([

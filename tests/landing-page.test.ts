@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -26,6 +27,12 @@ test('landing.html includes branding, marquees, and embedded auth panel', () => 
   assert.match(html, /landing-nav-links/);
   assert.match(html, /id="how-it-works"/);
   assert.doesNotMatch(html, /landing-nav-eyebrow/);
+});
+
+test('landing.js parses without syntax errors', () => {
+  assert.doesNotThrow(() => {
+    execFileSync(process.execPath, ['--check', join(publicDir, 'js', 'landing.js')], { stdio: 'pipe' });
+  });
 });
 
 test('landing.js routes header auth through landing login path', () => {
