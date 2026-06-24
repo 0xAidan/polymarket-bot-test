@@ -74,6 +74,21 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Scrollbars hidden project-wide — wheel, trackpad, and touch still scroll */
+html,
+body,
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+  background: transparent;
+}
+
 /* ---------- Utility Classes ---------- */
 .font-serif { font-family: var(--font-serif); }
 .font-mono  { font-family: var(--font-mono); }

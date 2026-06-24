@@ -323,7 +323,7 @@
   gap: 10px;
   padding: 14px;
   z-index: 0;
-  overflow: auto;
+  overflow: hidden;
   animation: landing-showcase-fade-in 0.35s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -581,7 +581,7 @@
   border: 1px solid var(--jungle-border);
   border-radius: 10px;
   background: rgba(28, 29, 46, 0.55);
-  overflow: auto;
+  overflow: hidden;
 }
 
 .l-preview-panel-head {
@@ -776,6 +776,9 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .l-preview-agent {
@@ -1021,12 +1024,6 @@
   overflow-x: auto;
   padding: 4px 2px 6px;
   -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.landing-roster::-webkit-scrollbar {
-  display: none;
 }
 
 .landing-roster-card {
