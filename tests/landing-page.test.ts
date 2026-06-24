@@ -18,6 +18,7 @@ test('landing.html includes branding, marquees, and embedded auth panel', () => 
   assert.match(html, /data-landing-action/);
   assert.match(html, /landing-showcase\.js/);
   assert.match(html, /landing-hero-showcase/);
+  assert.match(html, /showcase-radio-dashboard/);
   assert.match(html, /l-preview-trade-new/);
   assert.match(html, /landing-roster-card/);
   assert.match(html, /landing-motion\.js/);
@@ -48,12 +49,12 @@ test('landing.js uses /login handoff and OIDC screen_hint for signup', () => {
   assert.match(js, /landing-preview/);
 });
 
-test('landing-showcase.js switches hero preview tabs with autoplay', () => {
+test('landing-showcase.js drives hero preview autoplay via radio inputs', () => {
   const js = readFileSync(join(publicDir, 'js', 'landing-showcase.js'), 'utf8');
-  assert.match(js, /setShowcaseTab/);
+  assert.match(js, /selectShowcaseTab/);
+  assert.match(js, /showcase-radio-dashboard/);
   assert.match(js, /SHOWCASE_TABS/);
   assert.match(js, /prefers-reduced-motion/);
-  assert.doesNotMatch(js, /landingWithViewTransition/);
 });
 
 test('landing-motion.js respects reduced motion for marquees', () => {

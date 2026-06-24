@@ -1,27 +1,24 @@
 /**
- * Ditto landing — hero dashboard preview tabs + live mock blink.
+ * Ditto landing — hero showcase autoplay (tabs work via CSS radio inputs).
  */
 
 const SHOWCASE_TABS = ['dashboard', 'copy-list', 'jungle-agents'];
 
+const RADIO_BY_TAB = {
+  dashboard: 'showcase-radio-dashboard',
+  'copy-list': 'showcase-radio-copy-list',
+  'jungle-agents': 'showcase-radio-jungle-agents',
+};
+
 const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-const setShowcaseTab = (root, tabId) => {
-  const tabs = root.querySelectorAll('[data-showcase-tab]');
-  const panels = root.querySelectorAll('[data-showcase-panel]');
-
-  tabs.forEach((tab) => {
-    const isActive = tab.dataset.showcaseTab === tabId;
-    tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
-    tab.classList.toggle('is-active', isActive);
-    tab.tabIndex = isActive ? 0 : -1;
-  });
-
-  panels.forEach((panel) => {
-    const isActive = panel.dataset.showcasePanel === tabId;
-    panel.classList.toggle('is-active', isActive);
-    panel.toggleAttribute('hidden', !isActive);
-  });
+const selectShowcaseTab = (tabId) => {
+  const radioId = RADIO_BY_TAB[tabId];
+  if (!radioId) return false;
+  const radio = document.getElementById(radioId);
+  if (!(radio instanceof HTMLInputElement) || radio.type !== 'radio') return false;
+  radio.checked = true;
+  return true;
 };
 
 const initLandingShowcase = () => {
@@ -31,20 +28,13 @@ const initLandingShowcase = () => {
   let activeIndex = 0;
   let autoplayId;
 
-  const selectTab = (tabId) => {
-    const nextIndex = SHOWCASE_TABS.indexOf(tabId);
-    if (nextIndex < 0) return;
-    activeIndex = nextIndex;
-    setShowcaseTab(root, tabId);
-  };
-
   const startAutoplay = () => {
     if (prefersReducedMotion() || autoplayId) return;
 
     autoplayId = window.setInterval(() => {
       if (root.matches(':hover') || root.matches(':focus-within')) return;
       activeIndex = (activeIndex + 1) % SHOWCASE_TABS.length;
-      setShowcaseTab(root, SHOWCASE_TABS[activeIndex]);
+      selectShowcaseTab(SHOWCASE_TABS[activeIndex]);
     }, 6000);
   };
 
@@ -58,43 +48,23 @@ const initLandingShowcase = () => {
     tab.addEventListener('click', () => {
       const tabId = tab.dataset.showcaseTab;
       if (!tabId) return;
-      selectTab(tabId);
+      const nextIndex = SHOWCASE_TABS.indexOf(tabId);
+      if (nextIndex >= 0) activeIndex = nextIndex;
     });
   });
 
-  const tablist = root.querySelector('[role="tablist"]');
-  if (tablist) {
-    tablist.addEventListener('keydown', (event) => {
-      const tabs = [...root.querySelectorAll('[data-showcase-tab]')];
-      const currentIndex = tabs.findIndex((tab) => tab.getAttribute('aria-selected') === 'true');
-      if (currentIndex < 0) return;
-
-      let nextIndex = currentIndex;
-      if (event.key === 'ArrowRight') {
-        nextIndex = (currentIndex + 1) % tabs.length;
-      } else if (event.key === 'ArrowLeft') {
-        nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
-      } else if (event.key === 'Home') {
-        nextIndex = 0;
-      } else if (event.key === 'End') {
-        nextIndex = tabs.length - 1;
-      } else {
-        return;
-      }
-
-      event.preventDefault();
-      const nextTab = tabs[nextIndex];
-      const tabId = nextTab?.dataset.showcaseTab;
-      if (!tabId) return;
-      selectTab(tabId);
-      nextTab.focus();
-    });
-  }
+  root.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || !target.classList.contains('landing-showcase-radio')) return;
+    const tabId = SHOWCASE_TABS.find((id) => RADIO_BY_TAB[id] === target.id);
+    if (!tabId) return;
+    const nextIndex = SHOWCASE_TABS.indexOf(tabId);
+    if (nextIndex >= 0) activeIndex = nextIndex;
+  });
 
   root.addEventListener('mouseenter', stopAutoplay);
   root.addEventListener('mouseleave', startAutoplay);
 
-  setShowcaseTab(root, SHOWCASE_TABS[activeIndex]);
   startAutoplay();
 };
 
