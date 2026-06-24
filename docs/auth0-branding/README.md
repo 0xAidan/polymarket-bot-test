@@ -8,13 +8,9 @@ Jungle Agents design system (`public/shared/jungle-brand.css`).
 | Piece | Value |
 | --- | --- |
 | Tenant | `dev-rjdevt32s21vhh86.us.auth0.com` (account linked to the owner's GitHub) |
-| Application | "Jungle Agents" (Regular Web App) |
-| Callbacks | `http://localhost:3000/auth/callback`, `https://ditto.jungle.win/auth/callback` |
-| Logout URLs | `http://localhost:3000`, `https://ditto.jungle.win` |
-| Tenant friendly name | "Jungle Agents" (replaces the raw `dev-…` name on screens/emails) |
-| Logo | gold jungle-eyes mark, served from this repo (raw GitHub URL pinned to a commit) |
-| Theme | dark navy page (#161721), card #1C1D2E, gold primary (#E5B80B) — see `theme.json` |
-| Custom text | "Log in to copy Jungle Agents" / "Sign up to copy Jungle Agents" — see `custom-text-*.json` |
+| Application | "Ditto" (Regular Web App; renamed from legacy "Jungle Agents") |
+| Tenant friendly name | "Ditto" |
+| Custom text | "Log in to Ditto" / "Create your Ditto account" — see `custom-text-*.json` (includes `login-id` + `signup-id`) |
 
 ## How to re-apply (e.g. on a new tenant)
 
@@ -69,8 +65,8 @@ Current recommended copy (also in the JSON files):
 
 | Screen | Headline | Subtext |
 | --- | --- | --- |
-| Login | Log in to copy Jungle Agents | Ditto mirrors their Polymarket trades into your wallet. |
-| Signup | Sign up to copy Jungle Agents | Create an account, pick your agents, connect your wallet. |
+| Login | Log in to Ditto | Copy any Polymarket trader into your wallet. |
+| Signup | Create your Ditto account | Pick traders to follow and connect your wallet. |
 | Login alternate action | No account yet? | Sign up |
 
 ## Fix: Auth0 development keys

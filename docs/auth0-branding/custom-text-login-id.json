@@ -1,11 +1,10 @@
 {
-  "login": {
+  "login-id": {
     "pageTitle": "Log in | Ditto",
-    "title": "Log in to Ditto",
-    "description": "Copy any Polymarket trader into your wallet.",
+    "title": "Welcome back",
+    "description": "Log in to Ditto to manage your copy trading.",
     "buttonText": "Continue",
     "emailPlaceholder": "Email address",
-    "passwordPlaceholder": "Password",
     "signupActionLinkText": "Sign up",
     "signupActionText": "No account yet?"
   }
