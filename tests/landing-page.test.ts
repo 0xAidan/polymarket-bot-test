@@ -28,10 +28,13 @@ test('landing.html includes branding, marquees, and embedded auth panel', () => 
   assert.doesNotMatch(html, /landing-nav-eyebrow/);
 });
 
-test('landing.js sends header auth buttons directly to OIDC handoff', () => {
+test('landing.js routes header auth through landing login path', () => {
   const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
-  assert.match(js, /'nav-login': \(\) => authPanel\.handoffToOidc\('login'\)/);
-  assert.match(js, /'nav-signup': \(\) => authPanel\.handoffToOidc\('signup'\)/);
+  assert.match(js, /buildLandingLoginPath/);
+  assert.match(js, /goToLandingAuth/);
+  assert.match(js, /'nav-login': \(\) => goToLandingAuth\(authPanel, 'login'\)/);
+  assert.match(js, /'nav-signup': \(\) => goToLandingAuth\(authPanel, 'signup'\)/);
+  assert.doesNotMatch(js, /'nav-login': \(\) => authPanel\.handoffToOidc\('login'\)/);
 });
 
 test('landing.js uses document-level click delegation for header auth buttons', () => {
@@ -117,6 +120,11 @@ test('server.ts login redirect does not force get-started scroll', () => {
   const server = readFileSync(join(rootDir, 'src', 'server.ts'), 'utf8');
   assert.match(server, /app\.get\('\/login'/);
   assert.doesNotMatch(server, /params\.set\('section', 'get-started'\)/);
+});
+
+test('landing.js scrolls to auth panel when returnTo is present', () => {
+  const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
+  assert.match(js, /params\.has\('returnTo'\)/);
 });
 
 test('landing.js only auto-scrolls when section=get-started is present', () => {
