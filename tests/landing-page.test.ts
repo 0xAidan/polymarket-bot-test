@@ -28,6 +28,14 @@ test('landing.html includes branding, marquees, and embedded auth panel', () => 
   assert.doesNotMatch(html, /landing-nav-eyebrow/);
 });
 
+test('landing.js uses document-level click delegation for header auth buttons', () => {
+  const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
+  assert.match(js, /document\.addEventListener\('click'/);
+  assert.match(js, /'nav-login'/);
+  assert.match(js, /'nav-signup'/);
+  assert.doesNotMatch(js, /main\.addEventListener\('click'/);
+});
+
 test('landing.js uses composition controllers, parallel session fetch, and view transitions', () => {
   const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
   assert.match(js, /createAuthPanelController/);

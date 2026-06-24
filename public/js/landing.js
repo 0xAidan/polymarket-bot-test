@@ -403,9 +403,6 @@ const createSessionGuard = () => {
 };
 
 const wireLandingUi = (authPanel) => {
-  const main = document.getElementById('main-content');
-  if (!main) return;
-
   const authActions = {
     'nav-login': () => authPanel.scrollToGetStarted('login'),
     'nav-signup': () => authPanel.scrollToGetStarted('signup'),
@@ -417,7 +414,7 @@ const wireLandingUi = (authPanel) => {
     'auth-continue': () => authPanel.handoffToOidc(authPanel.getMode()),
   };
 
-  main.addEventListener('click', (event) => {
+  document.addEventListener('click', (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
 
