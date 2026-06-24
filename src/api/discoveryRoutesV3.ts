@@ -10,6 +10,7 @@
  */
 import { Router, Request, Response, NextFunction } from 'express';
 import type Database from 'better-sqlite3';
+import { config } from '../config.js';
 import { isDiscoveryV3Enabled } from '../discovery/v3/featureFlag.js';
 import { getDiscoveryCoverageContract } from '../discovery/v3/coverageContract.js';
 import { TierName } from '../discovery/v3/types.js';
@@ -110,6 +111,14 @@ export interface V3RouterDeps {
 /**
  * Gate for endpoints that MUTATE user state (track, watchlist, dismiss).
  */
+const mutationAuthFailure = (res: Response): void => {
+  res.status(401).json({
+    success: false,
+    error: 'Authentication required',
+    loginUrl: '/login'
+  });
+};
+
 export const requireAuthForMutations = (req: Request, res: Response, next: NextFunction): void => {
   const oidc = (req as any).oidc;
   if (oidc && typeof oidc.isAuthenticated === 'function') {
@@ -117,14 +126,22 @@ export const requireAuthForMutations = (req: Request, res: Response, next: NextF
       next();
       return;
     }
-    res.status(401).json({
-      success: false,
-      error: 'Authentication required',
-      loginUrl: '/auth/login'
-    });
+    mutationAuthFailure(res);
     return;
   }
-  next();
+
+  const token = req.headers.authorization?.replace(/^Bearer\s+/i, '').trim();
+  if (config.apiSecret && token === config.apiSecret) {
+    next();
+    return;
+  }
+
+  if (process.env.NODE_ENV !== 'production' && !config.apiSecret && !config.requireApiSecret) {
+    next();
+    return;
+  }
+
+  mutationAuthFailure(res);
 };
 
 export function createDiscoveryV3Router(deps: V3RouterDeps): Router {

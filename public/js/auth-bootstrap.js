@@ -48,15 +48,11 @@ const hideAuthModal = () => {
 };
 
 window.redirectToMagicLinkLogin = () => {
-  const returnTo = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
-  window.location.href = `/auth/login?returnTo=${returnTo}`;
+  const returnTo = encodeURIComponent('/app');
+  window.location.href = `/login?returnTo=${returnTo}`;
 };
 
-const escapeHtml = (s) => String(s)
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;');
+const escapeHtml = window.escapeHtml;
 
 window.setupTenantSwitcher = (meData) => {
   const sel = document.getElementById('tenantSwitcher');
