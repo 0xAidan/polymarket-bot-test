@@ -23,6 +23,26 @@ test('landing.html includes branding, marquees, and embedded auth panel', () => 
   assert.match(html, /l-preview-trade-new/);
   assert.match(html, /landing-roster-shell/);
   assert.match(html, /landing-motion\.js/);
+  assert.match(html, /landing-nav-links/);
+  assert.match(html, /id="how-it-works"/);
+  assert.doesNotMatch(html, /landing-nav-eyebrow/);
+});
+
+test('landing.js routes header auth through landing login path', () => {
+  const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
+  assert.match(js, /buildLandingLoginPath/);
+  assert.match(js, /goToLandingAuth/);
+  assert.match(js, /'nav-login': \(\) => goToLandingAuth\(authPanel, 'login'\)/);
+  assert.match(js, /'nav-signup': \(\) => goToLandingAuth\(authPanel, 'signup'\)/);
+  assert.doesNotMatch(js, /'nav-login': \(\) => authPanel\.handoffToOidc\('login'\)/);
+});
+
+test('landing.js uses document-level click delegation for header auth buttons', () => {
+  const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
+  assert.match(js, /document\.addEventListener\('click'/);
+  assert.match(js, /'nav-login'/);
+  assert.match(js, /'nav-signup'/);
+  assert.doesNotMatch(js, /main\.addEventListener\('click'/);
 });
 
 test('landing.js uses composition controllers, parallel session fetch, and view transitions', () => {
@@ -102,6 +122,11 @@ test('server.ts login redirect does not force get-started scroll', () => {
   assert.doesNotMatch(server, /params\.set\('section', 'get-started'\)/);
 });
 
+test('landing.js scrolls to auth panel when returnTo is present', () => {
+  const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
+  assert.match(js, /params\.has\('returnTo'\)/);
+});
+
 test('landing.js only auto-scrolls when section=get-started is present', () => {
   const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
   assert.match(js, /get\('section'\) === 'get-started'/);
@@ -120,6 +145,23 @@ test('server.ts skips static index for landing and app routes', () => {
   const server = readFileSync(join(rootDir, 'src', 'server.ts'), 'utf8');
   assert.match(server, /index: false/);
   assert.match(server, /urlPath === '\/'/);
+});
+
+test('landing.css compacts get-started section into a centered shell', () => {
+  const css = readFileSync(join(publicDir, 'landing.css'), 'utf8');
+  assert.match(css, /\.landing-get-started-grid/);
+  assert.match(css, /width:\s*min\(960px,\s*100%\)/);
+  assert.match(css, /\.landing-get-started-panel/);
+});
+
+test('landing.css uses shared shell inset for wide-screen layout', () => {
+  const css = readFileSync(join(publicDir, 'landing.css'), 'utf8');
+  assert.match(css, /--landing-shell-max/);
+  assert.match(css, /--landing-shell-inset/);
+  assert.match(css, /\.landing-nav\.auth-shell-nav/);
+  assert.match(css, /\.landing-nav-links/);
+  assert.doesNotMatch(css, /max-width:\s*1320px/);
+  assert.doesNotMatch(css, /max-width:\s*1200px/);
 });
 
 test('auth-experience.css defines shared auth shell primitives', () => {

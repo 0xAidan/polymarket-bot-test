@@ -367,7 +367,31 @@ const createRosterPresenter = (showcaseAgents) => {
   return { loadPreview };
 };
 
-const createSessionGuard = () => {
+const buildLandingLoginPath = (mode) => {
+  const params = new URLSearchParams({ returnTo: '/app' });
+  if (mode === 'signup') {
+    params.set('mode', 'signup');
+  }
+  return `/login?${params.toString()}`;
+};
+
+const goToLandingAuth = (authPanel, mode) => {
+  const resolvedMode = mode === 'signup' ? 'signup' : 'login';
+  if (window.location.pathname === '/') {
+    authPanel.scrollToGetStarted(resolvedMode);
+    const params = new URLSearchParams(window.location.search);
+    params.set('returnTo', '/app');
+    if (resolvedMode === 'signup') {
+      params.set('mode', 'signup');
+    } else {
+      params.delete('mode');
+    }
+    const qs = params.toString();
+    window.history.replaceState({}, '', qs ? `/?${qs}` : '/');
+    return;
+  }
+  window.location.href = buildLandingLoginPath(resolvedMode);
+};
   const check = async () => {
     try {
       const [requiredRes, capRes] = await Promise.all([
@@ -403,12 +427,9 @@ const createSessionGuard = () => {
 };
 
 const wireLandingUi = (authPanel) => {
-  const main = document.getElementById('main-content');
-  if (!main) return;
-
   const authActions = {
-    'nav-login': () => authPanel.scrollToGetStarted('login'),
-    'nav-signup': () => authPanel.scrollToGetStarted('signup'),
+    'nav-login': () => goToLandingAuth(authPanel, 'login'),
+    'nav-signup': () => goToLandingAuth(authPanel, 'signup'),
     'hero-login': () => authPanel.scrollToGetStarted('login'),
     'hero-signup': () => authPanel.scrollToGetStarted('signup'),
     'cta-signup': () => authPanel.scrollToGetStarted('signup'),
@@ -417,7 +438,7 @@ const wireLandingUi = (authPanel) => {
     'auth-continue': () => authPanel.handoffToOidc(authPanel.getMode()),
   };
 
-  main.addEventListener('click', (event) => {
+  document.addEventListener('click', (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
 
@@ -438,7 +459,7 @@ const initLandingFromQuery = (authPanel) => {
   const mode = getAuthMode();
   authPanel.setMode(mode);
 
-  if (params.get('section') === 'get-started') {
+  if (params.get('section') === 'get-started' || params.has('returnTo')) {
     window.requestAnimationFrame(() => {
       authPanel.scrollToGetStarted(mode, { behavior: 'auto' });
     });
