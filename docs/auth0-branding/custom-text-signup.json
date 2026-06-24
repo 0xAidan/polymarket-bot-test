@@ -1,8 +1,8 @@
 {
   "signup": {
     "pageTitle": "Sign up | Ditto",
-    "title": "Sign up to copy Jungle Agents",
-    "description": "Create an account, pick your agents, connect your wallet.",
+    "title": "Create your Ditto account",
+    "description": "Pick traders to follow and connect your wallet.",
     "buttonText": "Create account",
     "emailPlaceholder": "Email address",
     "passwordPlaceholder": "Password",

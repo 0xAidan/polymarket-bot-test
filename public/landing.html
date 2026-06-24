@@ -16,16 +16,24 @@
   <header class="landing-nav auth-shell-nav" role="banner">
     <a href="/" class="landing-nav-brand auth-shell-brand" aria-label="Ditto home">
       <img src="/shared/logo-gold.png" alt="" class="landing-nav-logo auth-shell-logo" width="36" height="36">
-      <div>
-        <div class="landing-nav-eyebrow auth-shell-eyebrow">DITTO</div>
-        <div class="landing-nav-title auth-shell-title">Ditto</div>
-      </div>
+      <span class="landing-nav-title auth-shell-title">Ditto</span>
+      <span class="landing-nav-tagline">Polymarket copy trading</span>
     </a>
+    <nav class="landing-nav-links" aria-label="Page sections">
+      <a href="#jungle-agents" class="landing-nav-link">Jungle Agents</a>
+      <a href="#how-it-works" class="landing-nav-link">How it works</a>
+      <a href="#features" class="landing-nav-link">Features</a>
+    </nav>
     <nav class="landing-nav-actions auth-shell-actions" aria-label="Account">
       <button type="button" class="landing-btn auth-shell-btn" id="navLogin" data-landing-action="nav-login">Log in</button>
       <button type="button" class="landing-btn landing-btn-primary auth-shell-btn auth-shell-btn-primary" id="navSignup" data-landing-action="nav-signup">Get started</button>
     </nav>
   </header>
+
+  <aside class="ditto-beta-notice" role="note" aria-label="Beta disclaimer">
+    <span class="ditto-beta-notice-badge">Beta</span>
+    <p class="ditto-beta-notice-copy">Ditto is experimental beta software. Use at your own <strong>discretion and risk</strong> — not recommended with major assets.</p>
+  </aside>
 
   <main class="landing-main" id="main-content">
     <section class="landing-hero" aria-labelledby="hero-title">
@@ -78,7 +86,7 @@
           </div>
           <div class="landing-showcase-viewport">
             <div class="landing-showcase-panel" id="showcase-panel-dashboard" role="tabpanel" aria-labelledby="showcase-tab-dashboard" data-showcase-panel="dashboard">
-              <div class="l-preview-app">
+              <div class="l-preview-app l-preview-app--dashboard">
                 <div class="l-preview-topbar">
                   <img src="/shared/logo-gold.png" alt="" width="20" height="20">
                   <span class="l-preview-topbar-title">Ditto</span>
@@ -247,7 +255,7 @@
       </div>
     </div>
 
-    <section class="landing-section" aria-labelledby="roster-title">
+    <section class="landing-section" id="jungle-agents" aria-labelledby="roster-title">
       <p class="landing-section-kicker">Who to copy</p>
       <h2 id="roster-title" class="landing-section-title">Jungle Agents or any wallet</h2>
       <p class="landing-section-lead">Follow vetted traders from the Jungle roster — or paste any Polymarket wallet address you want to mirror.</p>
@@ -289,7 +297,7 @@
       </div>
     </section>
 
-    <section class="landing-section" aria-labelledby="steps-title">
+    <section class="landing-section" id="how-it-works" aria-labelledby="steps-title">
       <p class="landing-section-kicker">How it works</p>
       <h2 id="steps-title" class="landing-section-title">Up and running in three steps</h2>
       <div class="landing-steps">
@@ -311,7 +319,7 @@
       </div>
     </section>
 
-    <section class="landing-section" aria-labelledby="features-title">
+    <section class="landing-section" id="features" aria-labelledby="features-title">
       <p class="landing-section-kicker">What you get</p>
       <h2 id="features-title" class="landing-section-title">What you get with Ditto</h2>
       <div class="landing-features">
@@ -335,9 +343,9 @@
         <div>
           <p class="landing-section-kicker">Get started</p>
           <h2 id="get-started-title" class="landing-section-title">Start copying in minutes</h2>
-          <p class="landing-section-lead">Create an account, connect your wallet, and pick traders to follow — Jungle Agents or any address.</p>
+          <p class="landing-section-lead">Create an account, connect your wallet, and pick traders to follow — curated agents or any address.</p>
         </div>
-        <div class="auth-shell-panel noise-overlay" role="region" aria-label="Sign in">
+        <div class="auth-shell-panel noise-overlay landing-get-started-panel" role="region" aria-label="Sign in">
           <div class="auth-shell-tabs" role="tablist" aria-label="Account mode">
             <button type="button" class="auth-shell-tab" id="authTabLogin" role="tab" aria-selected="true" aria-controls="authPanelBody" data-landing-action="auth-tab-login">Log in</button>
             <button type="button" class="auth-shell-tab" id="authTabSignup" role="tab" aria-selected="false" aria-controls="authPanelBody" data-landing-action="auth-tab-signup">Sign up</button>
@@ -347,7 +355,7 @@
           <button type="button" class="landing-btn landing-btn-primary auth-shell-btn auth-shell-btn-primary" id="authPanelContinue" style="width:100%" data-landing-action="auth-continue">Continue</button>
           <div class="auth-shell-trust">
             <span class="auth-shell-chip">Copy any wallet</span>
-            <span class="auth-shell-chip">Curated Jungle Agents</span>
+            <span class="auth-shell-chip">Curated traders</span>
             <span class="auth-shell-chip">Encrypted keys</span>
             <span class="auth-shell-chip">Live trade mirroring</span>
           </div>
@@ -356,16 +364,7 @@
     </section>
 
     <section class="landing-cta-band" aria-label="Call to action">
-      <div class="landing-marquee-wrap" style="border:none;margin-bottom:24px" aria-hidden="true">
-        <div class="landing-marquee">
-          <div class="landing-marquee-track">
-            <span class="landing-marquee-item">Start copying</span>
-            <span class="landing-marquee-item">Start copying</span>
-            <span class="landing-marquee-item">Start copying</span>
-            <span class="landing-marquee-item">Start copying</span>
-          </div>
-        </div>
-      </div>
+      <p class="landing-cta-band-lead">Create your account and mirror Polymarket traders in minutes.</p>
       <button type="button" class="landing-btn landing-btn-primary" id="ctaSignup" data-landing-action="cta-signup">Get started</button>
     </section>
   </main>
@@ -383,8 +382,8 @@
   <script src="/js/sanitizeReturnTo.js" defer></script>
   <script src="/js/escapeHtml.js" defer></script>
   <script src="/js/landing-transitions.js" defer></script>
-  <script src="/js/landing.js" defer></script>
   <script src="/js/landing-showcase.js" defer></script>
+  <script src="/js/landing.js" defer></script>
   <script src="/js/landing-motion.js" defer></script>
 </body>
 </html>

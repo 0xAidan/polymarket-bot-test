@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "bootstrapOk": true,
+  "goldskyEnabled": false,
+  "rpcPollEnabled": true,
+  "duckdbPath": "/mnt/HC_Volume_105468668/discovery_v3.duckdb",
+  "updatedAt": 1781052411
+}

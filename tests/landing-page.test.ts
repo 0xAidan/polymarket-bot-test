@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -13,6 +14,8 @@ test('landing.html includes branding, marquees, and embedded auth panel', () => 
   assert.match(html, /id="get-started"/);
   assert.match(html, /id="authPanelContinue"/);
   assert.match(html, /landing-marquee/);
+  assert.match(html, /landing-cta-band-lead/);
+  assert.doesNotMatch(html, /Start copying<\/span>\s*<span class="landing-marquee-item">Start copying/);
   assert.match(html, /any wallet address/);
   assert.match(html, /landing-transitions\.js/);
   assert.match(html, /data-landing-action/);
@@ -23,6 +26,30 @@ test('landing.html includes branding, marquees, and embedded auth panel', () => 
   assert.match(html, /l-preview-trade-new/);
   assert.match(html, /landing-roster-shell/);
   assert.match(html, /landing-motion\.js/);
+  assert.match(html, /landing-nav-links/);
+  assert.match(html, /id="how-it-works"/);
+  assert.doesNotMatch(html, /landing-nav-eyebrow/);
+});
+
+test('landing.js parses without syntax errors', () => {
+  assert.doesNotThrow(() => {
+    execFileSync(process.execPath, ['--check', join(publicDir, 'js', 'landing.js')], { stdio: 'pipe' });
+  });
+});
+
+test('landing.js sends header auth buttons directly to OIDC handoff', () => {
+  const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
+  assert.match(js, /'nav-login': \(\) => authPanel\.handoffToOidc\('login'\)/);
+  assert.match(js, /'nav-signup': \(\) => authPanel\.handoffToOidc\('signup'\)/);
+  assert.doesNotMatch(js, /goToLandingAuth/);
+});
+
+test('landing.js uses document-level click delegation for header auth buttons', () => {
+  const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
+  assert.match(js, /document\.addEventListener\('click'/);
+  assert.match(js, /'nav-login'/);
+  assert.match(js, /'nav-signup'/);
+  assert.doesNotMatch(js, /main\.addEventListener\('click'/);
 });
 
 test('landing.js uses composition controllers, parallel session fetch, and view transitions', () => {
@@ -55,6 +82,14 @@ test('landing.js uses public landing API for roster and showcase', () => {
   assert.match(js, /loadRosterAgentStats/);
 });
 
+test('landing-showcase.js loads Jungle Agents preview independently', () => {
+  const js = readFileSync(join(publicDir, 'js', 'landing-showcase.js'), 'utf8');
+  assert.match(js, /ensureLandingShowcaseAgents/);
+  assert.match(js, /renderLandingShowcaseAgents/);
+  assert.match(js, /\/api\/public\/landing-preview/);
+  assert.match(js, /showcaseJungleAgents/);
+});
+
 test('landing-showcase.js drives hero preview autoplay via radio inputs', () => {
   const js = readFileSync(join(publicDir, 'js', 'landing-showcase.js'), 'utf8');
   assert.match(js, /selectShowcaseTab/);
@@ -63,13 +98,27 @@ test('landing-showcase.js drives hero preview autoplay via radio inputs', () => 
   assert.match(js, /prefers-reduced-motion/);
 });
 
-test('landing-motion.js respects reduced motion for marquees', () => {
+test('landing-motion.js expands marquee tracks to fill the viewport', () => {
   const js = readFileSync(join(publicDir, 'js', 'landing-motion.js'), 'utf8');
+  assert.match(js, /minTrackWidth/);
+  assert.match(js, /cloneNode\(true\)/);
   assert.match(js, /prefers-reduced-motion/);
   assert.match(js, /IntersectionObserver/);
   assert.match(js, /initRosterCursorScroll/);
-  assert.match(js, /IDLE_SPEED/);
-  assert.match(js, /pointerRatio/);
+  assert.match(js, /DRIFT_SPEED/);
+  assert.match(js, /driftDirection/);
+  assert.match(js, /^\(\(\) => \{/m);
+});
+
+test('landing scripts avoid duplicate global prefersReducedMotion declarations', () => {
+  const transitionJs = readFileSync(join(publicDir, 'js', 'landing-transitions.js'), 'utf8');
+  const motionJs = readFileSync(join(publicDir, 'js', 'landing-motion.js'), 'utf8');
+  const showcaseJs = readFileSync(join(publicDir, 'js', 'landing-showcase.js'), 'utf8');
+  assert.match(transitionJs, /^const prefersReducedMotion/m);
+  assert.doesNotMatch(motionJs, /^const prefersReducedMotion/m);
+  assert.doesNotMatch(showcaseJs, /^const prefersReducedMotion/m);
+  assert.match(motionJs, /^\(\(\) => \{/m);
+  assert.match(showcaseJs, /^\(\(\) => \{/m);
 });
 
 test('auth-bootstrap redirects unauthenticated users to /login not /auth/login', () => {
@@ -84,6 +133,14 @@ test('api.js 401 handler routes to /login with /app returnTo', () => {
   assert.match(js, /encodeURIComponent\('\/app'\)/);
 });
 
+test('server.ts login route redirects to Auth0 login', () => {
+  const server = readFileSync(join(rootDir, 'src', 'server.ts'), 'utf8');
+  assert.match(server, /app\.get\('\/login'/);
+  assert.match(server, /redirectToOidcAuth/);
+  assert.match(server, /\/auth\/login\?\$\{params\.toString\(\)\}/);
+  assert.doesNotMatch(server, /redirectToLandingAuth/);
+});
+
 test('server.ts login redirect does not force get-started scroll', () => {
   const server = readFileSync(join(rootDir, 'src', 'server.ts'), 'utf8');
   assert.match(server, /app\.get\('\/login'/);
@@ -93,7 +150,7 @@ test('server.ts login redirect does not force get-started scroll', () => {
 test('landing.js only auto-scrolls when section=get-started is present', () => {
   const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
   assert.match(js, /get\('section'\) === 'get-started'/);
-  assert.doesNotMatch(js, /params\.has\('mode'\)/);
+  assert.doesNotMatch(js, /params\.has\('returnTo'\)/);
 });
 
 test('server.ts serves landing at / and dashboard at /app', () => {
@@ -110,6 +167,23 @@ test('server.ts skips static index for landing and app routes', () => {
   assert.match(server, /urlPath === '\/'/);
 });
 
+test('landing.css compacts get-started section into a centered shell', () => {
+  const css = readFileSync(join(publicDir, 'landing.css'), 'utf8');
+  assert.match(css, /\.landing-get-started-grid/);
+  assert.match(css, /width:\s*min\(960px,\s*100%\)/);
+  assert.match(css, /\.landing-get-started-panel/);
+});
+
+test('landing.css uses shared shell inset for wide-screen layout', () => {
+  const css = readFileSync(join(publicDir, 'landing.css'), 'utf8');
+  assert.match(css, /--landing-shell-max/);
+  assert.match(css, /--landing-shell-inset/);
+  assert.match(css, /\.landing-nav\.auth-shell-nav/);
+  assert.match(css, /\.landing-nav-links/);
+  assert.doesNotMatch(css, /max-width:\s*1320px/);
+  assert.doesNotMatch(css, /max-width:\s*1200px/);
+});
+
 test('auth-experience.css defines shared auth shell primitives', () => {
   const css = readFileSync(join(publicDir, 'shared', 'auth-experience.css'), 'utf8');
   assert.match(css, /\.auth-shell-panel/);
@@ -119,4 +193,16 @@ test('auth-experience.css defines shared auth shell primitives', () => {
 test('index.html loads auth-experience.css for unified auth gate styling', () => {
   const html = readFileSync(join(publicDir, 'index.html'), 'utf8');
   assert.match(html, /auth-experience\.css/);
+});
+
+test('landing and dashboard show beta risk disclaimer', () => {
+  const landingHtml = readFileSync(join(publicDir, 'landing.html'), 'utf8');
+  const indexHtml = readFileSync(join(publicDir, 'index.html'), 'utf8');
+  const brandCss = readFileSync(join(publicDir, 'shared', 'jungle-brand.css'), 'utf8');
+
+  assert.match(landingHtml, /ditto-beta-notice/);
+  assert.match(indexHtml, /ditto-beta-notice/);
+  assert.match(landingHtml, /discretion and risk/i);
+  assert.match(indexHtml, /not recommended with major assets/i);
+  assert.match(brandCss, /\.ditto-beta-notice/);
 });

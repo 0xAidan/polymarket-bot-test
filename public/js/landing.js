@@ -195,50 +195,22 @@ const loadRosterAgentStats = (agents) => loadAgentPerformanceStats(
 );
 
 const createShowcaseAgentsPresenter = () => {
-  const grid = document.getElementById('showcaseJungleAgents');
-  if (!grid) {
-    return { renderAgents: () => {} };
-  }
-
   const renderAgents = (agents) => {
-    const showcaseAgents = (agents || [])
-      .filter((agent) => !agent.addressPending && agent.polymarketAddress)
-      .slice(0, 4);
-
-    if (!showcaseAgents.length) {
-      grid.innerHTML = '<p class="l-preview-agents-status">Create an account to browse the full roster.</p>';
+    if (typeof window.renderLandingShowcaseAgents === 'function') {
+      window.renderLandingShowcaseAgents(agents);
       return;
     }
 
-    grid.innerHTML = showcaseAgents.map((agent, index) => {
-      const name = escapeHtml(agent.displayName || 'Agent');
-      const tag = escapeHtml(buildAgentTagline(agent));
-      const avatar = renderAgentAvatar(agent);
-      const pulseClass = index === 0 ? ' l-preview-trade-new' : '';
-      const liveDot = index === 0
-        ? '<span class="l-preview-live pulse-dot landing-showcase-live-blink" aria-hidden="true"></span>'
-        : '';
+    const grid = document.getElementById('showcaseJungleAgents');
+    if (!grid) return;
 
-      return `
-        <article class="l-preview-agent glow-border${pulseClass}" data-showcase-agent-id="${escapeHtml(agent.id)}">
-          <div class="l-preview-agent-top">
-            ${avatar}
-            <div>
-              <strong>${name}</strong>
-              <span class="l-preview-agent-tag">${tag}</span>
-            </div>
-            ${liveDot}
-          </div>
-          <div class="l-preview-agent-stats">
-            <span><em>PnL</em> <span data-stat="pnl">…</span></span>
-            <span><em>Win</em> <span data-stat="win">…</span></span>
-            <span><em>ROI</em> <span data-stat="roi">…</span></span>
-          </div>
-        </article>
-      `;
-    }).join('');
+    const showcaseAgents = (agents || [])
+      .filter((agent) => !agent.addressPending && agent.polymarketAddress)
+      .slice(0, 6);
 
-    void loadShowcaseAgentStats(showcaseAgents);
+    if (!showcaseAgents.length) {
+      grid.innerHTML = '<p class="l-preview-agents-status">Sign up to browse the full trader roster.</p>';
+    }
   };
 
   return { renderAgents };
@@ -291,6 +263,7 @@ const createRosterPresenter = (showcaseAgents) => {
       }).join('');
 
       void loadRosterAgentStats(agents);
+      document.dispatchEvent(new CustomEvent('landing-roster-updated'));
     };
 
     if (typeof window.landingWithViewTransition === 'function') {
@@ -392,12 +365,9 @@ const createSessionGuard = () => {
 };
 
 const wireLandingUi = (authPanel) => {
-  const main = document.getElementById('main-content');
-  if (!main) return;
-
   const authActions = {
-    'nav-login': () => authPanel.scrollToGetStarted('login'),
-    'nav-signup': () => authPanel.scrollToGetStarted('signup'),
+    'nav-login': () => authPanel.handoffToOidc('login'),
+    'nav-signup': () => authPanel.handoffToOidc('signup'),
     'hero-login': () => authPanel.scrollToGetStarted('login'),
     'hero-signup': () => authPanel.scrollToGetStarted('signup'),
     'cta-signup': () => authPanel.scrollToGetStarted('signup'),
@@ -406,7 +376,7 @@ const wireLandingUi = (authPanel) => {
     'auth-continue': () => authPanel.handoffToOidc(authPanel.getMode()),
   };
 
-  main.addEventListener('click', (event) => {
+  document.addEventListener('click', (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
 
