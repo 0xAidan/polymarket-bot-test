@@ -70,6 +70,18 @@ test('landing-motion.js respects reduced motion for marquees', () => {
   assert.match(js, /initRosterCursorScroll/);
   assert.match(js, /IDLE_SPEED/);
   assert.match(js, /pointerRatio/);
+  assert.match(js, /^\(\(\) => \{/m);
+});
+
+test('landing scripts avoid duplicate global prefersReducedMotion declarations', () => {
+  const transitionJs = readFileSync(join(publicDir, 'js', 'landing-transitions.js'), 'utf8');
+  const motionJs = readFileSync(join(publicDir, 'js', 'landing-motion.js'), 'utf8');
+  const showcaseJs = readFileSync(join(publicDir, 'js', 'landing-showcase.js'), 'utf8');
+  assert.match(transitionJs, /^const prefersReducedMotion/m);
+  assert.doesNotMatch(motionJs, /^const prefersReducedMotion/m);
+  assert.doesNotMatch(showcaseJs, /^const prefersReducedMotion/m);
+  assert.match(motionJs, /^\(\(\) => \{/m);
+  assert.match(showcaseJs, /^\(\(\) => \{/m);
 });
 
 test('auth-bootstrap redirects unauthenticated users to /login not /auth/login', () => {
