@@ -220,7 +220,7 @@ test('landing and dashboard show beta risk disclaimer', () => {
 
   assert.match(landingHtml, /ditto-beta-notice/);
   assert.match(indexHtml, /ditto-beta-notice/);
-  assert.match(landingHtml, /small test amounts/i);
-  assert.match(indexHtml, /stick to.*small test amounts/i);
+  assert.match(landingHtml, /fresh wallet/i);
+  assert.match(indexHtml, /not your main funds/i);
   assert.match(brandCss, /\.ditto-beta-notice/);
 });
