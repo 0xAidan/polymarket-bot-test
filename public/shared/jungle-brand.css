@@ -232,3 +232,44 @@ body,
   transition: width 0.6s ease;
 }
 
+/* Beta disclaimer — landing + dashboard */
+.ditto-beta-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  width: 100%;
+  padding: 10px 20px;
+  border-block: 1px solid rgba(229, 184, 11, 0.28);
+  background: rgba(229, 184, 11, 0.07);
+  color: var(--jungle-text-muted, rgba(255, 255, 255, 0.65));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.ditto-beta-notice-badge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(229, 184, 11, 0.45);
+  background: rgba(229, 184, 11, 0.12);
+  color: var(--jungle-gold, #e5b80b);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.ditto-beta-notice-copy {
+  margin: 0;
+  max-width: 72ch;
+}
+
+.ditto-beta-notice-copy strong {
+  color: var(--jungle-text, rgba(255, 255, 255, 0.92));
+  font-weight: 500;
+}
+
