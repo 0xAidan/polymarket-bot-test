@@ -99,6 +99,21 @@
   line-height: 1.7;
 }
 
+.landing-hero-em {
+  color: var(--jungle-text);
+  font-weight: 500;
+}
+
+.landing-hero-note {
+  margin: 14px 0 0;
+  max-width: 34rem;
+  color: var(--jungle-accent);
+  font-family: var(--jungle-font-mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .landing-hero-ctas {
   display: flex;
   flex-wrap: wrap;

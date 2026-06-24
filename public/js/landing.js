@@ -4,13 +4,13 @@
 
 const AUTH_COPY = {
   login: {
-    title: 'Log in to copy Jungle Agents',
-    description: 'Ditto mirrors their Polymarket trades into your wallet.',
+    title: 'Log in to Ditto',
+    description: 'Follow Jungle Agents or paste any Polymarket wallet address into your copy list.',
     button: 'Continue',
   },
   signup: {
-    title: 'Sign up to copy Jungle Agents',
-    description: 'Create an account, pick your agents, connect your wallet.',
+    title: 'Create your Ditto account',
+    description: 'Start with curated agents — or add any wallet address you want to mirror.',
     button: 'Create account',
   },
 };
@@ -109,7 +109,7 @@ const renderRoster = (agents) => {
   if (!roster) return;
 
   if (!agents.length) {
-    roster.innerHTML = '<p class="landing-section-lead">Curated Jungle Agents roster loads when you sign in.</p>';
+    roster.innerHTML = '<p class="landing-section-lead">Browse Jungle Agents here — or add any Polymarket wallet address after you sign in.</p>';
     return;
   }
 
@@ -175,8 +175,8 @@ const loadLandingPreview = async () => {
       animateStat(totalEl, meta.totalEnabled);
       if (labelEl) {
         labelEl.textContent = meta.totalEnabled === 1
-          ? 'Jungle Agent ready to copy'
-          : 'Jungle Agents ready to copy';
+          ? 'curated agent — add any wallet too'
+          : 'curated agents — add any wallet too';
       }
     }
   } catch {
