@@ -82,6 +82,14 @@ test('landing.js uses public landing API for roster and showcase', () => {
   assert.match(js, /loadRosterAgentStats/);
 });
 
+test('landing-showcase.js loads Jungle Agents preview independently', () => {
+  const js = readFileSync(join(publicDir, 'js', 'landing-showcase.js'), 'utf8');
+  assert.match(js, /ensureLandingShowcaseAgents/);
+  assert.match(js, /renderLandingShowcaseAgents/);
+  assert.match(js, /\/api\/public\/landing-preview/);
+  assert.match(js, /showcaseJungleAgents/);
+});
+
 test('landing-showcase.js drives hero preview autoplay via radio inputs', () => {
   const js = readFileSync(join(publicDir, 'js', 'landing-showcase.js'), 'utf8');
   assert.match(js, /selectShowcaseTab/);

@@ -205,50 +205,22 @@ const loadRosterAgentStats = (agents) => loadAgentPerformanceStats(
 );
 
 const createShowcaseAgentsPresenter = () => {
-  const grid = document.getElementById('showcaseJungleAgents');
-  if (!grid) {
-    return { renderAgents: () => {} };
-  }
-
   const renderAgents = (agents) => {
+    if (typeof window.renderLandingShowcaseAgents === 'function') {
+      window.renderLandingShowcaseAgents(agents);
+      return;
+    }
+
+    const grid = document.getElementById('showcaseJungleAgents');
+    if (!grid) return;
+
     const showcaseAgents = (agents || [])
       .filter((agent) => !agent.addressPending && agent.polymarketAddress)
       .slice(0, 6);
 
     if (!showcaseAgents.length) {
-      grid.innerHTML = '<p class="l-preview-agents-status">Create an account to browse the full roster.</p>';
-      return;
+      grid.innerHTML = '<p class="l-preview-agents-status">Sign up to browse the full trader roster.</p>';
     }
-
-    grid.innerHTML = showcaseAgents.map((agent, index) => {
-      const name = escapeHtml(agent.displayName || 'Agent');
-      const tag = escapeHtml(buildAgentTagline(agent));
-      const avatar = renderAgentAvatar(agent);
-      const pulseClass = index === 0 ? ' l-preview-trade-new' : '';
-      const liveDot = index === 0
-        ? '<span class="l-preview-live pulse-dot landing-showcase-live-blink" aria-hidden="true"></span>'
-        : '';
-
-      return `
-        <article class="l-preview-agent glow-border${pulseClass}" data-showcase-agent-id="${escapeHtml(agent.id)}">
-          <div class="l-preview-agent-top">
-            ${avatar}
-            <div>
-              <strong>${name}</strong>
-              <span class="l-preview-agent-tag">${tag}</span>
-            </div>
-            ${liveDot}
-          </div>
-          <div class="l-preview-agent-stats">
-            <span><em>PnL</em> <span data-stat="pnl">…</span></span>
-            <span><em>Win</em> <span data-stat="win">…</span></span>
-            <span><em>ROI</em> <span data-stat="roi">…</span></span>
-          </div>
-        </article>
-      `;
-    }).join('');
-
-    void loadShowcaseAgentStats(showcaseAgents);
   };
 
   return { renderAgents };
