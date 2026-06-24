@@ -1,0 +1,27 @@
+{
+  "archiveTag": "discovery-2026-06",
+  "createdAt": "2026-06-24T17:42:23.764Z",
+  "remote": null,
+  "files": [
+    {
+      "path": "/mnt/HC_Volume_105468668/discovery_v3.duckdb",
+      "bytes": 137473830912,
+      "sha256": null
+    },
+    {
+      "path": "/mnt/HC_Volume_105468668/discovery_v3.duckdb.wal",
+      "bytes": 14375219,
+      "sha256": null
+    },
+    {
+      "path": "/mnt/HC_Volume_105468668/backfill/users.parquet",
+      "bytes": 51515553353,
+      "sha256": null
+    },
+    {
+      "path": "/mnt/HC_Volume_105468668/trades.parquet",
+      "bytes": 27995657622,
+      "sha256": null
+    }
+  ]
+}

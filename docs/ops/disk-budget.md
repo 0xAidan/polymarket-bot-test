@@ -63,13 +63,35 @@ Watch `disk.usedPercent` and `disk.status`. At **≥90%** the dashboard shows an
 sudo cp deploy/systemd/journald-ditto.conf /etc/systemd/journald.conf.d/ditto.conf
 sudo systemctl restart systemd-journald
 
-# Hourly maintenance timer
+# Hourly maintenance timer (production)
 sudo cp deploy/systemd/polymarket-disk-maintenance.{service,timer} /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now polymarket-disk-maintenance.timer
+
+# Hourly maintenance timer (staging)
+sudo cp deploy/systemd/polymarket-disk-maintenance-staging.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now polymarket-disk-maintenance-staging.timer
 ```
 
 After deploy, the app also runs maintenance every 15 minutes (`DISK_MAINTENANCE_INTERVAL_MS`).
+
+## Discovery lab data
+
+When `DISCOVERY_V3=false`, `scripts/cleanup-discovery-lab.sh` removes DuckDB/parquet/temp files hourly.
+
+Archive before teardown: `docs/ops/discovery-lab-setup.md`
+
+Env vars:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `EXECUTED_POSITIONS_RETENTION_DAYS` | 180 | Copy-trade history age limit |
+| `EXECUTED_POSITIONS_MAX_ROWS` | 5000 | Per-tenant row cap |
+| `AUTH_AUDIT_RETENTION_DAYS` | 90 | Auth audit log retention |
+| `DISCOVERY_LAB_ROOT` | `/mnt/HC_Volume_105468668` | Volume root for lab cleanup |
+| `DISCOVERY_ARCHIVE_REMOTE` | — | rclone remote for cold archive |
+| `BACKUP_FULL_DATA` | 0 | Set to 1 to include full data tarball |
 
 ## Staging discovery worker
 
