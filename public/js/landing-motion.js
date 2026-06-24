@@ -73,71 +73,34 @@
     const roster = document.getElementById('landingRoster');
     if (!shell || !roster || roster.dataset.rosterScrollReady === 'true') return;
 
-    const reduceMotion = prefersReducedMotion();
-    const MAX_SPEED = 11;
-    const IDLE_SPEED = reduceMotion ? 0 : 2.2;
-    const EDGE_DEADZONE = 0.05;
+    if (prefersReducedMotion()) return;
 
-    let pointerRatio = null;
+    // Match landing marquee pace (~40s per track width at ~30px/s).
+    const DRIFT_SPEED = 0.45;
     let driftDirection = 1;
     let isVisible = false;
     let frameId = 0;
 
     const getMaxScroll = () => Math.max(0, roster.scrollWidth - roster.clientWidth);
 
-    const speedFromRatio = (ratio) => {
-      const centered = (ratio - 0.5) * 2;
-      if (Math.abs(centered) <= EDGE_DEADZONE) return 0;
-      const magnitude = (Math.abs(centered) - EDGE_DEADZONE) / (1 - EDGE_DEADZONE);
-      return Math.sign(centered) * magnitude * MAX_SPEED;
-    };
-
     const tick = () => {
       const maxScroll = getMaxScroll();
 
       if (isVisible && maxScroll > 2) {
-        let speed = 0;
-        if (pointerRatio !== null) {
-          speed = speedFromRatio(pointerRatio);
-        } else if (IDLE_SPEED > 0) {
-          speed = IDLE_SPEED * driftDirection;
-        }
+        roster.scrollLeft = Math.min(
+          maxScroll,
+          Math.max(0, roster.scrollLeft + DRIFT_SPEED * driftDirection),
+        );
 
-        if (speed !== 0) {
-          roster.scrollLeft = Math.min(maxScroll, Math.max(0, roster.scrollLeft + speed));
-
-          if (roster.scrollLeft <= 0) {
-            driftDirection = 1;
-          } else if (roster.scrollLeft >= maxScroll - 1) {
-            driftDirection = -1;
-          }
+        if (roster.scrollLeft <= 0) {
+          driftDirection = 1;
+        } else if (roster.scrollLeft >= maxScroll - 1) {
+          driftDirection = -1;
         }
       }
 
       frameId = window.requestAnimationFrame(tick);
     };
-
-    const updatePointerRatio = (clientX) => {
-      const rect = shell.getBoundingClientRect();
-      if (rect.width <= 0) return;
-      pointerRatio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    };
-
-    const handlePointerEnter = (event) => {
-      updatePointerRatio(event.clientX);
-    };
-
-    const handlePointerMove = (event) => {
-      updatePointerRatio(event.clientX);
-    };
-
-    const handlePointerLeave = () => {
-      pointerRatio = null;
-    };
-
-    shell.addEventListener('pointerenter', handlePointerEnter);
-    shell.addEventListener('pointerleave', handlePointerLeave);
-    shell.addEventListener('pointermove', handlePointerMove, { passive: true });
 
     const visibilityObserver = new IntersectionObserver(
       ([entry]) => {
