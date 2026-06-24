@@ -691,6 +691,24 @@
   color: var(--jungle-gold);
   font-size: 12px;
   font-weight: 600;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.l-preview-avatar-img {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.l-preview-agents-status {
+  margin: 0;
+  padding: 12px 4px;
+  font-size: 11px;
+  color: var(--jungle-text-dim);
+  text-align: center;
 }
 
 .l-preview-agent-top strong {

@@ -18,6 +18,7 @@ test('landing.html includes branding, marquees, and embedded auth panel', () => 
   assert.match(html, /data-landing-action/);
   assert.match(html, /landing-showcase\.js/);
   assert.match(html, /landing-hero-showcase/);
+  assert.match(html, /showcaseJungleAgents/);
   assert.match(html, /showcase-radio-dashboard/);
   assert.match(html, /l-preview-trade-new/);
   assert.match(html, /landing-roster-card/);
@@ -39,14 +40,16 @@ test('landing-transitions.js exposes view transition helper with reduced-motion 
   assert.match(js, /prefers-reduced-motion/);
 });
 
-test('landing.js uses /login handoff and OIDC screen_hint for signup', () => {
+test('landing.js uses jungle-agents API for roster and showcase', () => {
   const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
   assert.match(js, /screen_hint/);
   assert.match(js, /\/auth\/login/);
   assert.match(js, /returnTo/);
   assert.match(js, /\/app/);
   assert.match(js, /prefers-reduced-motion/);
-  assert.match(js, /landing-preview/);
+  assert.match(js, /\/api\/jungle-agents/);
+  assert.match(js, /showcaseJungleAgents/);
+  assert.match(js, /createShowcaseAgentsPresenter/);
 });
 
 test('landing-showcase.js drives hero preview autoplay via radio inputs', () => {

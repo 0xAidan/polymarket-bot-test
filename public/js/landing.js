@@ -47,6 +47,43 @@ const escapeHtml = (value) => String(value)
   .replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
+const formatCompactSignedUsd = (value) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
+  const n = Number(value);
+  const sign = n > 0 ? '+' : n < 0 ? '-' : '';
+  const abs = Math.abs(n);
+  if (abs >= 1000) {
+    return `${sign}$${(abs / 1000).toFixed(1)}k`;
+  }
+  return `${sign}$${abs.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+};
+
+const formatWinRate = (value) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
+  return `${Number(value).toFixed(0)}%`;
+};
+
+const formatSignedPercent = (value) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
+  const n = Number(value);
+  if (n > 0) return `+${n.toFixed(0)}%`;
+  if (n < 0) return `${n.toFixed(0)}%`;
+  return '0%';
+};
+
+const buildAgentTagline = (agent) => {
+  const parts = [agent.category, agent.tagline || agent.modelLabel].filter(Boolean);
+  return parts.join(' · ') || 'Jungle Agent';
+};
+
+const renderAgentAvatar = (agent) => {
+  const initial = escapeHtml((agent.displayName || '?').charAt(0).toUpperCase());
+  if (agent.avatarUrl) {
+    return `<img src="${escapeHtml(agent.avatarUrl)}" alt="" class="l-preview-avatar-img" loading="lazy" decoding="async">`;
+  }
+  return `<span class="l-preview-avatar">${initial}</span>`;
+};
+
 const createAuthPanelController = () => {
   const elements = {
     title: document.getElementById('authPanelTitle'),
@@ -129,7 +166,79 @@ const createAuthPanelController = () => {
   };
 };
 
-const createRosterPresenter = () => {
+const loadShowcaseAgentStats = async (agents) => {
+  await Promise.all(agents.map(async (agent) => {
+    const card = document.querySelector(`[data-showcase-agent-id="${agent.id}"]`);
+    if (!card) return;
+
+    try {
+      const res = await fetch(`/api/jungle-agents/${encodeURIComponent(agent.id)}/performance`);
+      const perf = await res.json();
+      if (!res.ok || perf.success === false) return;
+
+      const pnlEl = card.querySelector('[data-stat="pnl"]');
+      const winEl = card.querySelector('[data-stat="win"]');
+      const roiEl = card.querySelector('[data-stat="roi"]');
+      if (pnlEl) pnlEl.textContent = formatCompactSignedUsd(perf.lifetimePnlUsd);
+      if (winEl) winEl.textContent = formatWinRate(perf.winRatePct);
+      if (roiEl) roiEl.textContent = formatSignedPercent(perf.roiPct);
+    } catch {
+      /* keep placeholder stats */
+    }
+  }));
+};
+
+const createShowcaseAgentsPresenter = () => {
+  const grid = document.getElementById('showcaseJungleAgents');
+  if (!grid) {
+    return { renderAgents: () => {} };
+  }
+
+  const renderAgents = (agents) => {
+    const showcaseAgents = (agents || [])
+      .filter((agent) => !agent.addressPending && agent.polymarketAddress)
+      .slice(0, 2);
+
+    if (!showcaseAgents.length) {
+      grid.innerHTML = '<p class="l-preview-agents-status">Sign in to browse the full Jungle Agents roster.</p>';
+      return;
+    }
+
+    grid.innerHTML = showcaseAgents.map((agent, index) => {
+      const name = escapeHtml(agent.displayName || 'Agent');
+      const tag = escapeHtml(buildAgentTagline(agent));
+      const avatar = renderAgentAvatar(agent);
+      const pulseClass = index === 0 ? ' l-preview-trade-new' : '';
+      const liveDot = index === 0
+        ? '<span class="l-preview-live pulse-dot landing-showcase-live-blink" aria-hidden="true"></span>'
+        : '';
+
+      return `
+        <article class="l-preview-agent glow-border${pulseClass}" data-showcase-agent-id="${escapeHtml(agent.id)}">
+          <div class="l-preview-agent-top">
+            ${avatar}
+            <div>
+              <strong>${name}</strong>
+              <span class="l-preview-agent-tag">${tag}</span>
+            </div>
+            ${liveDot}
+          </div>
+          <div class="l-preview-agent-stats">
+            <span><em>PnL</em> <span data-stat="pnl">…</span></span>
+            <span><em>Win</em> <span data-stat="win">…</span></span>
+            <span><em>ROI</em> <span data-stat="roi">…</span></span>
+          </div>
+        </article>
+      `;
+    }).join('');
+
+    void loadShowcaseAgentStats(showcaseAgents);
+  };
+
+  return { renderAgents };
+};
+
+const createRosterPresenter = (showcaseAgents) => {
   const roster = document.getElementById('landingRoster');
 
   const renderSkeleton = () => {
@@ -152,7 +261,7 @@ const createRosterPresenter = () => {
       roster.innerHTML = agents.map((agent) => {
         const initial = escapeHtml((agent.displayName || '?').charAt(0).toUpperCase());
         const name = escapeHtml(agent.displayName || 'Agent');
-        const tagline = escapeHtml(agent.tagline || agent.category || 'Polymarket trader');
+        const tagline = escapeHtml(buildAgentTagline(agent));
         const avatar = agent.avatarUrl
           ? `<img src="${escapeHtml(agent.avatarUrl)}" alt="" loading="lazy" decoding="async">`
           : initial;
@@ -202,14 +311,17 @@ const createRosterPresenter = () => {
   const loadPreview = async () => {
     renderSkeleton();
     try {
-      const res = await fetch('/api/public/landing-preview');
+      const res = await fetch('/api/jungle-agents');
       const data = await res.json();
       if (!res.ok || !data.success) {
         renderAgents([]);
+        showcaseAgents.renderAgents([]);
         return;
       }
 
-      renderAgents(data.agents || []);
+      const agents = data.agents || [];
+      renderAgents(agents);
+      showcaseAgents.renderAgents(agents);
 
       const totalEl = document.getElementById('statAgents');
       const labelEl = document.getElementById('statAgentsLabel');
@@ -224,6 +336,7 @@ const createRosterPresenter = () => {
       }
     } catch {
       renderAgents([]);
+      showcaseAgents.renderAgents([]);
     }
   };
 
@@ -324,7 +437,8 @@ window.scrollToGetStarted = (mode) => {
 
 document.addEventListener('DOMContentLoaded', () => {
   const authPanel = createAuthPanelController();
-  const roster = createRosterPresenter();
+  const showcaseAgents = createShowcaseAgentsPresenter();
+  const roster = createRosterPresenter(showcaseAgents);
   const sessionGuard = createSessionGuard();
 
   window.__landingAuthPanel = authPanel;
