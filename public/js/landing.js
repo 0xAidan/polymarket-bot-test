@@ -213,7 +213,7 @@ const createShowcaseAgentsPresenter = () => {
   const renderAgents = (agents) => {
     const showcaseAgents = (agents || [])
       .filter((agent) => !agent.addressPending && agent.polymarketAddress)
-      .slice(0, 2);
+      .slice(0, 4);
 
     if (!showcaseAgents.length) {
       grid.innerHTML = '<p class="l-preview-agents-status">Create an account to browse the full roster.</p>';
