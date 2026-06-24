@@ -2,6 +2,8 @@
  * Distinctive roster icons for Jungle Agents (slug-keyed, model-label fallback).
  */
 
+const escapeHtml = window.escapeHtml;
+
 const JUNGLE_ICON_VIEWBOX = '0 0 24 24';
 
 const wrapJungleIcon = (inner) =>
@@ -100,9 +102,12 @@ const renderJungleAgentAvatar = (agent, opts = {}) => {
   const iconClass = opts.iconClass || 'j-agents-avatar-icon';
   const fallbackClass = opts.fallbackClass || 'j-agents-avatar-fallback';
   const name = agent.displayName || 'Agent';
+  const safeAvatarUrl = typeof window.sanitizeHttpsUrl === 'function'
+    ? window.sanitizeHttpsUrl(agent.avatarUrl)
+    : '';
 
-  if (agent.avatarUrl) {
-    return `<img src="${agent.avatarUrl}" alt="" class="${imgClass}" />`;
+  if (safeAvatarUrl) {
+    return `<img src="${escapeHtml(safeAvatarUrl)}" alt="" class="${imgClass}" />`;
   }
 
   const iconSvg = getJungleAgentIconSvg(agent);
@@ -110,7 +115,7 @@ const renderJungleAgentAvatar = (agent, opts = {}) => {
     return `<span class="${iconClass}" aria-hidden="true">${iconSvg}</span>`;
   }
 
-  return `<span class="${fallbackClass}">${name.slice(0, 1)}</span>`;
+  return `<span class="${fallbackClass}">${escapeHtml(name.slice(0, 1))}</span>`;
 };
 
 window.getJungleAgentIconSvg = getJungleAgentIconSvg;
