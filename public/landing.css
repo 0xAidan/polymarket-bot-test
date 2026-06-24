@@ -114,6 +114,60 @@
   text-transform: uppercase;
 }
 
+.landing-hero-wallet-demo {
+  margin-top: 20px;
+  padding: 14px 16px;
+  border: 1px solid rgba(229, 184, 11, 0.28);
+  border-radius: 12px;
+  background: rgba(21, 22, 35, 0.65);
+  max-width: 22rem;
+}
+
+.landing-hero-wallet-demo-label {
+  display: block;
+  margin-bottom: 10px;
+  font-family: var(--jungle-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--jungle-gold);
+}
+
+.landing-hero-wallet-demo-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.landing-hero-wallet-demo-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--jungle-border);
+  border-radius: 8px;
+  background: rgba(34, 35, 58, 0.5);
+}
+
+.landing-hero-wallet-demo-row--curated {
+  border-color: rgba(229, 184, 11, 0.35);
+}
+
+.landing-hero-wallet-demo-tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--jungle-text-dim);
+}
+
+.landing-hero-wallet-demo-row code {
+  font-family: var(--jungle-font-mono);
+  font-size: 12px;
+  color: var(--jungle-text);
+}
+
 .landing-hero-ctas {
   display: flex;
   flex-wrap: wrap;
@@ -252,6 +306,11 @@
   max-width: 1200px;
   margin: 0 auto;
   width: 100%;
+}
+
+.landing-section--defer {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 520px;
 }
 
 .landing-section-kicker {
@@ -615,5 +674,64 @@
     opacity: 1;
     transform: none;
     transition: none;
+  }
+
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
+/* View transitions — auth panel copy swap + roster reveal */
+@supports (view-transition-name: none) {
+  .landing-vt-auth-copy {
+    view-transition-name: landing-auth-copy;
+  }
+
+  #landingRoster {
+    view-transition-name: landing-roster;
+  }
+
+  ::view-transition-old(landing-auth-copy),
+  ::view-transition-new(landing-auth-copy) {
+    animation-duration: 0.22s;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  ::view-transition-old(landing-auth-copy) {
+    animation-name: landing-vt-fade-out;
+  }
+
+  ::view-transition-new(landing-auth-copy) {
+    animation-name: landing-vt-fade-in;
+  }
+
+  ::view-transition-old(landing-roster),
+  ::view-transition-new(landing-roster) {
+    animation-duration: 0.35s;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  ::view-transition-old(landing-roster) {
+    animation-name: landing-vt-fade-out;
+  }
+
+  ::view-transition-new(landing-roster) {
+    animation-name: landing-vt-fade-in;
+  }
+}
+
+@keyframes landing-vt-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes landing-vt-fade-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
   }
 }

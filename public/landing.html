@@ -7,6 +7,7 @@
   <meta name="description" content="Mirror any Polymarket wallet into yours. Start with curated Jungle Agents or paste any address. Copy wallets. Mirror their moves.">
   <link rel="icon" type="image/png" href="/shared/favicon-gold.png">
   <style>html { background: #161721; }</style>
+  <link rel="preload" href="/shared/logo-gold.png" as="image" type="image/png">
   <link rel="stylesheet" href="/shared/jungle-brand.css">
   <link rel="stylesheet" href="/shared/auth-experience.css">
   <link rel="stylesheet" href="/landing.css">
@@ -21,8 +22,8 @@
       </div>
     </a>
     <nav class="landing-nav-actions auth-shell-actions" aria-label="Account">
-      <button type="button" class="landing-btn auth-shell-btn" id="navLogin">Log in</button>
-      <button type="button" class="landing-btn landing-btn-primary auth-shell-btn auth-shell-btn-primary" id="navSignup">Create account</button>
+      <button type="button" class="landing-btn auth-shell-btn" id="navLogin" data-landing-action="nav-login">Log in</button>
+      <button type="button" class="landing-btn landing-btn-primary auth-shell-btn auth-shell-btn-primary" id="navSignup" data-landing-action="nav-signup">Create account</button>
     </nav>
   </header>
 
@@ -36,9 +37,22 @@
           <h1 id="hero-title" class="landing-hero-title">Copy wallets.<br>Mirror their moves.</h1>
           <p class="landing-hero-sub">Follow curated Jungle Agents or paste <strong class="landing-hero-em">any Polymarket wallet address</strong> into your copy list. Ditto mirrors their trades into your wallet — with encrypted keys, live execution, and a private workspace for every account.</p>
           <p class="landing-hero-note">Jungle Agents are a head start. You are not limited to them.</p>
+          <div class="landing-hero-wallet-demo" aria-label="Example copy list entry">
+            <span class="landing-hero-wallet-demo-label">Your copy list</span>
+            <div class="landing-hero-wallet-demo-rows">
+              <span class="landing-hero-wallet-demo-row landing-hero-wallet-demo-row--curated">
+                <span class="landing-hero-wallet-demo-tag">Jungle Agent</span>
+                <code>0x7a3f…c42d</code>
+              </span>
+              <span class="landing-hero-wallet-demo-row">
+                <span class="landing-hero-wallet-demo-tag">Any wallet</span>
+                <code>paste address</code>
+              </span>
+            </div>
+          </div>
           <div class="landing-hero-ctas">
-            <button type="button" class="landing-btn landing-btn-primary" id="heroSignup">Create account</button>
-            <button type="button" class="landing-btn" id="heroLogin">Log in</button>
+            <button type="button" class="landing-btn landing-btn-primary" id="heroSignup" data-landing-action="hero-signup">Create account</button>
+            <button type="button" class="landing-btn" id="heroLogin" data-landing-action="hero-login">Log in</button>
           </div>
           <div class="auth-shell-trust" aria-label="Trust highlights">
             <span class="auth-shell-chip">Any wallet address</span>
@@ -91,7 +105,7 @@
       </div>
     </div>
 
-    <section class="landing-section" aria-labelledby="roster-title">
+    <section class="landing-section landing-section--defer" aria-labelledby="roster-title">
       <p class="landing-section-kicker landing-reveal">Copy any wallet</p>
       <h2 id="roster-title" class="landing-section-title landing-reveal">Jungle Agents or your own picks</h2>
       <p class="landing-section-lead landing-reveal">Start with proven traders from the Jungle roster — or paste any Polymarket wallet address into your copy list. Ditto watches whichever wallets you choose and mirrors their trades.</p>
@@ -109,7 +123,7 @@
       </div>
     </div>
 
-    <section class="landing-section landing-why" aria-labelledby="why-title">
+    <section class="landing-section landing-section--defer landing-why" aria-labelledby="why-title">
       <p class="landing-section-kicker landing-reveal">Why Ditto</p>
       <h2 id="why-title" class="landing-section-title landing-reveal">Built for copy trading</h2>
       <p class="landing-section-lead landing-reveal">Mirror any Polymarket wallet you choose — curated Jungle Agents, your own research, or both.</p>
@@ -142,7 +156,7 @@
       </div>
     </section>
 
-    <section class="landing-section" aria-labelledby="steps-title">
+    <section class="landing-section landing-section--defer" aria-labelledby="steps-title">
       <p class="landing-section-kicker landing-reveal">How it works</p>
       <h2 id="steps-title" class="landing-section-title landing-reveal">Three steps to copying</h2>
       <div class="landing-steps">
@@ -164,7 +178,7 @@
       </div>
     </section>
 
-    <section class="landing-section" aria-labelledby="features-title">
+    <section class="landing-section landing-section--defer" aria-labelledby="features-title">
       <p class="landing-section-kicker landing-reveal">What you get</p>
       <h2 id="features-title" class="landing-section-title landing-reveal">Everything in one place</h2>
       <div class="landing-features">
@@ -192,12 +206,12 @@
         </div>
         <div class="auth-shell-panel noise-overlay landing-reveal" role="region" aria-label="Sign in">
           <div class="auth-shell-tabs" role="tablist" aria-label="Account mode">
-            <button type="button" class="auth-shell-tab" id="authTabLogin" role="tab" aria-selected="true" aria-controls="authPanelBody">Log in</button>
-            <button type="button" class="auth-shell-tab" id="authTabSignup" role="tab" aria-selected="false" aria-controls="authPanelBody">Create account</button>
+            <button type="button" class="auth-shell-tab" id="authTabLogin" role="tab" aria-selected="true" aria-controls="authPanelBody" data-landing-action="auth-tab-login">Log in</button>
+            <button type="button" class="auth-shell-tab" id="authTabSignup" role="tab" aria-selected="false" aria-controls="authPanelBody" data-landing-action="auth-tab-signup">Create account</button>
           </div>
           <h3 class="auth-shell-panel-title" id="authPanelTitle">Log in to Ditto</h3>
-          <p class="auth-shell-panel-body" id="authPanelBody">Follow Jungle Agents or paste any Polymarket wallet address into your copy list.</p>
-          <button type="button" class="landing-btn landing-btn-primary auth-shell-btn auth-shell-btn-primary" id="authPanelContinue" style="width:100%">Continue</button>
+          <p class="auth-shell-panel-body landing-vt-auth-copy" id="authPanelBody">Follow Jungle Agents or paste any Polymarket wallet address into your copy list.</p>
+          <button type="button" class="landing-btn landing-btn-primary auth-shell-btn auth-shell-btn-primary" id="authPanelContinue" style="width:100%" data-landing-action="auth-continue">Continue</button>
           <div class="auth-shell-trust">
             <span class="auth-shell-chip">Any wallet address</span>
             <span class="auth-shell-chip">Jungle Agents roster</span>
@@ -219,7 +233,7 @@
           </div>
         </div>
       </div>
-      <button type="button" class="landing-btn landing-btn-primary" id="ctaSignup">Create your Ditto account</button>
+      <button type="button" class="landing-btn landing-btn-primary" id="ctaSignup" data-landing-action="cta-signup">Create your Ditto account</button>
     </section>
   </main>
 
@@ -233,6 +247,7 @@
     <p>Opening secure sign-in…</p>
   </div>
 
+  <script src="/js/landing-transitions.js" defer></script>
   <script src="/js/landing.js" defer></script>
   <script src="/js/landing-motion.js" defer></script>
 </body>

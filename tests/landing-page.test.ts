@@ -14,7 +14,24 @@ test('landing.html includes branding, marquees, and embedded auth panel', () => 
   assert.match(html, /id="authPanelContinue"/);
   assert.match(html, /landing-marquee/);
   assert.match(html, /any Polymarket wallet address/);
+  assert.match(html, /landing-transitions\.js/);
+  assert.match(html, /data-landing-action/);
   assert.match(html, /landing-motion\.js/);
+});
+
+test('landing.js uses composition controllers, parallel session fetch, and view transitions', () => {
+  const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
+  assert.match(js, /createAuthPanelController/);
+  assert.match(js, /createRosterPresenter/);
+  assert.match(js, /Promise\.all/);
+  assert.match(js, /requestIdleCallback/);
+  assert.match(js, /landingWithViewTransition/);
+});
+
+test('landing-transitions.js exposes view transition helper with reduced-motion guard', () => {
+  const js = readFileSync(join(publicDir, 'js', 'landing-transitions.js'), 'utf8');
+  assert.match(js, /startViewTransition/);
+  assert.match(js, /prefers-reduced-motion/);
 });
 
 test('landing.js uses /login handoff and OIDC screen_hint for signup', () => {
