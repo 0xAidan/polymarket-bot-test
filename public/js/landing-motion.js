@@ -20,16 +20,28 @@ const observeReveals = () => {
   const targets = document.querySelectorAll('.landing-reveal, .landing-step, .landing-feature');
   if (!targets.length) return;
 
+  const reveal = (el) => {
+    el.classList.add('is-visible');
+  };
+
   if (prefersReducedMotion()) {
-    targets.forEach((el) => el.classList.add('is-visible'));
+    targets.forEach(reveal);
     return;
   }
+
+  targets.forEach((el) => {
+    const rect = el.getBoundingClientRect();
+    const inViewport = rect.top < window.innerHeight * 0.92 && rect.bottom > 0;
+    if (inViewport) {
+      reveal(el);
+    }
+  });
 
   const observer = new IntersectionObserver(
     (entries) => {
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
-          entry.target.classList.add('is-visible');
+          reveal(entry.target);
           observer.unobserve(entry.target);
         }
       });
@@ -37,7 +49,11 @@ const observeReveals = () => {
     { rootMargin: '0px 0px -8% 0px', threshold: 0.12 },
   );
 
-  targets.forEach((el) => observer.observe(el));
+  targets.forEach((el) => {
+    if (!el.classList.contains('is-visible')) {
+      observer.observe(el);
+    }
+  });
 };
 
 const initNavScroll = () => {

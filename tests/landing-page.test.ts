@@ -72,6 +72,18 @@ test('api.js 401 handler routes to /login with /app returnTo', () => {
   assert.match(js, /encodeURIComponent\('\/app'\)/);
 });
 
+test('server.ts login redirect does not force get-started scroll', () => {
+  const server = readFileSync(join(rootDir, 'src', 'server.ts'), 'utf8');
+  assert.match(server, /app\.get\('\/login'/);
+  assert.doesNotMatch(server, /params\.set\('section', 'get-started'\)/);
+});
+
+test('landing.js only auto-scrolls when section=get-started is present', () => {
+  const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
+  assert.match(js, /get\('section'\) === 'get-started'/);
+  assert.doesNotMatch(js, /params\.has\('mode'\)/);
+});
+
 test('server.ts serves landing at / and dashboard at /app', () => {
   const server = readFileSync(join(rootDir, 'src', 'server.ts'), 'utf8');
   assert.match(server, /landing\.html/);

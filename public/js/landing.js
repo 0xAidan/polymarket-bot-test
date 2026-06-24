@@ -30,6 +30,17 @@ const getAuthMode = () => {
   return mode === 'signup' ? 'signup' : 'login';
 };
 
+const revealGetStartedSection = () => {
+  document.querySelectorAll('#get-started .landing-reveal').forEach((el) => {
+    el.classList.add('is-visible');
+  });
+};
+
+const getScrollBehavior = (preferred) => {
+  if (preferred) return preferred;
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+};
+
 const escapeHtml = (value) => String(value)
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
@@ -96,13 +107,17 @@ const createAuthPanelController = () => {
     }, delay);
   };
 
-  const scrollToGetStarted = (nextMode) => {
+  const scrollToGetStarted = (nextMode, options = {}) => {
     if (nextMode) {
       applyMode(nextMode);
     }
+    revealGetStartedSection();
     const section = document.getElementById('get-started');
     if (section) {
-      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      section.scrollIntoView({
+        behavior: getScrollBehavior(options.behavior),
+        block: 'start',
+      });
     }
   };
 
@@ -285,9 +300,9 @@ const initLandingFromQuery = (authPanel) => {
   const mode = getAuthMode();
   authPanel.setMode(mode);
 
-  if (params.get('section') === 'get-started' || params.has('mode')) {
+  if (params.get('section') === 'get-started') {
     window.requestAnimationFrame(() => {
-      authPanel.scrollToGetStarted(mode);
+      authPanel.scrollToGetStarted(mode, { behavior: 'auto' });
     });
   }
 };

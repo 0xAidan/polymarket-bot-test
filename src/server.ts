@@ -487,7 +487,10 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     const returnTo = String(req.query.returnTo || '/app').trim();
     if (mode) params.set('mode', mode);
     if (returnTo.startsWith('/')) params.set('returnTo', returnTo);
-    params.set('section', 'get-started');
+    const section = String(req.query.section || '').trim();
+    if (section === 'get-started') {
+      params.set('section', section);
+    }
     const qs = params.toString();
     res.redirect(qs ? `/?${qs}` : '/');
   };
