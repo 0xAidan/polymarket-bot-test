@@ -17,7 +17,12 @@ const AUTH_COPY = {
 
 const getQueryParams = () => new URLSearchParams(window.location.search);
 
-const getReturnTo = () => sanitizeReturnTo(getQueryParams().get('returnTo'), '/app');
+const getReturnTo = () => {
+  if (typeof window.sanitizeReturnTo === 'function') {
+    return window.sanitizeReturnTo(getQueryParams().get('returnTo'), '/app');
+  }
+  return '/app';
+};
 
 const getAuthMode = () => {
   const mode = getQueryParams().get('mode');
@@ -125,13 +130,23 @@ const createAuthPanelController = () => {
     return `/auth/login?${params.toString()}`;
   };
 
-  const handoffToOidc = (nextMode) => {
+  const handoffToOidc = (nextMode, options = {}) => {
     const resolvedMode = nextMode === 'signup' ? 'signup' : 'login';
+    if (options.immediate !== false && typeof window.landingHeaderAuth === 'function') {
+      window.landingHeaderAuth(resolvedMode);
+      return;
+    }
+
     showHandoffOverlay();
     const delay = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 220;
+    const targetUrl = buildOidcLoginUrl(resolvedMode);
     window.setTimeout(() => {
-      window.location.href = buildOidcLoginUrl(resolvedMode);
+      window.location.assign(targetUrl);
     }, delay);
+    window.setTimeout(() => {
+      elements.overlay?.classList.remove('is-active');
+      elements.overlay?.setAttribute('aria-hidden', 'true');
+    }, 8000);
   };
 
   const scrollToGetStarted = (nextMode, options = {}) => {
@@ -366,8 +381,8 @@ const createSessionGuard = () => {
 
 const wireLandingUi = (authPanel) => {
   const authActions = {
-    'nav-login': () => authPanel.handoffToOidc('login'),
-    'nav-signup': () => authPanel.handoffToOidc('signup'),
+    'nav-login': () => authPanel.handoffToOidc('login', { immediate: true }),
+    'nav-signup': () => authPanel.handoffToOidc('signup', { immediate: true }),
     'hero-login': () => authPanel.scrollToGetStarted('login'),
     'hero-signup': () => authPanel.scrollToGetStarted('signup'),
     'cta-signup': () => authPanel.scrollToGetStarted('signup'),

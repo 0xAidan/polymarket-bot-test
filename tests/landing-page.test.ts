@@ -39,9 +39,18 @@ test('landing.js parses without syntax errors', () => {
 
 test('landing.js sends header auth buttons directly to OIDC handoff', () => {
   const js = readFileSync(join(publicDir, 'js', 'landing.js'), 'utf8');
-  assert.match(js, /'nav-login': \(\) => authPanel\.handoffToOidc\('login'\)/);
-  assert.match(js, /'nav-signup': \(\) => authPanel\.handoffToOidc\('signup'\)/);
+  assert.match(js, /'nav-login': \(\) => authPanel\.handoffToOidc\('login', \{ immediate: true \}\)/);
+  assert.match(js, /'nav-signup': \(\) => authPanel\.handoffToOidc\('signup', \{ immediate: true \}\)/);
+  assert.match(js, /landingHeaderAuth/);
   assert.doesNotMatch(js, /goToLandingAuth/);
+});
+
+test('landing.html wires header auth buttons to immediate inline handler', () => {
+  const html = readFileSync(join(publicDir, 'landing.html'), 'utf8');
+  assert.match(html, /onclick="landingHeaderAuth\('login'\)"/);
+  assert.match(html, /onclick="landingHeaderAuth\('signup'\)"/);
+  assert.match(html, /window\.landingHeaderAuth/);
+  assert.match(html, /\/auth\/login\?/);
 });
 
 test('landing.js uses document-level click delegation for header auth buttons', () => {

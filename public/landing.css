@@ -69,6 +69,8 @@
 
 .landing-nav-actions.auth-shell-actions {
   justify-self: end;
+  position: relative;
+  z-index: 2;
 }
 
 .landing-page {
