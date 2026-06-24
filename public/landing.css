@@ -476,6 +476,56 @@
   background: rgba(28, 29, 46, 0.45);
 }
 
+.l-preview-agents.l-preview-agents--grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-content: start;
+}
+
+.landing-showcase-panel[data-showcase-panel="jungle-agents"] .l-preview-page-head {
+  margin-bottom: 0;
+}
+
+.landing-showcase-panel[data-showcase-panel="jungle-agents"] .l-preview-page-title {
+  font-size: 20px;
+}
+
+.landing-showcase-panel[data-showcase-panel="jungle-agents"] .l-preview-agent {
+  padding: 8px;
+}
+
+.landing-showcase-panel[data-showcase-panel="jungle-agents"] .l-preview-agent-top {
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.landing-showcase-panel[data-showcase-panel="jungle-agents"] .l-preview-avatar,
+.landing-showcase-panel[data-showcase-panel="jungle-agents"] .l-preview-avatar-img {
+  width: 22px;
+  height: 22px;
+  font-size: 10px;
+  border-radius: 6px;
+}
+
+.landing-showcase-panel[data-showcase-panel="jungle-agents"] .l-preview-agent-top strong {
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.landing-showcase-panel[data-showcase-panel="jungle-agents"] .l-preview-agent-tag {
+  font-size: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
+}
+
+.landing-showcase-panel[data-showcase-panel="jungle-agents"] .l-preview-agent-stats {
+  gap: 6px;
+  font-size: 9px;
+}
+
 .l-preview-agents--grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
