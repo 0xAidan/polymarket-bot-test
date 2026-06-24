@@ -8,7 +8,6 @@ const publicDir = join(process.cwd(), 'public', 'js');
 
 const loadScriptsInOrder = () => {
   const sandbox: Record<string, unknown> = {
-    window: {},
     document: {
       body: { classList: { remove: () => {}, add: () => {}, contains: () => false }, className: 'app-loading' },
       addEventListener: () => {},
@@ -27,7 +26,12 @@ const loadScriptsInOrder = () => {
     sessionStorage: { getItem: () => null, setItem: () => {} },
     location: { href: 'http://localhost/', pathname: '/', search: '', reload: () => {} },
     navigator: { clipboard: { writeText: async () => {} } },
+    AbortController: globalThis.AbortController,
   };
+  sandbox.escapeHtml = (value: unknown) => String(value);
+  sandbox.sanitizeReturnTo = (value: unknown, fallback = '/app') => (
+    typeof value === 'string' ? value : fallback
+  );
   sandbox.window = sandbox;
   sandbox.globalThis = sandbox;
 
