@@ -2,8 +2,6 @@
  * Jungle Agents public showcase tab.
  */
 
-const escapeHtml = window.escapeHtml;
-
 let jungleAgentsBooted = false;
 let cachedAgents = [];
 let trackedAddressSet = new Set();
@@ -164,18 +162,18 @@ const renderAgentTableRow = (agent) => {
   const avatar = renderJungleAgentAvatar(agent);
   const metaLine = [agent.tagline, agent.modelLabel].filter(Boolean).join(' · ');
   const categoryBadge = agent.category
-    ? `<span class="j-badge j-agents-category">${escapeHtml(agent.category)}</span>`
+    ? `<span class="j-badge j-agents-category">${window.escapeHtml(agent.category)}</span>`
     : '';
-  const safeId = escapeHtml(agent.id);
-  const safeAddress = escapeHtml(agent.polymarketAddress || '');
+  const safeId = window.escapeHtml(agent.id);
+  const safeAddress = window.escapeHtml(agent.polymarketAddress || '');
 
   return `
     <tr data-agent-id="${safeId}">
       <td class="j-agents-cell-agent">
         <span class="j-agents-avatar-sm">${avatar}</span>
         <span class="j-agents-cell-text">
-          <span class="j-agents-name font-serif">${escapeHtml(agent.displayName)} ${categoryBadge}</span>
-          ${metaLine ? `<span class="j-agents-meta">${escapeHtml(metaLine)}</span>` : ''}
+          <span class="j-agents-name font-serif">${window.escapeHtml(agent.displayName)} ${categoryBadge}</span>
+          ${metaLine ? `<span class="j-agents-meta">${window.escapeHtml(metaLine)}</span>` : ''}
         </span>
       </td>
       <td class="j-agents-num" data-agent-portfolio="${safeId}">—</td>
@@ -187,12 +185,12 @@ const renderAgentTableRow = (agent) => {
       <td class="j-agents-wallet">
         ${agent.addressPending
     ? '<span class="j-badge j-badge-warn">Pending</span>'
-    : `<code class="j-mono">${escapeHtml(agentShortAddress(agent.polymarketAddress))}</code>
+    : `<code class="j-mono">${window.escapeHtml(agentShortAddress(agent.polymarketAddress))}</code>
            <button type="button" class="j-btn j-btn-ghost j-btn-sm j-agents-copy" data-copy-address="${safeAddress}" aria-label="Copy address">⧉</button>`}
       </td>
       <td class="j-agents-actions">
         ${profileUrl
-    ? `<a class="j-btn j-btn-sm" href="${escapeHtml(profileUrl)}" target="_blank" rel="noopener noreferrer">View</a>`
+    ? `<a class="j-btn j-btn-sm" href="${window.escapeHtml(profileUrl)}" target="_blank" rel="noopener noreferrer">View</a>`
     : ''}
         <button type="button" class="j-btn j-btn-primary j-btn-sm" data-copy-agent="${safeId}" ${copyDisabled ? 'disabled' : ''}>${copyLabel}</button>
       </td>
@@ -223,7 +221,7 @@ const renderAgentTable = (agents) => {
 
   const body = groups.map((group) => {
     const header = hasCollections
-      ? `<tr class="j-agents-collection-row"><td colspan="9">${escapeHtml(group.name || 'More agents')}</td></tr>`
+      ? `<tr class="j-agents-collection-row"><td colspan="9">${window.escapeHtml(group.name || 'More agents')}</td></tr>`
       : '';
     return header + group.agents.map(renderAgentTableRow).join('');
   }).join('');
@@ -334,7 +332,7 @@ window.initJungleAgentsTab = async (force = false) => {
       if (!agent.addressPending) void loadAgentPerformance(agent.id);
     });
   } catch (error) {
-    grid.innerHTML = `<p class="text-loss j-agents-empty-msg">Could not load agents: ${escapeHtml(error.message || String(error))}</p>`;
+    grid.innerHTML = `<p class="text-loss j-agents-empty-msg">Could not load agents: ${window.escapeHtml(error.message || String(error))}</p>`;
   }
 };
 
