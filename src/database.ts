@@ -1162,6 +1162,22 @@ export function dbLoadAllActiveTrackedWalletsForMonitoring(): TrackedWallet[] {
   return rows.map(rowToWallet);
 }
 
+export function listTenantIdsWithActiveTrackedWallets(): string[] {
+  const database = getDatabase();
+  const rows = database.prepare(
+    'SELECT DISTINCT tenant_id FROM tracked_wallets WHERE active = 1',
+  ).all() as { tenant_id: string }[];
+  return rows.map((row) => row.tenant_id);
+}
+
+export function listTenantIdsWithCopyTradingEnabled(): string[] {
+  const database = getDatabase();
+  const rows = database.prepare(
+    "SELECT DISTINCT tenant_id FROM bot_config WHERE key = 'copyTradingEnabled' AND value = 'true'",
+  ).all() as { tenant_id: string }[];
+  return rows.map((row) => row.tenant_id);
+}
+
 // ============================================================================
 // BOT CONFIG (key-value store)
 // ============================================================================

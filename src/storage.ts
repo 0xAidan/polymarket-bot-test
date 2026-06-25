@@ -477,6 +477,17 @@ export class Storage {
     await this.saveConfig(cfg);
   }
 
+  static async getCopyTradingEnabled(): Promise<boolean> {
+    const cfg = await this.loadConfig();
+    return cfg.copyTradingEnabled === true;
+  }
+
+  static async setCopyTradingEnabled(enabled: boolean): Promise<void> {
+    const cfg = await this.loadConfig();
+    cfg.copyTradingEnabled = enabled;
+    await this.saveConfig(cfg);
+  }
+
   // ============================================================================
   // ADVANCED TRADE FILTER CONFIGURATION METHODS
   // ============================================================================

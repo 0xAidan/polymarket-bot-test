@@ -99,15 +99,15 @@ window.DITTO_ONBOARDING_STEPS = [
   },
   {
     id: 'start-bot',
-    title: 'Start copying',
-    why: 'Once a wallet is on your Copy List and enabled, Start Copying tells Ditto to monitor and mirror trades.',
+    title: 'Turn on copying',
+    why: 'Once a wallet is on your Copy List and enabled, turn the Copying switch on in the top bar to monitor and mirror trades.',
     actions: [
       'Copy a Jungle Agent or add a wallet to your Copy List',
-      'Click Start Copying in the top bar',
-      'Click again anytime to stop'
+      'Flip the Copying switch to ON in the top bar',
+      'Flip it OFF anytime to pause copying'
     ],
     tab: 'dashboard',
-    target: '#startStopBtn',
+    target: '#copyTradingToggleWrap',
     completionCheck: 'botRunning'
   }
 ];

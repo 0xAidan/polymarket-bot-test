@@ -86,7 +86,7 @@
       tab: 'dashboard',
       target: '.jw-statusbar',
       title: "You're all set",
-      body: "Use Start Copying when your setup is complete. Re-open the setup guide or tour any time from the top bar."
+      body: "Flip the Copying switch ON when your setup is complete. Re-open the setup guide or tour any time from the top bar."
     }
   ];
 

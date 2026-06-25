@@ -183,6 +183,7 @@ function initApp() {
     window.refreshPlatformAdminUi(!!window.__isPlatformAdmin);
   }
   bindTabNavigation();
+  bindCopyTradingToggle();
   if (typeof window.markAppShellReady === 'function') {
     window.markAppShellReady();
   }
@@ -256,6 +257,7 @@ function bindTabNavigation() {
 function startAutoRefresh() {
   if (refreshInterval) clearInterval(refreshInterval);
   refreshInterval = setInterval(() => {
+    loadStatus();
     refreshCurrentTab();
   }, 5000);
 }
@@ -449,10 +451,10 @@ const renderSetupProgress = (state) => {
       setupAction.classList.add('hidden');
     } else {
       setupAction.classList.remove('hidden');
-      setupAction.textContent = state.nextStep.key === 'start-bot' ? 'Start bot' : 'Continue setup';
+      setupAction.textContent = state.nextStep.key === 'start-bot' ? 'Turn on copying' : 'Continue setup';
       setupAction.onclick = () => {
         if (state.nextStep.key === 'start-bot') {
-          void toggleBot();
+          void handleCopyTradingToggle(true);
           return;
         }
         switchTab(state.nextStep.action || 'dashboard');
@@ -594,7 +596,7 @@ function handleSetupWizardPrimaryAction() {
   switchTab(setupGuideAction);
 
   if (setupGuideAction === 'dashboard') {
-    document.getElementById('startStopBtn')?.focus();
+    document.getElementById('copyTradingToggle')?.focus();
     return;
   }
 
@@ -710,34 +712,45 @@ async function loadStatus() {
   }
 }
 
+function updateCopyTradingToggleUI(enabled) {
+  botRunning = enabled;
+  const toggle = document.getElementById('copyTradingToggle');
+  const stateLabel = document.getElementById('copyTradingToggleState');
+  const wrap = document.getElementById('copyTradingToggleWrap');
+
+  if (toggle && toggle.checked !== enabled) {
+    toggle.checked = enabled;
+  }
+  if (stateLabel) {
+    stateLabel.textContent = enabled ? 'ON' : 'OFF';
+  }
+  wrap?.classList.toggle('is-on', enabled);
+  wrap?.classList.toggle('is-off', !enabled);
+  if (toggle) {
+    toggle.setAttribute('aria-checked', enabled ? 'true' : 'false');
+    toggle.setAttribute('aria-label', enabled ? 'Copy trading is on' : 'Copy trading is off');
+  }
+}
+
 function updateStatusUI(data) {
-  botRunning = data.running;
+  const copyTradingEnabled = data.copyTradingEnabled ?? data.running ?? false;
+  updateCopyTradingToggleUI(copyTradingEnabled);
   updateHeaderStatusChip();
 
   // Taskbar
   const indicator = document.getElementById('taskbarIndicator');
   const statusText = document.getElementById('taskbarStatus');
-  const startStopBtn = document.getElementById('startStopBtn');
-  const startStopLabel = document.getElementById('startStopLabel');
 
-  if (data.running) {
+  if (copyTradingEnabled) {
     indicator.className = 'status-indicator running';
     statusText.textContent = 'Running';
-    if (startStopLabel) startStopLabel.textContent = 'Stop Copying';
-    startStopBtn?.classList.add('is-running');
-    startStopBtn?.classList.remove('is-ready');
-    startStopBtn?.setAttribute('aria-label', 'Stop copying trades');
   } else {
     indicator.className = 'status-indicator stopped';
     statusText.textContent = 'Stopped';
-    if (startStopLabel) startStopLabel.textContent = 'Start Copying';
-    startStopBtn?.classList.remove('is-running');
-    startStopBtn?.classList.add('is-ready');
-    startStopBtn?.setAttribute('aria-label', 'Start copying trades');
   }
 
   // Status bar
-  document.getElementById('statusBarBot').textContent = data.running ? 'Running' : 'Stopped';
+  document.getElementById('statusBarBot').textContent = copyTradingEnabled ? 'Running' : 'Stopped';
   document.getElementById('statusBarMode').textContent = data.monitoringMode || 'Polling';
 
   if (data.wallets) {
@@ -1118,39 +1131,71 @@ const consolidatePowerUserTabsIntoSettings = () => {
   crossTab.remove();
 };
 
-async function toggleBot() {
-  const btn = document.getElementById('startStopBtn');
-  await withLoading(btn, async () => {
-    try {
-      if (botRunning) {
-        await API.stopBot();
-      } else {
-        const clientIssues = await runClientPreflightChecks();
-        let serverIssues = [];
-        try {
-          const preflight = await API.get('/preflight');
-          if (!preflight.ready && Array.isArray(preflight.issues)) {
-            serverIssues = preflight.issues;
-          }
-        } catch {
-          // Server preflight is best-effort
-        }
-        const merged = [...clientIssues];
-        serverIssues.forEach((issue) => {
-          if (!merged.some((m) => m.code === issue.code)) merged.push(issue);
-        });
-        if (merged.length > 0) {
-          await showPreflightModal(clientIssues, serverIssues);
-          return;
-        }
-        await API.startBot();
-      }
-      await loadStatus();
-      await refreshSetupExperience();
-    } catch (error) {
-      await jungleModal.error(`Failed: ${error.message}`);
+let copyTradingToggleBusy = false;
+
+const bindCopyTradingToggle = () => {
+  const toggle = document.getElementById('copyTradingToggle');
+  if (!toggle || toggle.dataset.copyToggleBound === 'true') {
+    return;
+  }
+
+  toggle.dataset.copyToggleBound = 'true';
+  toggle.addEventListener('change', (event) => {
+    if (copyTradingToggleBusy) {
+      return;
     }
+    void handleCopyTradingToggle(event.target.checked);
   });
+};
+
+async function handleCopyTradingToggle(enabled) {
+  const wrap = document.getElementById('copyTradingToggleWrap');
+  const toggle = document.getElementById('copyTradingToggle');
+  const previous = !enabled;
+
+  copyTradingToggleBusy = true;
+  wrap?.classList.add('is-busy');
+
+  try {
+    if (!enabled) {
+      await API.stopBot();
+    } else {
+      const clientIssues = await runClientPreflightChecks();
+      let serverIssues = [];
+      try {
+        const preflight = await API.get('/preflight');
+        if (!preflight.ready && Array.isArray(preflight.issues)) {
+          serverIssues = preflight.issues;
+        }
+      } catch {
+        // Server preflight is best-effort
+      }
+      const merged = [...clientIssues];
+      serverIssues.forEach((issue) => {
+        if (!merged.some((m) => m.code === issue.code)) merged.push(issue);
+      });
+      if (merged.length > 0) {
+        await showPreflightModal(clientIssues, serverIssues);
+        if (toggle) toggle.checked = previous;
+        updateCopyTradingToggleUI(previous);
+        return;
+      }
+      await API.startBot();
+    }
+    await loadStatus();
+    await refreshSetupExperience();
+  } catch (error) {
+    if (toggle) toggle.checked = previous;
+    updateCopyTradingToggleUI(previous);
+    await jungleModal.error(`Failed: ${error.message}`);
+  } finally {
+    copyTradingToggleBusy = false;
+    wrap?.classList.remove('is-busy');
+  }
+}
+
+async function toggleBot() {
+  await handleCopyTradingToggle(!botRunning);
 }
 
 async function startBot() {
@@ -3628,7 +3673,7 @@ const showMenu = (menuId, items) => {
 
 const toggleBotMenu = () => {
   const items = [
-    { label: botRunning ? 'Stop Bot' : 'Start Bot', action: toggleBot },
+    { label: botRunning ? 'Turn copying off' : 'Turn copying on', action: toggleBot },
     { label: 'Paper Mode Info...', action: openPaperModeModal },
   ];
 
