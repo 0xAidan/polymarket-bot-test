@@ -124,6 +124,10 @@ PORT=3001
 # Monitoring interval in milliseconds (how often to check for new trades)
 MONITORING_INTERVAL_MS=15000
 
+# Optional: Force copy trading off for all users during maintenance deploys.
+# When true, the global monitor stops and /start returns 503 until cleared.
+# COPY_TRADING_FORCE_DISABLED=true
+
 # Optional: Database for tracking (using JSON file for simplicity)
 DATA_DIR=./data
 

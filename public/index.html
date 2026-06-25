@@ -88,7 +88,11 @@
       </nav>
       <div class="j-topbar-actions">
         <span class="app-status-pill stopped hidden" id="appHeaderStatus" aria-hidden="true">Offline</span>
-        <button type="button" class="j-btn j-btn-primary j-btn-hero is-ready" id="startStopBtn" onclick="toggleBot()" aria-label="Start copying trades"><span id="startStopLabel">Start Copying</span></button>
+        <label class="j-copy-toggle jw-toggle is-off" id="copyTradingToggleWrap" for="copyTradingToggle">
+          <span class="j-copy-toggle-label">Copying</span>
+          <input type="checkbox" id="copyTradingToggle" role="switch" aria-checked="false" aria-label="Copy trading is off">
+          <span class="j-copy-toggle-state" id="copyTradingToggleState" aria-hidden="true">OFF</span>
+        </label>
         <span class="j-status-mini hidden" aria-hidden="true"><span class="status-indicator stopped" id="taskbarIndicator"></span><span id="taskbarStatus">Stopped</span></span>
         <select id="tenantSwitcher" class="j-input j-input-sm hidden" aria-label="Switch account" onchange="handleTenantWorkspaceChange(this.value)"></select>
         <button type="button" class="j-btn j-btn-ghost j-btn-sm" id="topbarTutorial" onclick="startOnboarding(true)" title="Replay the setup guide">Setup Guide</button>
