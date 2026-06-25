@@ -1,0 +1,11 @@
+{
+  "login-id": {
+    "pageTitle": "Log in | Ditto",
+    "title": "Welcome back",
+    "description": "Log in to Ditto to manage your copy trading.",
+    "buttonText": "Continue",
+    "emailPlaceholder": "Email address",
+    "signupActionLinkText": "Sign up",
+    "signupActionText": "No account yet?"
+  }
+}

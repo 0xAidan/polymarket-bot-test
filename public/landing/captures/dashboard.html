@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1100">
+  <title>Ditto dashboard capture</title>
+  <style>html { background: #161721; }</style>
+  <link rel="stylesheet" href="/shared/jungle-brand.css">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/landing/captures/capture.css">
+</head>
+<body class="grid-pattern landing-capture">
+  <div class="app-shell j-app landing-capture-app">
+    <header class="j-topbar">
+      <div class="j-topbar-brand">
+        <div class="j-topbar-mark" aria-hidden="true"><img src="/shared/logo-gold.png" alt="" class="j-topbar-logo"></div>
+        <div>
+          <div class="j-topbar-eyebrow">DITTO</div>
+          <div class="j-topbar-title font-serif">Ditto</div>
+        </div>
+      </div>
+      <nav class="j-nav" aria-label="Primary">
+        <button type="button" class="j-nav-btn active">Home</button>
+        <button type="button" class="j-nav-btn">Jungle Agents</button>
+        <button type="button" class="j-nav-btn">Copy List</button>
+        <button type="button" class="j-nav-btn">My Wallets</button>
+      </nav>
+      <div class="j-topbar-actions">
+        <button type="button" class="j-btn j-btn-primary j-btn-hero is-ready"><span>Start Copying</span></button>
+      </div>
+    </header>
+    <main class="j-main">
+      <div class="jw-body">
+        <div class="jw-tab-panel active j-dashboard">
+          <div class="j-dash-layout">
+            <div class="j-dash-top-aside">
+              <div class="j-dash-wallet-card glow-border">
+                <div class="j-dash-wallet-top">
+                  <span class="j-dash-wallet-label">Trading wallet</span>
+                  <span class="j-dash-live-dot pulse-dot" aria-hidden="true"></span>
+                </div>
+                <div class="j-dash-wallet-row">
+                  <span class="j-dash-wallet-addr-wrap">
+                    <code class="j-dash-wallet-addr">0x4f2a8c…9b1e</code>
+                  </span>
+                  <div class="j-dash-wallet-balance">
+                    <span class="j-dash-balance">$2,847.50</span>
+                    <span class="j-dash-balance-delta positive">+$124.20 (24h)</span>
+                  </div>
+                </div>
+              </div>
+              <div class="j-dash-topbar-actions">
+                <button type="button" class="j-btn j-btn-primary j-btn-sm">Setup guide</button>
+                <button type="button" class="j-btn j-btn-sm">Add wallet to copy</button>
+              </div>
+            </div>
+            <section class="j-dash-primary">
+              <div class="j-panel j-trade-panel">
+                <header class="j-panel-head">
+                  <div>
+                    <h2 class="font-serif j-panel-title">Trade history</h2>
+                    <p class="j-panel-sub">Recent copy activity</p>
+                  </div>
+                  <span class="j-panel-meta">3 trades</span>
+                </header>
+                <div class="j-trade-scroll trades-scroll-container">
+                  <table class="jw-listview j-trade-table">
+                    <thead>
+                      <tr>
+                        <th>Time</th>
+                        <th>Wallet</th>
+                        <th>Market</th>
+                        <th>Side</th>
+                        <th>Amount</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>Just now</td>
+                        <td>0x7a3f…</td>
+                        <td>Trump wins 2028?</td>
+                        <td>BUY</td>
+                        <td>$50.00</td>
+                        <td>Filled</td>
+                      </tr>
+                      <tr>
+                        <td>2m ago</td>
+                        <td>0x9c4e…</td>
+                        <td>Fed cut in June?</td>
+                        <td>SELL</td>
+                        <td>$25.00</td>
+                        <td>Filled</td>
+                      </tr>
+                      <tr>
+                        <td>14m ago</td>
+                        <td>0x7a3f…</td>
+                        <td>BTC &gt; $120k?</td>
+                        <td>BUY</td>
+                        <td>$50.00</td>
+                        <td>Filled</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

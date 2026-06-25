@@ -26,7 +26,7 @@ import {
   summarizeDetectedTradeForDebug,
 } from './tradeDiagnostics.js';
 import { createComponentLogger } from './logger.js';
-import { getTenantIdOrDefault } from './tenantContext.js';
+import { getTenantIdOrDefault, getTenantId } from './tenantContext.js';
 import { getAllocationPolicyState } from './allocation/policyEngine.js';
 import {
   startClobHeartbeatManager,
@@ -88,6 +88,7 @@ export class CopyTrader {
   private executedTradesCount = 0; // Number of trades successfully executed this session
   private processedCompoundKeys = new Map<string, number>(); // Track by compound key (wallet-market-outcome-side-timeWindow) to catch same trade with different hashes
   private inFlightTrades = new Set<string>(); // Prevent concurrent processing of the same trade
+  private recentDittoRejections = new Map<string, number>();
   
   // Per-wallet rate limiting state (in-memory, keyed by wallet address)
   private perWalletRateLimits: PerWalletRateLimitStates = new Map();
@@ -119,9 +120,9 @@ export class CopyTrader {
       const userWallet = this.getWalletAddress();
       const initialAddrs = userWallet
         ? [userWallet]
-        : isHostedMultiTenantMode()
-          ? getActiveTradingWallets().map(w => w.address)
-          : [];
+        : isHostedMultiTenantMode() && !getTenantId()
+          ? []
+          : getActiveTradingWallets().map(w => w.address);
       for (const addr of initialAddrs) {
         try {
           await this.balanceTracker.recordBalance(addr);
@@ -133,17 +134,19 @@ export class CopyTrader {
       // Cleanup expired executed positions (for no-repeat-trades feature)
       // Find the shortest non-zero block period from all wallets to determine cleanup threshold
       try {
-        const wallets = await Storage.loadTrackedWallets();
-        const blockPeriods = wallets
-          .filter(w => w.noRepeatEnabled && w.noRepeatPeriodHours !== 0) // Skip 'forever' (0)
-          .map(w => w.noRepeatPeriodHours ?? 24);
-        
-        if (blockPeriods.length > 0) {
-          // Use the longest block period to avoid removing positions that are still valid
-          const maxBlockPeriod = Math.max(...blockPeriods);
-          const removed = await Storage.cleanupExpiredPositions(maxBlockPeriod);
-          if (removed > 0) {
-            log.info(`[CopyTrader] Cleaned up ${removed} expired no-repeat-trades entries (older than ${maxBlockPeriod}h)`);
+        if (!(isHostedMultiTenantMode() && !getTenantId())) {
+          const wallets = await Storage.loadTrackedWallets();
+          const blockPeriods = wallets
+            .filter(w => w.noRepeatEnabled && w.noRepeatPeriodHours !== 0) // Skip 'forever' (0)
+            .map(w => w.noRepeatPeriodHours ?? 24);
+          
+          if (blockPeriods.length > 0) {
+            // Use the longest block period to avoid removing positions that are still valid
+            const maxBlockPeriod = Math.max(...blockPeriods);
+            const removed = await Storage.cleanupExpiredPositions(maxBlockPeriod);
+            if (removed > 0) {
+              log.info(`[CopyTrader] Cleaned up ${removed} expired no-repeat-trades entries (older than ${maxBlockPeriod}h)`);
+            }
           }
         }
       } catch (cleanupError: any) {
@@ -174,7 +177,7 @@ export class CopyTrader {
     log.info('Starting copy trading bot...');
     this.isRunning = true;
 
-    if (isHostedMultiTenantMode()) {
+    if (isHostedMultiTenantMode() && getTenantId()) {
       await ensureWalletConfigLoaded();
       await enrichTradingWalletsFromPolymarket(this.monitor.getApi());
     }
@@ -190,7 +193,7 @@ export class CopyTrader {
 
     // Start balance tracking for user wallet(s) (reduces RPC calls significantly)
     const userWallet = this.getWalletAddress();
-    const hostedAddrs = isHostedMultiTenantMode()
+    const hostedAddrs = isHostedMultiTenantMode() && getTenantId()
       ? (await ensureWalletConfigLoaded()).tradingWallets.filter((w) => w.isActive).map((w) => w.address)
       : [];
     const toTrack = userWallet ? [userWallet] : hostedAddrs;
@@ -295,6 +298,10 @@ export class CopyTrader {
     log.info(`${'='.repeat(60)}`);
     log.info({ detail: JSON.stringify(trade, null, 2) }, '   Trade object');
     log.info(`${'='.repeat(60)}\n`);
+
+    if (isHostedMultiTenantMode() && getTenantId()) {
+      await ensureWalletConfigLoaded();
+    }
     
     // CRITICAL: Verify the wallet is actually in the active tracked wallets list
     // This prevents executing trades from wallets that were removed or never tracked
@@ -377,6 +384,12 @@ export class CopyTrader {
     // Apply Ditto Execution State Logic
     let dittoMultiplier = 1.0;
     if (dittoState === DittoExecutionState.COOLDOWN_PAUSED || dittoState === DittoExecutionState.NEW_UNRANKED) {
+      const rejectKey = `${trade.walletAddress.toLowerCase()}:${trade.marketId}:${dittoState}`;
+      const lastReject = this.recentDittoRejections.get(rejectKey);
+      if (lastReject && Date.now() - lastReject < 5 * 60 * 1000) {
+        return;
+      }
+      this.recentDittoRejections.set(rejectKey, Date.now());
       log.info(`[CopyTrader] ⏸️ Ditto State blocked trade for ${trade.walletAddress.slice(0, 10)}...: State is ${dittoState}`);
       await this.performanceTracker.recordTrade({
         timestamp: new Date(), walletAddress: trade.walletAddress, marketId: trade.marketId, marketTitle: trade.marketTitle,

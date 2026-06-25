@@ -5,6 +5,7 @@ import http from 'node:http';
 import { AddressInfo } from 'node:net';
 
 import { requireAuthForMutations } from '../src/api/discoveryRoutesV3.js';
+import { config } from '../src/config.js';
 
 /**
  * Contract test for the public-read / auth-gated-write split that fixes the
@@ -113,7 +114,7 @@ test('mutation endpoints reject anonymous OIDC requests with 401 JSON + loginUrl
       const body = await res.json();
       assert.equal(body.success, false);
       assert.equal(body.error, 'Authentication required');
-      assert.equal(body.loginUrl, '/auth/login');
+      assert.equal(body.loginUrl, '/login');
     }
   } finally {
     await close();
@@ -138,15 +139,25 @@ test('mutation endpoints succeed when req.oidc.isAuthenticated() is true', async
   }
 });
 
-test('requireAuthForMutations lets requests through when req.oidc is absent (legacy/dev)', async () => {
-  const app = express();
-  app.use(express.json());
-  app.post('/test', requireAuthForMutations, (_req, res) => res.json({ success: true }));
-  const { url, close } = await listen(app);
+test('requireAuthForMutations rejects unauthenticated requests when API_SECRET is set', async () => {
+  const savedSecret = config.apiSecret;
+  const savedRequire = config.requireApiSecret;
+  (config as { apiSecret: string }).apiSecret = 'test-mutation-secret';
+  (config as { requireApiSecret: boolean }).requireApiSecret = true;
+
   try {
-    const res = await fetch(`${url}/test`, { method: 'POST' });
-    assert.equal(res.status, 200);
+    const app = express();
+    app.use(express.json());
+    app.post('/test', requireAuthForMutations, (_req, res) => res.json({ success: true }));
+    const { url, close } = await listen(app);
+    try {
+      const res = await fetch(`${url}/test`, { method: 'POST' });
+      assert.equal(res.status, 401);
+    } finally {
+      await close();
+    }
   } finally {
-    await close();
+    (config as { apiSecret: string }).apiSecret = savedSecret;
+    (config as { requireApiSecret: boolean }).requireApiSecret = savedRequire;
   }
 });

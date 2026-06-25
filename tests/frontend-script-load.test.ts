@@ -8,7 +8,6 @@ const publicDir = join(process.cwd(), 'public', 'js');
 
 const loadScriptsInOrder = () => {
   const sandbox: Record<string, unknown> = {
-    window: {},
     document: {
       body: { classList: { remove: () => {}, add: () => {}, contains: () => false }, className: 'app-loading' },
       addEventListener: () => {},
@@ -27,7 +26,12 @@ const loadScriptsInOrder = () => {
     sessionStorage: { getItem: () => null, setItem: () => {} },
     location: { href: 'http://localhost/', pathname: '/', search: '', reload: () => {} },
     navigator: { clipboard: { writeText: async () => {} } },
+    AbortController: globalThis.AbortController,
   };
+  sandbox.escapeHtml = (value: unknown) => String(value);
+  sandbox.sanitizeReturnTo = (value: unknown, fallback = '/app') => (
+    typeof value === 'string' ? value : fallback
+  );
   sandbox.window = sandbox;
   sandbox.globalThis = sandbox;
 
@@ -59,11 +63,11 @@ test('dashboard scripts load together and expose switchTab', () => {
   assert.equal(typeof win.switchTab, 'function');
 });
 
-test('onboarding tutorial loads, exposes startOnboarding, and defines 8 valid steps', () => {
+test('onboarding tutorial loads, exposes startOnboarding, and defines 5 valid steps', () => {
   const win = loadScriptsInOrder();
   assert.equal(typeof win.startOnboarding, 'function');
   const steps = win.DITTO_ONBOARDING_STEPS || [];
-  assert.equal(steps.length, 8);
+  assert.equal(steps.length, 5);
   const ids = new Set<string>();
   for (const step of steps) {
     assert.equal(typeof step.id, 'string');

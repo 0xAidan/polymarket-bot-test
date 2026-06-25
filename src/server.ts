@@ -12,6 +12,7 @@ import { createDiscoveryV3Router } from './api/discoveryRoutesV3.js';
 import { createPublicStatsRouter } from './api/publicStatsRoutes.js';
 import { createJungleAgentsRouter } from './api/jungleAgentsRoutes.js';
 import { createOlympicsRoutes } from './api/olympicsRoutes.js';
+import { createLandingPublicRouter } from './api/landingPublicRoutes.js';
 import { isDiscoveryV3Enabled } from './discovery/v3/featureFlag.js';
 import { initDatabase, getDatabase } from './database.js';
 import { DiscoveryManager } from './discovery/discoveryManager.js';
@@ -28,8 +29,12 @@ import {
   writeAuthAuditLog
 } from './authStore.js';
 import { seedJungleAgentsIfMissing, migrateOlympicsConfigToJungleStore } from './jungleAgentsStore.js';
-import { syncMissingAgentAddressesFromPolymarket } from './jungleAgentsPolymarketSync.js';
+import { reconcileAgentAddressesFromPolymarket } from './jungleAgentsPolymarketSync.js';
+import { reconcileTrackedWalletAddresses } from './trackedWalletAddress.js';
 import { resolveIsPlatformAdmin } from './platformAdmin.js';
+import { getDiskMetrics, getDiskBreakdown, isEnospcError, DiskSpaceError } from './diskGuard.js';
+import { getLastDiskMaintenanceSnapshot } from './diskMaintenance.js';
+import { sanitizeReturnTo } from './sanitizeReturnTo.js';
 
 const log = createComponentLogger('Server');
 
@@ -45,32 +50,66 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   await seedJungleAgentsIfMissing();
   await migrateOlympicsConfigToJungleStore();
   try {
-    const syncResult = await syncMissingAgentAddressesFromPolymarket();
-    if (syncResult.synced > 0 || syncResult.unresolved.length > 0) {
-      log.info(syncResult, 'Jungle Agents Polymarket address sync finished');
+    const syncResult = await reconcileAgentAddressesFromPolymarket();
+    if (syncResult.replaced > 0 || syncResult.unresolved > 0) {
+      log.info(syncResult, 'Jungle Agents Polymarket address reconcile finished');
     }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     log.warn({ err: message }, 'Jungle Agents Polymarket address sync failed (non-fatal)');
   }
+  try {
+    const trackedSync = await reconcileTrackedWalletAddresses();
+    if (trackedSync.migrated > 0 || trackedSync.invalid.length > 0) {
+      log.info(trackedSync, 'Tracked wallet address reconcile finished');
+    }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    log.warn({ err: message }, 'Tracked wallet address sync failed (non-fatal)');
+  }
   const app = express();
   app.set('trust proxy', 1);
 
   // Middleware
-  app.use(cors());
+  const corsOptions: cors.CorsOptions = config.corsAllowedOrigins.length > 0
+    ? { origin: config.corsAllowedOrigins, credentials: true }
+    : {};
+  app.use(cors(corsOptions));
   app.use(express.json({ limit: '5mb' }));  // Increased from default 100kb for large trade lists
 
-  // Serve static files from public directory
+  // Serve static files from public directory (discovery-v3 is mounted after auth below)
   // Note: Using process.cwd() since the app runs from project root
   const publicPath = path.join(process.cwd(), 'public');
-  app.use('/discovery-v3', (req, res, next) => {
-    if (!isDiscoveryV3Enabled()) {
-      res.status(404).send('Discovery v3 is not enabled');
+  app.use((req, res, next) => {
+    const urlPath = req.path || '';
+    if (urlPath === '/' || urlPath === '/app' || urlPath === '/login' || urlPath === '/admin') {
+      next();
       return;
     }
-    next();
+    if (urlPath === '/discovery-v3' || urlPath.startsWith('/discovery-v3/')) {
+      next();
+      return;
+    }
+    express.static(publicPath, { index: false })(req, res, next);
   });
-  app.use(express.static(publicPath));
+
+  const mountProtectedDiscoveryV3Static = (): void => {
+    app.use(
+      '/discovery-v3',
+      (req, res, next) => {
+        if (!isDiscoveryV3Enabled()) {
+          res.status(404).send('Discovery v3 is not enabled');
+          return;
+        }
+        if (!resolveIsPlatformAdmin(req)) {
+          res.status(403).send('Platform admin required');
+          return;
+        }
+        next();
+      },
+      express.static(path.join(publicPath, 'discovery-v3'))
+    );
+  };
 
   discoveryManagerInstance = new DiscoveryManager('passive');
   const discoveryControlPlane = new DiscoveryControlPlane();
@@ -194,6 +233,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   });
 
   mountPublicStats();
+  app.use('/api', apiLimiter, createLandingPublicRouter(copyTrader));
 
   // In OIDC mode we need req.oidc populated on v3 requests so the
   // per-route mutation gate can distinguish logged-in vs anonymous. Mounting
@@ -234,6 +274,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 
     app.use('/auth', authLimiter);
     app.use(auth(oidcConfig));
+    mountProtectedDiscoveryV3Static();
 
     app.get('/api/auth/capabilities', sendAuthCapabilities);
 
@@ -345,6 +386,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     });
     log.info('🔐 OIDC authentication enabled (Auth0 session mode)');
   } else if (config.apiSecret) {
+    mountProtectedDiscoveryV3Static();
     app.get('/api/auth/capabilities', sendAuthCapabilities);
 
     app.post('/api/auth/check', (req, res) => {
@@ -384,6 +426,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
       throw new Error(message);
     }
     log.warn('⚠️  WARNING: API authentication is open in legacy mode.');
+    mountProtectedDiscoveryV3Static();
     app.get('/api/auth/capabilities', sendAuthCapabilities);
     mountDiscoveryV3Public();
     app.use('/api', apiLimiter, (_req, _res, next) => {
@@ -414,6 +457,15 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 
   // API error handler - ensure API errors return JSON, not HTML
   app.use('/api', (err: any, req: any, res: any, next: any) => {
+    if (isEnospcError(err) || err instanceof DiskSpaceError || err?.code === 'DISK_FULL') {
+      log.error({ err }, '[API] Disk full');
+      res.status(507).json({
+        success: false,
+        error: 'DISK_FULL',
+        message: 'Server disk is full. Saves are blocked until space is freed. Contact support if this persists.',
+      });
+      return;
+    }
     log.error({ err }, '[API] Error');
     res.status(err.status || 500).json({
       success: false,
@@ -422,12 +474,67 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   });
 
   // Health check
-  app.get('/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  app.get('/health', (_req, res) => {
+    const disk = getDiskMetrics();
+    const overallStatus = disk.status === 'critical' ? 'critical' : disk.status === 'degraded' ? 'degraded' : 'ok';
+    const lastMaintenance = getLastDiskMaintenanceSnapshot();
+    res.status(disk.status === 'critical' ? 503 : 200).json({
+      status: overallStatus,
+      timestamp: new Date().toISOString(),
+      disk: {
+        path: disk.path,
+        usedPercent: disk.usedPercent,
+        availableBytes: disk.availableBytes,
+        status: disk.status,
+        breakdown: getDiskBreakdown(),
+        lastMaintenance: lastMaintenance
+          ? {
+              at: lastMaintenance.at,
+              rowsRemoved: lastMaintenance.rowsRemoved,
+              bytesReclaimed: lastMaintenance.bytesReclaimedEstimate,
+            }
+          : null,
+      },
+    });
   });
 
-  // Serve dashboard UI (fallback for SPA-style routing)
+  const sendLandingPage = (res: express.Response): void => {
+    res.sendFile(path.join(publicPath, 'landing.html'));
+  };
+
+  const redirectToOidcAuth = (req: express.Request, res: express.Response): void => {
+    const params = new URLSearchParams();
+    const returnTo = sanitizeReturnTo(req.query.returnTo, '/app');
+    params.set('returnTo', returnTo);
+    const mode = String(req.query.mode || 'login').trim();
+    if (mode === 'signup') {
+      params.set('screen_hint', 'signup');
+    }
+    res.redirect(`/auth/login?${params.toString()}`);
+  };
+
+  const isOidcAuthenticated = (req: express.Request): boolean => (
+    config.authMode === 'oidc' && Boolean(req.oidc?.isAuthenticated())
+  );
+
+  // Marketing landing at /; product dashboard at /app
   app.get('/', (req, res) => {
+    if (isOidcAuthenticated(req)) {
+      res.redirect('/app');
+      return;
+    }
+    sendLandingPage(res);
+  });
+
+  app.get('/login', (req, res) => {
+    if (isOidcAuthenticated(req)) {
+      res.redirect('/app');
+      return;
+    }
+    redirectToOidcAuth(req, res);
+  });
+
+  app.get('/app', (_req, res) => {
     res.sendFile(path.join(publicPath, 'index.html'));
   });
 

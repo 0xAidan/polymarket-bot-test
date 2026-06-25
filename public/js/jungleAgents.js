@@ -2,6 +2,8 @@
  * Jungle Agents public showcase tab.
  */
 
+const escapeHtml = window.escapeHtml;
+
 let jungleAgentsBooted = false;
 let cachedAgents = [];
 let trackedAddressSet = new Set();
@@ -11,12 +13,47 @@ const formatUsd = (value) => {
   return `$${Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 };
 
+const formatSignedUsd = (value) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
+  const n = Number(value);
+  const abs = Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  if (n > 0) return `+$${abs}`;
+  if (n < 0) return `-$${abs}`;
+  return '$0';
+};
+
+const formatSignedPercent = (value) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
+  const n = Number(value);
+  const fixed = n.toFixed(1);
+  if (n > 0) return `+${fixed}%`;
+  if (n < 0) return `${fixed}%`;
+  return '0.0%';
+};
+
+const pnlClass = (value) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '';
+  const n = Number(value);
+  if (n > 0) return 'is-win';
+  if (n < 0) return 'is-loss';
+  return '';
+};
+
+const formatWinLoss = (wins, losses) => {
+  if (wins == null && losses == null) return '—';
+  return `${wins ?? 0}W-${losses ?? 0}L`;
+};
+
 const agentShortAddress = (address) => {
   if (!address) return '—';
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 };
 
-const polymarketProfileUrl = (address) => {
+const polymarketProfileUrl = (agent) => {
+  if (agent?.polymarketUsername) {
+    return `https://polymarket.com/@${agent.polymarketUsername.replace(/^@/, '')}`;
+  }
+  const address = typeof agent === 'string' ? agent : agent?.polymarketAddress;
   if (!address) return null;
   return `https://polymarket.com/profile/${address.trim().toLowerCase()}`;
 };
@@ -32,23 +69,45 @@ const refreshTrackedSet = async () => {
   }
 };
 
-const updateAgentStatCells = (agentId, portfolio, positions) => {
+const updateAgentStatCells = (agentId, perf) => {
   const portfolioEl = document.querySelector(`[data-agent-portfolio="${agentId}"]`);
+  const pnlEl = document.querySelector(`[data-agent-pnl="${agentId}"]`);
+  const roiEl = document.querySelector(`[data-agent-roi="${agentId}"]`);
+  const wlEl = document.querySelector(`[data-agent-wl="${agentId}"]`);
+  const winRateEl = document.querySelector(`[data-agent-winrate="${agentId}"]`);
   const positionsEl = document.querySelector(`[data-agent-positions="${agentId}"]`);
-  if (portfolioEl) portfolioEl.textContent = portfolio;
-  if (positionsEl) positionsEl.textContent = positions;
+
+  if (portfolioEl) {
+    portfolioEl.textContent = formatUsd(perf.portfolioValueUsd);
+    const cash = perf.usdcBalance;
+    const positions = perf.positionsValue;
+    if (cash != null && positions != null) {
+      portfolioEl.title = `Cash ${formatUsd(cash)} + positions ${formatUsd(positions)}`;
+    } else {
+      portfolioEl.removeAttribute('title');
+    }
+  }
+  if (pnlEl) {
+    pnlEl.textContent = formatSignedUsd(perf.lifetimePnlUsd);
+    pnlEl.className = `j-agents-num ${pnlClass(perf.lifetimePnlUsd)}`;
+  }
+  if (roiEl) {
+    roiEl.textContent = formatSignedPercent(perf.roiPct);
+    roiEl.className = `j-agents-num ${pnlClass(perf.roiPct)}`;
+  }
+  if (wlEl) wlEl.textContent = formatWinLoss(perf.wins, perf.losses);
+  if (winRateEl) {
+    winRateEl.textContent = perf.winRatePct == null ? '—' : `${Number(perf.winRatePct).toFixed(1)}%`;
+  }
+  if (positionsEl) positionsEl.textContent = String(perf.positionCount ?? '—');
 };
 
 const loadAgentPerformance = async (agentId) => {
   try {
     const perf = await API.getJungleAgentPerformance(agentId);
-    updateAgentStatCells(
-      agentId,
-      formatUsd(perf.portfolioValueUsd),
-      String(perf.positionCount ?? '—'),
-    );
+    updateAgentStatCells(agentId, perf);
   } catch {
-    updateAgentStatCells(agentId, '—', '—');
+    updateAgentStatCells(agentId, {});
   }
 };
 
@@ -70,65 +129,72 @@ const bindAgentGridEvents = (grid, agents) => {
   });
 
   const agentById = new Map(agents.map((a) => [a.id, a]));
-  grid.querySelectorAll('[data-follow-agent]').forEach((btn) => {
+  grid.querySelectorAll('[data-copy-agent]').forEach((btn) => {
     if (btn.dataset.bound === 'true') return;
     btn.dataset.bound = 'true';
     btn.addEventListener('click', async (event) => {
       event.stopPropagation();
-      const id = btn.getAttribute('data-follow-agent');
+      const id = btn.getAttribute('data-copy-agent');
       const agent = agentById.get(id);
-      if (agent) await handleFollowAgent(agent);
+      if (agent) await handleCopyAgent(agent);
     });
   });
 };
 
-const syncFollowButtons = (agents) => {
+const syncCopyButtons = (agents) => {
   agents.forEach((agent) => {
-    const btn = document.querySelector(`[data-follow-agent="${agent.id}"]`);
+    const btn = document.querySelector(`[data-copy-agent="${agent.id}"]`);
     if (!btn) return;
     const address = agent.polymarketAddress?.toLowerCase() || '';
-    const isFollowing = address && trackedAddressSet.has(address);
-    btn.disabled = agent.addressPending || isFollowing;
-    btn.textContent = isFollowing ? 'Following' : 'Follow';
+    const isCopying = address && trackedAddressSet.has(address);
+    btn.disabled = agent.addressPending || isCopying;
+    btn.textContent = isCopying ? 'Copying' : 'Copy';
   });
 };
 
+/** @deprecated */
+const syncFollowButtons = syncCopyButtons;
+
 const renderAgentTableRow = (agent) => {
   const address = agent.polymarketAddress?.toLowerCase() || '';
-  const isFollowing = address && trackedAddressSet.has(address);
-  const followDisabled = agent.addressPending || isFollowing;
-  const followLabel = isFollowing ? 'Following' : 'Follow';
-  const profileUrl = polymarketProfileUrl(agent.polymarketAddress);
-  const avatar = agent.avatarUrl
-    ? `<img src="${agent.avatarUrl}" alt="" class="j-agents-avatar-img" />`
-    : `<span class="j-agents-avatar-fallback">${agent.displayName.slice(0, 1)}</span>`;
+  const isCopying = address && trackedAddressSet.has(address);
+  const copyDisabled = agent.addressPending || isCopying;
+  const copyLabel = isCopying ? 'Copying' : 'Copy';
+  const profileUrl = polymarketProfileUrl(agent);
+  const avatar = renderJungleAgentAvatar(agent);
   const metaLine = [agent.tagline, agent.modelLabel].filter(Boolean).join(' · ');
   const categoryBadge = agent.category
-    ? `<span class="j-badge j-agents-category">${agent.category}</span>`
+    ? `<span class="j-badge j-agents-category">${escapeHtml(agent.category)}</span>`
     : '';
+  const safeId = escapeHtml(agent.id);
+  const safeAddress = escapeHtml(agent.polymarketAddress || '');
 
   return `
-    <tr data-agent-id="${agent.id}">
+    <tr data-agent-id="${safeId}">
       <td class="j-agents-cell-agent">
         <span class="j-agents-avatar-sm">${avatar}</span>
         <span class="j-agents-cell-text">
-          <span class="j-agents-name font-serif">${agent.displayName} ${categoryBadge}</span>
-          ${metaLine ? `<span class="j-agents-meta">${metaLine}</span>` : ''}
+          <span class="j-agents-name font-serif">${escapeHtml(agent.displayName)} ${categoryBadge}</span>
+          ${metaLine ? `<span class="j-agents-meta">${escapeHtml(metaLine)}</span>` : ''}
         </span>
       </td>
-      <td class="j-agents-num" data-agent-portfolio="${agent.id}">—</td>
-      <td class="j-agents-num" data-agent-positions="${agent.id}">—</td>
+      <td class="j-agents-num" data-agent-portfolio="${safeId}">—</td>
+      <td class="j-agents-num" data-agent-pnl="${safeId}">—</td>
+      <td class="j-agents-num" data-agent-roi="${safeId}">—</td>
+      <td class="j-agents-num" data-agent-wl="${safeId}">—</td>
+      <td class="j-agents-num" data-agent-winrate="${safeId}">—</td>
+      <td class="j-agents-num" data-agent-positions="${safeId}">—</td>
       <td class="j-agents-wallet">
         ${agent.addressPending
     ? '<span class="j-badge j-badge-warn">Pending</span>'
-    : `<code class="j-mono">${agentShortAddress(agent.polymarketAddress)}</code>
-           <button type="button" class="j-btn j-btn-ghost j-btn-sm j-agents-copy" data-copy-address="${agent.polymarketAddress}" aria-label="Copy address">⧉</button>`}
+    : `<code class="j-mono">${escapeHtml(agentShortAddress(agent.polymarketAddress))}</code>
+           <button type="button" class="j-btn j-btn-ghost j-btn-sm j-agents-copy" data-copy-address="${safeAddress}" aria-label="Copy address">⧉</button>`}
       </td>
       <td class="j-agents-actions">
         ${profileUrl
-    ? `<a class="j-btn j-btn-sm" href="${profileUrl}" target="_blank" rel="noopener noreferrer">View</a>`
+    ? `<a class="j-btn j-btn-sm" href="${escapeHtml(profileUrl)}" target="_blank" rel="noopener noreferrer">View</a>`
     : ''}
-        <button type="button" class="j-btn j-btn-primary j-btn-sm" data-follow-agent="${agent.id}" ${followDisabled ? 'disabled' : ''}>${followLabel}</button>
+        <button type="button" class="j-btn j-btn-primary j-btn-sm" data-copy-agent="${safeId}" ${copyDisabled ? 'disabled' : ''}>${copyLabel}</button>
       </td>
     </tr>
   `;
@@ -157,7 +223,7 @@ const renderAgentTable = (agents) => {
 
   const body = groups.map((group) => {
     const header = hasCollections
-      ? `<tr class="j-agents-collection-row"><td colspan="5">${group.name || 'More agents'}</td></tr>`
+      ? `<tr class="j-agents-collection-row"><td colspan="9">${escapeHtml(group.name || 'More agents')}</td></tr>`
       : '';
     return header + group.agents.map(renderAgentTableRow).join('');
   }).join('');
@@ -170,6 +236,10 @@ const renderAgentTable = (agents) => {
           <tr>
             <th>Agent</th>
             <th>Portfolio</th>
+            <th>PnL</th>
+            <th>ROI</th>
+            <th>W/L</th>
+            <th>Win%</th>
             <th>Pos</th>
             <th>Wallet</th>
             <th></th>
@@ -184,27 +254,46 @@ const renderAgentTable = (agents) => {
 `;
 };
 
-const handleFollowAgent = async (agent) => {
+const handleCopyAgent = async (agent) => {
   if (agent.addressPending || !agent.polymarketAddress) {
     await jungleDialog.alert('This agent does not have a Polymarket address yet.');
     return;
   }
   const addr = agent.polymarketAddress.toLowerCase();
   if (trackedAddressSet.has(addr)) {
-    await jungleDialog.alert('You are already following this wallet. Open Tracked Wallets to configure and enable copying.');
     switchTab('wallets');
+    if (typeof openWalletModal === 'function') {
+      await openWalletModal(addr);
+    }
     return;
   }
   try {
     await API.addWallet(addr, agent.displayName);
+    try {
+      const tw = await API.getTradingWallets();
+      const wallets = tw.wallets || [];
+      const credentialed = wallets.filter((w) => w.hasCredentials && w.active !== false);
+      if (credentialed.length === 1) {
+        await API.addCopyAssignment(addr, credentialed[0].id);
+      }
+    } catch {
+      // Non-fatal — user can assign manually under Trading Wallets
+    }
     trackedAddressSet.add(addr);
-    await jungleDialog.success(`Added ${agent.displayName} to Tracked Wallets (inactive until you enable copying).`);
     if (typeof loadWallets === 'function') await loadWallets(true);
-    syncFollowButtons(cachedAgents);
+    syncCopyButtons(cachedAgents);
+    syncHomeRosterCopyButtons();
+    switchTab('wallets');
+    if (typeof openWalletModal === 'function') {
+      await openWalletModal(addr);
+    }
   } catch (error) {
-    await jungleDialog.error(error.message || 'Could not follow agent');
+    await jungleDialog.error(error.message || 'Could not add wallet to copy');
   }
 };
+
+/** @deprecated */
+const handleFollowAgent = handleCopyAgent;
 
 window.initJungleAgentsTab = async (force = false) => {
   const grid = document.getElementById('jungleAgentsGrid');
@@ -213,7 +302,7 @@ window.initJungleAgentsTab = async (force = false) => {
 
   if (jungleAgentsBooted && !force && grid.querySelector('.j-agents-table tbody tr')) {
     await refreshTrackedSet();
-    syncFollowButtons(cachedAgents);
+    syncCopyButtons(cachedAgents);
     return;
   }
 
@@ -245,16 +334,44 @@ window.initJungleAgentsTab = async (force = false) => {
       if (!agent.addressPending) void loadAgentPerformance(agent.id);
     });
   } catch (error) {
-    grid.innerHTML = `<p class="text-loss j-agents-empty-msg">Could not load agents: ${error.message || error}</p>`;
+    grid.innerHTML = `<p class="text-loss j-agents-empty-msg">Could not load agents: ${escapeHtml(error.message || String(error))}</p>`;
   }
+};
+
+const syncHomeRosterCopyButtons = () => {
+  document.querySelectorAll('[data-home-copy-agent]').forEach((btn) => {
+    const addr = btn.getAttribute('data-agent-address')?.toLowerCase() || '';
+    const pending = btn.getAttribute('data-address-pending') === 'true';
+    const isCopying = addr && trackedAddressSet.has(addr);
+    btn.disabled = pending || isCopying || !addr;
+    btn.textContent = isCopying ? 'Copying' : 'Copy';
+  });
+};
+
+const bindHomeRosterEvents = (container, agents) => {
+  const agentById = new Map(agents.map((a) => [a.id, a]));
+  container.querySelectorAll('[data-home-copy-agent]').forEach((btn) => {
+    if (btn.dataset.bound === 'true') return;
+    btn.dataset.bound = 'true';
+    btn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      const id = btn.getAttribute('data-home-copy-agent');
+      const agent = agentById.get(id);
+      if (agent) {
+        await handleCopyAgent(agent);
+        syncHomeRosterCopyButtons();
+      }
+    });
+  });
 };
 
 window.renderHomeJungleAgentTeaser = async () => {
   const row = document.getElementById('homeJungleAgentsTeaser');
   if (!row) return;
   try {
+    await refreshTrackedSet();
     const data = await API.getJungleAgents();
-    const agents = (data.agents || []).slice(0, 4);
+    const agents = (data.agents || []).slice(0, 6);
     if (!agents.length) {
       row.classList.add('hidden');
       return;
@@ -262,58 +379,48 @@ window.renderHomeJungleAgentTeaser = async () => {
     row.classList.remove('hidden');
     row.innerHTML = `
       <header class="j-roster-head">
-        <h3 class="j-roster-title font-serif">Jungle Agents</h3>
+        <div>
+          <h2 class="j-roster-title font-serif">Jungle Agents</h2>
+          <p class="j-roster-sub">Curated wallets to copy</p>
+        </div>
         <button type="button" class="j-btn j-btn-ghost j-btn-sm" onclick="switchTab('jungle-agents')">View all</button>
       </header>
       <div class="j-roster-list">
         ${agents.map((a) => {
-    const avatar = a.avatarUrl
-      ? `<img src="${a.avatarUrl}" alt="" />`
-      : `<span class="j-roster-avatar-fallback">${a.displayName.slice(0, 1)}</span>`;
+    const avatar = renderJungleAgentAvatar(a, {
+      imgClass: '',
+      iconClass: 'j-roster-avatar-icon',
+      fallbackClass: 'j-roster-avatar-fallback',
+    });
+    const address = a.polymarketAddress?.toLowerCase() || '';
+    const isCopying = address && trackedAddressSet.has(address);
+    const copyDisabled = a.addressPending || isCopying || !address;
+    const copyLabel = isCopying ? 'Copying' : 'Copy';
     return `
-          <button type="button" class="j-roster-item" onclick="switchTab('jungle-agents')" aria-label="Open ${a.displayName} in Jungle Agents">
+          <div class="j-roster-item">
             <div class="j-roster-avatar">${avatar}</div>
             <div class="j-roster-body">
               <div class="j-roster-name">${a.displayName}</div>
               <div class="j-roster-tagline">${a.tagline || a.modelLabel || 'Curated copy agent'}</div>
             </div>
-            ${a.modelLabel ? `<span class="j-roster-badge">${a.modelLabel}</span>` : '<span class="j-roster-badge">Agent</span>'}
-          </button>`;
+            <div class="j-roster-actions">
+              ${a.modelLabel ? `<span class="j-roster-badge">${a.modelLabel}</span>` : '<span class="j-roster-badge">Agent</span>'}
+              <button type="button" class="j-btn j-btn-primary j-btn-sm j-roster-copy-btn"
+                data-home-copy-agent="${a.id}"
+                data-agent-address="${a.polymarketAddress || ''}"
+                data-address-pending="${a.addressPending ? 'true' : 'false'}"
+                ${copyDisabled ? 'disabled' : ''}
+                aria-label="Copy ${a.displayName}">${copyLabel}</button>
+            </div>
+          </div>`;
   }).join('')}
       </div>
       <footer class="j-roster-foot">
         <button type="button" class="j-btn j-btn-sm" onclick="switchTab('jungle-agents')">Browse full roster →</button>
       </footer>
     `;
+    bindHomeRosterEvents(row, agents);
   } catch {
     row.classList.add('hidden');
   }
 };
-
-const METRICS_EXPANDED_KEY = 'ditto_metrics_expanded';
-
-const initDashboardMetricsToggle = () => {
-  const btn = document.getElementById('metricsToggleBtn');
-  const panel = document.getElementById('metricsDetailPanel');
-  if (!btn || !panel) return;
-
-  const applyExpanded = (expanded) => {
-    btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-    btn.querySelector('.j-metrics-toggle-label').textContent = expanded ? 'Hide stats' : 'All stats';
-    panel.hidden = !expanded;
-    panel.classList.toggle('is-open', expanded);
-  };
-
-  const saved = localStorage.getItem(METRICS_EXPANDED_KEY) === 'true';
-  applyExpanded(saved);
-
-  btn.addEventListener('click', () => {
-    const next = btn.getAttribute('aria-expanded') !== 'true';
-    applyExpanded(next);
-    localStorage.setItem(METRICS_EXPANDED_KEY, next ? 'true' : 'false');
-  });
-};
-
-document.addEventListener('DOMContentLoaded', () => {
-  initDashboardMetricsToggle();
-});

@@ -48,6 +48,7 @@ import { getDiscoveryConfig } from './statsStore.js';
 import { DiscoveryStrategyClass, DiscoveryWalletScoreRow } from './types.js';
 import { upsertWalletFeatureSnapshotV2 } from './v2DataStore.js';
 import { evaluateAndPersistAllocationPolicies } from '../allocation/policyEngine.js';
+import { runDiskMaintenance, startDiskMaintenanceScheduler } from '../diskMaintenance.js';
 
 type MarketContext = {
   averageSpreadBps: number;
@@ -670,6 +671,8 @@ export const startDiscoveryWorker = async (
   runner: Pick<DiscoveryWorkerRuntime, 'start'> = new DiscoveryWorkerRuntime(),
 ): Promise<Pick<DiscoveryWorkerRuntime, 'start'>> => {
   await initDatabase();
+  await runDiskMaintenance(process.cwd());
+  startDiskMaintenanceScheduler(process.cwd());
   const cfg = getDiscoveryConfig();
   console.log('[DiscoveryWorker] Started. Discovery enabled:', cfg.enabled, cfg.enabled ? '' : '(set DISCOVERY_ENABLED=true or enable in the app to run cycles)');
   await runner.start();

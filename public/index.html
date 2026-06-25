@@ -3,36 +3,38 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ditto - Jungle Copy Trading</title>
+  <title>Ditto — Polymarket copy bot</title>
   <link rel="icon" type="image/png" href="/shared/favicon-gold.png">
   <!-- Paint the page dark before any stylesheet loads, so there is never a white flash. -->
   <style>html { background: #161721; }</style>
   <link rel="stylesheet" href="/shared/jungle-brand.css">
+  <link rel="stylesheet" href="/shared/auth-experience.css">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/tour.css">
 </head>
 <body class="grid-pattern app-loading">
+  <a href="#main-content" class="skip-nav-link">Skip to main content</a>
   <div id="authGateScreen" class="auth-gate-screen" aria-live="polite">
     <div class="auth-gate-backdrop"></div>
     <div class="auth-gate-panel noise-overlay">
-      <div class="auth-gate-eyebrow">JUNGLE DAO</div>
+      <div class="auth-gate-eyebrow">DITTO</div>
       <div class="auth-gate-brand-row">
         <div class="auth-gate-mark">D</div>
         <div>
           <div class="auth-gate-product">Ditto</div>
-          <div class="auth-gate-tagline">Autonomous copy trading for prediction markets</div>
+          <div class="auth-gate-tagline">Copy wallets. Mirror their moves.</div>
         </div>
       </div>
       <div class="auth-gate-copy">
-        <h1 id="authGateTitle">Preparing your Ditto workspace</h1>
-        <p id="authGateMessage">Checking your session and loading the product shell.</p>
+        <h1 id="authGateTitle">Loading Ditto</h1>
+        <p id="authGateMessage">Checking your session…</p>
       </div>
       <div class="auth-gate-trust">
-        <div class="auth-gate-chip">Jungle functional product</div>
-        <div class="auth-gate-chip">Guided first-run setup</div>
-        <div class="auth-gate-chip">Encrypted wallet storage</div>
+        <div class="auth-gate-chip">Curated Jungle Agents</div>
+        <div class="auth-gate-chip">Encrypted wallet keys</div>
+        <div class="auth-gate-chip">Live trade execution</div>
       </div>
-      <div class="auth-gate-footer" id="authGateHint">If sign-in is required, Ditto will send you to the secure hosted login automatically.</div>
+      <div class="auth-gate-footer" id="authGateHint">Sign-in happens on our secure hosted login — you’ll be redirected automatically.</div>
       <div class="auth-gate-actions hidden" id="authGateActions">
         <button class="jw-btn" id="authGateRetryBtn" type="button" onclick="window.location.reload()">Retry check</button>
         <button class="jw-btn jw-btn-primary" id="authGateLoginBtn" type="button" onclick="redirectToMagicLinkLogin()">Open sign in</button>
@@ -41,141 +43,113 @@
     </div>
   </div>
 
+  <script>
+    (function () {
+      var titleEl = document.getElementById('authGateTitle');
+      var messageEl = document.getElementById('authGateMessage');
+      if (titleEl) titleEl.textContent = 'Checking your Ditto session';
+      if (messageEl) {
+        messageEl.textContent = 'If you’re not signed in yet, we’ll send you to the secure login screen.';
+      }
+      window.setTimeout(function () {
+        if (document.body.classList.contains('app-ready')) return;
+        var actionsEl = document.getElementById('authGateActions');
+        if (actionsEl) actionsEl.classList.remove('hidden');
+        var hintEl = document.getElementById('authGateHint');
+        if (hintEl) {
+          hintEl.textContent = 'Taking longer than expected? Tap Open sign in below.';
+        }
+      }, 6000);
+    })();
+  </script>
+  <script src="/js/sanitizeReturnTo.js"></script>
+  <script src="/js/escapeHtml.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/jungleDialog.js"></script>
+  <script src="/js/auth-bootstrap.js"></script>
+
   <div id="appShell" class="app-shell j-app">
     <header class="j-topbar">
       <div class="j-topbar-brand">
         <div class="j-topbar-mark" aria-hidden="true"><img src="/shared/logo-gold.png" alt="" class="j-topbar-logo"></div>
         <div>
-          <div class="j-topbar-eyebrow">JUNGLE AGENTS</div>
+          <div class="j-topbar-eyebrow">DITTO</div>
           <div class="j-topbar-title font-serif">Ditto</div>
         </div>
       </div>
       <nav class="j-nav" aria-label="Primary">
         <button type="button" class="j-nav-btn active" data-tab="dashboard">Home</button>
         <button type="button" class="j-nav-btn" data-tab="jungle-agents">Jungle Agents</button>
-        <button type="button" class="j-nav-btn" data-tab="discovery">Discovery</button>
-        <button type="button" class="j-nav-btn" data-tab="wallets">Tracked Wallets</button>
-        <button type="button" class="j-nav-btn" data-tab="trading-wallets">Trading Wallets</button>
-        <button type="button" class="j-nav-btn" data-tab="platforms" data-admin-only>Platforms</button>
-        <button type="button" class="j-nav-btn" data-tab="cross-platform" data-admin-only>Cross-Platform</button>
+        <button type="button" class="j-nav-btn" data-tab="discovery" data-admin-only>Discovery</button>
+        <button type="button" class="j-nav-btn" data-tab="wallets">Copy List</button>
+        <button type="button" class="j-nav-btn" data-tab="trading-wallets">My Wallets</button>
         <button type="button" class="j-nav-btn" data-tab="settings">Settings</button>
         <button type="button" class="j-nav-btn" data-tab="diagnostics">Diagnostics</button>
       </nav>
       <div class="j-topbar-actions">
-        <span class="app-status-pill stopped" id="appHeaderStatus">Bot offline</span>
-        <button type="button" class="j-btn j-btn-primary j-btn-sm" id="startStopBtn" onclick="toggleBot()"><span id="startStopLabel">Start</span></button>
+        <span class="app-status-pill stopped hidden" id="appHeaderStatus" aria-hidden="true">Offline</span>
+        <button type="button" class="j-btn j-btn-primary j-btn-hero is-ready" id="startStopBtn" onclick="toggleBot()" aria-label="Start copying trades"><span id="startStopLabel">Start Copying</span></button>
         <span class="j-status-mini hidden" aria-hidden="true"><span class="status-indicator stopped" id="taskbarIndicator"></span><span id="taskbarStatus">Stopped</span></span>
-        <select id="tenantSwitcher" class="j-input j-input-sm hidden" aria-label="Active workspace" onchange="handleTenantWorkspaceChange(this.value)"></select>
-        <button type="button" class="j-btn j-btn-ghost j-btn-sm" id="topbarTutorial" onclick="startOnboarding(true)" title="Replay the setup tutorial">Tutorial</button>
-        <a href="/discovery-v3/" class="j-btn j-btn-ghost j-btn-sm">Discovery v3</a>
+        <select id="tenantSwitcher" class="j-input j-input-sm hidden" aria-label="Switch account" onchange="handleTenantWorkspaceChange(this.value)"></select>
+        <button type="button" class="j-btn j-btn-ghost j-btn-sm" id="topbarTutorial" onclick="startOnboarding(true)" title="Replay the setup guide">Setup Guide</button>
+        <button type="button" class="j-btn j-btn-ghost j-btn-sm" id="topbarTour" onclick="if(typeof startTour==='function')startTour()" title="Tour the dashboard">Tour</button>
+        <a href="/discovery-v3/" class="j-btn j-btn-ghost j-btn-sm" data-admin-only>Discovery v3</a>
         <a href="/admin" id="topbarAdminLink" class="j-btn j-btn-ghost j-btn-sm hidden">Admin</a>
         <span class="j-topbar-clock" id="taskbarClock">--:--</span>
         <button type="button" class="j-btn j-btn-ghost j-btn-sm hidden" id="topbarLogout" onclick="handleLogout()">Log out</button>
       </div>
     </header>
-    <main class="j-main">
+    <aside class="ditto-beta-notice" role="note" aria-label="Beta disclaimer">
+      <span class="ditto-beta-notice-badge">Beta</span>
+      <p class="ditto-beta-notice-copy">Ditto is in beta. Use a <strong>fresh wallet</strong> with small test amounts — not your main funds.</p>
+    </aside>
+    <div id="connectivityBanner" class="j-connectivity-banner hidden" role="alert" aria-live="polite">Connection lost — retrying…</div>
+    <main class="j-main" id="main-content">
       <!-- Tab Content -->
       <div class="jw-body">
         <!-- ============================================================
              DASHBOARD TAB
              ============================================================ -->
         <div id="tab-dashboard" class="jw-tab-panel active j-dashboard">
-          <header class="j-dash-header">
-            <div>
-              <p class="j-dash-eyebrow">Live workspace</p>
-              <h1 class="font-serif j-dash-title">Command center</h1>
-            </div>
-            <div class="j-dash-header-actions">
-              <button class="j-btn j-btn-primary j-btn-sm" type="button" onclick="startSetupWizard(true)">Setup guide</button>
-              <button class="j-btn j-btn-sm" type="button" onclick="switchTab('wallets')">Add wallet</button>
-            </div>
-          </header>
-
-          <div id="setupProgressCard" class="j-setup-strip hidden" role="status" aria-live="polite">
-            <div class="j-setup-strip-inner">
-              <div id="setupProgressChecklist" class="j-setup-stepper" aria-label="Setup progress"></div>
-              <button type="button" class="j-btn j-btn-primary j-btn-sm" id="setupStripAction">Continue setup</button>
-            </div>
-            <p id="setupProgressSummary" class="j-setup-strip-hint hidden"></p>
-          </div>
-
-          <section class="j-dash-hero" aria-label="Wallet and performance summary">
-            <div class="j-dash-wallet-card glow-border">
-              <div class="j-dash-wallet-top">
-                <span class="j-dash-wallet-label">Trading wallet</span>
-                <span class="j-dash-live-dot pulse-dot" aria-hidden="true" title="Live balance"></span>
+          <div class="j-dash-layout">
+            <div class="j-dash-top-aside">
+              <div id="setupProgressCard" class="j-setup-strip hidden" role="status" aria-live="polite">
+                <div class="j-setup-strip-inner">
+                  <div id="setupProgressChecklist" class="j-setup-stepper" aria-label="Setup progress"></div>
+                  <button type="button" class="j-btn j-btn-primary j-btn-sm" id="setupStripAction">Continue</button>
+                </div>
+                <p id="setupProgressSummary" class="j-setup-strip-hint hidden"></p>
               </div>
-              <div class="j-dash-wallet-row">
-                <span class="j-dash-wallet-addr-wrap">
-                  <code class="j-dash-wallet-addr" id="walletAddress">Not configured</code>
-                  <button type="button" class="j-addr-copy hidden" id="walletAddressCopy" onclick="copyWalletAddress()" aria-label="Copy wallet address" title="Copy full address">⧉</button>
-                </span>
-                <div class="j-dash-wallet-balance">
-                  <span class="j-dash-balance" id="walletBalance">$0.00</span>
-                  <span class="j-dash-balance-delta positive" id="balanceChange">+$0.00 (24h)</span>
+
+              <div class="j-dash-wallet-card glow-border" aria-label="Trading wallet balance">
+                <div class="j-dash-wallet-top">
+                  <span class="j-dash-wallet-label">Trading wallet</span>
+                  <span class="j-dash-live-dot pulse-dot" aria-hidden="true" title="Live balance"></span>
+                </div>
+                <div class="j-dash-wallet-row">
+                  <span class="j-dash-wallet-addr-wrap">
+                    <code class="j-dash-wallet-addr" id="walletAddress">Not configured</code>
+                    <button type="button" class="j-addr-copy hidden" id="walletAddressCopy" onclick="copyWalletAddress()" aria-label="Copy wallet address" title="Copy full address">⧉</button>
+                  </span>
+                  <div class="j-dash-wallet-balance">
+                    <span class="j-dash-balance" id="walletBalance">$0.00</span>
+                    <span class="j-dash-balance-delta positive" id="balanceChange">+$0.00 (24h)</span>
+                  </div>
                 </div>
               </div>
-            </div>
-            <div class="j-dash-quickstats" id="dashQuickStats">
-              <div class="j-quickstat">
-                <span class="j-quickstat-val" id="quickSuccessRate">0%</span>
-                <span class="j-quickstat-lbl">Success</span>
-              </div>
-              <div class="j-quickstat">
-                <span class="j-quickstat-val" id="quickTotalTrades">0</span>
-                <span class="j-quickstat-lbl">Trades</span>
-              </div>
-              <div class="j-quickstat">
-                <span class="j-quickstat-val" id="quickAvgLatency">0ms</span>
-                <span class="j-quickstat-lbl">Latency</span>
-              </div>
-              <div class="j-quickstat">
-                <span class="j-quickstat-val" id="quickWalletsTracked">0</span>
-                <span class="j-quickstat-lbl">Tracked</span>
-              </div>
-              <button type="button" class="j-metrics-toggle" id="metricsToggleBtn" aria-expanded="false" aria-controls="metricsDetailPanel">
-                <span class="j-metrics-toggle-label">All stats</span>
-                <span class="j-metrics-chevron" aria-hidden="true">▾</span>
-              </button>
-            </div>
-          </section>
 
-          <section class="j-dash-metrics-detail" id="metricsDetailPanel" hidden>
-            <div class="j-metrics-compact-grid">
-              <div class="j-metric-chip">
-                <span class="j-metric-chip-val" id="successRate">0%</span>
-                <span class="j-metric-chip-lbl">Success rate</span>
-              </div>
-              <div class="j-metric-chip">
-                <span class="j-metric-chip-val" id="totalTrades">0</span>
-                <span class="j-metric-chip-lbl">Total trades</span>
-              </div>
-              <div class="j-metric-chip">
-                <span class="j-metric-chip-val" id="avgLatency">0ms</span>
-                <span class="j-metric-chip-lbl">Avg latency</span>
-              </div>
-              <div class="j-metric-chip">
-                <span class="j-metric-chip-val" id="walletsTracked">0</span>
-                <span class="j-metric-chip-lbl">Wallets tracked</span>
-              </div>
-              <div class="j-metric-chip is-win">
-                <span class="j-metric-chip-val" id="successfulTrades">0</span>
-                <span class="j-metric-chip-lbl">Successful</span>
-              </div>
-              <div class="j-metric-chip is-loss">
-                <span class="j-metric-chip-val" id="failedTrades">0</span>
-                <span class="j-metric-chip-lbl">Failed</span>
+              <div class="j-dash-topbar-actions">
+                <button class="j-btn j-btn-primary j-btn-sm" type="button" onclick="startSetupWizard(true)">Setup guide</button>
+                <button class="j-btn j-btn-sm" type="button" onclick="switchTab('wallets')">Add wallet to copy</button>
               </div>
             </div>
-          </section>
 
-          <div class="j-dash-grid">
             <section class="j-dash-primary">
               <div class="j-panel j-trade-panel">
                 <header class="j-panel-head">
                   <div>
                     <h2 class="font-serif j-panel-title">Trade history</h2>
-                    <p class="j-panel-sub">Recent copy attempts across tracked wallets</p>
+                    <p class="j-panel-sub">Recent copy activity</p>
                   </div>
                   <span class="j-panel-meta" id="tradesCountLabel">0 trades</span>
                 </header>
@@ -290,22 +264,27 @@
         <div id="tab-wallets" class="jw-tab-panel j-page">
           <header class="j-page-header">
             <div>
-              <p class="j-dash-eyebrow">Roster</p>
-              <h1 class="font-serif j-page-title">Tracked wallets</h1>
-              <p class="j-page-sub">Choose the wallets Ditto should watch and copy. Keep this list tight and high conviction.</p>
+              <p class="j-dash-eyebrow">Copy sources</p>
+              <h1 class="font-serif j-page-title">Copy List</h1>
+              <p class="j-page-sub">Wallets you copy on Polymarket. Add one, set your size, then enable copying.</p>
             </div>
           </header>
           <!-- Add Wallet -->
           <div class="jw-group">
-            <div class="jw-group-title">Add Tracked Wallet</div>
-            <div class="flex-row gap-8">
-              <input type="text" id="newWalletAddress" placeholder="0x..." class="jw-input" style="flex:1;">
-              <button class="jw-btn jw-btn-primary" onclick="addWallet()">Add Wallet</button>
+            <div class="jw-group-title">Add a wallet manually</div>
+            <div class="form-row">
+              <label for="newWalletAddress">Wallet address or profile</label>
+              <div class="flex-row gap-8" style="flex:1;">
+                <input type="text" id="newWalletAddress" placeholder="0x address, @username, or Polymarket profile URL" class="jw-input" style="flex:1;" aria-describedby="newWalletAddressError">
+                <button type="button" class="jw-btn jw-btn-primary" id="addWalletBtn" onclick="addWallet()">Add &amp; set up</button>
+              </div>
             </div>
+            <p id="newWalletAddressError" class="form-error hidden" role="alert"></p>
+            <p class="form-hint">Or pick a Jungle Agent below — setup opens automatically either way.</p>
           </div>
 
           <div class="jw-group">
-            <div class="jw-group-title">Jungle Agent Presets (One-Click Track)</div>
+            <div class="jw-group-title">Jungle Agents (one-click copy)</div>
             <div class="flex-row gap-8 mb-8">
               <label class="text-sm" for="jungleAgentCategoryFilter">Category:</label>
               <select id="jungleAgentCategoryFilter" class="jw-select" onchange="renderJungleAgentPresets()" aria-label="Filter jungle agents by category">
@@ -318,11 +297,11 @@
             </div>
           </div>
 
-          <!-- Tracked Wallets List -->
+          <!-- Copy sources list -->
           <div class="jw-group">
-            <div class="jw-group-title">Tracked Wallets</div>
+            <div class="jw-group-title">Your copy list</div>
             <div id="walletsList">
-              <div class="text-center text-muted" style="padding:20px;">No wallets tracked yet</div>
+              <div class="text-center text-muted" style="padding:20px;">No wallets to copy yet</div>
             </div>
           </div>
         </div>
@@ -334,8 +313,8 @@
           <header class="j-page-header">
             <div>
               <p class="j-dash-eyebrow">Execution team</p>
-              <h1 class="font-serif j-page-title">Trading wallets</h1>
-              <p class="j-page-sub">These are the wallets Ditto uses to place your copied trades.</p>
+              <h1 class="font-serif j-page-title">My Wallets</h1>
+              <p class="j-page-sub">Your wallets that execute copied trades on Polymarket.</p>
             </div>
           </header>
           <!-- Unlock Prompt -->
@@ -467,18 +446,19 @@
             <!-- Copy Assignments -->
             <div class="jw-group">
               <div class="jw-group-title">Copy Assignments</div>
-              <div class="text-sm text-muted mb-8">Map which tracked wallets copy to which of your trading wallets</div>
+              <p class="text-sm text-muted mb-8">Copy assignments tell Ditto which of <strong>your</strong> wallets should execute trades when copying each watched wallet.</p>
+              <p id="copyAssignmentAutoNote" class="text-sm text-muted mb-8 hidden"></p>
               <div id="copyAssignmentsList">
                 <div class="text-center text-muted" style="padding:12px;">No copy assignments yet</div>
               </div>
-              <div class="flex-row gap-8 mt-8">
-                <select id="assignTrackedWallet" class="jw-select" style="flex:1;">
-                  <option value="">Select tracked wallet...</option>
+              <div id="copyAssignmentUi" class="flex-row gap-8 mt-8">
+                <select id="assignTrackedWallet" class="jw-select" style="flex:1;" aria-label="Select watched wallet">
+                  <option value="">Select watched wallet...</option>
                 </select>
-                <select id="assignTradingWallet" class="jw-select" style="flex:1;">
+                <select id="assignTradingWallet" class="jw-select" style="flex:1;" aria-label="Select trading wallet">
                   <option value="">Select trading wallet...</option>
                 </select>
-                <button class="jw-btn jw-btn-sm" onclick="addAssignment()">Assign</button>
+                <button type="button" class="jw-btn jw-btn-sm" onclick="addAssignment()">Assign</button>
               </div>
             </div>
           </div>
@@ -490,7 +470,7 @@
             <div>
               <p class="j-dash-eyebrow">Curated roster</p>
               <h1 class="font-serif j-page-title">Jungle Agents</h1>
-              <p id="jungleAgentsMeta" class="j-page-sub">Curated agents you can follow on Polymarket with one click.</p>
+              <p id="jungleAgentsMeta" class="j-page-sub">Curated agents you can follow on Polymarket with one click. Portfolio, PnL, ROI, and win rate are pulled live from Polymarket (same source as each wallet&apos;s public profile).</p>
             </div>
           </header>
           <div id="jungleAgentsGrid" class="j-agent-roster" aria-live="polite"></div>
@@ -504,7 +484,7 @@
             <div>
               <p class="j-dash-eyebrow">Qualifiers</p>
               <h1 class="font-serif j-page-title">Discovery</h1>
-              <p class="j-page-sub">Evaluate promising wallets to track next. For institutional scores and tiers, use <a class="j-page-link" href="/discovery-v3/" target="_blank" rel="noopener noreferrer">Discovery v3 →</a></p>
+              <p class="j-page-sub">Evaluate promising wallets to track next. For institutional scores and tiers, use <a class="j-page-link" href="/discovery-v3/" target="_blank" rel="noopener noreferrer" data-admin-only>Discovery v3 →</a></p>
             </div>
           </header>
           <!-- Discovery Settings -->
@@ -546,8 +526,8 @@
             </div>
             <div class="flex-row gap-8">
               <button class="jw-btn jw-btn-primary" onclick="saveDiscoveryConfig()" aria-label="Save discovery settings" tabindex="0">Save Settings</button>
-              <button class="jw-btn" onclick="restartDiscovery()" aria-label="Restart discovery engine" tabindex="0">Restart Discovery</button>
-              <button class="jw-btn" onclick="purgeDiscoveryData()" aria-label="Clear all discovery data" tabindex="0">Clear Discovery Data</button>
+              <button class="jw-btn" data-admin-only onclick="restartDiscovery()" aria-label="Restart discovery engine" tabindex="0">Restart Discovery</button>
+              <button class="jw-btn" data-admin-only onclick="purgeDiscoveryData()" aria-label="Clear all discovery data" tabindex="0">Clear Discovery Data</button>
             </div>
           </div>
 
@@ -756,13 +736,16 @@
               <input type="number" id="monitoringInterval" value="15" min="1" max="300" class="jw-input" style="width:80px;" onchange="updateMonitoringInterval()">
             </div>
             <div class="form-hint">How often to check tracked wallets for new trades</div>
-            <hr style="margin: 12px 0; border-color: var(--jw-dark);">
-            <div class="form-row">
-              <label>Proxy Wallet:</label>
-              <input type="text" id="proxyWalletAddress" placeholder="0x..." class="jw-input text-mono">
-              <button class="jw-btn jw-btn-sm" onclick="updateProxyWallet()">Update</button>
+            <div id="settingsProxyWalletSection">
+              <hr style="margin: 12px 0; border-color: var(--jw-dark);">
+              <div class="form-row">
+                <label>Proxy Wallet:</label>
+                <input type="text" id="proxyWalletAddress" placeholder="0x..." class="jw-input text-mono">
+                <button class="jw-btn jw-btn-sm" onclick="updateProxyWallet()">Update</button>
+              </div>
+              <div class="form-hint">Your Polymarket proxy wallet holds your USDC. Required for accurate balance display.</div>
             </div>
-            <div class="form-hint">Your Polymarket proxy wallet holds your USDC. Required for accurate balance display.</div>
+            <div id="settingsProxyWalletHostedNote" class="form-hint hidden">In hosted mode, set the proxy address on each trading wallet under Trading Wallets → Settings.</div>
           </div>
         </div>
 
@@ -778,10 +761,18 @@
             </div>
           </header>
           <!-- CLOB Connectivity Test -->
-          <div class="jw-group">
+          <div class="jw-group" id="diagnosticsClobGroup">
             <div class="jw-group-title">CLOB API Connectivity</div>
-            <button class="jw-btn jw-btn-primary" onclick="testClobConnectivity()">Run Connectivity Test</button>
+            <button class="jw-btn jw-btn-primary" id="diagnosticsClobBtn" onclick="testClobConnectivity()">Run Connectivity Test</button>
+            <p id="diagnosticsClobHostedNote" class="form-hint hidden">CLOB connectivity tests are available in self-hosted mode only.</p>
             <div id="clobTestResults" class="hidden" style="margin-top:8px;"></div>
+          </div>
+
+          <!-- Geoblock eligibility -->
+          <div class="jw-group">
+            <div class="jw-group-title">Region Eligibility</div>
+            <button class="jw-btn jw-btn-primary" onclick="testGeoblockStatus()">Check Geoblock Status</button>
+            <div id="geoblockTestResults" class="hidden" style="margin-top:8px;"></div>
           </div>
 
           <!-- Failed Trades Analysis -->
@@ -1103,29 +1094,106 @@
   </div>
 
   <!-- ============================================================
-       WALLET CONFIGURATION MODAL
+       COPY SETUP DRAWER
        ============================================================ -->
   <div id="walletModal" class="j-drawer-backdrop hidden">
-    <aside class="j-drawer wallet-config-drawer" role="dialog" aria-modal="true">
-      <header class="j-drawer-header">
-        <div class="jw-titlebar-icon">&#9881;</div>
-        <div class="jw-titlebar-text" id="walletModalTitle">Configure Wallet</div>
+    <aside class="j-drawer wallet-config-drawer copy-setup-drawer" role="dialog" aria-modal="true" aria-labelledby="walletModalTitle">
+      <header class="j-drawer-header copy-setup-header">
+        <div class="copy-setup-header-text">
+          <p class="copy-setup-eyebrow" id="copySetupEyebrow">Copy setup</p>
+          <h2 class="copy-setup-title font-serif" id="walletModalTitle">Set up copying</h2>
+        </div>
         <button type="button" class="j-btn j-btn-ghost" onclick="closeWalletModal()" aria-label="Close">×</button>
       </header>
-      <div class="jw-modal-body" id="walletModalBody">
-        <!-- Wallet Info -->
-        <div class="flex-row gap-8 mb-8">
-          <span class="text-mono" id="modalWalletAddress">0x...</span>
-          <span class="jw-badge" id="modalWalletStatus">Inactive</span>
-        </div>
-        <div class="form-row mb-12">
-          <label>Label:</label>
-          <input type="text" id="modalWalletLabel" class="jw-input" placeholder="e.g., WhaleTrader">
-        </div>
 
-        <div class="form-row mb-12">
-          <label>Tags:</label>
-          <div>
+      <div class="copy-setup-summary" id="copySetupSummary" aria-live="polite">
+        <div class="copy-setup-summary-main">
+          <span class="copy-setup-summary-label">You will copy</span>
+          <strong class="copy-setup-summary-amount" id="copySummaryAmount">$2.00</strong>
+          <span class="copy-setup-summary-suffix" id="copySummarySizingLabel">per trade (fixed)</span>
+        </div>
+        <p class="copy-setup-summary-meta" id="copySummaryMeta">All buys &amp; sells · Standard price range</p>
+        <p class="copy-setup-summary-status" id="copySummaryStatus">Not live yet — use Save &amp; enable copying below</p>
+        <div class="copy-setup-chips" id="copySummaryChips" aria-hidden="true"></div>
+      </div>
+
+      <div class="jw-modal-body copy-setup-body" id="walletModalBody">
+        <p id="walletModalSetupHint" class="copy-setup-intro hidden" role="status">
+          Set how much to spend on each copy. When you are happy with the preview above, click <strong>Save &amp; enable copying</strong>.
+        </p>
+
+        <section class="copy-setup-section">
+          <h3 class="copy-setup-section-title">Who are you copying?</h3>
+          <p class="copy-setup-help">Optional nickname so you can spot this wallet in your list.</p>
+          <label class="copy-setup-field-label" for="modalWalletLabel">Nickname</label>
+          <input type="text" id="modalWalletLabel" class="jw-input copy-setup-input" placeholder="e.g. JUNGchat">
+          <div class="copy-setup-identity">
+            <code class="copy-setup-address text-mono" id="modalWalletAddress">0x...</code>
+            <span class="jw-badge copy-setup-status-badge" id="modalWalletStatus">Draft</span>
+          </div>
+        </section>
+
+        <section class="copy-setup-section copy-setup-section-highlight">
+          <h3 class="copy-setup-section-title">How much per trade?</h3>
+          <p class="copy-setup-help">Each time this wallet trades, Ditto spends this amount from your trading wallet.</p>
+          <div class="copy-setup-amount-row">
+            <span class="copy-setup-currency">$</span>
+            <input type="number" id="modalTradeSize" class="jw-input copy-setup-amount-input" value="2" min="0.01" step="0.01" inputmode="decimal" aria-label="Dollars per copied trade">
+            <span class="copy-setup-currency-suffix">USDC per trade</span>
+          </div>
+
+          <div class="copy-setup-mode-cards" role="radiogroup" aria-label="Copy sizing mode">
+            <label class="copy-setup-mode-card">
+              <input type="radio" name="modalTradeSizingMode" value="fixed" checked>
+              <span class="copy-setup-mode-card-title">Fixed amount</span>
+              <span class="copy-setup-mode-card-desc">Always use the dollar amount above</span>
+            </label>
+            <label class="copy-setup-mode-card">
+              <input type="radio" name="modalTradeSizingMode" value="proportional">
+              <span class="copy-setup-mode-card-title">Match their size</span>
+              <span class="copy-setup-mode-card-desc">Copy the same % of portfolio they used</span>
+            </label>
+          </div>
+
+          <div class="copy-setup-suboption">
+            <label class="jw-checkbox copy-setup-checkbox">
+              <input type="checkbox" id="modalThresholdEnabled">
+              <span>Only copy when their trade is at least <span class="copy-setup-inline-label">X%</span> of their portfolio</span>
+            </label>
+            <div id="modalThresholdInputs" class="copy-setup-subpanel hidden">
+              <label class="copy-setup-field-label" for="modalThresholdPercent">Minimum % of their portfolio</label>
+              <input type="number" id="modalThresholdPercent" class="jw-input copy-setup-input-sm" value="10" min="0.1" max="100" step="0.1" aria-label="Threshold percent">
+            </div>
+          </div>
+        </section>
+
+        <section class="copy-setup-section">
+          <h3 class="copy-setup-section-title">Which trades to copy?</h3>
+          <p class="copy-setup-help">Most people leave this on “Everything”.</p>
+          <div class="copy-setup-segmented" role="radiogroup" aria-label="Trade side filter">
+            <label class="copy-setup-segment">
+              <input type="radio" name="modalTradeSideFilter" value="all" checked>
+              <span>Everything</span>
+            </label>
+            <label class="copy-setup-segment">
+              <input type="radio" name="modalTradeSideFilter" value="buy_only">
+              <span>Buys only</span>
+            </label>
+            <label class="copy-setup-segment">
+              <input type="radio" name="modalTradeSideFilter" value="sell_only">
+              <span>Sells only</span>
+            </label>
+          </div>
+        </section>
+
+        <details class="copy-setup-advanced wallet-advanced-filters">
+          <summary class="copy-setup-advanced-summary">Fine-tune (optional)</summary>
+          <p class="copy-setup-help">Tags, limits, and safety filters — skip these if you are just getting started.</p>
+
+          <div class="filter-block">
+            <div class="filter-header">
+              <span>Organize with tags</span>
+            </div>
             <div id="modalTagButtons" class="flex-row gap-4 flex-wrap mb-4">
               <button type="button" class="tag-filter-btn" onclick="toggleModalTag('sports')" data-tag="sports" aria-label="Toggle sports tag" tabindex="0">sports</button>
               <button type="button" class="tag-filter-btn" onclick="toggleModalTag('politics')" data-tag="politics" aria-label="Toggle politics tag" tabindex="0">politics</button>
@@ -1139,239 +1207,109 @@
             </div>
             <input type="hidden" id="modalWalletTags" value="">
           </div>
-        </div>
 
-        <!-- Trade Size -->
-        <div class="jw-group">
-          <div class="jw-group-title">Trade Size [Required]</div>
-          <div class="text-sm text-muted mb-8">How much USDC to use when copying trades from this wallet</div>
-          <div class="flex-row gap-8">
-            <span>$</span>
-            <input type="number" id="modalTradeSize" class="jw-input" value="2" min="0.01" step="0.01" style="width:120px;">
-            <span>USDC</span>
-          </div>
-        </div>
-
-        <!-- Trade Sizing Mode -->
-        <div class="jw-group">
-          <div class="jw-group-title">Trade Sizing Mode</div>
-          <label class="jw-radio">
-            <input type="radio" name="modalTradeSizingMode" value="fixed" checked>
-            <span>Fixed size (use the trade size above for every trade)</span>
-          </label>
-          <label class="jw-radio">
-            <input type="radio" name="modalTradeSizingMode" value="proportional">
-            <span>Proportional (match their portfolio %)</span>
-          </label>
-          <div style="margin-top:8px;">
-            <label class="jw-checkbox">
-              <input type="checkbox" id="modalThresholdEnabled">
-              <span>Enable threshold filter (only copy trades &gt; X% of their portfolio)</span>
-            </label>
-            <div id="modalThresholdInputs" class="hidden" style="margin-left:24px;margin-top:4px;">
-              <div class="form-row">
-                <label>Threshold %:</label>
-                <input type="number" id="modalThresholdPercent" class="jw-input" value="10" min="0.1" max="100" step="0.1" style="width:80px;">
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Trade Side Filter -->
-        <div class="jw-group">
-          <div class="jw-group-title">Trade Side Filter</div>
-          <div class="flex-row gap-16 flex-wrap">
-            <label class="jw-radio">
-              <input type="radio" name="modalTradeSideFilter" value="all" checked>
-              <span>All trades</span>
-            </label>
-            <label class="jw-radio">
-              <input type="radio" name="modalTradeSideFilter" value="buy_only">
-              <span>BUY only</span>
-            </label>
-            <label class="jw-radio">
-              <input type="radio" name="modalTradeSideFilter" value="sell_only">
-              <span>SELL only</span>
-            </label>
-          </div>
-        </div>
-
-        <!-- Advanced Filters -->
-        <div class="jw-group">
-          <div class="jw-group-title">Advanced Filters</div>
-
-          <!-- No Repeat -->
           <div class="filter-block">
             <div class="filter-header">
-              <span>No Repeat Trades</span>
+              <span>Don’t copy the same market twice</span>
               <label class="jw-toggle"><input type="checkbox" id="modalNoRepeatEnabled"></label>
             </div>
-            <div class="filter-hint">Block repeat trades in the same market+side</div>
+            <div class="filter-hint">Blocks repeat copies for the same market and side for a period.</div>
             <div id="modalNoRepeatInputs" class="hidden">
-              <div class="form-row">
-                <label>Block period:</label>
-                <select id="modalNoRepeatPeriod" class="jw-select">
-                  <option value="0">Forever (until cleared)</option>
-                  <option value="1">1 hour</option>
-                  <option value="6">6 hours</option>
-                  <option value="12">12 hours</option>
-                  <option value="24" selected>24 hours</option>
-                  <option value="48">48 hours</option>
-                  <option value="168">7 days</option>
-                </select>
-              </div>
+              <label class="copy-setup-field-label" for="modalNoRepeatPeriod">Block period</label>
+              <select id="modalNoRepeatPeriod" class="jw-select">
+                <option value="0">Forever (until cleared)</option>
+                <option value="1">1 hour</option>
+                <option value="6">6 hours</option>
+                <option value="12">12 hours</option>
+                <option value="24" selected>24 hours</option>
+                <option value="48">48 hours</option>
+                <option value="168">7 days</option>
+              </select>
             </div>
           </div>
 
-          <!-- Price Limits -->
           <div class="filter-block">
             <div class="filter-header">
-              <span>Price Limits</span>
+              <span>Price range</span>
               <span class="jw-badge" id="modalPriceBadge">DEFAULT</span>
             </div>
-            <div class="filter-hint">Only copy trades within this price range</div>
+            <div class="filter-hint">Only copy when market price is within this range (odds).</div>
             <div class="flex-row gap-8">
-              <label>Min:</label>
+              <label for="modalPriceLimitsMin">Min</label>
               <input type="number" id="modalPriceLimitsMin" class="jw-input" value="0.01" min="0.01" max="0.98" step="0.01" style="width:80px;">
-              <label>Max:</label>
+              <label for="modalPriceLimitsMax">Max</label>
               <input type="number" id="modalPriceLimitsMax" class="jw-input" value="0.99" min="0.02" max="0.99" step="0.01" style="width:80px;">
             </div>
           </div>
 
-          <!-- Trade Value Filter -->
           <div class="filter-block">
             <div class="filter-header">
-              <span>Trade Value Filter</span>
+              <span>Their trade size filter</span>
               <label class="jw-toggle"><input type="checkbox" id="modalValueFilterEnabled"></label>
             </div>
-            <div class="filter-hint">Filter by the detected trade value (their trade size)</div>
+            <div class="filter-hint">Only copy when their original trade was within a dollar range.</div>
             <div id="modalValueFilterInputs" class="hidden">
               <div class="flex-row gap-8">
-                <label>Min ($):</label>
+                <label for="modalValueFilterMin">Min ($)</label>
                 <input type="number" id="modalValueFilterMin" class="jw-input" placeholder="No min" min="0" style="width:80px;">
-                <label>Max ($):</label>
+                <label for="modalValueFilterMax">Max ($)</label>
                 <input type="number" id="modalValueFilterMax" class="jw-input" placeholder="No max" min="0" style="width:80px;">
               </div>
             </div>
           </div>
 
-          <!-- Rate Limiting -->
           <div class="filter-block">
             <div class="filter-header">
-              <span>Rate Limiting</span>
+              <span>Speed limit</span>
               <label class="jw-toggle"><input type="checkbox" id="modalRateLimitEnabled"></label>
             </div>
-            <div class="filter-hint">Limit trades copied from this wallet</div>
+            <div class="filter-hint">Cap how many copies Ditto places from this wallet.</div>
             <div id="modalRateLimitInputs" class="hidden">
               <div class="flex-row gap-8">
-                <label>Max/hour:</label>
+                <label for="modalRateLimitPerHour">Max/hour</label>
                 <input type="number" id="modalRateLimitPerHour" class="jw-input" value="10" min="1" max="100" style="width:80px;">
-                <label>Max/day:</label>
+                <label for="modalRateLimitPerDay">Max/day</label>
                 <input type="number" id="modalRateLimitPerDay" class="jw-input" value="50" min="1" max="500" style="width:80px;">
               </div>
             </div>
           </div>
 
-          <!-- Slippage -->
           <div class="filter-block">
             <div class="filter-header">
               <span>Slippage</span>
               <span class="jw-badge" id="modalSlippageBadge">DEFAULT (2%)</span>
             </div>
-            <div class="filter-hint">Adjust order price for immediate fills</div>
-            <div class="form-row">
-              <label>Slippage %:</label>
-              <input type="number" id="modalSlippagePercent" class="jw-input" placeholder="2" min="0.5" max="10" step="0.5" style="width:80px;">
-            </div>
+            <div class="filter-hint">How much to adjust price so your order fills quickly.</div>
+            <label class="copy-setup-field-label" for="modalSlippagePercent">Slippage %</label>
+            <input type="number" id="modalSlippagePercent" class="jw-input copy-setup-input-sm" placeholder="2" min="0.5" max="10" step="0.5">
           </div>
-        </div>
+        </details>
 
-        <!-- Pipeline Preview -->
-        <div class="jw-group">
-          <div class="jw-group-title">Trade Filter Pipeline</div>
-          <div class="text-sm text-muted mb-8">Trades from this wallet pass through these filters in order:</div>
-          <div class="pipeline-preview" id="modalPipelinePreview">
-            <div class="pipeline-step">
-              <div class="step-icon">1</div>
-              <div class="step-content">
-                <div class="step-title">Wallet Active</div>
-                <div class="step-desc">Check wallet is enabled</div>
-              </div>
-              <div class="step-status always-on">Always</div>
-            </div>
-            <div class="pipeline-arrow">|</div>
-            <div class="pipeline-step" id="modal-pipeline-side">
-              <div class="step-icon">2</div>
-              <div class="step-content">
-                <div class="step-title">Side Filter</div>
-                <div class="step-desc" id="modal-pipeline-side-desc">All trades</div>
-              </div>
-              <div class="step-status off" id="modal-pipeline-side-status">OFF</div>
-            </div>
-            <div class="pipeline-arrow">|</div>
-            <div class="pipeline-step" id="modal-pipeline-price">
-              <div class="step-icon">3</div>
-              <div class="step-content">
-                <div class="step-title">Price Limits</div>
-                <div class="step-desc" id="modal-pipeline-price-desc">$0.01 - $0.99</div>
-              </div>
-              <div class="step-status off" id="modal-pipeline-price-status">DEFAULT</div>
-            </div>
-            <div class="pipeline-arrow">|</div>
-            <div class="pipeline-step" id="modal-pipeline-norepeat">
-              <div class="step-icon">4</div>
-              <div class="step-content">
-                <div class="step-title">No Repeat</div>
-                <div class="step-desc" id="modal-pipeline-norepeat-desc">Disabled</div>
-              </div>
-              <div class="step-status off" id="modal-pipeline-norepeat-status">OFF</div>
-            </div>
-            <div class="pipeline-arrow">|</div>
-            <div class="pipeline-step" id="modal-pipeline-value">
-              <div class="step-icon">5</div>
-              <div class="step-content">
-                <div class="step-title">Value Filter</div>
-                <div class="step-desc" id="modal-pipeline-value-desc">No limits</div>
-              </div>
-              <div class="step-status off" id="modal-pipeline-value-status">OFF</div>
-            </div>
-            <div class="pipeline-arrow">|</div>
-            <div class="pipeline-step" id="modal-pipeline-rate">
-              <div class="step-icon">6</div>
-              <div class="step-content">
-                <div class="step-title">Rate Limit</div>
-                <div class="step-desc" id="modal-pipeline-rate-desc">Unlimited</div>
-              </div>
-              <div class="step-status off" id="modal-pipeline-rate-status">OFF</div>
-            </div>
-            <div class="pipeline-arrow">|</div>
-            <div class="pipeline-step">
-              <div class="step-icon">7</div>
-              <div class="step-content">
-                <div class="step-title">Apply Size</div>
-                <div class="step-desc" id="modal-pipeline-size-desc">$2 USDC</div>
-              </div>
-              <div class="step-status always-on">Always</div>
-            </div>
-            <div class="pipeline-arrow">|</div>
-            <div class="pipeline-step final">
-              <div class="step-icon">&#10003;</div>
-              <div class="step-content">
-                <div class="step-title">Execute Trade</div>
-                <div class="step-desc">Place order on CLOB</div>
-              </div>
-            </div>
-          </div>
+        <!-- Legacy pipeline nodes (hidden; updated for summary chips) -->
+        <div class="visually-hidden" aria-hidden="true">
+          <span id="modal-pipeline-side-desc"></span>
+          <span id="modal-pipeline-side-status"></span>
+          <span id="modal-pipeline-price-desc"></span>
+          <span id="modal-pipeline-price-status"></span>
+          <span id="modal-pipeline-norepeat-desc"></span>
+          <span id="modal-pipeline-norepeat-status"></span>
+          <span id="modal-pipeline-value-desc"></span>
+          <span id="modal-pipeline-value-status"></span>
+          <span id="modal-pipeline-rate-desc"></span>
+          <span id="modal-pipeline-rate-status"></span>
+          <span id="modal-pipeline-size-desc"></span>
         </div>
       </div>
-      <footer class="j-drawer-footer">
-        <button class="j-btn" onclick="closeWalletModal()">Discard</button>
-        <button class="j-btn" id="modalSaveBtn" onclick="saveWalletConfig()">Save Draft</button>
-        <button class="j-btn j-btn-primary" id="modalSaveEnableBtn" onclick="saveWalletConfigAndEnable()">Save &amp; Enable</button>
+
+      <footer class="j-drawer-footer wallet-config-footer copy-setup-footer">
+        <button type="button" class="j-btn" onclick="closeWalletModal()">Cancel</button>
+        <div class="wallet-config-footer-actions">
+          <button type="button" class="j-btn j-btn-primary j-btn-hero" id="modalSaveEnableBtn" onclick="saveWalletConfigAndEnable()">Save &amp; enable copying</button>
+          <button type="button" class="j-link-btn" id="modalSaveDraftLink" onclick="saveWalletConfig()">Save as draft (don’t enable yet)</button>
+        </div>
       </footer>
     </aside>
   </div>
-
   <!-- Builder Credentials Modal -->
   <div id="builderCredsModal" class="jw-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="builderCredsModalTitle">
     <div class="jw-modal" style="max-width:480px;">
@@ -1506,10 +1444,10 @@
       <div class="jw-modal-body" style="padding:20px;text-align:center;">
         <div style="font-size:36px;margin-bottom:4px;">&#128200;</div>
         <div style="font-size:22px;font-weight:bold;">Ditto</div>
-        <div class="text-sm text-muted" style="margin-bottom:12px;">Pure silicon competition for prediction markets</div>
+        <div class="text-sm text-muted" style="margin-bottom:12px;">Copy trades from wallets you trust</div>
         <div style="border:2px inset var(--jw-surface);background:var(--jw-field-bg);padding:12px;text-align:left;font-size:13px;line-height:1.5;">
-          <div>Polymarket Copy Trading Bot</div>
-          <div class="text-muted">Monitors tracked wallets and automatically copies their trades to your wallets with configurable filters and risk controls.</div>
+          <div>Polymarket copy bot</div>
+          <div class="text-muted">Watches tracked wallets and mirrors their trades into yours — with filters, sizing, and risk controls.</div>
           <hr style="margin:8px 0;border-color:var(--jw-dark);">
           <div>Features: Multi-wallet, Ladder Exits, Cross-Platform Arb, Stop-Loss, Auto-Redemption</div>
         </div>
@@ -1538,7 +1476,7 @@
       <div class="jw-modal-body" style="padding:12px;">
         <input type="hidden" id="twSettingsWalletId">
         <!-- Auto-Redemption -->
-        <div class="jw-group">
+        <div class="jw-group" data-hosted-hide>
           <div class="jw-group-title">Auto-Redemption</div>
           <div class="text-sm text-muted mb-8">Automatically redeem winning positions when markets resolve. Your USDC is returned without manual action.</div>
           <div class="flex-row gap-8 mb-8">
@@ -1557,7 +1495,7 @@
         </div>
 
         <!-- Auto-Merge -->
-        <div class="jw-group">
+        <div class="jw-group" data-hosted-hide>
           <div class="jw-group-title">Auto-Merge</div>
           <div class="text-sm text-muted mb-8">Automatically merge complementary position fragments to recover USDC</div>
           <div class="flex-row gap-8">
@@ -1569,7 +1507,7 @@
         </div>
 
         <!-- Redeemable Positions -->
-        <div class="jw-group">
+        <div class="jw-group" data-hosted-hide>
           <div class="jw-group-title">Redeemable Now</div>
           <div id="twRedeemableList">
             <div class="text-center text-muted" style="padding:8px;">Click "Check Now" to scan</div>
@@ -1629,14 +1567,14 @@
     <div class="setup-wizard-card">
       <div class="setup-wizard-sidebar">
         <div class="app-section-kicker">First Run Guide</div>
-        <h2 class="setup-wizard-heading">Get Ditto ready without guessing.</h2>
+        <h2 class="setup-wizard-heading">Get Ditto running.</h2>
         <p class="setup-wizard-copy" id="setupWizardSummary">We’ll point you to the next thing you need, one step at a time.</p>
         <div id="setupWizardSteps" class="setup-wizard-steps"></div>
       </div>
       <div class="setup-wizard-main">
         <div class="app-section-kicker" id="setupWizardKicker">Next Step</div>
         <h3 class="setup-wizard-step-title" id="setupWizardTitle">Checking your setup status...</h3>
-        <p class="setup-wizard-step-body" id="setupWizardBody">One moment while Ditto checks which parts of your workspace are already configured.</p>
+        <p class="setup-wizard-step-body" id="setupWizardBody">One moment while Ditto checks what’s already set up.</p>
         <div id="setupWizardFacts" class="setup-wizard-facts"></div>
         <div class="setup-wizard-actions">
           <button class="jw-btn" type="button" onclick="dismissSetupWizard()">Maybe later</button>
@@ -1646,10 +1584,8 @@
     </div>
   </div>
 
-  <script src="/js/api.js"></script>
-  <script src="/js/jungleDialog.js"></script>
-  <script src="/js/auth-bootstrap.js"></script>
   <script src="/js/shell.js"></script>
+  <script src="/js/jungleAgentIcons.js"></script>
   <script src="/js/jungleAgents.js"></script>
   <script src="/js/app.js"></script>
   <script src="/js/tour.js"></script>

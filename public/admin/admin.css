@@ -254,10 +254,32 @@
   flex-shrink: 0;
   border-radius: var(--j-radius-sm);
   border: 1px solid var(--jungle-border-strong);
-  background: var(--jungle-bg-surface);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background: rgba(229, 184, 11, 0.08);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.j-admin-agent-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.j-admin-agent-avatar-icon {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--jungle-gold);
+}
+
+.j-admin-agent-avatar-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.j-admin-agent-avatar-fallback {
   font-family: var(--font-serif);
   font-size: 18px;
   color: var(--jungle-gold);
@@ -420,4 +442,93 @@
     overflow-y: visible;
     min-height: auto;
   }
+}
+
+.j-admin-health {
+  padding: var(--space-2xl) var(--space-lg);
+  max-width: 960px;
+}
+
+.j-admin-health-alert {
+  margin-bottom: var(--space-md);
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 107, 107, 0.45);
+  background: rgba(255, 107, 107, 0.12);
+  color: var(--jungle-loss);
+  font-size: 13px;
+}
+
+.j-admin-health-alert.is-degraded {
+  border-color: rgba(229, 184, 11, 0.45);
+  background: rgba(229, 184, 11, 0.1);
+  color: var(--jungle-gold);
+}
+
+.j-admin-health-card {
+  margin-bottom: var(--space-md);
+  padding: var(--space-md);
+}
+
+.j-admin-health-card-title {
+  margin: 0 0 var(--space-sm);
+  font-size: 14px;
+  color: var(--jungle-gold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.j-admin-health-metrics {
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.j-admin-health-metrics > div {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.j-admin-health-metrics dt {
+  margin: 0;
+  color: var(--jungle-text-muted);
+  font-size: 13px;
+}
+
+.j-admin-health-metrics dd {
+  margin: 0;
+  font-size: 14px;
+}
+
+.j-admin-health-metrics dd.is-ok {
+  color: var(--jungle-profit);
+}
+
+.j-admin-health-metrics dd.is-degraded {
+  color: var(--jungle-gold);
+}
+
+.j-admin-health-metrics dd.is-critical {
+  color: var(--jungle-loss);
+}
+
+.j-admin-health-intro {
+  margin: 0 0 var(--space-md);
+  font-size: 13px;
+}
+
+.j-admin-platform-overview {
+  margin-bottom: var(--space-md);
+}
+
+.j-admin-tenant-stats-scroll {
+  max-height: 320px;
+}
+
+.j-admin-tenant-stats-table th,
+.j-admin-tenant-stats-table td {
+  font-size: 12px;
+  white-space: nowrap;
 }

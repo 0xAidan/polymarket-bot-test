@@ -44,6 +44,8 @@ export const config = {
   // Blockchain configuration
   // Using Alchemy RPC for reliable balance fetching (needed for position threshold filter)
   polygonRpcUrl: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+  polygonRpcHeaderName: process.env.POLYGON_RPC_HEADER_NAME || '',
+  polygonRpcHeaderValue: process.env.POLYGON_RPC_HEADER_VALUE || '',
 
   // API authentication (static bearer token)
   authMode: (process.env.AUTH_MODE || (process.env.AUTH0_ISSUER_BASE_URL ? 'oidc' : 'legacy')).toLowerCase() as 'legacy' | 'oidc',
@@ -100,12 +102,31 @@ export const config = {
 
   // Validate required configuration
   validate(): void {
+    if (process.env.NODE_ENV === 'production') {
+      if (this.authMode !== 'oidc') {
+        throw new Error('Production requires AUTH_MODE=oidc. Legacy and open API modes are forbidden.');
+      }
+      if (!this.requireApiSecret) {
+        throw new Error('Production requires REQUIRE_API_SECRET=true.');
+      }
+      if (this.corsAllowedOrigins.length === 0) {
+        throw new Error('Production requires CORS_ALLOWED_ORIGINS to be set (comma-separated browser origins).');
+      }
+    }
+
     if (this.authMode === 'oidc') {
       if (!this.authSessionSecret) {
         throw new Error('AUTH_SESSION_SECRET is required when AUTH_MODE=oidc');
       }
       if (!this.auth0IssuerBaseUrl || !this.auth0BaseUrl || !this.auth0ClientId || !this.auth0ClientSecret) {
         throw new Error('AUTH0_ISSUER_BASE_URL, AUTH0_BASE_URL, AUTH0_CLIENT_ID, and AUTH0_CLIENT_SECRET are required when AUTH_MODE=oidc');
+      }
+      const expectedTenant = process.env.AUTH0_EXPECTED_TENANT;
+      if (expectedTenant && !this.auth0IssuerBaseUrl.includes(expectedTenant)) {
+        log.warn(
+          { issuer: this.auth0IssuerBaseUrl, expectedTenant },
+          'AUTH0 issuer does not match AUTH0_EXPECTED_TENANT — verify .env (use custom domain issuer after login.ditto.jungle.win is live)'
+        );
       }
     }
 

@@ -3,7 +3,7 @@
  *
  * Renders the guided, step-by-step setup walkthrough defined in
  * onboarding-steps.js: centered card with numbered actions, progress bar,
- * spotlighted UI targets, live "Detected" completion badges, and progress
+ * live "Detected" completion badges, and progress
  * persistence (resume where you left off).
  *
  * Entry points:
@@ -18,11 +18,9 @@
 
   let overlayEl = null;
   let cardEl = null;
-  let spotlightEl = null;
   let currentIndex = 0;
   let checkTimer = null;
   let keydownHandler = null;
-  let resizeHandler = null;
 
   /* ── Live completion checks ─────────────────────────────────────────────
      Each returns true (done), false (not yet) or null (unknown / API error).
@@ -49,7 +47,21 @@
     }
   };
 
-  const getSteps = () => window.DITTO_ONBOARDING_STEPS || [];
+  const getSteps = () => {
+    const base = window.DITTO_ONBOARDING_STEPS || [];
+    if (!window.__hostedMultiTenant) return base;
+    return base.map((step) => {
+      if (step.id !== 'add-key-to-bot') return step;
+      return {
+        ...step,
+        actions: [
+          'Open the My Wallets tab, paste your private key, and name the wallet',
+          'In hosted Ditto your key is encrypted when you sign in — no vault password',
+          'When the wallet appears in your list, you\'ll see a green Detected badge',
+        ],
+      };
+    });
+  };
 
   /* ── Progress persistence (per workspace) ─────────────────────────────── */
   const storageKey = () => {
@@ -82,21 +94,6 @@
     return '<ol class="onb-action-list">' + items + '</ol>';
   };
 
-  const positionSpotlight = (selector) => {
-    if (!spotlightEl) return;
-    const el = selector ? document.querySelector(selector) : null;
-    if (!el) {
-      spotlightEl.style.display = 'none';
-      return;
-    }
-    const rect = el.getBoundingClientRect();
-    spotlightEl.style.display = 'block';
-    spotlightEl.style.left = rect.left + 'px';
-    spotlightEl.style.top = rect.top + 'px';
-    spotlightEl.style.width = rect.width + 'px';
-    spotlightEl.style.height = rect.height + 'px';
-  };
-
   const stopCheckPolling = () => {
     if (checkTimer) {
       clearInterval(checkTimer);
@@ -107,6 +104,14 @@
   const runCompletionCheck = async (step) => {
     const badge = cardEl && cardEl.querySelector('.onb-detected');
     if (!badge) return;
+
+    const progress = loadProgress();
+    if (step.manualComplete && progress?.manualSteps?.[step.id]) {
+      badge.className = 'onb-detected onb-detected-yes';
+      badge.textContent = '✓ Marked complete';
+      return;
+    }
+
     const checker = step.completionCheck && CHECKS[step.completionCheck];
     if (!checker) {
       badge.className = 'onb-detected hidden';
@@ -137,11 +142,24 @@
     }
 
     const pct = Math.round(((currentIndex + 1) / steps.length) * 100);
+    const introHtml = currentIndex === 0
+      ? '<p class="onb-intro">' + (window.DITTO_ONBOARDING_INTRO || 'This setup takes about 15 minutes.') + '</p>'
+      : '';
+    const whyHtml = step.why ? '<p class="onb-why">' + step.why + '</p>' : '';
+    const manualHtml = step.manualComplete
+      ? '<label class="onb-manual-check jw-checkbox"><input type="checkbox" class="onb-manual-input"' +
+        (loadProgress()?.manualSteps?.[step.id] ? ' checked' : '') +
+        ' aria-label="I have completed this step"><span>I\'ve done this</span></label>'
+      : '';
+
     cardEl.innerHTML =
       '<div class="onb-progress"><div class="onb-progress-fill" style="width:' + pct + '%"></div></div>' +
       '<div class="onb-step-count">Step ' + (currentIndex + 1) + ' of ' + steps.length + '</div>' +
+      introHtml +
       '<h2 class="onb-title">' + step.title + '</h2>' +
+      whyHtml +
       renderActionList(step.actions) +
+      manualHtml +
       '<div class="onb-detected hidden" role="status"></div>' +
       '<div class="onb-actions">' +
       '<button type="button" class="onb-btn onb-btn-skip">Skip tutorial</button>' +
@@ -162,8 +180,20 @@
     });
     cardEl.querySelector('.onb-btn-skip').addEventListener('click', () => finish(false));
 
-    // Give the tab switch a beat to paint before measuring the spotlight target.
-    setTimeout(() => positionSpotlight(step.target), 120);
+    const manualInput = cardEl.querySelector('.onb-manual-input');
+    if (manualInput) {
+      manualInput.addEventListener('change', () => {
+        const progress = loadProgress() || {};
+        const manualSteps = { ...(progress.manualSteps || {}) };
+        if (manualInput.checked) {
+          manualSteps[step.id] = true;
+        } else {
+          delete manualSteps[step.id];
+        }
+        saveProgress({ manualSteps });
+        runCompletionCheck(step);
+      });
+    }
 
     stopCheckPolling();
     runCompletionCheck(step);
@@ -191,14 +221,9 @@
       document.removeEventListener('keydown', keydownHandler);
       keydownHandler = null;
     }
-    if (resizeHandler) {
-      window.removeEventListener('resize', resizeHandler);
-      resizeHandler = null;
-    }
     if (overlayEl && overlayEl.parentNode) overlayEl.parentNode.removeChild(overlayEl);
     overlayEl = null;
     cardEl = null;
-    spotlightEl = null;
   };
 
   /**
@@ -220,14 +245,10 @@
     const backdrop = document.createElement('div');
     backdrop.className = 'onb-backdrop';
 
-    spotlightEl = document.createElement('div');
-    spotlightEl.className = 'onb-spotlight';
-
     cardEl = document.createElement('div');
     cardEl.className = 'onb-card';
 
     overlayEl.appendChild(backdrop);
-    overlayEl.appendChild(spotlightEl);
     overlayEl.appendChild(cardEl);
     document.body.appendChild(overlayEl);
 
@@ -240,12 +261,6 @@
       if (e.key === 'Escape') finish(false);
     };
     document.addEventListener('keydown', keydownHandler);
-
-    resizeHandler = () => {
-      const step = getSteps()[currentIndex];
-      if (step) positionSpotlight(step.target);
-    };
-    window.addEventListener('resize', resizeHandler);
 
     renderStep();
   };

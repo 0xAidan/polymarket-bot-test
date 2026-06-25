@@ -8,6 +8,7 @@ import { runV3DuckDBMigrations } from '../src/discovery/v3/duckdbSchema.ts';
 import { runV3SqliteMigrations } from '../src/discovery/v3/schema.ts';
 import { createSqliteCursorStore } from '../src/discovery/v3/goldskyListener.ts';
 import {
+  createHttpRpcClient,
   pollRpcLogsOnce,
   type RpcClient,
 } from '../src/discovery/v3/rpcLogPoller.ts';
@@ -73,6 +74,7 @@ test('pollRpcLogsOnce advances block cursor and inserts decoded rows', async () 
   assert.equal(r.newCursor, 10_000);
   assert.equal(r.logsFetched, 1);
   assert.equal(r.inserted, 2);
+  assert.equal(r.rpcCallsEstimated, 3);
 
   const count = await duck.query<{ c: number }>(
     'SELECT COUNT(*)::BIGINT AS c FROM discovery_activity_v3'
@@ -81,4 +83,43 @@ test('pollRpcLogsOnce advances block cursor and inserts decoded rows', async () 
 
   await duck.close();
   sqlite.close();
+});
+
+test('createHttpRpcClient forwards optional RPC auth headers', async () => {
+  const requests: Array<{ method: string; headers: Record<string, string> }> = [];
+  const fetchStub: typeof fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? '{}')) as { method: string };
+    const rawHeaders = init?.headers as Record<string, string> | undefined;
+    requests.push({ method: body.method, headers: rawHeaders ?? {} });
+
+    const payloadByMethod: Record<string, unknown> = {
+      eth_blockNumber: '0x2a',
+      eth_getLogs: [],
+      eth_getBlockByNumber: { timestamp: '0x65' },
+    };
+    const result = payloadByMethod[body.method];
+    return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  const client = createHttpRpcClient(
+    'https://rpc.example',
+    fetchStub,
+    { 'x-api-key': 'secret-key' },
+  );
+
+  const block = await client.getBlockNumber();
+  assert.equal(block, 42);
+  const logs = await client.getLogs(1, 2);
+  assert.deepEqual(logs, []);
+  const ts = await client.getBlockTimestamp(2);
+  assert.equal(ts, 101);
+
+  assert.equal(requests.length, 3);
+  for (const req of requests) {
+    assert.equal(req.headers['Content-Type'], 'application/json');
+    assert.equal(req.headers['x-api-key'], 'secret-key');
+  }
 });

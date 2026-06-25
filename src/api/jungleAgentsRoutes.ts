@@ -15,8 +15,11 @@ import {
   bulkUpdateAgents,
   type JungleAgentRecord,
 } from '../jungleAgentsStore.js';
-import { syncMissingAgentAddressesFromPolymarket } from '../jungleAgentsPolymarketSync.js';
+import { reconcileAgentAddressesFromPolymarket, resolveCanonicalPolymarketAddress } from '../jungleAgentsPolymarketSync.js';
 import { requirePlatformAdmin } from '../middleware/requirePlatformAdmin.js';
+import { fetchJungleAgentPolymarketStats } from '../jungleAgentPolymarketStats.js';
+import { dbListAppTenants, dbLoadTrackedWallets } from '../database.js';
+import { DEFAULT_TENANT_ID } from '../tenantContext.js';
 
 const log = createComponentLogger('JungleAgentsRoutes');
 
@@ -24,12 +27,23 @@ type PerfCacheEntry = { at: number; payload: Record<string, unknown> };
 const perfCache = new Map<string, PerfCacheEntry>();
 const PERF_TTL_MS = 90_000;
 
+const normalizeSavedAddress = async (
+  agent: JungleAgentRecord,
+  address: string,
+): Promise<string> => {
+  const trimmed = address.trim();
+  if (!trimmed) return '';
+  const resolved = await resolveCanonicalPolymarketAddress(agent, trimmed);
+  return resolved.address ?? trimmed;
+};
+
 const toPublicAgent = (a: JungleAgentRecord) => ({
   id: a.id,
   displayName: a.displayName,
   tagline: a.tagline ?? null,
   modelLabel: a.modelLabel ?? null,
   polymarketAddress: a.polymarketAddress,
+  polymarketUsername: a.polymarketUsername ?? null,
   olympicsProfileUrl: a.olympicsProfileUrl,
   avatarUrl: a.avatarUrl ?? null,
   category: a.category ?? null,
@@ -65,31 +79,53 @@ export function createJungleAgentsRouter(copyTrader: CopyTrader): Router {
         res.status(404).json({ success: false, error: 'Agent not found' });
         return;
       }
-      if (!agent.polymarketAddress) {
+      if (!agent.polymarketAddress && !agent.polymarketUsername?.trim()) {
         res.status(400).json({ success: false, error: 'Agent has no Polymarket address yet' });
         return;
       }
-      const addr = agent.polymarketAddress.toLowerCase();
+      const cacheKey = agent.id;
       const now = Date.now();
-      const cached = perfCache.get(addr);
+      const cached = perfCache.get(cacheKey);
       if (cached && now - cached.at < PERF_TTL_MS) {
         res.json({ ...cached.payload, stale: true });
         return;
       }
-      const api = copyTrader.getPolymarketApi();
-      const portfolio = await api.getPolymarketProfilePortfolio(addr);
+      const { resolveMonitoringAddress } = await import('../trackedWalletAddress.js');
+      const lookupInput = agent.polymarketUsername?.trim()
+        ? `@${agent.polymarketUsername.replace(/^@/, '')}`
+        : agent.polymarketAddress;
+      const resolved = await resolveMonitoringAddress(lookupInput);
+      const monitoringAddress = resolved.monitoringAddress.toLowerCase();
+      const balanceTracker = copyTrader.getBalanceTracker();
+      const stats = await fetchJungleAgentPolymarketStats(monitoringAddress, fetch, {
+        getCashBalance: (addr) => balanceTracker.getBalance(addr),
+      });
+      if (!stats) {
+        res.status(502).json({ success: false, error: 'Could not load Polymarket stats for this wallet' });
+        return;
+      }
       const payload = {
         success: true,
         agentId: agent.id,
-        address: addr,
-        portfolioValueUsd: portfolio.portfolioValueUsd,
-        positionCount: portfolio.positionCount,
+        address: monitoringAddress,
+        portfolioValueUsd: stats.portfolioValueUsd,
+        usdcBalance: stats.usdcBalanceUsd,
+        positionsValue: stats.positionsValueUsd,
+        positionCount: stats.positionCount,
+        lifetimePnlUsd: stats.lifetimePnlUsd,
+        roiPct: stats.roiPct,
+        winRatePct: stats.winRatePct,
+        wins: stats.wins,
+        losses: stats.losses,
+        breakeven: stats.breakeven,
+        closedPositionsCount: stats.closedPositionsCount,
+        totalDeployedUsd: stats.totalDeployedUsd,
         tradeCount30d: null as null,
         lastActiveAt: null as null,
-        source: portfolio.source,
-        stale: false
+        source: stats.source,
+        stale: false,
       };
-      perfCache.set(addr, { at: now, payload });
+      perfCache.set(cacheKey, { at: now, payload });
       res.json(payload);
     } catch (error: any) {
       log.warn({ err: error.message }, '[JungleAgents] performance fetch failed');
@@ -111,6 +147,23 @@ export function createJungleAgentsRouter(copyTrader: CopyTrader): Router {
     }
   });
 
+  router.get('/admin/system-stats', requirePlatformAdmin, async (_req: Request, res: Response) => {
+    try {
+      const performanceTracker = copyTrader.getPerformanceTracker();
+      const walletCounts = new Map<string, number>();
+      for (const wallet of dbLoadTrackedWallets()) {
+        if (!wallet.active) continue;
+        const tenantId = wallet.tenantId ?? DEFAULT_TENANT_ID;
+        walletCounts.set(tenantId, (walletCounts.get(tenantId) ?? 0) + 1);
+      }
+      const tenantNames = new Map(dbListAppTenants().map((tenant) => [tenant.id, tenant.name]));
+      const stats = await performanceTracker.getPlatformStats(walletCounts, tenantNames);
+      res.json({ success: true, ...stats });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   router.post('/admin/jungle-agents', requirePlatformAdmin, async (req: Request, res: Response) => {
     try {
       const created = await createAgent(req.body);
@@ -122,7 +175,16 @@ export function createJungleAgentsRouter(copyTrader: CopyTrader): Router {
 
   router.patch('/admin/jungle-agents/:id', requirePlatformAdmin, async (req: Request, res: Response) => {
     try {
-      const updated = await updateAgent(req.params.id, req.body);
+      const existing = await getAgentById(req.params.id);
+      if (!existing) {
+        res.status(404).json({ success: false, error: 'Agent not found' });
+        return;
+      }
+      const patch = { ...req.body } as Partial<JungleAgentRecord>;
+      if (typeof patch.polymarketAddress === 'string' && patch.polymarketAddress.trim()) {
+        patch.polymarketAddress = await normalizeSavedAddress(existing, patch.polymarketAddress);
+      }
+      const updated = await updateAgent(req.params.id, patch);
       res.json({ success: true, agent: updated });
     } catch (error: any) {
       const code = error.message === 'Agent not found' ? 404 : 400;
@@ -175,16 +237,35 @@ export function createJungleAgentsRouter(copyTrader: CopyTrader): Router {
         res.status(400).json({ success: false, error: 'updates must be an array' });
         return;
       }
-      const agents = await bulkUpdateAgents(updates);
+      const normalizedUpdates = [];
+      for (const row of updates) {
+        if (!row || typeof row !== 'object' || typeof row.id !== 'string') {
+          res.status(400).json({ success: false, error: 'Each update must include an id' });
+          return;
+        }
+        const existing = await getAgentById(row.id);
+        if (!existing) {
+          res.status(400).json({ success: false, error: `Agent not found: ${row.id}` });
+          return;
+        }
+        const next = { ...row } as Partial<JungleAgentRecord> & { id: string };
+        if (typeof next.polymarketAddress === 'string' && next.polymarketAddress.trim()) {
+          next.polymarketAddress = await normalizeSavedAddress(existing, next.polymarketAddress);
+        }
+        normalizedUpdates.push(next);
+      }
+      const agents = await bulkUpdateAgents(normalizedUpdates);
       res.json({ success: true, agents });
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
     }
   });
 
-  router.post('/admin/jungle-agents/sync-polymarket', requirePlatformAdmin, async (_req: Request, res: Response) => {
+  router.post('/admin/jungle-agents/sync-polymarket', requirePlatformAdmin, async (req: Request, res: Response) => {
     try {
-      const result = await syncMissingAgentAddressesFromPolymarket();
+      const force = req.body?.force === true;
+      const onlyMissing = req.body?.onlyMissing === true;
+      const result = await reconcileAgentAddressesFromPolymarket({ force, onlyMissing });
       const agents = (await loadAgentsFile()).sort((a, b) => a.sortOrder - b.sortOrder);
       res.json({ success: true, ...result, agents });
     } catch (error: any) {

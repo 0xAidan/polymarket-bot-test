@@ -4,6 +4,7 @@ import path from 'path';
 import { config } from './config.js';
 import { createComponentLogger } from './logger.js';
 import { Storage } from './storage.js';
+import { assertDiskWritable } from './diskGuard.js';
 
 const log = createComponentLogger('JungleAgentsStore');
 
@@ -32,6 +33,10 @@ export type JungleAgentRecord = {
   tagline?: string;
   modelLabel?: string;
   polymarketAddress: string;
+  /** Polymarket @username used for exact proxy-wallet lookup (e.g. junglekingagent). */
+  polymarketUsername?: string;
+  /** MetaMask / login EOA from ops spreadsheet — not used for trade monitoring. */
+  loginWalletAddress?: string;
   olympicsProfileUrl: string;
   avatarUrl?: string;
   /** Market focus shown to users (sports, politics, crypto, …). */
@@ -152,6 +157,7 @@ export async function loadAgentsFile(): Promise<JungleAgentRecord[]> {
 
 export async function saveAgentsFile(agents: JungleAgentRecord[]): Promise<void> {
   const file = agentsFilePath();
+  assertDiskWritable(path.dirname(file));
   await fs.mkdir(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(agents, null, 2), 'utf8');
@@ -199,8 +205,11 @@ export async function createAgent(input: Partial<JungleAgentRecord>): Promise<Ju
   return rec;
 }
 
-export async function updateAgent(id: string, patch: Partial<JungleAgentRecord>): Promise<JungleAgentRecord> {
-  const agents = await loadAgentsFile();
+const applyAgentPatch = (
+  agents: JungleAgentRecord[],
+  id: string,
+  patch: Partial<JungleAgentRecord>
+): JungleAgentRecord => {
   const idx = agents.findIndex((a) => a.id === id);
   if (idx < 0) throw new Error('Agent not found');
   const cur = agents[idx];
@@ -222,12 +231,18 @@ export async function updateAgent(id: string, patch: Partial<JungleAgentRecord>)
     collection: patch.collection !== undefined ? normalizeCollection(patch.collection) : cur.collection,
     sortOrder: typeof patch.sortOrder === 'number' ? patch.sortOrder : cur.sortOrder,
     enabled: typeof patch.enabled === 'boolean' ? patch.enabled : cur.enabled,
-    updatedAtMs: Date.now()
+    updatedAtMs: Date.now(),
   };
   if (next.enabled && next.polymarketAddress && duplicateEnabledAddress(agents, next.polymarketAddress, id)) {
     throw new Error('Another enabled agent already uses this Polymarket address');
   }
   agents[idx] = next;
+  return next;
+};
+
+export async function updateAgent(id: string, patch: Partial<JungleAgentRecord>): Promise<JungleAgentRecord> {
+  const agents = await loadAgentsFile();
+  const next = applyAgentPatch(agents, id, patch);
   await saveAgentsFile(agents);
   return next;
 }
@@ -260,11 +275,13 @@ export async function bulkUpdateAgents(updates: Array<Partial<JungleAgentRecord>
   if (!Array.isArray(updates) || updates.length === 0) {
     throw new Error('updates must be a non-empty array');
   }
+  const agents = await loadAgentsFile();
   for (const row of updates) {
     const { id, ...patch } = row;
-    await updateAgent(id, patch);
+    applyAgentPatch(agents, id, patch);
   }
-  return [...(await loadAgentsFile())].sort((a, b) => a.sortOrder - b.sortOrder);
+  await saveAgentsFile(agents);
+  return [...agents].sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
 export async function bulkUpdateAddresses(updates: BulkAddressUpdate[]): Promise<JungleAgentRecord[]> {

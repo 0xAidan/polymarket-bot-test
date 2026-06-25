@@ -23,7 +23,7 @@ function renderAuthBar() {
        </div>`
     : `<div class="auth-bar">
          <span class="auth-status">Viewing as guest</span>
-         <a class="auth-link primary" href="/auth/login?returnTo=${returnTo}">Sign in</a>
+         <a class="auth-link primary" href="/login?returnTo=${returnTo}">Sign in</a>
        </div>`;
 }
 
@@ -214,7 +214,7 @@ function walletCard(w, tier, displayScore) {
   btn.addEventListener('click', async () => {
     if (!state.authed) {
       const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
-      window.location.href = `/auth/login?returnTo=${returnTo}`;
+      window.location.href = `/login?returnTo=${returnTo}`;
       return;
     }
     btn.disabled = true;
@@ -257,7 +257,7 @@ async function safeFetch(url, opts = {}) {
   }
 
   if (res.status === 401) {
-    let loginUrl = '/auth/login';
+    let loginUrl = '/login';
     try { const b = await res.json(); if (b?.loginUrl) loginUrl = b.loginUrl; } catch { /* swallow */ }
     state.authed = false; renderAuthBar();
     return { ok: false, kind: 'auth_required', loginUrl };
