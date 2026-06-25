@@ -9,6 +9,7 @@ import { createRoutes } from './api/routes.js';
 import { CopyTrader } from './copyTrader.js';
 import { createDiscoveryRoutes } from './api/discoveryRoutes.js';
 import { createDiscoveryV3Router } from './api/discoveryRoutesV3.js';
+import { createPublicStatsRouter } from './api/publicStatsRoutes.js';
 import { createJungleAgentsRouter } from './api/jungleAgentsRoutes.js';
 import { createOlympicsRoutes } from './api/olympicsRoutes.js';
 import { createLandingPublicRouter } from './api/landingPublicRoutes.js';
@@ -158,6 +159,11 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     log.info('🌐 Discovery v3 read endpoints mounted as public (mutations gated)');
   };
 
+  const mountPublicStats = (): void => {
+    app.use('/api', apiLimiter, createPublicStatsRouter({ getDb: () => getDatabase() }));
+    log.info('📊 Public homepage stats mounted at GET /api/public/stats');
+  };
+
   const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 80,
@@ -226,6 +232,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     res.json({ required: !!config.apiSecret, mode: 'legacy', hostedMultiTenant });
   });
 
+  mountPublicStats();
   app.use('/api', apiLimiter, createLandingPublicRouter(copyTrader));
 
   // In OIDC mode we need req.oidc populated on v3 requests so the
