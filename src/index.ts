@@ -3,7 +3,7 @@ import { CopyTrader } from './copyTrader.js';
 import { createServer, startServer } from './server.js';
 import { Storage } from './storage.js';
 import { initWalletManager } from './walletManager.js';
-import { startMonitoringServices } from './startup.js';
+import { migrateCopyTradingPreferences, syncCopyTraderState } from './copyTradingSync.js';
 import { initDatabase } from './database.js';
 import { clearDiscoveryRuntimeHeartbeat } from './discovery/discoveryRuntimeState.js';
 import { DiscoveryWorkerRuntime } from './discovery/discoveryWorker.js';
@@ -346,19 +346,9 @@ async function startAppRuntime() {
       return;
     }
 
-    // Hosted mode auto-starts when any tenant has active tracked wallets.
+    // Hosted mode: copy trading start/stop is driven by per-tenant persisted preferences.
     if (isHostedMultiTenantMode() && !getTenantId()) {
-      const { dbLoadAllActiveTrackedWalletsForMonitoring } = await import('./database.js');
-      const activeGlobal = dbLoadAllActiveTrackedWalletsForMonitoring();
-      if (activeGlobal.length === 0) {
-        log.info('Hosted multi-tenant mode detected: no active tracked wallets — copy trader will start from the dashboard.');
-        registerAppShutdown(copyTrader, server);
-        return;
-      }
-      log.info(
-        { activeWalletCount: activeGlobal.length },
-        'Hosted multi-tenant mode: auto-starting copy trader for active tracked wallets',
-      );
+      log.info('Hosted multi-tenant mode: copy trader state will sync from persisted tenant preferences after init.');
     }
 
     // Initialize copy trader
@@ -392,17 +382,18 @@ async function startAppRuntime() {
         log.info(`${'='.repeat(60)}\n`);
       }
 
-      log.info('🤖 Starting copy trading bot...');
-      await startMonitoringServices(copyTrader, null);
+      log.info('🤖 Syncing copy trading state from persisted preferences...');
+      await migrateCopyTradingPreferences();
+      await syncCopyTraderState(copyTrader);
 
       const status = copyTrader.getStatus();
 
       log.info(`\n${'='.repeat(60)}`);
-      log.info(`✅ BOT STARTED SUCCESSFULLY`);
+      log.info(`✅ COPY TRADING STATE SYNCED`);
       log.info(`${'='.repeat(60)}`);
       log.info(`   Server: http://localhost:${config.port}`);
       log.info(`   Polling: ${status.running ? '✅ ACTIVE' : '⏸️  INACTIVE'}`);
-      log.info(`\n💡 Trading auto-starts on boot; Discovery remains a separate worker process.`);
+      log.info(`\n💡 Copying persists per workspace until you turn it off; Discovery remains a separate worker process.`);
       log.info(`${'='.repeat(60)}\n`);
       log.info('[Discovery] Discovery now runs as a separate worker process.');
       log.info('[Discovery] Start it in another terminal with: npm run discovery:dev');

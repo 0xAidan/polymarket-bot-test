@@ -43,7 +43,7 @@
     },
     botRunning: async () => {
       const data = await API.getStatus();
-      return !!data.running;
+      return !!(data.copyTradingEnabled ?? data.running);
     }
   };
 

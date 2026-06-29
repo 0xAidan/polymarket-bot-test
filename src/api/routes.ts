@@ -43,6 +43,10 @@ import { verifyPolymarketAddress } from '../jungleAgentsPolymarketSync.js';
 import { isHostedMultiTenantMode } from '../hostedMode.js';
 import { DEFAULT_TENANT_ID, getTenantId, runWithTenant } from '../tenantContext.js';
 import { listTenantIdsWithLadderOrStopLossActivity } from '../database.js';
+import {
+  isCopyTradingForceDisabled,
+  syncCopyTraderState,
+} from '../copyTradingSync.js';
 
 const log = createComponentLogger('Routes');
 
@@ -1095,6 +1099,7 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     try {
       const status = copyTrader.getStatus();
       const wallets = await Storage.getActiveWallets();
+      const copyTradingEnabled = await Storage.getCopyTradingEnabled();
       const stats = await performanceTracker.getStats(wallets.length);
       const recentTrades = performanceTracker.getRecentTrades(1);
       const issues = performanceTracker.getIssues(false, 100);
@@ -1107,7 +1112,9 @@ export function createRoutes(copyTrader: CopyTrader): Router {
       res.json({
         success: true,
         hostedMultiTenant: isHostedMultiTenantMode(),
-        running: status.running,
+        copyTradingEnabled,
+        monitorRunning: status.running,
+        running: copyTradingEnabled,
         executedTradesCount: status.executedTradesCount,
         polling: {
           active: status.running,
@@ -1319,21 +1326,30 @@ export function createRoutes(copyTrader: CopyTrader): Router {
     }
   });
 
-  // Start the bot
+  // Start the bot (persist user preference + sync global monitor)
   router.post('/start', async (req: Request, res: Response) => {
     try {
-      await copyTrader.start();
-      res.json({ success: true, message: 'Bot started' });
+      if (isCopyTradingForceDisabled()) {
+        return res.status(503).json({
+          success: false,
+          error: 'Copy trading is temporarily disabled for maintenance. Try again after the update completes.',
+        });
+      }
+
+      await Storage.setCopyTradingEnabled(true);
+      await syncCopyTraderState(copyTrader);
+      res.json({ success: true, message: 'Copy trading enabled', copyTradingEnabled: true });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
   });
 
-  // Stop the bot
-  router.post('/stop', (req: Request, res: Response) => {
+  // Stop the bot (persist user preference + sync global monitor)
+  router.post('/stop', async (req: Request, res: Response) => {
     try {
-      copyTrader.stop();
-      res.json({ success: true, message: 'Bot stopped' });
+      await Storage.setCopyTradingEnabled(false);
+      await syncCopyTraderState(copyTrader);
+      res.json({ success: true, message: 'Copy trading disabled', copyTradingEnabled: false });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
