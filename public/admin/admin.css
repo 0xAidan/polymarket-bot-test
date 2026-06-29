@@ -532,3 +532,183 @@
   font-size: 12px;
   white-space: nowrap;
 }
+
+.j-admin-analytics {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.j-admin-analytics-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.j-admin-range-btn.active {
+  border-color: var(--jungle-gold, #c9a227);
+  color: var(--jungle-gold, #c9a227);
+}
+
+.j-admin-range-custom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.j-admin-analytics-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-sm);
+}
+
+.j-admin-analytics-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.j-admin-analytics-card dt {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.j-admin-analytics-card dd {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.j-admin-analytics-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-md);
+}
+
+.j-admin-chart {
+  min-height: 220px;
+  width: 100%;
+}
+
+.j-admin-analytics-search-row {
+  padding: var(--space-sm) var(--space-md);
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.j-admin-analytics-search-row label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.j-admin-analytics-tenant-row {
+  cursor: pointer;
+}
+
+.j-admin-analytics-tenant-row:hover,
+.j-admin-trade-row:hover {
+  background: rgba(201, 162, 39, 0.08);
+}
+
+.j-admin-analytics-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  align-items: end;
+}
+
+.j-admin-analytics-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.j-admin-analytics-pagination {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+}
+
+.j-admin-balance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md) var(--space-md);
+}
+
+.j-admin-activity-list {
+  margin: var(--space-sm) 0 0;
+  padding-left: 1.2rem;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.j-admin-modal {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: #1e1f2b;
+  color: inherit;
+  max-width: 640px;
+  width: calc(100% - 32px);
+  padding: 0;
+}
+
+.j-admin-modal::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.j-admin-modal-inner {
+  padding: var(--space-md);
+}
+
+.j-admin-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-md);
+}
+
+.j-admin-trade-detail {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px 12px;
+  font-size: 13px;
+}
+
+.j-admin-trade-detail dt {
+  color: var(--text-muted);
+}
+
+.j-admin-trade-detail dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+.j-admin-inline-link {
+  color: var(--jungle-gold, #c9a227);
+  text-decoration: none;
+}
+
+.j-admin-inline-link:hover {
+  text-decoration: underline;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}

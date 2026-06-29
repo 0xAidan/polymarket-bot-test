@@ -4854,6 +4854,74 @@ body.j-drawer-open { overflow: hidden; }
   box-shadow: 0 0 0 1px rgba(255, 100, 100, 0.4), 0 0 14px rgba(255, 80, 80, 0.25);
 }
 
+.j-copy-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--jw-dark);
+  border-radius: 4px;
+  background: var(--jw-surface);
+  user-select: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.j-copy-toggle.is-on {
+  border-color: rgba(229, 184, 11, 0.65);
+  box-shadow: 0 0 0 1px rgba(229, 184, 11, 0.35), 0 0 12px rgba(229, 184, 11, 0.2);
+}
+
+.j-copy-toggle.is-off {
+  opacity: 0.92;
+}
+
+.j-copy-toggle.is-busy {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.j-copy-toggle-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--jw-muted, #9aa0b4);
+}
+
+.j-copy-toggle.is-on .j-copy-toggle-label {
+  color: var(--jw-gold, #e5b80b);
+}
+
+.j-copy-toggle-state {
+  min-width: 28px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--jw-muted, #9aa0b4);
+}
+
+.j-copy-toggle.is-on .j-copy-toggle-state {
+  color: var(--success, #3dd68c);
+}
+
+.j-copy-toggle.is-off .j-copy-toggle-state {
+  color: #c77;
+}
+
+.j-copy-toggle input {
+  width: 36px;
+  height: 18px;
+}
+
+.j-copy-toggle input::after {
+  width: 12px;
+  height: 12px;
+}
+
+.j-copy-toggle input:checked::after {
+  left: 19px;
+}
+
 .j-btn.loading {
   position: relative;
   pointer-events: none;

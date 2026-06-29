@@ -58,6 +58,7 @@
     "express-rate-limit": "^8.5.2",
     "kalshi-typescript": "^3.6.0",
     "pino": "^10.3.1",
+    "uplot": "^1.6.32",
     "viem": "^2.46.3",
     "ws": "^8.14.2"
   },

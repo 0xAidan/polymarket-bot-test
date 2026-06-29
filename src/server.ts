@@ -11,6 +11,7 @@ import { createDiscoveryRoutes } from './api/discoveryRoutes.js';
 import { createDiscoveryV3Router } from './api/discoveryRoutesV3.js';
 import { createPublicStatsRouter } from './api/publicStatsRoutes.js';
 import { createJungleAgentsRouter } from './api/jungleAgentsRoutes.js';
+import { createAdminAnalyticsRouter } from './api/adminAnalyticsRoutes.js';
 import { createOlympicsRoutes } from './api/olympicsRoutes.js';
 import { createLandingPublicRouter } from './api/landingPublicRoutes.js';
 import { isDiscoveryV3Enabled } from './discovery/v3/featureFlag.js';
@@ -439,6 +440,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   // Mount Jungle Agents directly so admin/public roster endpoints are not
   // blocked by heavy per-request route middleware in createRoutes().
   app.use('/api', createJungleAgentsRouter(copyTrader));
+  app.use('/api', createAdminAnalyticsRouter());
   app.use('/api', createRoutes(copyTrader));
   app.use('/api/olympics', createOlympicsRoutes());
   app.use('/api/discovery', createDiscoveryRoutes(discoveryControlPlane as any));

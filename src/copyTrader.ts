@@ -32,6 +32,10 @@ import {
   startClobHeartbeatManager,
   stopClobHeartbeatManager,
 } from './clobHeartbeatManager.js';
+import {
+  getCopyTradingEnabledForTenant,
+  syncCopyTraderState,
+} from './copyTradingSync.js';
 
 const log = createComponentLogger('CopyTrader');
 
@@ -89,6 +93,7 @@ export class CopyTrader {
   private processedCompoundKeys = new Map<string, number>(); // Track by compound key (wallet-market-outcome-side-timeWindow) to catch same trade with different hashes
   private inFlightTrades = new Set<string>(); // Prevent concurrent processing of the same trade
   private recentDittoRejections = new Map<string, number>();
+  private noRepeatPersistenceBlockedKeys = new Set<string>();
   
   // Per-wallet rate limiting state (in-memory, keyed by wallet address)
   private perWalletRateLimits: PerWalletRateLimitStates = new Map();
@@ -237,14 +242,11 @@ export class CopyTrader {
    */
   async reinitializeCredentials(): Promise<{ success: boolean; walletAddress: string | null; error?: string }> {
     log.info('[CopyTrader] Reinitializing with new credentials...');
-    
-    const wasRunning = this.isRunning;
-    
-    // Stop the bot if running
-    if (wasRunning) {
+
+    if (this.isRunning) {
       this.stop();
     }
-    
+
     try {
       // Reload environment variables to get the new private key
       const dotenv = await import('dotenv');
@@ -254,6 +256,7 @@ export class CopyTrader {
       config.privateKey = process.env.PRIVATE_KEY || '';
       
       if (!config.privateKey) {
+        await syncCopyTraderState(this);
         return { success: false, walletAddress: null, error: 'Private key not found in environment' };
       }
       
@@ -271,15 +274,13 @@ export class CopyTrader {
       
       const walletAddress = this.getWalletAddress();
       log.info(`[CopyTrader] ✓ Reinitialized with wallet: ${walletAddress}`);
-      
-      // Restart the bot if it was running
-      if (wasRunning) {
-        await this.start();
-      }
-      
+
+      await syncCopyTraderState(this);
+
       return { success: true, walletAddress };
     } catch (error: any) {
       log.error({ detail: error.message }, '[CopyTrader] Reinitialization failed')
+      await syncCopyTraderState(this);
       return { success: false, walletAddress: null, error: error.message };
     }
   }
@@ -290,6 +291,12 @@ export class CopyTrader {
   private async handleDetectedTrade(trade: DetectedTrade): Promise<void> {
     if (!this.isRunning) {
       log.info('[CopyTrader] Ignoring detected trade because the bot is stopped');
+      return;
+    }
+
+    const tenantId = trade.tenantId || getTenantIdOrDefault();
+    if (!getCopyTradingEnabledForTenant(tenantId)) {
+      log.info({ tenantId }, '[CopyTrader] Ignoring detected trade because copy trading is disabled for this workspace');
       return;
     }
 
@@ -1727,7 +1734,15 @@ export class CopyTrader {
 
   private async handleCriticalNoRepeatPersistenceFailure(message: string, details: Record<string, unknown>): Promise<void> {
     console.error(`[CopyTrader] CRITICAL NO-REPEAT FAILURE: ${message}`);
-    this.stop();
+
+    const order = details.order;
+    if (order && typeof order === 'object' && 'positionKey' in order) {
+      const positionKey = String((order as TradeOrder).positionKey || '').trim();
+      if (positionKey) {
+        this.noRepeatPersistenceBlockedKeys.add(positionKey);
+      }
+    }
+
     try {
       await this.performanceTracker.logIssue(
         'error',
@@ -1736,7 +1751,7 @@ export class CopyTrader {
         details
       );
     } catch (logError: any) {
-      console.error(`[CopyTrader] Failed to persist critical issue log after stopping bot: ${logError.message}`);
+      console.error(`[CopyTrader] Failed to persist critical issue log: ${logError.message}`);
     }
   }
 

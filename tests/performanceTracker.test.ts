@@ -6,7 +6,7 @@ import { tmpdir } from 'os';
 
 import { config } from '../src/config.js';
 import { runWithTenant } from '../src/tenantContext.js';
-import { PerformanceTracker } from '../src/performanceTracker.js';
+import { PerformanceTracker, trimTradeMetricsToMax } from '../src/performanceTracker.js';
 
 let tempDir: string;
 
@@ -62,5 +62,39 @@ describe('PerformanceTracker', () => {
       runWithTenant('tenant-b', () => tenantBTracker.getRecentTrades().map(trade => trade.marketId)),
       ['mkt-b'],
     );
+  });
+
+  it('trimTradeMetricsToMax keeps the most recent rows', () => {
+    const rows = Array.from({ length: 5 }, (_, i) => ({ id: String(i) }));
+    const trimmed = trimTradeMetricsToMax(rows, 3);
+    assert.deepEqual(trimmed.map((r) => r.id), ['2', '3', '4']);
+  });
+
+  it('persists more than 1000 trades when tradeMetricsMaxRows allows', async () => {
+    (config as { tradeMetricsMaxRows: number }).tradeMetricsMaxRows = 2000;
+    const tracker = new PerformanceTracker();
+    const base = {
+      walletAddress: '0xaaa',
+      outcome: 'YES',
+      amount: '1',
+      price: '0.5',
+      success: true,
+      status: 'executed' as const,
+      executionTimeMs: 5,
+      detectedTxHash: '0xdetect',
+    };
+
+    for (let i = 0; i < 1100; i += 1) {
+      await runWithTenant('tenant-cap', () => tracker.recordTrade({
+        ...base,
+        timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, i)),
+        marketId: `mkt-${i}`,
+      }));
+    }
+
+    const reloaded = new PerformanceTracker();
+    await runWithTenant('tenant-cap', () => reloaded.initialize());
+    const trades = runWithTenant('tenant-cap', () => reloaded.getRecentTrades(2000));
+    assert.equal(trades.length, 1100);
   });
 });

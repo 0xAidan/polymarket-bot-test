@@ -8,6 +8,15 @@ import { isHostedMultiTenantMode } from './hostedMode.js';
 
 const log = createComponentLogger('PerformanceTracker');
 
+/** Trim persisted trade metrics to the configured max (exported for tests). */
+export const trimTradeMetricsToMax = <T>(metrics: T[], maxRows: number): T[] => {
+  const cap = Math.max(1, maxRows);
+  if (metrics.length <= cap) {
+    return metrics;
+  }
+  return metrics.slice(-cap);
+};
+
 function scopedTenantId(): string {
   const tenantId = getTenantIdStrict();
   return tenantId.replace(/[^A-Za-z0-9_-]/g, '_');
@@ -207,9 +216,9 @@ export class PerformanceTracker {
 
     tenantMetrics.push(tradeMetric);
 
-    // Keep only last 1000 trades in memory
-    if (tenantMetrics.length > 1000) {
-      this.metricsByTenant.set(tenantId, tenantMetrics.slice(-1000));
+    const maxRows = Math.max(1, config.tradeMetricsMaxRows);
+    if (tenantMetrics.length > maxRows) {
+      this.metricsByTenant.set(tenantId, trimTradeMetricsToMax(tenantMetrics, maxRows));
     }
 
     await this.saveMetrics(tenantId);

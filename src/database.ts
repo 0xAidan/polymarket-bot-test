@@ -49,6 +49,22 @@ export async function initDatabase(): Promise<Database.Database> {
     'CREATE INDEX IF NOT EXISTS idx_executed_positions_tenant ON executed_positions (tenant_id, timestamp)'
   );
 
+  safeCreateIndex(
+    db,
+    'idx_executed_positions_tenant_status_ts',
+    'CREATE INDEX IF NOT EXISTS idx_executed_positions_tenant_status_ts ON executed_positions (tenant_id, status, timestamp)'
+  );
+  safeCreateIndex(
+    db,
+    'idx_app_tenants_created',
+    'CREATE INDEX IF NOT EXISTS idx_app_tenants_created ON app_tenants (created_at_ms)'
+  );
+  safeCreateIndex(
+    db,
+    'idx_executed_positions_order_id',
+    'CREATE INDEX IF NOT EXISTS idx_executed_positions_order_id ON executed_positions (tenant_id, order_id)'
+  );
+
   safeAddColumn(db, 'discovery_wallets', 'whale_score', 'REAL DEFAULT 0');
   safeAddColumn(db, 'discovery_wallets', 'heat_indicator', "TEXT DEFAULT 'NEW'");
   safeAddColumn(db, 'discovery_wallets', 'total_pnl', 'REAL DEFAULT 0');
@@ -1160,6 +1176,22 @@ export function dbLoadAllActiveTrackedWalletsForMonitoring(): TrackedWallet[] {
   const database = getDatabase();
   const rows = database.prepare('SELECT * FROM tracked_wallets WHERE active = 1 ORDER BY tenant_id, added_at').all();
   return rows.map(rowToWallet);
+}
+
+export function listTenantIdsWithActiveTrackedWallets(): string[] {
+  const database = getDatabase();
+  const rows = database.prepare(
+    'SELECT DISTINCT tenant_id FROM tracked_wallets WHERE active = 1',
+  ).all() as { tenant_id: string }[];
+  return rows.map((row) => row.tenant_id);
+}
+
+export function listTenantIdsWithCopyTradingEnabled(): string[] {
+  const database = getDatabase();
+  const rows = database.prepare(
+    "SELECT DISTINCT tenant_id FROM bot_config WHERE key = 'copyTradingEnabled' AND value = 'true'",
+  ).all() as { tenant_id: string }[];
+  return rows.map((row) => row.tenant_id);
 }
 
 // ============================================================================
