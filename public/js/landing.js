@@ -40,8 +40,6 @@ const getScrollBehavior = (preferred) => {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
 };
 
-const escapeHtml = window.escapeHtml;
-
 const formatCompactSignedUsd = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
   const n = Number(value);
@@ -72,9 +70,9 @@ const buildAgentTagline = (agent) => {
 };
 
 const renderAgentAvatar = (agent) => {
-  const initial = escapeHtml((agent.displayName || '?').charAt(0).toUpperCase());
+  const initial = window.escapeHtml((agent.displayName || '?').charAt(0).toUpperCase());
   if (agent.avatarUrl) {
-    return `<img src="${escapeHtml(agent.avatarUrl)}" alt="" class="l-preview-avatar-img" loading="lazy" decoding="async">`;
+    return `<img src="${window.escapeHtml(agent.avatarUrl)}" alt="" class="l-preview-avatar-img" loading="lazy" decoding="async">`;
   }
   return `<span class="l-preview-avatar">${initial}</span>`;
 };
@@ -252,14 +250,14 @@ const createRosterPresenter = (showcaseAgents) => {
       }
 
       roster.innerHTML = agents.map((agent) => {
-        const initial = escapeHtml((agent.displayName || '?').charAt(0).toUpperCase());
-        const name = escapeHtml(agent.displayName || 'Agent');
-        const tagline = escapeHtml(buildAgentTagline(agent));
+        const initial = window.escapeHtml((agent.displayName || '?').charAt(0).toUpperCase());
+        const name = window.escapeHtml(agent.displayName || 'Agent');
+        const tagline = window.escapeHtml(buildAgentTagline(agent));
         const avatar = agent.avatarUrl
-          ? `<img src="${escapeHtml(agent.avatarUrl)}" alt="" loading="lazy" decoding="async">`
+          ? `<img src="${window.escapeHtml(agent.avatarUrl)}" alt="" loading="lazy" decoding="async">`
           : initial;
         return `
-          <article class="landing-roster-card glow-border" role="listitem" data-roster-agent-id="${escapeHtml(agent.id)}">
+          <article class="landing-roster-card glow-border" role="listitem" data-roster-agent-id="${window.escapeHtml(agent.id)}">
             <div class="landing-roster-card-top">
               <div class="landing-roster-avatar" aria-hidden="true">${avatar}</div>
               <div>
@@ -383,7 +381,7 @@ const wireLandingUi = (authPanel) => {
   const authActions = {
     'nav-login': () => authPanel.handoffToOidc('login', { immediate: true }),
     'nav-signup': () => authPanel.handoffToOidc('signup', { immediate: true }),
-    'hero-login': () => authPanel.scrollToGetStarted('login'),
+    'hero-login': () => authPanel.handoffToOidc('login', { immediate: true }),
     'hero-signup': () => authPanel.scrollToGetStarted('signup'),
     'cta-signup': () => authPanel.scrollToGetStarted('signup'),
     'auth-tab-login': () => authPanel.setMode('login'),
