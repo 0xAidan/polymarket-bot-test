@@ -81,6 +81,12 @@ export const config = {
   // Data directory
   dataDir: process.env.DATA_DIR || './data',
 
+  /** Max trade rows persisted per tenant in trade_metrics_{tenantId}.json (admin analytics). */
+  tradeMetricsMaxRows: parseInt(process.env.TRADE_METRICS_MAX_ROWS || '50000', 10),
+
+  /** Days of balance snapshots retained in balance_history_{tenantId}.json. */
+  balanceHistoryRetentionDays: parseInt(process.env.BALANCE_HISTORY_RETENTION_DAYS || '30', 10),
+
   // Monitoring configuration
   // REDUCED from 15s to 5s for faster trade detection when copy trading
   monitoringIntervalMs: parseInt(process.env.MONITORING_INTERVAL_MS || '5000', 10), // 5 seconds default for faster copy trading

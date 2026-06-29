@@ -59,6 +59,7 @@ const showUnauthorized = () => {
   document.getElementById('adminUnauthorized')?.classList.remove('hidden');
   document.getElementById('adminApp')?.classList.add('hidden');
   document.getElementById('adminHealth')?.classList.add('hidden');
+  document.getElementById('adminAnalytics')?.classList.add('hidden');
   document.getElementById('adminComingSoon')?.classList.add('hidden');
 };
 
@@ -67,6 +68,7 @@ const showAdminApp = () => {
   document.getElementById('adminUnauthorized')?.classList.add('hidden');
   document.getElementById('adminComingSoon')?.classList.add('hidden');
   document.getElementById('adminHealth')?.classList.add('hidden');
+  document.getElementById('adminAnalytics')?.classList.add('hidden');
   document.getElementById('adminApp')?.classList.remove('hidden');
   setActiveNav('agents');
 };
@@ -76,9 +78,22 @@ const showAdminHealth = () => {
   document.getElementById('adminUnauthorized')?.classList.add('hidden');
   document.getElementById('adminComingSoon')?.classList.add('hidden');
   document.getElementById('adminApp')?.classList.add('hidden');
+  document.getElementById('adminAnalytics')?.classList.add('hidden');
   document.getElementById('adminHealth')?.classList.remove('hidden');
   setActiveNav('health');
   void refreshAdminHealth();
+};
+
+const showAdminAnalytics = () => {
+  document.getElementById('adminLoading')?.classList.add('hidden');
+  document.getElementById('adminUnauthorized')?.classList.add('hidden');
+  document.getElementById('adminComingSoon')?.classList.add('hidden');
+  document.getElementById('adminApp')?.classList.add('hidden');
+  document.getElementById('adminHealth')?.classList.add('hidden');
+  setActiveNav('analytics');
+  if (typeof window.AdminAnalytics?.show === 'function') {
+    void window.AdminAnalytics.show();
+  }
 };
 
 const showComingSoon = (title, text) => {
@@ -550,11 +565,15 @@ document.querySelectorAll('[data-admin-nav]').forEach((el) => {
       showAdminHealth();
       return;
     }
-    if (section === 'tenants') {
-      showComingSoon('Tenants', 'Multi-account management is planned but not built yet.');
-      setActiveNav('tenants');
+    if (section === 'analytics') {
+      showAdminAnalytics();
     }
   });
+});
+
+document.getElementById('adminOpenAnalyticsLink')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  showAdminAnalytics();
 });
 
 document.getElementById('adminHealthRefreshBtn')?.addEventListener('click', () => {

@@ -131,6 +131,12 @@ MONITORING_INTERVAL_MS=15000
 # Optional: Database for tracking (using JSON file for simplicity)
 DATA_DIR=./data
 
+# Admin analytics: max copy-trade rows per tenant in trade_metrics_{tenantId}.json (default 50000)
+TRADE_METRICS_MAX_ROWS=50000
+
+# Balance snapshot retention for balance_history_{tenantId}.json (default 30 days)
+BALANCE_HISTORY_RETENTION_DAYS=30
+
 # Optional: Storage backend (json | sqlite). Default: json
 STORAGE_BACKEND=json
 

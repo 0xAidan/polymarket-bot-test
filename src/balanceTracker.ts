@@ -433,8 +433,8 @@ export class BalanceTracker {
         balance: balance
       });
 
-      // Keep only last 48 hours of history (to ensure we have 24h data)
-      const cutoffTime = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+      const retentionDays = Math.max(1, config.balanceHistoryRetentionDays);
+      const cutoffTime = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000);
       walletHistory.snapshots = walletHistory.snapshots.filter(
         s => s.timestamp >= cutoffTime
       );

@@ -8,6 +8,7 @@
   <style>html { background: #161721; }</style>
   <link rel="stylesheet" href="/shared/jungle-brand.css">
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/vendor/uplot.min.css">
   <link rel="stylesheet" href="/admin/admin.css">
 </head>
 <body class="grid-pattern app-loading j-admin-page">
@@ -19,7 +20,7 @@
       </div>
       <a href="/admin" class="j-admin-nav-link active" data-admin-nav="agents" aria-current="page">Jungle Agents</a>
       <button type="button" class="j-admin-nav-link j-admin-nav-btn" data-admin-nav="health">System Health</button>
-      <button type="button" class="j-admin-nav-link j-admin-nav-btn" data-admin-nav="tenants">Tenants</button>
+      <button type="button" class="j-admin-nav-link j-admin-nav-btn" data-admin-nav="analytics">Analytics</button>
       <a href="/" class="j-admin-nav-link j-admin-nav-back">← Back to Ditto</a>
     </aside>
 
@@ -67,7 +68,7 @@
 
         <div class="j-card j-admin-health-card glow-border">
           <h2 class="j-admin-health-card-title">Platform performance</h2>
-          <p class="j-admin-health-intro text-muted">Aggregated copy-trade stats across all accounts. Not shown on the user dashboard.</p>
+          <p class="j-admin-health-intro text-muted">Aggregated copy-trade stats across all accounts. <a href="#" id="adminOpenAnalyticsLink" class="j-admin-inline-link">Open full Analytics →</a></p>
           <dl class="j-admin-health-metrics j-admin-platform-overview" id="adminPlatformOverview">
             <div><dt>Success rate</dt><dd id="adminPlatformSuccessRate">—</dd></div>
             <div><dt>Total trades</dt><dd id="adminPlatformTotalTrades">—</dd></div>
@@ -94,6 +95,179 @@
             </table>
           </div>
         </div>
+      </section>
+
+      <section id="adminAnalytics" class="j-admin-analytics hidden">
+        <header class="j-admin-header">
+          <div>
+            <h1 class="font-serif j-admin-title" id="adminAnalyticsTitle">Analytics</h1>
+            <p id="adminAnalyticsMeta" class="j-admin-meta text-muted">Platform-wide copy-trade metrics across all accounts.</p>
+          </div>
+          <div class="j-admin-header-actions j-admin-analytics-actions">
+            <button type="button" class="j-btn" id="adminAnalyticsRefreshBtn">Refresh</button>
+            <button type="button" class="j-btn hidden" id="adminAnalyticsBackBtn">← All accounts</button>
+            <button type="button" class="j-btn hidden" id="adminAnalyticsExportBtn">Export CSV</button>
+            <button type="button" class="j-btn hidden" id="adminAnalyticsPlatformExportBtn">Export all (platform)</button>
+          </div>
+        </header>
+
+        <div class="j-admin-analytics-range" role="group" aria-label="Time range">
+          <button type="button" class="j-btn j-admin-range-btn" data-range="24h">24h</button>
+          <button type="button" class="j-btn j-admin-range-btn active" data-range="7d">7d</button>
+          <button type="button" class="j-btn j-admin-range-btn" data-range="30d">30d</button>
+          <button type="button" class="j-btn j-admin-range-btn" data-range="all">All time</button>
+          <label class="j-admin-range-custom">
+            <span class="text-muted">From</span>
+            <input type="date" id="adminAnalyticsFrom" aria-label="Custom range start date" />
+          </label>
+          <label class="j-admin-range-custom">
+            <span class="text-muted">To</span>
+            <input type="date" id="adminAnalyticsTo" aria-label="Custom range end date" />
+          </label>
+          <button type="button" class="j-btn j-btn-primary" id="adminAnalyticsApplyRangeBtn">Apply</button>
+        </div>
+
+        <div id="adminAnalyticsError" class="j-admin-health-alert hidden" role="alert"></div>
+
+        <div id="adminAnalyticsOverview">
+          <div class="j-admin-analytics-cards" id="adminAnalyticsCards" aria-live="polite"></div>
+          <div class="j-admin-analytics-charts">
+            <div class="j-card j-admin-health-card glow-border">
+              <h2 class="j-admin-health-card-title">Trades over time</h2>
+              <div id="adminChartTrades" class="j-admin-chart" role="img" aria-label="Trades over time chart"></div>
+            </div>
+            <div class="j-card j-admin-health-card glow-border">
+              <h2 class="j-admin-health-card-title">Success rate trend</h2>
+              <div id="adminChartSuccess" class="j-admin-chart" role="img" aria-label="Success rate trend chart"></div>
+            </div>
+            <div class="j-card j-admin-health-card glow-border">
+              <h2 class="j-admin-health-card-title">Notional volume</h2>
+              <div id="adminChartVolume" class="j-admin-chart" role="img" aria-label="Notional volume chart"></div>
+            </div>
+          </div>
+          <div class="j-card j-admin-table-card glow-border">
+            <div class="j-admin-analytics-search-row">
+              <label for="adminAnalyticsTenantSearch">Search accounts</label>
+              <input type="search" id="adminAnalyticsTenantSearch" class="j-admin-field-input" placeholder="Email, workspace, or tenant ID" />
+            </div>
+            <div class="j-admin-table-scroll">
+              <table class="j-admin-table" aria-label="Tenant analytics">
+                <caption class="sr-only">All tenant accounts with performance metrics</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Email</th>
+                    <th scope="col">Workspace</th>
+                    <th scope="col">Tenant ID</th>
+                    <th scope="col">Trades</th>
+                    <th scope="col">Success</th>
+                    <th scope="col">Latency</th>
+                    <th scope="col">Tracked</th>
+                    <th scope="col">24h</th>
+                    <th scope="col">7d</th>
+                  </tr>
+                </thead>
+                <tbody id="adminAnalyticsTenantsBody">
+                  <tr><td colspan="9" class="text-muted">Loading…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="adminAnalyticsTenantDetail" class="hidden">
+          <div class="j-card j-admin-health-card glow-border" id="adminAnalyticsTenantHeader"></div>
+          <div class="j-admin-analytics-charts j-admin-analytics-charts--tenant">
+            <div class="j-card j-admin-health-card glow-border">
+              <h2 class="j-admin-health-card-title">Tenant trades</h2>
+              <div id="adminChartTenantTrades" class="j-admin-chart"></div>
+            </div>
+            <div class="j-card j-admin-health-card glow-border">
+              <h2 class="j-admin-health-card-title">Success rate</h2>
+              <div id="adminChartTenantSuccess" class="j-admin-chart"></div>
+            </div>
+          </div>
+          <div class="j-card j-admin-table-card glow-border">
+            <h2 class="j-admin-health-card-title">Tracked wallets</h2>
+            <div class="j-admin-table-scroll">
+              <table class="j-admin-table" aria-label="Tracked wallets">
+                <thead>
+                  <tr>
+                    <th scope="col">Address</th>
+                    <th scope="col">Label</th>
+                    <th scope="col">Active</th>
+                    <th scope="col">Sizing</th>
+                    <th scope="col">Tags</th>
+                    <th scope="col">Trades</th>
+                    <th scope="col">Last activity</th>
+                  </tr>
+                </thead>
+                <tbody id="adminAnalyticsTrackedBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="j-card j-admin-table-card glow-border">
+            <h2 class="j-admin-health-card-title">Trading wallets</h2>
+            <div class="j-admin-table-scroll">
+              <table class="j-admin-table" aria-label="Trading wallets">
+                <thead>
+                  <tr>
+                    <th scope="col">Label</th>
+                    <th scope="col">EOA</th>
+                    <th scope="col">Proxy</th>
+                    <th scope="col">Active</th>
+                    <th scope="col">CLOB creds</th>
+                  </tr>
+                </thead>
+                <tbody id="adminAnalyticsTradingBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="j-card j-admin-table-card glow-border">
+            <h2 class="j-admin-health-card-title">Balance &amp; activity</h2>
+            <p class="j-admin-health-intro text-muted" id="adminAnalyticsBalanceNote">History: last 30 days · deposits inferred from balance changes</p>
+            <div id="adminAnalyticsBalanceCharts" class="j-admin-balance-grid"></div>
+          </div>
+          <div class="j-card j-admin-table-card glow-border">
+            <div class="j-admin-analytics-filters">
+              <label>Status <select id="adminTradeFilterStatus" class="j-admin-field-input"><option value="">All</option><option value="executed">Executed</option><option value="failed">Failed</option><option value="rejected">Rejected</option><option value="pending">Pending</option></select></label>
+              <label>Market <input type="search" id="adminTradeFilterMarket" class="j-admin-field-input" placeholder="Market ID or title" /></label>
+              <label>Source wallet <input type="search" id="adminTradeFilterWallet" class="j-admin-field-input" placeholder="0x…" /></label>
+              <button type="button" class="j-btn" id="adminTradeFilterApplyBtn">Filter trades</button>
+            </div>
+            <div class="j-admin-table-scroll">
+              <table class="j-admin-table" aria-label="Copy trades">
+                <thead>
+                  <tr>
+                    <th scope="col">Time</th>
+                    <th scope="col">Market</th>
+                    <th scope="col">Side</th>
+                    <th scope="col">Size</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Source</th>
+                    <th scope="col">Latency</th>
+                    <th scope="col">Error</th>
+                  </tr>
+                </thead>
+                <tbody id="adminAnalyticsTradesBody"></tbody>
+              </table>
+            </div>
+            <div class="j-admin-analytics-pagination">
+              <button type="button" class="j-btn" id="adminTradesPrevBtn" disabled>Previous</button>
+              <span id="adminTradesPageLabel" class="text-muted">Page 1</span>
+              <button type="button" class="j-btn" id="adminTradesNextBtn" disabled>Next</button>
+            </div>
+          </div>
+        </div>
+
+        <dialog id="adminTradeDetailModal" class="j-admin-modal">
+          <form method="dialog" class="j-admin-modal-inner">
+            <header class="j-admin-modal-header">
+              <h2 class="font-serif">Trade detail</h2>
+              <button type="submit" class="j-btn" aria-label="Close trade detail">Close</button>
+            </header>
+            <dl id="adminTradeDetailBody" class="j-admin-trade-detail"></dl>
+          </form>
+        </dialog>
       </section>
 
       <section id="adminComingSoon" class="j-admin-coming-soon hidden">
@@ -147,6 +321,8 @@
   <script src="/js/api.js"></script>
   <script src="/js/jungleDialog.js"></script>
   <script src="/js/jungleAgentIcons.js"></script>
+  <script src="/vendor/uplot.min.js"></script>
+  <script src="/admin/admin-analytics.js"></script>
   <script src="/admin/admin.js"></script>
   <script>
     window.maybeStartApp = function adminMaybeStart() {

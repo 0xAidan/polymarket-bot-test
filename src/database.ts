@@ -49,6 +49,22 @@ export async function initDatabase(): Promise<Database.Database> {
     'CREATE INDEX IF NOT EXISTS idx_executed_positions_tenant ON executed_positions (tenant_id, timestamp)'
   );
 
+  safeCreateIndex(
+    db,
+    'idx_executed_positions_tenant_status_ts',
+    'CREATE INDEX IF NOT EXISTS idx_executed_positions_tenant_status_ts ON executed_positions (tenant_id, status, timestamp)'
+  );
+  safeCreateIndex(
+    db,
+    'idx_app_tenants_created',
+    'CREATE INDEX IF NOT EXISTS idx_app_tenants_created ON app_tenants (created_at_ms)'
+  );
+  safeCreateIndex(
+    db,
+    'idx_executed_positions_order_id',
+    'CREATE INDEX IF NOT EXISTS idx_executed_positions_order_id ON executed_positions (tenant_id, order_id)'
+  );
+
   safeAddColumn(db, 'discovery_wallets', 'whale_score', 'REAL DEFAULT 0');
   safeAddColumn(db, 'discovery_wallets', 'heat_indicator', "TEXT DEFAULT 'NEW'");
   safeAddColumn(db, 'discovery_wallets', 'total_pnl', 'REAL DEFAULT 0');

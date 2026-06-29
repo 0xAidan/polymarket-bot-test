@@ -117,8 +117,19 @@ const API = {
   },
 
   // GET request
-  async get(endpoint) {
-    return this.fetch(endpoint);
+  async get(endpoint, params) {
+    let url = endpoint;
+    if (params && typeof params === 'object') {
+      const qs = new URLSearchParams();
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          qs.set(key, String(value));
+        }
+      });
+      const query = qs.toString();
+      if (query) url = `${endpoint}?${query}`;
+    }
+    return this.fetch(url);
   },
 
   // POST request
@@ -204,6 +215,38 @@ const API = {
 
   async getAdminSystemStats() {
     return this.get('/admin/system-stats');
+  },
+
+  async getAdminAnalyticsOverview(params = {}) {
+    return this.get('/admin/analytics/overview', params);
+  },
+
+  async getAdminAnalyticsTenants(params = {}) {
+    return this.get('/admin/analytics/tenants', params);
+  },
+
+  async getAdminAnalyticsTenant(tenantId, params = {}) {
+    return this.get(`/admin/analytics/tenants/${encodeURIComponent(tenantId)}`, params);
+  },
+
+  async getAdminAnalyticsTrackedWallets(tenantId, params = {}) {
+    return this.get(`/admin/analytics/tenants/${encodeURIComponent(tenantId)}/tracked-wallets`, params);
+  },
+
+  async getAdminAnalyticsTradingWallets(tenantId) {
+    return this.get(`/admin/analytics/tenants/${encodeURIComponent(tenantId)}/trading-wallets`);
+  },
+
+  async getAdminAnalyticsTenantTrades(tenantId, params = {}) {
+    return this.get(`/admin/analytics/tenants/${encodeURIComponent(tenantId)}/trades`, params);
+  },
+
+  async getAdminAnalyticsTrade(tenantId, tradeId) {
+    return this.get(`/admin/analytics/trades/${encodeURIComponent(tenantId)}/${encodeURIComponent(tradeId)}`);
+  },
+
+  async getAdminAnalyticsBalances(tenantId, params = {}) {
+    return this.get(`/admin/analytics/tenants/${encodeURIComponent(tenantId)}/balances`, params);
   },
 
   async createAdminJungleAgent(payload) {
