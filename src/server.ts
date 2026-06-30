@@ -530,7 +530,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
 
   app.get('/login', (req, res) => {
     if (isOidcAuthenticated(req)) {
-      res.redirect('/app');
+      res.redirect(sanitizeReturnTo(req.query.returnTo, '/app'));
       return;
     }
     redirectToOidcAuth(req, res);

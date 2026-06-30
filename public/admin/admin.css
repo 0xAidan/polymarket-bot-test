@@ -80,6 +80,19 @@
   max-width: 560px;
 }
 
+.j-admin-auth-title {
+  margin-bottom: var(--space-md);
+}
+
+.j-admin-auth-message {
+  margin-bottom: var(--space-lg);
+  max-width: 42ch;
+}
+
+.j-admin-auth-signin {
+  margin-top: var(--space-sm);
+}
+
 .j-admin-coming-soon h1 {
   margin-bottom: var(--space-md);
 }
