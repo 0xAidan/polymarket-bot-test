@@ -527,8 +527,12 @@ const moveAgent = async (id, direction) => {
 
 const bootAdmin = async () => {
   try {
-    const caps = await API.getCapabilities();
-    if (!caps.isPlatformAdmin) {
+    let isPlatformAdmin = window.__isPlatformAdmin;
+    if (isPlatformAdmin !== true) {
+      const caps = await API.getCapabilities();
+      isPlatformAdmin = !!caps?.isPlatformAdmin;
+    }
+    if (!isPlatformAdmin) {
       showUnauthorized();
       return;
     }

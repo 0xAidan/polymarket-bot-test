@@ -86,7 +86,13 @@ const API = {
         if (legacyModal && (usingLegacyToken || usingLegacyMode)) {
           showAuthModal();
         } else {
-          const returnTo = encodeURIComponent('/app');
+          const path = `${window.location.pathname}${window.location.search}`;
+          const fallback = path.startsWith('/admin') ? '/admin' : '/app';
+          const returnTo = encodeURIComponent(
+            typeof window.sanitizeReturnTo === 'function'
+              ? window.sanitizeReturnTo(path, fallback)
+              : fallback,
+          );
           window.location.href = `/login?returnTo=${returnTo}`;
         }
         throw new Error('Authentication required');

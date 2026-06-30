@@ -136,10 +136,10 @@ test('auth-bootstrap redirects unauthenticated users to /login not /auth/login',
   assert.doesNotMatch(js, /window\.location\.href = `\/auth\/login/);
 });
 
-test('api.js 401 handler routes to /login with /app returnTo', () => {
+test('api.js 401 handler routes to /login with sanitized returnTo', () => {
   const js = readFileSync(join(publicDir, 'js', 'api.js'), 'utf8');
   assert.match(js, /\/login\?returnTo=\$\{returnTo\}/);
-  assert.match(js, /encodeURIComponent\('\/app'\)/);
+  assert.match(js, /sanitizeReturnTo/);
 });
 
 test('server.ts login route redirects to Auth0 login', () => {

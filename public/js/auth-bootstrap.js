@@ -3,6 +3,49 @@
  */
 window.__authRequired = true;
 
+const isAdminPage = () => {
+  const path = window.location.pathname || '';
+  return path === '/admin' || path.startsWith('/admin/');
+};
+
+const getAuthReturnTo = () => {
+  const path = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (typeof window.sanitizeReturnTo === 'function') {
+    return window.sanitizeReturnTo(path, '/app');
+  }
+  if (path.startsWith('/') && !path.startsWith('//') && !path.includes(':')) {
+    return path;
+  }
+  return '/app';
+};
+
+const escapeAuthText = (value) => (
+  typeof window.escapeHtml === 'function'
+    ? window.escapeHtml(value)
+    : String(value)
+);
+
+const showAdminAuthGate = ({ title, message, showSignIn = true } = {}) => {
+  const loading = document.getElementById('adminLoading');
+  if (!loading) return false;
+
+  window.markAppShellReady();
+  loading.classList.remove('hidden');
+  loading.innerHTML = `
+    <h1 class="font-serif j-admin-auth-title">${escapeAuthText(title || 'Sign-in required')}</h1>
+    <p class="text-muted j-admin-auth-message">${escapeAuthText(message || '')}</p>
+    ${showSignIn ? '<button type="button" class="j-btn j-btn-primary j-admin-auth-signin" id="adminAuthSignInBtn">Sign in</button>' : ''}
+  `;
+
+  if (showSignIn) {
+    document.getElementById('adminAuthSignInBtn')?.addEventListener('click', () => {
+      window.redirectToMagicLinkLogin();
+    });
+  }
+
+  return true;
+};
+
 const setAuthGateState = (title, message, hint) => {
   const titleEl = document.getElementById('authGateTitle');
   const messageEl = document.getElementById('authGateMessage');
@@ -48,7 +91,7 @@ const hideAuthModal = () => {
 };
 
 window.redirectToMagicLinkLogin = () => {
-  const returnTo = encodeURIComponent('/app');
+  const returnTo = encodeURIComponent(getAuthReturnTo());
   window.location.replace(`/login?returnTo=${returnTo}`);
 };
 
@@ -139,6 +182,15 @@ window.maybeStartApp = () => {
   if (typeof window.__adminBoot === 'function') {
     window.markAppShellReady();
     window.__adminBoot();
+    return;
+  }
+  if (isAdminPage()) {
+    window.markAppShellReady();
+    showAdminAuthGate({
+      title: 'Admin failed to load',
+      message: 'The admin scripts did not finish loading. Refresh the page and try again.',
+      showSignIn: false,
+    });
     return;
   }
   if (typeof initApp === 'function') {
@@ -254,12 +306,35 @@ document.getElementById('authTokenInput')?.addEventListener('keydown', (e) => {
       }
     }
 
+    if (isAdminPage()) {
+      showAdminAuthGate({
+        title: 'Legacy fallback access',
+        message: 'Platform Admin requires hosted sign-in in production. Use the API secret only on internal environments.',
+        showSignIn: false,
+      });
+      return;
+    }
+
     window.showAuthModal();
   } catch (error) {
     const timedOut = Boolean(
       error && typeof error === 'object' && 'name' in error && error.name === 'AbortError',
     );
     console.warn('Could not check auth status:', error);
+
+    if (isAdminPage()) {
+      const shown = showAdminAuthGate({
+        title: timedOut ? 'Sign-in check timed out' : 'Could not verify sign-in',
+        message: timedOut
+          ? 'Ditto could not reach the auth service in time. Sign in to open Platform Admin.'
+          : 'Ditto could not confirm your session. Sign in to open Platform Admin.',
+      });
+      if (!shown) {
+        window.redirectToMagicLinkLogin();
+      }
+      return;
+    }
+
     setAuthGateState(
       timedOut ? 'Sign-in check timed out' : 'Sign-in check failed',
       timedOut
