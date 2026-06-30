@@ -7,7 +7,7 @@ const ROSTER_PANEL_PATH = '/app/roster';
 window.__adminScriptsLoaded = window.__adminScriptsLoaded || {};
 window.__adminScriptsLoaded.rosterEditor = true;
 if (typeof window.__markAdminScript === 'function') {
-  window.__markAdminScript('roster-editor');
+  window.__markAdminScript('jungle-panel');
 }
 
 let adminAgents = [];
