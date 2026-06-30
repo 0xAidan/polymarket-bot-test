@@ -16,12 +16,6 @@ const perfSnapshots = new Map();
 
 const EVM_RE = /^0x[a-fA-F0-9]{40}$/;
 
-const escapeHtml = (value) => (
-  typeof window.escapeHtml === 'function'
-    ? window.escapeHtml(value)
-    : String(value)
-);
-
 const isValidAddress = (addr) => !addr || EVM_RE.test(addr.trim());
 
 const sortByRosterOrder = (agents) => [...agents].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -273,7 +267,7 @@ const refreshAdminPlatformStats = async () => {
 
     tbody.innerHTML = tenants.map((tenant) => `
       <tr>
-        <td>${escapeHtml(tenant.tenantName || tenant.tenantId)}</td>
+        <td>${window.escapeHtml(tenant.tenantName || tenant.tenantId)}</td>
         <td>${tenant.totalTrades ?? 0}</td>
         <td>${(tenant.successRate ?? 0).toFixed(1)}%</td>
         <td>${Math.round(tenant.averageLatencyMs ?? 0)}ms</td>
@@ -368,17 +362,17 @@ const renderTable = () => {
               class="j-admin-field-input"
               data-field="displayName"
               data-agent-id="${agent.id}"
-              value="${escapeHtml(draft.displayName)}"
-              aria-label="Display name for ${escapeHtml(agent.displayName)}"
+              value="${window.escapeHtml(draft.displayName)}"
+              aria-label="Display name for ${window.escapeHtml(agent.displayName)}"
             />
             <input
               type="text"
               class="j-admin-field-input j-admin-field-input--tagline"
               data-field="tagline"
               data-agent-id="${agent.id}"
-              value="${escapeHtml(draft.tagline)}"
+              value="${window.escapeHtml(draft.tagline)}"
               placeholder="Tagline (e.g. The Veteran Mind)"
-              aria-label="Tagline for ${escapeHtml(agent.displayName)}"
+              aria-label="Tagline for ${window.escapeHtml(agent.displayName)}"
             />
           </div>
         </div>
@@ -389,9 +383,9 @@ const renderTable = () => {
           class="j-admin-field-input"
           data-field="modelLabel"
           data-agent-id="${agent.id}"
-          value="${escapeHtml(draft.modelLabel)}"
+          value="${window.escapeHtml(draft.modelLabel)}"
           placeholder="Model label"
-          aria-label="Model for ${escapeHtml(agent.displayName)}"
+          aria-label="Model for ${window.escapeHtml(agent.displayName)}"
         />
       </td>
       <td class="col-curation">
@@ -399,7 +393,7 @@ const renderTable = () => {
           class="j-admin-field-input j-admin-category-select"
           data-field="category"
           data-agent-id="${agent.id}"
-          aria-label="Category for ${escapeHtml(agent.displayName)}"
+          aria-label="Category for ${window.escapeHtml(agent.displayName)}"
         >
           <option value="">No category</option>
           ${AGENT_CATEGORIES.map((c) => `<option value="${c}"${draft.category === c ? ' selected' : ''}>${c}</option>`).join('')}
@@ -409,10 +403,10 @@ const renderTable = () => {
           class="j-admin-field-input"
           data-field="collection"
           data-agent-id="${agent.id}"
-          value="${escapeHtml(draft.collection)}"
+          value="${window.escapeHtml(draft.collection)}"
           maxlength="60"
           placeholder="Collection (e.g. MLB Opening Week)"
-          aria-label="Collection for ${escapeHtml(agent.displayName)}"
+          aria-label="Collection for ${window.escapeHtml(agent.displayName)}"
         />
       </td>
       <td class="col-wallet">
@@ -422,24 +416,24 @@ const renderTable = () => {
             class="j-admin-field-input j-admin-field-input--mono${addrInvalid ? ' input-invalid' : ''}"
             data-field="polymarketAddress"
             data-agent-id="${agent.id}"
-            value="${escapeHtml(draft.polymarketAddress)}"
+            value="${window.escapeHtml(draft.polymarketAddress)}"
             placeholder="0x… paste Polymarket proxy wallet"
             spellcheck="false"
             autocomplete="off"
-            aria-label="Polymarket wallet for ${escapeHtml(agent.displayName)}"
+            aria-label="Polymarket wallet for ${window.escapeHtml(agent.displayName)}"
           />
           <button type="button" class="j-btn j-btn-sm" data-copy-address="${agent.id}" title="Copy wallet" ${draft.polymarketAddress.trim() ? '' : 'disabled'}>Copy</button>
         </div>
-        ${perf ? `<div class="j-admin-perf">${escapeHtml(perf)}</div>` : ''}
+        ${perf ? `<div class="j-admin-perf">${window.escapeHtml(perf)}</div>` : ''}
       </td>
       <td class="col-status">${statusBadge(agent, draft)}</td>
       <td class="col-live">
-        <input type="checkbox" class="j-admin-live-check" data-field="enabled" data-agent-id="${agent.id}" ${draft.enabled ? 'checked' : ''} aria-label="Show ${escapeHtml(agent.displayName)} on public tab" />
+        <input type="checkbox" class="j-admin-live-check" data-field="enabled" data-agent-id="${agent.id}" ${draft.enabled ? 'checked' : ''} aria-label="Show ${window.escapeHtml(agent.displayName)} on public tab" />
       </td>
       <td class="col-actions">
         <div class="j-admin-order-btns">
-          <button type="button" class="j-btn j-btn-sm" data-move-up="${agent.id}" title="Move up" aria-label="Move ${escapeHtml(agent.displayName)} up">↑</button>
-          <button type="button" class="j-btn j-btn-sm" data-move-down="${agent.id}" title="Move down" aria-label="Move ${escapeHtml(agent.displayName)} down">↓</button>
+          <button type="button" class="j-btn j-btn-sm" data-move-up="${agent.id}" title="Move up" aria-label="Move ${window.escapeHtml(agent.displayName)} up">↑</button>
+          <button type="button" class="j-btn j-btn-sm" data-move-down="${agent.id}" title="Move down" aria-label="Move ${window.escapeHtml(agent.displayName)} down">↓</button>
         </div>
       </td>
     </tr>`;
