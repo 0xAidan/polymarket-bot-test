@@ -1,8 +1,12 @@
 /**
- * Platform admin — session bootstrap (admin page only).
+ * Jungle ops panel — session bootstrap (admin page only).
  */
+window.__authRequired = true;
+
 (() => {
   const AUTH_FETCH_TIMEOUT_MS = 10000;
+  const BOOT_WAIT_MS = 5000;
+  const BOOT_POLL_MS = 100;
 
   const getAuthReturnTo = () => {
     const path = `${window.location.pathname}${window.location.search}${window.location.hash}`;
@@ -56,18 +60,46 @@
     }
   };
 
-  const bootPlatformAdmin = () => {
+  const waitForAdminBoot = async () => {
+    const deadline = Date.now() + BOOT_WAIT_MS;
+    while (Date.now() < deadline) {
+      if (typeof window.__adminBoot === 'function') {
+        return true;
+      }
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, BOOT_POLL_MS);
+      });
+    }
+    return typeof window.__adminBoot === 'function';
+  };
+
+  const describeScriptLoadFailure = () => {
+    const loads = window.__adminScriptLoads || {};
+    const blocked = Object.entries(loads)
+      .filter(([, status]) => status === 'error')
+      .map(([name]) => name);
+    if (blocked.length > 0) {
+      return `Blocked scripts: ${blocked.join(', ')}. A browser extension may be blocking Ditto. Try disabling ad blockers for ditto.jungle.win and refresh.`;
+    }
+    if (!loads['jungle-ops-panel']) {
+      return 'The ops panel script did not finish loading. Hard refresh the page (Ctrl+Shift+R). If it persists, disable ad blockers for ditto.jungle.win.';
+    }
+    return 'The ops panel script did not finish loading. Hard refresh the page and try again.';
+  };
+
+  const bootPlatformAdmin = async () => {
     document.body.classList.remove('app-loading');
     document.body.classList.add('app-ready');
 
-    if (typeof window.__adminBoot === 'function') {
+    const ready = await waitForAdminBoot();
+    if (ready) {
       void window.__adminBoot();
       return;
     }
 
     showAdminAuthGate({
       title: 'Admin failed to load',
-      message: 'The admin scripts did not finish loading. Refresh the page and try again.',
+      message: describeScriptLoadFailure(),
       showSignIn: false,
     });
   };
@@ -90,7 +122,7 @@
       authenticated: true,
     };
     document.body.classList.toggle('platform-admin', !!meData.isPlatformAdmin);
-    bootPlatformAdmin();
+    void bootPlatformAdmin();
   };
 
   const checkLegacyToken = async () => {
@@ -107,7 +139,7 @@
     if (!check.ok) return false;
 
     window.__authRequired = false;
-    bootPlatformAdmin();
+    await bootPlatformAdmin();
     return true;
   };
 
@@ -120,7 +152,7 @@
 
       if (!data.required) {
         window.__authRequired = false;
-        bootPlatformAdmin();
+        await bootPlatformAdmin();
         return;
       }
 
