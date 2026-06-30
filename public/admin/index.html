@@ -419,37 +419,44 @@
           }
 
           if (data.mode === 'oidc') {
-            const capsRes = await fetchWithTimeout('/api/auth/capabilities', { credentials: 'same-origin' });
-            const caps = await capsRes.json();
-            if (!caps.authenticated) {
-              redirectToLogin();
-              await new Promise(() => {});
+            const meResponse = await fetchWithTimeout('/api/auth/me', { credentials: 'same-origin' });
+            if (meResponse.ok) {
+              const meData = await meResponse.json();
+              window.__authRequired = false;
+              window.__oidcSession = true;
+              window.__hostedMultiTenant = meData.hostedMultiTenant !== undefined
+                ? !!meData.hostedMultiTenant
+                : !!data.hostedMultiTenant;
+              window.__currentUser = meData.user;
+              window.__currentTenant = meData.activeTenant;
+              if (meData.activeTenant?.tenantId) {
+                sessionStorage.setItem('active_tenant_id', meData.activeTenant.tenantId);
+              }
+              window.__isPlatformAdmin = !!meData.isPlatformAdmin;
+              window.__capabilities = {
+                isPlatformAdmin: !!meData.isPlatformAdmin,
+                mode: 'oidc',
+                authenticated: true,
+              };
+              document.body.classList.toggle('platform-admin', !!meData.isPlatformAdmin);
+
+              const loading = document.getElementById('adminLoading');
+              if (loading) {
+                loading.innerHTML = `
+                  <h1 class="font-serif j-admin-auth-title">Loading Platform Admin</h1>
+                  <p class="text-muted j-admin-auth-message">You are signed in. Loading Jungle Agents…</p>
+                `;
+              }
               return;
             }
 
-            window.__authRequired = false;
-            window.__oidcSession = true;
-            window.__isPlatformAdmin = !!caps.isPlatformAdmin;
-            window.__capabilities = caps;
-            document.body.classList.toggle('platform-admin', !!caps.isPlatformAdmin);
-
-            fetchWithTimeout('/api/auth/me', { credentials: 'same-origin' })
-              .then((meRes) => (meRes.ok ? meRes.json() : null))
-              .then((meData) => {
-                if (!meData) return;
-                window.__currentUser = meData.user;
-                window.__currentTenant = meData.activeTenant;
-                if (meData.activeTenant?.tenantId) {
-                  sessionStorage.setItem('active_tenant_id', meData.activeTenant.tenantId);
-                }
-                if (meData.isPlatformAdmin !== undefined) {
-                  window.__isPlatformAdmin = !!meData.isPlatformAdmin;
-                  document.body.classList.toggle('platform-admin', !!meData.isPlatformAdmin);
-                }
-              })
-              .catch(() => {});
-
-            return;
+            showAdminAuthGate({
+              title: 'Sign in to open Platform Admin',
+              message: 'Use the same Ditto login you use for the main app, then return here.',
+              showSignIn: true,
+            });
+            redirectToLogin();
+            throw new Error('auth-required');
           }
 
           showAdminAuthGate({
@@ -475,15 +482,15 @@
 
       window.setTimeout(() => {
         if (typeof window.__adminBoot === 'function') return;
-        if (window.__adminScriptLoads?.['roster-editor'] === 'error') return;
+        if (window.__adminScriptLoads?.['jungle-panel'] === 'error') return;
         showAdminAuthGate({
           title: 'Admin panel still loading',
-          message: 'The roster editor script is taking too long. Hard refresh the page (Ctrl+Shift+R). If it persists, disable ad blockers for ditto.jungle.win.',
+          message: 'The admin panel script is taking too long. Hard refresh the page (Ctrl+Shift+R). If it persists, disable ad blockers for ditto.jungle.win.',
           showSignIn: false,
         });
       }, PANEL_SCRIPT_WATCHDOG_MS);
     })();
   </script>
-  <script src="/js/roster-editor.js" onerror="window.__failAdminScript('roster-editor')"></script>
+  <script src="/js/jungle-panel.js" onerror="window.__failAdminScript('jungle-panel')"></script>
 </body>
 </html>

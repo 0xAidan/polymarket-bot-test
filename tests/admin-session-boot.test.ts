@@ -12,8 +12,9 @@ test('roster editor bundles auth boot and sets __adminBoot', () => {
   const js = readFileSync(join(publicDir, 'js', 'roster-editor.js'), 'utf8');
   const html = readFileSync(join(publicDir, 'admin', 'index.html'), 'utf8');
   assert.match(html, /__rosterAuthReady/);
-  assert.match(html, /\/api\/auth\/capabilities/);
-  assert.match(html, /Checking your Ditto session/);
+  assert.match(html, /\/api\/auth\/me/);
+  assert.match(html, /jungle-panel\.js/);
+  assert.match(html, /Loading Platform Admin/);
   assert.match(js, /window\.__adminBoot = bootAdmin/);
   assert.match(js, /bootPlatformAdmin/);
   assert.doesNotMatch(js, /checkPlatformAdminAuth/);
@@ -33,15 +34,16 @@ test('api.js 401 handler preserves roster panel returnTo', () => {
   assert.match(js, /\/app\/roster/);
 });
 
-test('server serves roster panel at /app/roster and redirects /admin', () => {
+test('server serves roster panel at /app/roster and panel script alias', () => {
   const server = readFileSync(join(rootDir, 'src', 'server.ts'), 'utf8');
   assert.match(server, /app\.get\('\/app\/roster'/);
+  assert.match(server, /app\.get\('\/js\/jungle-panel\.js'/);
   assert.match(server, /redirect\(301, '\/app\/roster'\)/);
 });
 
-test('admin index uses roster-editor only (no separate auth script)', () => {
+test('admin index uses jungle-panel script and inline session bootstrap', () => {
   const html = readFileSync(join(publicDir, 'admin', 'index.html'), 'utf8');
-  assert.match(html, /roster-editor\.js/);
+  assert.match(html, /jungle-panel\.js/);
   assert.match(html, /\/app\/roster/);
   assert.match(html, /\/styles\/roster-panel\.css/);
   assert.doesNotMatch(html, /auth-bootstrap\.js/);
@@ -108,7 +110,7 @@ test('admin scripts load in isolated script contexts without global const collis
   assert.equal(typeof window.__adminBoot, 'function');
   const loaded = window.__adminScriptsLoaded as Record<string, boolean> | undefined;
   assert.equal(loaded?.rosterEditor, true);
-  assert.equal((window.__adminScriptLoads as Record<string, string>)['roster-editor'], 'ok');
+  assert.equal((window.__adminScriptLoads as Record<string, string>)['jungle-panel'], 'ok');
 
   await new Promise((resolve) => setTimeout(resolve, 0));
 });

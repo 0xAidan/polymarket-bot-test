@@ -544,6 +544,10 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     res.sendFile(path.join(publicPath, 'admin', 'index.html'));
   });
 
+  app.get('/js/jungle-panel.js', (_req, res) => {
+    res.sendFile(path.join(publicPath, 'js', 'roster-editor.js'));
+  });
+
   app.get('/admin', (_req, res) => {
     res.redirect(301, '/app/roster');
   });
