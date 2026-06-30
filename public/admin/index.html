@@ -336,6 +336,153 @@
       document.body.classList.remove('app-loading');
       document.body.classList.add('app-ready');
     };
+
+    (function bootstrapRosterAuth() {
+      const ROSTER_PANEL_PATH = '/app/roster';
+      const AUTH_FETCH_TIMEOUT_MS = 10000;
+      const PANEL_SCRIPT_WATCHDOG_MS = 12000;
+
+      const getAuthReturnTo = () => {
+        const path = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        if (typeof window.sanitizeReturnTo === 'function') {
+          return window.sanitizeReturnTo(path, ROSTER_PANEL_PATH);
+        }
+        return path.startsWith('/') && !path.startsWith('//') ? path : ROSTER_PANEL_PATH;
+      };
+
+      const redirectToLogin = () => {
+        window.location.replace(`/login?returnTo=${encodeURIComponent(getAuthReturnTo())}`);
+      };
+
+      const escapeAuthText = (value) => (
+        typeof window.escapeHtml === 'function'
+          ? window.escapeHtml(value)
+          : String(value)
+      );
+
+      const showAdminAuthGate = ({ title, message, showSignIn = true } = {}) => {
+        const loading = document.getElementById('adminLoading');
+        if (!loading) {
+          redirectToLogin();
+          return false;
+        }
+
+        document.body.classList.remove('app-loading');
+        document.body.classList.add('app-ready');
+        loading.classList.remove('hidden');
+        loading.innerHTML = `
+          <h1 class="font-serif j-admin-auth-title">${escapeAuthText(title || 'Sign-in required')}</h1>
+          <p class="text-muted j-admin-auth-message">${escapeAuthText(message || '')}</p>
+          ${showSignIn ? '<button type="button" class="j-btn j-btn-primary j-admin-auth-signin" id="adminAuthSignInBtn">Sign in</button>' : ''}
+        `;
+
+        if (showSignIn) {
+          document.getElementById('adminAuthSignInBtn')?.addEventListener('click', () => {
+            redirectToLogin();
+          });
+        }
+        return true;
+      };
+
+      const setCheckingSession = () => {
+        const loading = document.getElementById('adminLoading');
+        if (!loading) return;
+        loading.classList.remove('hidden');
+        loading.innerHTML = `
+          <h1 class="font-serif j-admin-auth-title">Checking your Ditto session</h1>
+          <p class="text-muted j-admin-auth-message">If you are not signed in yet, we will send you to the secure login screen.</p>
+        `;
+      };
+
+      const fetchWithTimeout = async (url, options = {}, timeoutMs = AUTH_FETCH_TIMEOUT_MS) => {
+        const controller = new AbortController();
+        const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          return await fetch(url, { ...options, signal: controller.signal });
+        } finally {
+          window.clearTimeout(timer);
+        }
+      };
+
+      setCheckingSession();
+
+      window.__rosterAuthReady = (async () => {
+        try {
+          const res = await fetchWithTimeout('/api/auth/required', { credentials: 'same-origin' });
+          const data = await res.json();
+          window.__authMode = data.mode || 'legacy';
+          window.__hostedMultiTenant = !!data.hostedMultiTenant;
+
+          if (!data.required) {
+            window.__authRequired = false;
+            return;
+          }
+
+          if (data.mode === 'oidc') {
+            const capsRes = await fetchWithTimeout('/api/auth/capabilities', { credentials: 'same-origin' });
+            const caps = await capsRes.json();
+            if (!caps.authenticated) {
+              redirectToLogin();
+              await new Promise(() => {});
+              return;
+            }
+
+            window.__authRequired = false;
+            window.__oidcSession = true;
+            window.__isPlatformAdmin = !!caps.isPlatformAdmin;
+            window.__capabilities = caps;
+            document.body.classList.toggle('platform-admin', !!caps.isPlatformAdmin);
+
+            fetchWithTimeout('/api/auth/me', { credentials: 'same-origin' })
+              .then((meRes) => (meRes.ok ? meRes.json() : null))
+              .then((meData) => {
+                if (!meData) return;
+                window.__currentUser = meData.user;
+                window.__currentTenant = meData.activeTenant;
+                if (meData.activeTenant?.tenantId) {
+                  sessionStorage.setItem('active_tenant_id', meData.activeTenant.tenantId);
+                }
+                if (meData.isPlatformAdmin !== undefined) {
+                  window.__isPlatformAdmin = !!meData.isPlatformAdmin;
+                  document.body.classList.toggle('platform-admin', !!meData.isPlatformAdmin);
+                }
+              })
+              .catch(() => {});
+
+            return;
+          }
+
+          showAdminAuthGate({
+            title: 'Legacy fallback access',
+            message: 'Platform Admin requires hosted sign-in in production. Use the API secret only on internal environments.',
+            showSignIn: false,
+          });
+          throw new Error('legacy-auth-blocked');
+        } catch (error) {
+          const timedOut = Boolean(
+            error && typeof error === 'object' && 'name' in error && error.name === 'AbortError',
+          );
+          console.warn('Platform admin auth check failed:', error);
+          showAdminAuthGate({
+            title: timedOut ? 'Sign-in check timed out' : 'Could not verify sign-in',
+            message: timedOut
+              ? 'Ditto could not reach the auth service in time. Sign in to open Platform Admin.'
+              : 'Ditto could not confirm your session. Sign in to open Platform Admin.',
+          });
+          throw error;
+        }
+      })();
+
+      window.setTimeout(() => {
+        if (typeof window.__adminBoot === 'function') return;
+        if (window.__adminScriptLoads?.['roster-editor'] === 'error') return;
+        showAdminAuthGate({
+          title: 'Admin panel still loading',
+          message: 'The roster editor script is taking too long. Hard refresh the page (Ctrl+Shift+R). If it persists, disable ad blockers for ditto.jungle.win.',
+          showSignIn: false,
+        });
+      }, PANEL_SCRIPT_WATCHDOG_MS);
+    })();
   </script>
   <script src="/js/roster-editor.js" onerror="window.__failAdminScript('roster-editor')"></script>
 </body>

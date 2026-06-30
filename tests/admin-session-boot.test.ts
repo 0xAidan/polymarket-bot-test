@@ -10,11 +10,13 @@ const ROSTER_PATH = '/app/roster';
 
 test('roster editor bundles auth boot and sets __adminBoot', () => {
   const js = readFileSync(join(publicDir, 'js', 'roster-editor.js'), 'utf8');
-  assert.match(js, /\/api\/auth\/me/);
-  assert.match(js, /ROSTER_PANEL_PATH/);
+  const html = readFileSync(join(publicDir, 'admin', 'index.html'), 'utf8');
+  assert.match(html, /__rosterAuthReady/);
+  assert.match(html, /\/api\/auth\/capabilities/);
+  assert.match(html, /Checking your Ditto session/);
   assert.match(js, /window\.__adminBoot = bootAdmin/);
-  assert.match(js, /checkPlatformAdminAuth/);
-  assert.doesNotMatch(js, /waitForAdminBoot/);
+  assert.match(js, /bootPlatformAdmin/);
+  assert.doesNotMatch(js, /checkPlatformAdminAuth/);
 });
 
 test('roster editor boot uses session platform-admin flag before capabilities fetch', () => {
@@ -53,6 +55,8 @@ test('admin scripts load in isolated script contexts without global const collis
     __adminScriptLoads: {},
     __markAdminScript: (name: string) => { window.__adminScriptLoads[name] = 'ok'; },
     location: { pathname: ROSTER_PATH, search: '', hash: '', replace: () => {} },
+    __rosterAuthReady: Promise.resolve(),
+    __isPlatformAdmin: true,
   };
 
   const sharedDocument = {
@@ -167,6 +171,7 @@ test('roster panel nav switches to System Health after boot', async () => {
     __adminScriptLoads: {},
     __markAdminScript: (name: string) => { window.__adminScriptLoads[name] = 'ok'; },
     __isPlatformAdmin: true,
+    __rosterAuthReady: Promise.resolve(),
     setTimeout,
     clearTimeout,
     setInterval,
