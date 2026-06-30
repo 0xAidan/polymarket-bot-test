@@ -5,7 +5,8 @@ window.__authRequired = true;
 
 const isAdminPage = () => {
   const path = window.location.pathname || '';
-  return path === '/admin' || path.startsWith('/admin/');
+  return path === '/app/roster' || path.startsWith('/app/roster/')
+    || path === '/admin' || path.startsWith('/admin/');
 };
 
 const getAuthReturnTo = () => {

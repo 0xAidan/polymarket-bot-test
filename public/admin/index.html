@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="/shared/jungle-brand.css">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/vendor/uplot.min.css">
-  <link rel="stylesheet" href="/admin/admin.css">
+  <link rel="stylesheet" href="/styles/roster-panel.css">
 </head>
 <body class="grid-pattern app-loading j-admin-page">
   <div class="j-admin-layout">
@@ -18,7 +18,7 @@
         <span class="app-section-kicker">Ditto</span>
         <span class="j-admin-nav-title">Platform Admin</span>
       </div>
-      <a href="/admin" class="j-admin-nav-link active" data-admin-nav="agents" aria-current="page">Jungle Agents</a>
+      <a href="/app/roster" class="j-admin-nav-link active" data-admin-nav="agents" aria-current="page">Jungle Agents</a>
       <button type="button" class="j-admin-nav-link j-admin-nav-btn" data-admin-nav="health">System Health</button>
       <button type="button" class="j-admin-nav-link j-admin-nav-btn" data-admin-nav="analytics">Analytics</button>
       <a href="/" class="j-admin-nav-link j-admin-nav-back">← Back to Ditto</a>
@@ -337,7 +337,6 @@
       document.body.classList.add('app-ready');
     };
   </script>
-  <script src="/js/jungle-ops-panel.js" onerror="window.__failAdminScript('jungle-ops-panel')"></script>
-  <script src="/js/jungle-ops-auth.js"></script>
+  <script src="/js/roster-editor.js" onerror="window.__failAdminScript('roster-editor')"></script>
 </body>
 </html>

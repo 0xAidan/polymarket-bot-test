@@ -3,9 +3,9 @@
  */
 (() => {
   window.__adminScriptsLoaded = window.__adminScriptsLoaded || {};
-  window.__adminScriptsLoaded.jungleOpsAnalytics = true;
+  window.__adminScriptsLoaded.rosterAnalytics = true;
   if (typeof window.__markAdminScript === 'function') {
-    window.__markAdminScript('jungle-ops-analytics');
+    window.__markAdminScript('roster-analytics');
   }
 
   const escapeHtml = (value) => (

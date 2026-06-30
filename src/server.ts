@@ -83,7 +83,7 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
   const publicPath = path.join(process.cwd(), 'public');
   app.use((req, res, next) => {
     const urlPath = req.path || '';
-    if (urlPath === '/' || urlPath === '/app' || urlPath === '/login' || urlPath === '/admin') {
+    if (urlPath === '/' || urlPath === '/app' || urlPath === '/login' || urlPath === '/admin' || urlPath === '/app/roster') {
       next();
       return;
     }
@@ -540,8 +540,12 @@ export async function createServer(copyTrader: CopyTrader): Promise<express.Appl
     res.sendFile(path.join(publicPath, 'index.html'));
   });
 
-  app.get('/admin', (_req, res) => {
+  app.get('/app/roster', (_req, res) => {
     res.sendFile(path.join(publicPath, 'admin', 'index.html'));
+  });
+
+  app.get('/admin', (_req, res) => {
+    res.redirect(301, '/app/roster');
   });
 
   return app;

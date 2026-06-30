@@ -87,7 +87,7 @@ const API = {
           showAuthModal();
         } else {
           const path = `${window.location.pathname}${window.location.search}`;
-          const fallback = path.startsWith('/admin') ? '/admin' : '/app';
+          const fallback = path.startsWith('/app/roster') || path.startsWith('/admin') ? '/app/roster' : '/app';
           const returnTo = encodeURIComponent(
             typeof window.sanitizeReturnTo === 'function'
               ? window.sanitizeReturnTo(path, fallback)
