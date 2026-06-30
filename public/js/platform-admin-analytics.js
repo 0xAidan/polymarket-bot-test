@@ -2,11 +2,17 @@
  * Platform admin — cross-tenant analytics dashboard.
  */
 (() => {
-  const escapeHtml = (value) => String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  window.__adminScriptsLoaded = window.__adminScriptsLoaded || {};
+  window.__adminScriptsLoaded.platformAdminAnalytics = true;
+  if (typeof window.__markAdminScript === 'function') {
+    window.__markAdminScript('platform-admin-analytics');
+  }
+
+  const escapeHtml = (value) => (
+    typeof window.escapeHtml === 'function'
+      ? window.escapeHtml(value)
+      : String(value)
+  );
 
   const state = {
     range: '7d',

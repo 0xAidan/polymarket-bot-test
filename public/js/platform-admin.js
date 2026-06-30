@@ -2,17 +2,23 @@
  * Platform admin — Jungle Agents inline table editor (matches public roster order).
  */
 
+window.__adminScriptsLoaded = window.__adminScriptsLoaded || {};
+window.__adminScriptsLoaded.platformAdmin = true;
+if (typeof window.__markAdminScript === 'function') {
+  window.__markAdminScript('platform-admin');
+}
+
 let adminAgents = [];
 const rowDrafts = new Map();
 const perfSnapshots = new Map();
 
 const EVM_RE = /^0x[a-fA-F0-9]{40}$/;
 
-const escapeHtml = (value) => String(value)
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;');
+const escapeHtml = (value) => (
+  typeof window.escapeHtml === 'function'
+    ? window.escapeHtml(value)
+    : String(value)
+);
 
 const isValidAddress = (addr) => !addr || EVM_RE.test(addr.trim());
 

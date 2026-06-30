@@ -321,18 +321,24 @@
   <script src="/js/api.js"></script>
   <script src="/js/jungleDialog.js"></script>
   <script src="/js/jungleAgentIcons.js"></script>
-  <script src="/vendor/uplot.min.js"></script>
-  <script src="/admin/admin-analytics.js"></script>
-  <script src="/admin/admin.js"></script>
   <script>
-    window.maybeStartApp = function adminMaybeStart() {
+    window.__adminScriptLoads = {};
+    window.__markAdminScript = (name) => { window.__adminScriptLoads[name] = 'ok'; };
+    window.__failAdminScript = (name) => {
+      window.__adminScriptLoads[name] = 'error';
+      const el = document.getElementById('adminLoading');
+      if (!el) return;
+      el.innerHTML = '<h1 class="font-serif j-admin-auth-title">Admin script blocked</h1>'
+        + '<p class="text-muted j-admin-auth-message">Could not load ' + name + '. '
+        + 'A browser extension may be blocking Ditto admin scripts. '
+        + 'Try disabling ad blockers for ditto.jungle.win and refresh.</p>';
       document.body.classList.remove('app-loading');
       document.body.classList.add('app-ready');
-      if (typeof window.__adminBoot === 'function') {
-        window.__adminBoot();
-      }
     };
   </script>
-  <script src="/js/auth-bootstrap.js"></script>
+  <script src="/vendor/uplot.min.js"></script>
+  <script src="/js/platform-admin-analytics.js" onerror="window.__failAdminScript('platform-admin-analytics')"></script>
+  <script src="/js/platform-admin.js" onerror="window.__failAdminScript('platform-admin')"></script>
+  <script src="/js/platform-admin-auth.js"></script>
 </body>
 </html>
