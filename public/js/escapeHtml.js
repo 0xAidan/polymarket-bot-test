@@ -1,7 +1,9 @@
 /**
  * Escape text for safe HTML interpolation.
+ * Assigned directly to window to avoid top-level const declarations
+ * that pollute the global lexical scope across classic script tags.
  */
-const escapeHtml = (value) => String(value)
+window.escapeHtml = (value) => String(value)
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
   .replace(/>/g, '&gt;')
@@ -11,7 +13,7 @@ const escapeHtml = (value) => String(value)
 /**
  * Allow only https avatar URLs; returns empty string for unsafe values.
  */
-const sanitizeHttpsUrl = (value) => {
+window.sanitizeHttpsUrl = (value) => {
   if (typeof value !== 'string') {
     return '';
   }
@@ -31,6 +33,3 @@ const sanitizeHttpsUrl = (value) => {
     return '';
   }
 };
-
-window.escapeHtml = escapeHtml;
-window.sanitizeHttpsUrl = sanitizeHttpsUrl;

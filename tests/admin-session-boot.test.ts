@@ -51,7 +51,10 @@ test('admin index uses jungle-panel script and inline session bootstrap', () => 
   assert.doesNotMatch(html, /uplot\.min\.js/);
 });
 
-test('admin scripts load in isolated script contexts without global const collisions', async () => {
+test('admin scripts load in shared context without global const collisions', async () => {
+  // Uses a SINGLE shared vm context to simulate how a real browser loads classic <script> tags
+  // sequentially in the same global lexical scope. This catches top-level const/let re-declarations
+  // across scripts that vm.runInNewContext (per-script isolated contexts) would silently miss.
   const window: Record<string, unknown> = {
     __authRequired: true,
     __adminScriptLoads: {},
@@ -77,26 +80,29 @@ test('admin scripts load in isolated script contexts without global const collis
     }),
   };
 
+  const sharedContext: Record<string, unknown> = {
+    window,
+    globalThis: window,
+    console,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    AbortController: globalThis.AbortController,
+    sessionStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    fetch: async () => ({ ok: true, json: async () => ({ required: false }) }),
+    location: { pathname: ROSTER_PATH, search: '', hash: '', replace: () => {} },
+    navigator: { clipboard: { writeText: async () => {} } },
+    document: sharedDocument,
+    uPlot: function UPlot() {},
+  };
+
+  const ctx = vm.createContext(sharedContext);
+
   const runScript = (filename: string) => {
-    const context: Record<string, unknown> = {
-      window,
-      globalThis: window,
-      console,
-      setTimeout,
-      clearTimeout,
-      setInterval,
-      clearInterval,
-      AbortController: globalThis.AbortController,
-      sessionStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-      localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-      fetch: async () => ({ ok: true, json: async () => ({ required: false }) }),
-      location: { pathname: ROSTER_PATH, search: '', hash: '', replace: () => {} },
-      navigator: { clipboard: { writeText: async () => {} } },
-      document: sharedDocument,
-      uPlot: function UPlot() {},
-    };
     const code = readFileSync(join(publicDir, filename), 'utf8');
-    vm.runInNewContext(code, context, { filename });
+    vm.runInContext(code, ctx, { filename });
   };
 
   runScript('js/sanitizeReturnTo.js');
