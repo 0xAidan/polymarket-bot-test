@@ -6,16 +6,15 @@ import test from 'node:test';
 const adminDir = join(process.cwd(), 'public', 'admin');
 const jsDir = join(process.cwd(), 'public', 'js');
 
-test('admin panel includes Analytics nav and section', () => {
+test('admin panel includes Analytics nav and lazy-loaded analytics bundle', () => {
   const html = readFileSync(join(adminDir, 'index.html'), 'utf8');
-  const adminJs = readFileSync(join(jsDir, 'platform-admin.js'), 'utf8');
-  const analyticsJs = readFileSync(join(jsDir, 'platform-admin-analytics.js'), 'utf8');
+  const adminJs = readFileSync(join(jsDir, 'jungle-ops-panel.js'), 'utf8');
+  const analyticsJs = readFileSync(join(jsDir, 'jungle-ops-analytics.js'), 'utf8');
 
   assert.match(html, /data-admin-nav="analytics"/);
   assert.doesNotMatch(html, /data-admin-nav="tenants"/);
   assert.match(html, /id="adminAnalytics"/);
-  assert.match(html, /platform-admin-analytics\.js/);
-  assert.match(html, /uplot\.min\.js/);
+  assert.match(adminJs, /jungle-ops-analytics\.js/);
   assert.match(adminJs, /showAdminAnalytics/);
   assert.match(analyticsJs, /getAdminAnalyticsOverview/);
 });

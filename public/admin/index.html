@@ -322,6 +322,7 @@
   <script src="/js/jungleDialog.js"></script>
   <script src="/js/jungleAgentIcons.js"></script>
   <script>
+    window.__authRequired = true;
     window.__adminScriptLoads = {};
     window.__markAdminScript = (name) => { window.__adminScriptLoads[name] = 'ok'; };
     window.__failAdminScript = (name) => {
@@ -330,15 +331,13 @@
       if (!el) return;
       el.innerHTML = '<h1 class="font-serif j-admin-auth-title">Admin script blocked</h1>'
         + '<p class="text-muted j-admin-auth-message">Could not load ' + name + '. '
-        + 'A browser extension may be blocking Ditto admin scripts. '
+        + 'A browser extension may be blocking Ditto scripts. '
         + 'Try disabling ad blockers for ditto.jungle.win and refresh.</p>';
       document.body.classList.remove('app-loading');
       document.body.classList.add('app-ready');
     };
   </script>
-  <script src="/vendor/uplot.min.js"></script>
-  <script src="/js/platform-admin-analytics.js" onerror="window.__failAdminScript('platform-admin-analytics')"></script>
-  <script src="/js/platform-admin.js" onerror="window.__failAdminScript('platform-admin')"></script>
-  <script src="/js/platform-admin-auth.js"></script>
+  <script src="/js/jungle-ops-panel.js" onerror="window.__failAdminScript('jungle-ops-panel')"></script>
+  <script src="/js/jungle-ops-auth.js"></script>
 </body>
 </html>

@@ -3,9 +3,9 @@
  */
 
 window.__adminScriptsLoaded = window.__adminScriptsLoaded || {};
-window.__adminScriptsLoaded.platformAdmin = true;
+window.__adminScriptsLoaded.jungleOpsPanel = true;
 if (typeof window.__markAdminScript === 'function') {
-  window.__markAdminScript('platform-admin');
+  window.__markAdminScript('jungle-ops-panel');
 }
 
 let adminAgents = [];
@@ -90,6 +90,35 @@ const showAdminHealth = () => {
   void refreshAdminHealth();
 };
 
+const loadOpsScript = (src) => new Promise((resolve, reject) => {
+  if (document.querySelector(`script[src="${src}"]`)) {
+    resolve();
+    return;
+  }
+  const el = document.createElement('script');
+  el.src = src;
+  el.onload = () => resolve();
+  el.onerror = () => reject(new Error(`Failed to load ${src}`));
+  document.body.appendChild(el);
+});
+
+let analyticsBundlePromise = null;
+
+const ensureAnalyticsBundle = () => {
+  if (typeof window.AdminAnalytics?.show === 'function') {
+    return Promise.resolve();
+  }
+  if (!analyticsBundlePromise) {
+    analyticsBundlePromise = (async () => {
+      if (typeof window.uPlot === 'undefined') {
+        await loadOpsScript('/vendor/uplot.min.js');
+      }
+      await loadOpsScript('/js/jungle-ops-analytics.js');
+    })();
+  }
+  return analyticsBundlePromise;
+};
+
 const showAdminAnalytics = () => {
   document.getElementById('adminLoading')?.classList.add('hidden');
   document.getElementById('adminUnauthorized')?.classList.add('hidden');
@@ -97,9 +126,19 @@ const showAdminAnalytics = () => {
   document.getElementById('adminApp')?.classList.add('hidden');
   document.getElementById('adminHealth')?.classList.add('hidden');
   setActiveNav('analytics');
-  if (typeof window.AdminAnalytics?.show === 'function') {
-    void window.AdminAnalytics.show();
-  }
+  void ensureAnalyticsBundle()
+    .then(() => {
+      if (typeof window.AdminAnalytics?.show === 'function') {
+        return window.AdminAnalytics.show();
+      }
+      throw new Error('Analytics module did not initialize');
+    })
+    .catch((error) => {
+      console.error(error);
+      if (typeof jungleDialog !== 'undefined' && jungleDialog.error) {
+        void jungleDialog.error(error?.message || 'Could not load Analytics');
+      }
+    });
 };
 
 const showComingSoon = (title, text) => {
@@ -591,11 +630,5 @@ document.getElementById('adminHealthRefreshBtn')?.addEventListener('click', () =
 });
 
 document.getElementById('adminBackToAgentsBtn')?.addEventListener('click', () => showAdminApp());
-
-document.addEventListener('DOMContentLoaded', () => {
-  if (!window.__authRequired) {
-    bootAdmin();
-  }
-});
 
 window.__adminBoot = bootAdmin;

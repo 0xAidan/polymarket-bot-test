@@ -7,21 +7,23 @@ import vm from 'node:vm';
 const publicDir = join(process.cwd(), 'public');
 const rootDir = process.cwd();
 
-test('platform-admin-auth handles OIDC session and /admin returnTo', () => {
-  const js = readFileSync(join(publicDir, 'js', 'platform-admin-auth.js'), 'utf8');
+test('jungle-ops-auth handles OIDC session and /admin returnTo', () => {
+  const js = readFileSync(join(publicDir, 'js', 'jungle-ops-auth.js'), 'utf8');
   assert.match(js, /\/api\/auth\/me/);
   assert.match(js, /sanitizeReturnTo/);
   assert.match(js, /__adminBoot/);
-  assert.match(js, /__isPlatformAdmin/);
-  assert.doesNotMatch(js, /maybeStartApp/);
+  assert.match(js, /waitForAdminBoot/);
+  assert.match(js, /window\.__authRequired = true/);
 });
 
-test('platform-admin boot uses session platform-admin flag before capabilities fetch', () => {
-  const adminJs = readFileSync(join(publicDir, 'js', 'platform-admin.js'), 'utf8');
+test('jungle-ops-panel boot uses session platform-admin flag before capabilities fetch', () => {
+  const adminJs = readFileSync(join(publicDir, 'js', 'jungle-ops-panel.js'), 'utf8');
   assert.match(adminJs, /window\.__isPlatformAdmin/);
   assert.match(adminJs, /isPlatformAdmin !== true/);
-  assert.match(adminJs, /__adminScriptsLoaded\.platformAdmin/);
+  assert.match(adminJs, /__adminScriptsLoaded\.jungleOpsPanel/);
   assert.match(adminJs, /window\.__adminBoot = bootAdmin/);
+  assert.match(adminJs, /ensureAnalyticsBundle/);
+  assert.doesNotMatch(adminJs, /DOMContentLoaded/);
 });
 
 test('api.js 401 handler preserves admin returnTo', () => {
@@ -36,18 +38,19 @@ test('login route honors returnTo when already authenticated', () => {
   assert.match(server, /isOidcAuthenticated\(req\)[\s\S]*sanitizeReturnTo\(req\.query\.returnTo/);
 });
 
-test('admin index uses platform-admin scripts and not auth-bootstrap', () => {
+test('admin index uses jungle-ops scripts and lazy analytics loading', () => {
   const html = readFileSync(join(publicDir, 'admin', 'index.html'), 'utf8');
-  assert.match(html, /platform-admin\.js/);
-  assert.match(html, /platform-admin-analytics\.js/);
-  assert.match(html, /platform-admin-auth\.js/);
+  assert.match(html, /jungle-ops-panel\.js/);
+  assert.match(html, /jungle-ops-auth\.js/);
   assert.match(html, /__failAdminScript/);
   assert.doesNotMatch(html, /auth-bootstrap\.js/);
-  assert.doesNotMatch(html, /\/admin\/admin\.js/);
+  assert.doesNotMatch(html, /platform-admin/);
+  assert.doesNotMatch(html, /uplot\.min\.js/);
 });
 
 test('admin scripts load in isolated script contexts without global const collisions', () => {
   const window: Record<string, unknown> = {
+    __authRequired: true,
     __adminScriptLoads: {},
     __markAdminScript: (name: string) => { window.__adminScriptLoads[name] = 'ok'; },
   };
@@ -79,7 +82,6 @@ test('admin scripts load in isolated script contexts without global const collis
       location: { pathname: '/admin', search: '', hash: '', replace: () => {} },
       navigator: { clipboard: { writeText: async () => {} } },
       document: sharedDocument,
-      uPlot: function UPlot() {},
     };
     const code = readFileSync(join(publicDir, filename), 'utf8');
     vm.runInNewContext(code, context, { filename });
@@ -91,11 +93,9 @@ test('admin scripts load in isolated script contexts without global const collis
   runScript('js/api.js');
   runScript('js/jungleDialog.js');
   runScript('js/jungleAgentIcons.js');
-  runScript('js/platform-admin-analytics.js');
-  runScript('js/platform-admin.js');
+  runScript('js/jungle-ops-panel.js');
 
   assert.equal(typeof window.__adminBoot, 'function');
   const loaded = window.__adminScriptsLoaded as Record<string, boolean> | undefined;
-  assert.equal(loaded?.platformAdmin, true);
-  assert.equal(loaded?.platformAdminAnalytics, true);
+  assert.equal(loaded?.jungleOpsPanel, true);
 });
